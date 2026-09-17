@@ -1,6 +1,7 @@
 import { Network } from "@dcl/schemas";
 import { NameRegisteredEventArgs } from "../../abi/DCLRegistrar";
 import { getAddresses } from "../../common/utils/addresses";
+import { stripNul } from "../../common/utils/utils";
 import {
   Account,
   AnalyticsDayData,
@@ -41,7 +42,7 @@ export function handleNameRegistered(
   ens.caller = _caller;
   ens.beneficiary = _beneficiary;
   ens.labelHash = _labelHash;
-  ens.subdomain = _subdomain;
+  ens.subdomain = stripNul(_subdomain);
   ens.createdAt = _createdDate;
 
   if (orderHash) {

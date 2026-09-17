@@ -320,6 +320,114 @@ async fn a_junk_exclusion_flag_reads_as_false_instead_of_failing_the_listing() {
     scratch.drop().await;
 }
 
+#[tokio::test]
+async fn an_explicit_json_null_flag_falls_back_to_the_key_default() {
+    let Some(scratch) = setup("cg_places_rankexcl_null").await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    create_place_table(&pool).await;
+    seed_raw(&pool, "absent", serde_json::json!({})).await;
+    seed_raw(
+        &pool,
+        "json-null",
+        serde_json::json!({ "exclude_from_ranking": null, "is_private": null }),
+    )
+    .await;
+    seed_raw(
+        &pool,
+        "string-true",
+        serde_json::json!({ "exclude_from_ranking": "true", "is_private": "true" }),
+    )
+    .await;
+    seed_raw(
+        &pool,
+        "real-true",
+        serde_json::json!({ "exclude_from_ranking": true, "is_private": true }),
+    )
+    .await;
+
+    let places = PlacesComponent::new(pool.clone()).with_writer(pool.clone());
+    let filters = PlaceListFilters {
+        limit: 100,
+        order_desc: true,
+        ..Default::default()
+    };
+    let mut listed: Vec<(String, bool, bool)> = places
+        .find_list(&filters)
+        .await
+        .expect("list")
+        .into_iter()
+        .map(|r| (r.id, r.exclude_from_ranking, r.is_private))
+        .collect();
+    listed.sort();
+    assert_eq!(
+        listed,
+        vec![
+            ("absent".to_string(), false, false),
+            ("json-null".to_string(), false, false),
+            ("real-true".to_string(), true, true),
+            ("string-true".to_string(), false, false),
+        ],
+        "only the jsonb literal true answers true; absent and explicit null keep the default"
+    );
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_world_that_left_show_in_places_null_still_reaches_the_directory() {
+    let Some(scratch) = setup("cg_places_rankexcl_showin").await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    create_place_table(&pool).await;
+    for (id, name, flag) in [
+        ("w-absent", "absent.dcl.eth", None),
+        ("w-null", "null.dcl.eth", Some(serde_json::Value::Null)),
+        ("w-true", "true.dcl.eth", Some(serde_json::json!(true))),
+        ("w-false", "false.dcl.eth", Some(serde_json::json!(false))),
+        (
+            "w-string-true",
+            "string.dcl.eth",
+            Some(serde_json::json!("true")),
+        ),
+    ] {
+        let mut raw = serde_json::json!({ "world": true, "world_name": name });
+        if let Some(flag) = flag {
+            raw["show_in_places"] = flag;
+        }
+        seed_raw(&pool, id, raw).await;
+    }
+
+    let places = PlacesComponent::new(pool.clone()).with_writer(pool.clone());
+    let filters = PlaceListFilters {
+        limit: 100,
+        order_desc: true,
+        ..Default::default()
+    };
+    let mut listed: Vec<String> = places
+        .find_list(&filters)
+        .await
+        .expect("list")
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+    listed.sort();
+    assert_eq!(
+        listed,
+        vec![
+            "w-absent".to_string(),
+            "w-null".to_string(),
+            "w-true".to_string()
+        ],
+        "an absent or explicitly null show_in_places keeps the upstream default of true"
+    );
+    assert_eq!(places.count_list(&filters).await.expect("count"), 3);
+
+    scratch.drop().await;
+}
+
 fn state_for(pool: &PgPool) -> AppState {
     Arc::new(AppStateInner {
         places: PlacesComponent::new(pool.clone()).with_writer(pool.clone()),

@@ -1,4 +1,5 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sqlx::types::JsonValue;
 
 use crate::dcl_schemas::{ChainId, Network};
 use crate::http::params::Params;
@@ -55,15 +56,41 @@ pub const TRENDING_MAX_DAYS: i64 = 7;
 /// alone is dominated by a single expensive sale.
 pub const TRENDING_SALES_CUT: f64 = 0.6;
 
+/// `Primary`: minted straight from a collection (`public_item_order`). `Secondary`: any resale. Omitted keeps both.
+///
+/// Read by /v3/catalog/shop as well as the unified feeds: "native-only" is NOT "primary-only",
+/// because the native branch carries resales and those are durable signed orders that no flag
+/// cancels. A client that may not sell a resale has to be able to say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShopListingType {
+    Primary,
+    Secondary,
+}
+
+pub const SHOP_LISTING_TYPE_VALUES: &[&str] = &["primary", "secondary"];
+
+impl ShopListingType {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "primary" => Some(Self::Primary),
+            "secondary" => Some(Self::Secondary),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShopSortBy {
     Newest,
     Cheapest,
     MostExpensive,
     Name,
+    /// Deepest creator-coupon discount first. Only the feeds carrying the coupon join answer
+    /// it; the legacy (MANA) feed falls back to newest, as upstream's does.
+    Discount,
 }
 
-pub const SHOP_SORT_VALUES: &[&str] = &["newest", "cheapest", "most_expensive", "name"];
+pub const SHOP_SORT_VALUES: &[&str] = &["newest", "cheapest", "most_expensive", "name", "discount"];
 
 impl ShopSortBy {
     pub fn parse(s: &str) -> Option<Self> {
@@ -72,9 +99,33 @@ impl ShopSortBy {
             "cheapest" => Some(Self::Cheapest),
             "most_expensive" => Some(Self::MostExpensive),
             "name" => Some(Self::Name),
+            "discount" => Some(Self::Discount),
             _ => None,
         }
     }
+}
+
+/// `discounted=true` keeps only listings a creator coupon discounts right now, `discounted=false`
+/// only the rest, anything else leaves the feed unfiltered. Read as a string: a presence check
+/// would read `discounted=false` as true.
+///
+/// NOT `onSale`, which the shop already sends to mean "listed" and this server keeps ignoring --
+/// reusing that name would turn the whole grid into the deals rail.
+pub(super) fn parse_discounted(value: Option<String>) -> Option<bool> {
+    match value.as_deref() {
+        Some("true") => Some(true),
+        Some("false") => Some(false),
+        _ => None,
+    }
+}
+
+/// An UNRECOGNIZED value DROPS the filter rather than being rejected, matching upstream's
+/// `getValue` fallback: a typo returns both kinds -- which, for a caller asking for `primary`,
+/// is exactly the resales it meant to hide, with no error to read.
+pub(super) fn parse_listing_type(p: &Params) -> Option<ShopListingType> {
+    p.get_value("listingType", SHOP_LISTING_TYPE_VALUES, None)
+        .as_deref()
+        .and_then(ShopListingType::parse)
 }
 
 #[derive(Debug, Clone)]
@@ -100,11 +151,19 @@ pub struct ShopCatalogFilters {
     pub max_price_credits: Option<f64>,
     pub search: Option<String>,
     pub sort_by: Option<ShopSortBy>,
+    /// See [`parse_discounted`]. Shared by /v3/catalog/shop and the unified feed; a branch that
+    /// carries no coupon join answers `Some(true)` with nothing at all.
+    pub discounted: Option<bool>,
     /// Whether SOCIAL emotes (emotes carrying an outcome type) may appear. Included by
     /// default, matching /v1/items, /v2/catalog and /v1/trendings; only the shared unified
     /// feed (`append_unified_filters`, backing /v3/catalog/unified, /related and /trending)
     /// reads it -- the per-listing /v3/catalog/shop path leaves it untouched.
     pub include_social_emotes: bool,
+    /// Restrict to primary (mint) listings or to resales. Omitted keeps both, which is every
+    /// existing caller's answer. Hiding resales must happen server-side: these feeds are
+    /// paginated and report a total, so dropping rows client-side yields short pages and an
+    /// overstated count.
+    pub listing_type: Option<ShopListingType>,
 }
 
 impl Default for ShopCatalogFilters {
@@ -124,7 +183,9 @@ impl Default for ShopCatalogFilters {
             max_price_credits: None,
             search: None,
             sort_by: None,
+            discounted: None,
             include_social_emotes: true,
+            listing_type: None,
         }
     }
 }
@@ -138,6 +199,87 @@ pub struct LegacyCatalogFilters {
     pub wearable_categories: Vec<String>,
     pub search: Option<String>,
     pub sort_by: Option<ShopSortBy>,
+}
+
+/// The creator coupon discounting a listing, as the buy side needs it: everything the
+/// CouponManager hashes plus the Merkle proof for THIS listing's collection, so the client can
+/// hand it straight to `acceptWithCoupon` without a second lookup.
+///
+/// Deserialized from the `jsonb_build_object` the catalogue queries emit, which is why the field
+/// names must keep matching that object key for key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
+pub struct ShopCouponRow {
+    pub id: String,
+    pub signer: String,
+    pub coupon_manager: String,
+    pub coupon_address: String,
+    #[cfg_attr(
+        feature = "ts",
+        ts(
+            type = "{ uses: number; expiration: number; effective: number; salt: string; contractSignatureIndex: number; signerSignatureIndex: number; allowedRoot: string; externalChecks: Array<{ contractAddress: string; selector: string; value: string; required: boolean }> }"
+        )
+    )]
+    pub checks: JsonValue,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub discount_type: i64,
+    /// Parts per million: 300_000 is 30% off.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub discount: i64,
+    pub root: String,
+    pub collections: Vec<String>,
+    pub signature: String,
+    /// Purchases already settled with this coupon, from the on-chain state the refresh worker
+    /// mirrors. With `checks.uses` (the cap) it gives how many more units can sell at the sale
+    /// price; a coupon whose cap is spent never reaches the shop -- the join drops it.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub used: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
+pub struct ShopCoupon {
+    #[serde(flatten)]
+    #[cfg_attr(feature = "ts", ts(flatten))]
+    pub row: ShopCouponRow,
+    pub proof: Vec<String>,
+}
+
+/// The sale half of a catalogue row, shared by every feed so a card cannot read one way in the
+/// grid and another in a rail.
+///
+/// All four are `None` together: the compare-at has to STRICTLY beat the price once both are
+/// rounded up to whole credits, or the card would advertise a discount the buyer cannot see.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
+pub struct ShopSaleFields {
+    /// The list price in credits while a coupon applies, else null.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub compare_at_credits: Option<i64>,
+    /// Unix SECONDS the coupon expires, else null.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub sale_ends_at: Option<i64>,
+    /// Units still buyable at the sale price: the coupon's remaining uses capped by the
+    /// listing's supply, so an uncapped coupon reports the supply itself. Null when not on sale.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub sale_units_left: Option<i64>,
+    /// The coupon the buy side must apply to pay `priceCredits`, else null.
+    pub coupon: Option<ShopCoupon>,
 }
 
 #[derive(Debug, Serialize)]
@@ -165,8 +307,12 @@ pub struct ShopListing {
     pub seller: Option<String>,
     /// NFT mint index (issued id); null for primary listings.
     pub issued_id: Option<String>,
+    /// The SALE price while a creator coupon applies, else the list price.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub price_credits: u64,
+    #[serde(flatten)]
+    #[cfg_attr(feature = "ts", ts(flatten))]
+    pub sale: ShopSaleFields,
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub available: i64,
     pub network: Network,
@@ -249,6 +395,11 @@ pub(super) struct ShopListingRow {
     pub(super) seller: Option<String>,
     pub(super) issued_id: Option<String>,
     pub(super) price: Option<String>,
+    /// The discounted USD wei while a coupon applies.
+    pub(super) sale_price: Option<String>,
+    pub(super) sale_ends_at: Option<i64>,
+    pub(super) sale_units_left: Option<i64>,
+    pub(super) coupon: Option<JsonValue>,
     pub(super) available: Option<String>,
     pub(super) network: Option<String>,
     pub(super) created_at: i64,
@@ -414,8 +565,10 @@ pub fn parse_shop_filters(pairs: &[(String, String)]) -> ShopCatalogFilters {
             .get_value("sortBy", SHOP_SORT_VALUES, None)
             .as_deref()
             .and_then(ShopSortBy::parse),
+        discounted: parse_discounted(p.get_string("discounted", None)),
         include_social_emotes: p.get_string("includeSocialEmotes", None).as_deref()
             != Some("false"),
+        listing_type: parse_listing_type(&p),
     }
 }
 

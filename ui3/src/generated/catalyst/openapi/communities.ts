@@ -97,6 +97,10 @@ export interface paths {
   };
   "/v1/members/{address}/communities": {
     get: operations["get_member_communities"];
+    /**
+     * Get member communities by IDs
+     * @description Filters a batch of community IDs down to the ones the given address is a member of. A community is returned only when it is active and the address holds a membership row; listing and privacy are not considered, so a listed community the address never joined is not returned. Communities the address is banned from are never returned. Each entry carries the role the address holds (owner, moderator or member).
+     */
     post: operations["member_communities_by_ids"];
   };
   "/v1/members/{address}/invites": {
@@ -1212,6 +1216,11 @@ export interface operations {
           "application/json": components["schemas"]["ApiErrorBody"];
         };
       };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ApiErrorBody"];
+        };
+      };
       404: {
         content: {
           "application/json": components["schemas"]["ApiErrorBody"];
@@ -1348,6 +1357,11 @@ export interface operations {
         };
       };
       400: {
+        content: {
+          "application/json": components["schemas"]["ApiErrorBody"];
+        };
+      };
+      401: {
         content: {
           "application/json": components["schemas"]["ApiErrorBody"];
         };
@@ -1864,6 +1878,10 @@ export interface operations {
       };
     };
   };
+  /**
+   * Get member communities by IDs
+   * @description Filters a batch of community IDs down to the ones the given address is a member of. A community is returned only when it is active and the address holds a membership row; listing and privacy are not considered, so a listed community the address never joined is not returned. Communities the address is banned from are never returned. Each entry carries the role the address holds (owner, moderator or member).
+   */
   member_communities_by_ids: {
     parameters: {
       path: {
@@ -1880,6 +1898,11 @@ export interface operations {
       200: {
         content: {
           "application/json": unknown;
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["ApiErrorBody"];
         };
       };
       401: {
@@ -2259,6 +2282,11 @@ export interface operations {
         };
       };
       400: {
+        content: {
+          "application/json": components["schemas"]["ApiErrorBody"];
+        };
+      };
+      401: {
         content: {
           "application/json": components["schemas"]["ApiErrorBody"];
         };

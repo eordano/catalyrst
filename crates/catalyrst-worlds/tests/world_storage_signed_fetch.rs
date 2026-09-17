@@ -5,7 +5,9 @@
 use axum::http::HeaderMap;
 use catalyrst_crypto::signed_fetch::{build_legacy_payload, build_payload_v6};
 use catalyrst_crypto::Wallet;
-use catalyrst_worlds::world_storage::auth_chain::{verify_request, AuthChainError};
+use catalyrst_worlds::world_storage::auth_chain::{
+    verify_request, AuthChainError, AuthChainErrorExt,
+};
 use serde_json::json;
 
 const WORKER_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -204,7 +206,7 @@ async fn a_stale_scene_signed_request_is_expired_before_the_gate_runs() {
 /// never expired.
 #[tokio::test]
 async fn refuses_a_timestamp_that_is_not_plain_integer_milliseconds() {
-    for ts in ["", "1.7e12", "1700000000000.0", "Infinity"] {
+    for ts in ["1.7e12", "1700000000000.0", "Infinity"] {
         let wallet = Wallet::from_hex(WORKER_KEY).unwrap();
         let metadata = scene_metadata("dcl:authoritative-server");
         let payload = build_payload_v6(METHOD, PATH, ts, &metadata);
@@ -214,6 +216,78 @@ async fn refuses_a_timestamp_that_is_not_plain_integer_milliseconds() {
         assert!(
             matches!(&err, AuthChainError::InvalidTimestamp(value) if value == ts),
             "timestamp {ts:?} produced {err:?}"
+        );
+    }
+}
+
+/// Upstream's `Number(raw || '0')` reads the header that is not there the same way it
+/// reads an empty one, so an absent `x-identity-timestamp` answers the expiration
+/// window rather than a presence error of our own.
+#[tokio::test]
+async fn an_absent_timestamp_header_expires_like_an_empty_one() {
+    let wallet = Wallet::from_hex(WORKER_KEY).unwrap();
+    let metadata = scene_metadata("dcl:authoritative-server");
+    let payload = build_payload_v6(METHOD, PATH, "0", &metadata);
+    let mut headers = headers_for(&wallet, &payload, "0", &metadata);
+    headers.remove("x-identity-timestamp");
+    let err = verify(&headers)
+        .await
+        .expect_err("a request with no timestamp must not be served");
+    assert!(
+        matches!(err, AuthChainError::Expired { signed_at: 0, .. }),
+        "an absent timestamp produced {err:?}"
+    );
+    assert_eq!(err.status_code(), 401);
+    assert!(
+        err.raw_message().starts_with("Expired signature: "),
+        "{}",
+        err.raw_message()
+    );
+}
+
+/// Upstream reads the timestamp header as `Number(raw || '0')`, so an empty one is
+/// timestamp zero and answers the expiration window's 401, not the malformed-timestamp
+/// 400 (core-libs/libs/crypto-middleware/src/verify.ts `verifyTimestamp`).
+#[tokio::test]
+async fn an_empty_timestamp_header_expires_instead_of_reading_as_malformed() {
+    let wallet = Wallet::from_hex(WORKER_KEY).unwrap();
+    let metadata = scene_metadata("dcl:authoritative-server");
+    let payload = build_payload_v6(METHOD, PATH, "", &metadata);
+    let err = verify(&headers_for(&wallet, &payload, "", &metadata))
+        .await
+        .expect_err("an empty timestamp must not be served");
+    assert!(
+        matches!(err, AuthChainError::Expired { signed_at: 0, .. }),
+        "an empty timestamp produced {err:?}"
+    );
+    assert_eq!(err.status_code(), 401);
+    assert!(
+        err.raw_message().starts_with("Expired signature: "),
+        "{}",
+        err.raw_message()
+    );
+}
+
+/// Upstream's `verifyMetadata` refuses a non-object metadata header at the parse
+/// stage, so the scene gate and the legacy key guard never run over a coerced empty
+/// object and no signature is verified.
+#[tokio::test]
+async fn a_non_object_metadata_header_is_refused_before_the_gate() {
+    let wallet = Wallet::from_hex(WORKER_KEY).unwrap();
+    let ts = now_ms();
+    for metadata in ["not json", "[1,2]", "\"decentraland-kernel-scene\"", "5"] {
+        let payload = build_payload_v6(METHOD, PATH, &ts, metadata);
+        let err = verify(&headers_for(&wallet, &payload, &ts, metadata))
+            .await
+            .expect_err("a non-object metadata header must not be served");
+        assert_eq!(
+            err.status_code(),
+            400,
+            "metadata {metadata:?} produced {err:?}"
+        );
+        assert_eq!(
+            err.raw_message(),
+            format!("Invalid chain format: invalid chain metadata: \"{metadata}\"")
         );
     }
 }

@@ -48,6 +48,7 @@ fn test_state(gatekeeper_auth_token: Option<String>) -> AppState {
         moderator_addresses: Vec::new(),
         gatekeeper_auth_token,
         fed_peer_id: "test-peer".into(),
+        world_permissions: Default::default(),
     })
 }
 

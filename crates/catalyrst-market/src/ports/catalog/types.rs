@@ -112,7 +112,7 @@ pub enum ItemData {
     Emote { emote: serde_json::Value },
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(
     feature = "ts",
     derive(ts_rs::TS),

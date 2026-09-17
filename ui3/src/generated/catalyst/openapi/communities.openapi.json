@@ -1676,6 +1676,16 @@
               }
             }
           },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
           "404": {
             "description": "",
             "content": {
@@ -1946,6 +1956,16 @@
             }
           },
           "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
             "description": "",
             "content": {
               "application/json": {
@@ -2985,6 +3005,8 @@
         "tags": [
           "members"
         ],
+        "summary": "Get member communities by IDs",
+        "description": "Filters a batch of community IDs down to the ones the given address is a member of. A community is returned only when it is active and the address holds a membership row; listing and privacy are not considered, so a listed community the address never joined is not returned. Communities the address is banned from are never returned. Each entry carries the role the address holds (owner, moderator or member).",
         "operationId": "member_communities_by_ids",
         "parameters": [
           {
@@ -3011,6 +3033,16 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
               }
             }
           },
@@ -3760,6 +3792,16 @@
             }
           },
           "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
             "description": "",
             "content": {
               "application/json": {

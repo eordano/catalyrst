@@ -272,11 +272,6 @@ async fn generic_feed_hides_fallback_images_placeholder_titles_and_unclaimed_pla
             ..world("w-contact", "studio.dcl.eth", "Studio Hall")
         },
         Fixture {
-            creator_address: None,
-            contact_name: None,
-            ..world("w-unclaimed", "unclaimed.dcl.eth", "Quiet Harbour")
-        },
-        Fixture {
             base_position: ROAD_PARCEL,
             ..world("w-on-road", "roadside.dcl.eth", "Roadside Lodge")
         },
@@ -288,6 +283,11 @@ async fn generic_feed_hides_fallback_images_placeholder_titles_and_unclaimed_pla
         },
     ];
     let hidden_worlds = [
+        Fixture {
+            creator_address: None,
+            contact_name: None,
+            ..world("w-unclaimed", "unclaimed.dcl.eth", "Quiet Harbour")
+        },
         Fixture {
             image: Some(WORLD_DEFAULT_THUMBNAIL_IMAGE),
             ..world(

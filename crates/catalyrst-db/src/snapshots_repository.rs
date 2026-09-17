@@ -233,6 +233,7 @@ pub async fn snapshot_is_outdated(
         WHERE deleter_deployment IS NULL
           AND entity_timestamp BETWEEN to_timestamp($1 / 1000.0) AND to_timestamp($2 / 1000.0)
           AND local_timestamp > to_timestamp($3 / 1000.0)
+        LIMIT 1
         "#,
     )
     .bind(snap.time_range.init_timestamp)

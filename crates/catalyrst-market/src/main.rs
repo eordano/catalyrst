@@ -53,6 +53,14 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "response cache TTL in seconds (default 30; 0 disables)",
     ),
     (
+        "CATALYRST_MARKET_SUGGESTIONS_MAX_CONCURRENT",
+        "max suggestion rails computed at once; requests past it get an empty rail (default 2)",
+    ),
+    (
+        "CATALYRST_MARKET_SUGGESTIONS_NEIGHBOURS_JOB_ENABLED",
+        "bool -- run the periodic item-neighbours rebuild behind the suggestion rails (default false)",
+    ),
+    (
         "PRICE_BASE_URL",
         "MANA/USD oracle: catalyrst-price base URL (default http://127.0.0.1:5156; same feed the credits checkout settles at)",
     ),

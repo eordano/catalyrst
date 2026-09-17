@@ -13,6 +13,23 @@ pub use catalyrst_crypto::signed_fetch::{
 pub const FIVE_MINUTES: i64 = 5 * 60;
 pub const DEFAULT_EXPIRATION_SECS: i64 = 60;
 
+/// The metadata fields a legacy-payload request may still be authorized on, as
+/// upstream comms-gatekeeper declares them (`src/logic/utils.ts`
+/// `CANONICAL_METADATA_KEYS`). The pre-6.0.0 fold left key casing outside the
+/// signature, so a request re-spelled after signing still verifies; naming the
+/// fields is what makes accepting that shape safe, and the guard refuses the
+/// request rather than folding it.
+pub const CANONICAL_METADATA_KEYS: &[&str] = &[
+    "signer",
+    "intent",
+    "sceneId",
+    "parcel",
+    "realmName",
+    "deviceIdentifier",
+    "realm.hostname",
+    "realm.serverName",
+];
+
 #[derive(Debug)]
 pub struct SignedFetchError {
     pub status: u16,
@@ -43,18 +60,33 @@ pub fn chain_is_guest(chain: &AuthChain) -> bool {
     })
 }
 
+/// Upstream's `requireSigner` middlewares (`auth`, `authSceneOrServer`,
+/// `authExplorer` in comms-gatekeeper `src/controllers/routes.ts`), which are the
+/// ones that declare `canonicalMetadataKeys`: the scene runtimes and the
+/// authoritative server that reach these routes ship separately from this
+/// service, so the folded payload stays acceptable behind the key guard.
 pub async fn verify_signed_fetch(
     headers: &HeaderMap,
     method: &str,
     path: &str,
     allowed_signers: &[&str],
 ) -> Result<SignedFetch, SignedFetchError> {
-    verify_signed_fetch_gated(headers, method, path, allowed_signers, None).await
+    verify_with_keys(
+        headers,
+        method,
+        path,
+        allowed_signers,
+        None,
+        CANONICAL_METADATA_KEYS,
+    )
+    .await
 }
 
-/// Both metadata gates run before any crypto, so a refusal is a 400 that
-/// costs no signature recovery and no catalyst round-trip for an EIP-1654
-/// chain. Keep them ahead of `validate_signature`.
+/// Upstream's `rejectIfSigner` middlewares (`authWatcher` and the user-moderation
+/// `signedFetch`), which deliberately declare no `canonicalMetadataKeys`: the cast
+/// web app and the moderation dapps sign all-lowercase metadata, so both payload
+/// shapes are byte-identical for them and a fallback would only widen the accept
+/// set past upstream's.
 pub async fn verify_signed_fetch_gated(
     headers: &HeaderMap,
     method: &str,
@@ -62,13 +94,24 @@ pub async fn verify_signed_fetch_gated(
     allowed_signers: &[&str],
     reject_signer: Option<&SignerGate>,
 ) -> Result<SignedFetch, SignedFetchError> {
-    let path = signed_fetch_path(headers, path);
+    verify_with_keys(headers, method, path, allowed_signers, reject_signer, &[]).await
+}
+
+/// Both metadata gates run before any crypto, so a refusal is a 400 that
+/// costs no signature recovery and no catalyst round-trip for an EIP-1654
+/// chain. Keep them ahead of the shared verifier.
+async fn verify_with_keys(
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    allowed_signers: &[&str],
+    reject_signer: Option<&SignerGate>,
+    canonical_metadata_keys: &[&str],
+) -> Result<SignedFetch, SignedFetchError> {
     let chain = extract_auth_chain(headers).map_err(map_chain_error)?;
 
     let raw_metadata = header_str(headers, AUTH_METADATA_HEADER).unwrap_or("{}");
-    let metadata: serde_json::Value = serde_json::from_str(raw_metadata).map_err(|_| {
-        SignedFetchError::new(400, format!("Invalid chain metadata: \"{raw_metadata}\""))
-    })?;
+    let metadata = metadata_object(raw_metadata)?;
 
     if reject_signer.is_some_and(|gate| !gate.permits(&metadata)) {
         return Err(invalid_metadata(raw_metadata));
@@ -87,19 +130,13 @@ pub async fn verify_signed_fetch_gated(
         }
     }
 
-    let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)
-        .unwrap_or("0")
-        .to_string();
-    let now = chrono::Utc::now().timestamp();
-
-    let signer = signed_fetch::validate_signature_either_payload(
-        &chain,
+    let signer = signed_fetch::verify_signed_fetch_with_legacy_fallback(
+        headers,
         method,
-        &path,
-        &ts,
-        raw_metadata,
+        path,
         DEFAULT_EXPIRATION_SECS,
-        now,
+        canonical_metadata_keys,
+        None,
     )
     .await
     .map_err(|e| {
@@ -133,6 +170,20 @@ pub async fn verify_signed_fetch_gated(
 
 fn invalid_metadata(raw_metadata: &str) -> SignedFetchError {
     SignedFetchError::new(400, format!("Invalid metadata content: {raw_metadata}"))
+}
+
+/// Upstream's `verifyMetadata` refuses an unparseable or non-object metadata
+/// header outright and reads an explicit JSON `null` as an empty object. Both
+/// gates below read fields off this value, so coercing anything else would let
+/// them pass vacuously over a delivery upstream drops.
+fn metadata_object(raw_metadata: &str) -> Result<serde_json::Value, SignedFetchError> {
+    let refused =
+        || SignedFetchError::new(400, format!("Invalid chain metadata: \"{raw_metadata}\""));
+    match serde_json::from_str::<serde_json::Value>(raw_metadata) {
+        Ok(serde_json::Value::Null) => Ok(serde_json::Value::Object(serde_json::Map::new())),
+        Ok(value @ serde_json::Value::Object(_)) => Ok(value),
+        _ => Err(refused()),
+    }
 }
 
 fn map_chain_error(e: AuthChainError) -> SignedFetchError {
@@ -363,17 +414,62 @@ mod payload_shape_tests {
         }
     }
 
+    /// Upstream's `rejectIfSigner` routes declare no `canonicalMetadataKeys`, and
+    /// core-libs `verify()` never attempts the legacy payload without them, so this
+    /// path is 6.x-only: the folded shape is refused the way a signature mismatch is.
     #[tokio::test]
-    async fn either_shape_with_mixed_case_metadata_verifies_through_the_reject_gate() {
+    async fn only_the_v6_shape_verifies_through_the_reject_gate() {
         let gate = reject_if_signer(&["dcl:explorer"]).unwrap();
-        for shape in SHAPES {
-            let headers = signed_as(shape, PATH, METADATA, METADATA);
-            let sf = verify_signed_fetch_gated(&headers, "post", PATH, &[], Some(&gate))
-                .await
-                .unwrap_or_else(|e| panic!("{shape:?}: {} {}", e.status, e.message));
-            assert_eq!(sf.signer, expected_signer());
-            assert_eq!(sf.metadata["sceneId"], serde_json::json!("bafkreiAbC123"));
-        }
+
+        let headers = signed_as(Shape::V6, PATH, METADATA, METADATA);
+        let sf = verify_signed_fetch_gated(&headers, "post", PATH, &[], Some(&gate))
+            .await
+            .unwrap_or_else(|e| panic!("{} {}", e.status, e.message));
+        assert_eq!(sf.signer, expected_signer());
+        assert_eq!(sf.metadata["sceneId"], serde_json::json!("bafkreiAbC123"));
+
+        let headers = signed_as(Shape::Legacy, PATH, METADATA, METADATA);
+        let (status, message) = verify_signed_fetch_gated(&headers, "post", PATH, &[], Some(&gate))
+            .await
+            .map(|_| ())
+            .map_err(failure)
+            .unwrap_err();
+        assert_eq!(status, 401, "{message}");
+        assert!(message.starts_with("Invalid signature: "), "{message}");
+    }
+
+    /// The same metadata on a `requireSigner` route, where upstream does declare the
+    /// keys: both shapes verify, and the guard is what keeps the folded one honest.
+    #[tokio::test]
+    async fn the_declared_keys_are_the_ones_upstream_names() {
+        assert_eq!(
+            CANONICAL_METADATA_KEYS,
+            &[
+                "signer",
+                "intent",
+                "sceneId",
+                "parcel",
+                "realmName",
+                "deviceIdentifier",
+                "realm.hostname",
+                "realm.serverName",
+            ]
+        );
+    }
+
+    /// `Number(raw || '0')` in core-libs `verifyTimestamp` reads a present-but-empty
+    /// header as timestamp zero, so it answers the expiration window's 401 rather
+    /// than the malformed-timestamp 400 an unguarded coercion produced.
+    #[tokio::test]
+    async fn a_present_but_empty_timestamp_expires_instead_of_reading_as_malformed() {
+        let mut headers = signed_as(Shape::V6, PATH, METADATA, METADATA);
+        headers.insert(AUTH_TIMESTAMP_HEADER, HeaderValue::from_static(""));
+        let (status, message) = verify_signed_fetch(&headers, "post", PATH, &[SCENE])
+            .await
+            .map(|_| ())
+            .map_err(failure)
+            .unwrap_err();
+        assert_eq!((status, message), (401, "Expired signature".to_string()));
     }
 
     #[tokio::test]

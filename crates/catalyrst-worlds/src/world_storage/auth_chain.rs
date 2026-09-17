@@ -106,7 +106,11 @@ pub fn extract_auth_chain(headers: &HeaderMap) -> Result<AuthChain, AuthChainErr
 
 /// Fail closed, like the shared signed-fetch path: a timestamp that is not plain
 /// integer milliseconds must be rejected, not silently skip the
-/// replay/expiration window.
+/// replay/expiration window. Upstream's one lenient value - the header that is
+/// absent or empty, which `Number(raw || '0')` in
+/// core-libs/libs/crypto-middleware/src/verify.ts `verifyTimestamp` reads as zero -
+/// is applied where the header is read, so this window stays strict and the
+/// leniency lives in exactly one place per crate.
 pub fn check_freshness(
     timestamp: &str,
     expiration_secs: i64,
@@ -182,11 +186,29 @@ fn scene_signer_gate() -> &'static SignerGate {
     })
 }
 
-/// A non-object metadata header carries no `signer` for the gate to read either way.
-fn metadata_object(raw: &str) -> serde_json::Value {
+/// Upstream's `verifyMetadata` refuses an unparseable or non-object metadata header
+/// outright, before any signature work; only an explicit JSON `null` degrades to an
+/// empty object. Coercing it instead let the scene gate and the legacy key guard both
+/// pass vacuously over a delivery upstream drops. The shared signed-fetch path answers
+/// the same way; its `parse_metadata` is private to catalyrst-crypto.
+fn metadata_object(raw: &str) -> Result<serde_json::Value, AuthChainError> {
+    let refused = || AuthChainError::MalformedChain {
+        detail: format!("invalid chain metadata: \"{}\"", truncate_detail(raw)),
+    };
     match serde_json::from_str::<serde_json::Value>(raw) {
-        Ok(value @ serde_json::Value::Object(_)) => value,
-        _ => serde_json::Value::Object(serde_json::Map::new()),
+        Ok(serde_json::Value::Null) => Ok(serde_json::Value::Object(serde_json::Map::new())),
+        Ok(value @ serde_json::Value::Object(_)) => Ok(value),
+        _ => Err(refused()),
+    }
+}
+
+fn truncate_detail(value: &str) -> String {
+    const DETAIL_MAX_CHARS: usize = 64;
+    if value.chars().count() > DETAIL_MAX_CHARS {
+        let head: String = value.chars().take(DETAIL_MAX_CHARS).collect();
+        format!("{head}...")
+    } else {
+        value.to_string()
     }
 }
 
@@ -199,7 +221,8 @@ pub async fn verify_request(
     let path = signed_fetch_path(headers, path);
     let chain = extract_auth_chain(headers)?;
     let ts = header_str(headers, AUTH_TIMESTAMP_HEADER)
-        .ok_or(AuthChainError::MissingTimestamp)?
+        .filter(|raw| !raw.is_empty())
+        .unwrap_or("0")
         .to_string();
     let now = chrono::Utc::now().timestamp();
     check_freshness(&ts, ONE_MINUTE, now)?;
@@ -207,7 +230,7 @@ pub async fn verify_request(
         .unwrap_or("{}")
         .to_string();
 
-    let metadata_value = metadata_object(&metadata_raw);
+    let metadata_value = metadata_object(&metadata_raw)?;
     if !scene_signer_gate().permits(&metadata_value) {
         return Err(AuthChainError::SceneSignerRejected);
     }
@@ -430,11 +453,38 @@ mod tests {
         assert!(permits(json!({})));
     }
 
+    /// Upstream refuses this delivery at the metadata-parse stage with a 400, so the
+    /// gate and the legacy key guard never run over a coerced empty object.
     #[test]
-    fn non_object_metadata_gates_as_empty() {
-        assert!(permits(metadata_object("\"decentraland-kernel-scene\"")));
-        assert!(permits(metadata_object("not json")));
-        assert!(permits(metadata_object("null")));
+    fn non_object_metadata_is_refused_before_the_gate() {
+        for raw in ["not json", "[1,2]", "\"decentraland-kernel-scene\"", "5"] {
+            let err = metadata_object(raw).unwrap_err();
+            assert_eq!(err.status_code(), 400);
+            assert_eq!(
+                err.raw_message(),
+                format!("Invalid chain format: invalid chain metadata: \"{raw}\"")
+            );
+        }
+    }
+
+    /// The one carve-out upstream keeps: an explicit JSON `null` reads as a missing
+    /// metadata header.
+    #[test]
+    fn an_explicit_json_null_metadata_degrades_to_an_empty_object() {
+        let value = metadata_object("null").expect("null metadata must degrade");
+        assert_eq!(value, json!({}));
+        assert!(permits(value));
+    }
+
+    #[test]
+    fn an_over_long_metadata_detail_is_truncated() {
+        let raw = "x".repeat(200);
+        let err = metadata_object(&raw).unwrap_err();
+        let AuthChainError::MalformedChain { detail } = err else {
+            panic!("expected a malformed-chain refusal");
+        };
+        assert!(detail.contains("..."), "{detail}");
+        assert!(detail.len() < raw.len(), "{detail}");
     }
 
     /// The 6.x payload binds the metadata bytes: only method and path fold, so a

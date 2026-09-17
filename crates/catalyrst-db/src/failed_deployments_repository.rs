@@ -16,6 +16,10 @@ pub struct SnapshotFailedDeployment {
     pub error_description: String,
     #[sqlx(rename = "snapshotHash")]
     pub snapshot_hash: String,
+    #[sqlx(rename = "retryCount")]
+    pub retry_count: i32,
+    #[sqlx(rename = "nextRetryAt")]
+    pub next_retry_at: f64,
 }
 
 pub async fn get_snapshot_failed_deployments(
@@ -30,7 +34,9 @@ pub async fn get_snapshot_failed_deployments(
             reason,
             auth_chain AS "authChain",
             error_description AS "errorDescription",
-            snapshot_hash AS "snapshotHash"
+            snapshot_hash AS "snapshotHash",
+            retry_count AS "retryCount",
+            date_part('epoch', next_retry_at) * 1000 AS "nextRetryAt"
         FROM failed_deployments
         "#,
     )

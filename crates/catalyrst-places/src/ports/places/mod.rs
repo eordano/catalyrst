@@ -8,7 +8,7 @@ pub use component::{PlacesComponent, ReportUploadOutcome, ScoreRankingOutcome};
 pub use content_quality::{
     PLACEHOLDER_TITLES, PLACEHOLDER_TITLE_SUFFIX_REGEX, TEST_WORD_TITLE_REGEX,
 };
-pub(crate) use query::EXCLUDE_FROM_RANKING_SQL;
+pub(crate) use query::{raw_float8_sql, EXCLUDE_FROM_RANKING_SQL};
 pub use ranking_replace::{
     RankingEntry, ReplaceRankingPlaces, ReplaceRankingResult, ReplaceRankingWorlds,
 };
@@ -20,7 +20,7 @@ pub use rows::{
 #[cfg(test)]
 use query::{
     build_live_user_count_order, build_order_by, build_where, destinations_highlighted_prefix,
-    destinations_ranking_prefix, Bind,
+    destinations_ranking_prefix, order_tail, raw_int_sql, raw_timestamptz_sql, Bind,
 };
 
 #[cfg(test)]
@@ -344,7 +344,7 @@ mod most_active_order_tests {
         assert!(binds.is_empty(), "no live binds when counts are empty");
         assert_eq!(
             f.order_by.column(),
-            "COALESCE(NULLIF(raw->>'user_count','')::int, 0)"
+            format!("COALESCE({}, 0)", raw_int_sql("user_count"))
         );
     }
 
@@ -428,7 +428,7 @@ mod destinations_order_tests {
         assert_eq!(destinations_highlighted_prefix(&f), "highlighted DESC, ");
         assert_eq!(
             destinations_ranking_prefix(&f),
-            "COALESCE(NULLIF(raw->>'ranking','')::float8, 0) DESC, "
+            format!("COALESCE({}, 0) DESC, ", raw_float8_sql("ranking"))
         );
     }
 
@@ -436,7 +436,7 @@ mod destinations_order_tests {
     fn an_absent_ranking_sorts_as_the_zero_upstream_stores() {
         let prefix = destinations_ranking_prefix(&destinations());
         assert!(
-            prefix.starts_with("COALESCE(NULLIF(raw->>'ranking','')::float8, 0) DESC"),
+            prefix.starts_with(&format!("COALESCE({}, 0) DESC", raw_float8_sql("ranking"))),
             "an absent ranking must fold onto 0: {prefix}"
         );
         assert!(
@@ -473,8 +473,9 @@ mod destinations_order_tests {
             live,
             destinations_ranking_prefix(&f),
             rank,
-            "NULLIF(raw->>'like_score','')::float8",
+            PlaceOrderBy::LikeScore.column(),
             "DESC",
+            order_tail(&f),
         );
         let p_live = clause.find("::int DESC").expect("live");
         let p_hi = clause.find("highlighted DESC").expect("highlighted");
@@ -498,8 +499,48 @@ mod destinations_order_tests {
             "search rank must precede order column: {clause}"
         );
         assert!(
-            clause.trim_end().ends_with("deployed_at DESC, id ASC"),
+            clause.trim_end().ends_with("id ASC"),
             "the primary key is the final tiebreaker: {clause}"
+        );
+    }
+
+    #[test]
+    fn each_branch_ends_on_the_tail_of_the_upstream_branch_it_mirrors() {
+        let updated_at = format!(
+            "COALESCE({}, deployed_at) DESC, id ASC",
+            raw_timestamptz_sql("updated_at")
+        );
+        let only_places = PlaceListFilters {
+            only_places: true,
+            ..destinations()
+        };
+        assert_eq!(
+            order_tail(&only_places),
+            "deployed_at DESC, id ASC",
+            "upstream ends the places branch on the deployment time"
+        );
+        let only_worlds = PlaceListFilters {
+            only_worlds: true,
+            ..destinations()
+        };
+        assert_eq!(order_tail(&only_worlds), updated_at);
+        assert_eq!(
+            order_tail(&destinations()),
+            updated_at,
+            "the union branch ends on the last update, and on the deployment time \
+             for a row whose raw carries no update"
+        );
+        assert_eq!(
+            order_tail(&PlaceListFilters {
+                only_worlds: true,
+                ..Default::default()
+            }),
+            updated_at,
+            "the plain worlds listing ends on the last update too"
+        );
+        assert_eq!(
+            order_tail(&PlaceListFilters::default()),
+            "deployed_at DESC, id ASC"
         );
     }
 
@@ -511,17 +552,19 @@ mod destinations_order_tests {
             "",
             destinations_ranking_prefix(&f),
             "",
-            "NULLIF(raw->>'like_score','')::float8",
+            PlaceOrderBy::LikeScore.column(),
             "DESC",
+            order_tail(&f),
         );
         assert!(
             !clause.contains("::int DESC"),
             "no live term without realtime counts: {clause}"
         );
         assert!(
-            clause.starts_with(
-                "highlighted DESC, COALESCE(NULLIF(raw->>'ranking','')::float8, 0) DESC, "
-            ),
+            clause.starts_with(&format!(
+                "highlighted DESC, COALESCE({}, 0) DESC, ",
+                raw_float8_sql("ranking")
+            )),
             "curation must lead when live is absent: {clause}"
         );
     }
@@ -533,15 +576,19 @@ mod destinations_order_tests {
             "",
             "",
             "",
-            "NULLIF(raw->>'like_score','')::float8",
+            PlaceOrderBy::LikeScore.column(),
             "DESC",
+            order_tail(&PlaceListFilters::default()),
         );
         assert!(
             !clause.contains("highlighted DESC"),
             "places clause must not carry the highlighted prefix: {clause}"
         );
         assert!(
-            clause.starts_with("NULLIF(raw->>'like_score','')::float8 DESC NULLS LAST"),
+            clause.starts_with(&format!(
+                "{} DESC NULLS LAST",
+                PlaceOrderBy::LikeScore.column()
+            )),
             "order column must lead: {clause}"
         );
         assert!(clause.ends_with("deployed_at DESC, id ASC"), "{clause}");

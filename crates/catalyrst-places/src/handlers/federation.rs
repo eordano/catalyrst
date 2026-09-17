@@ -1,5 +1,5 @@
 use axum::extract::{OriginalUri, Path, State};
-use axum::http::{HeaderMap, Method};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use catalyrst_fed::{Signed, TypedMessage};
@@ -43,13 +43,7 @@ async fn preflight<T: TypedMessage + DeserializeOwned>(
     let signer = signed
         .signer()
         .map_err(|e| ApiError::unauthorized(format!("signature verify: {}", e)))?;
-    if let Some(addr) = crate::auth::auth_chain_claimed_address(headers) {
-        if !addr.eq_ignore_ascii_case(&signer) {
-            return Err(ApiError::unauthorized(
-                "auth-chain signer != envelope signer",
-            ));
-        }
-    }
+    crate::auth::require_auth_chain_matches_signer(headers, &signer)?;
     let now = chrono::Utc::now().timestamp();
     signed
         .verify(&signer, now)
@@ -491,12 +485,20 @@ async fn require_admin(
     }
 }
 
+fn place_not_found(place_id: &str) -> ApiError {
+    ApiError::not_found(format!("Not found place \"{}\"", place_id))
+}
+
+fn world_not_found(world_id: &str) -> ApiError {
+    ApiError::not_found(format!("Not found world \"{}\"", world_id))
+}
+
 pub(crate) async fn fetch_place(state: &AppState, place_id: &str) -> Result<PlaceRow, ApiError> {
     state
         .places
         .find_by_id(place_id)
         .await?
-        .ok_or_else(|| ApiError::not_found(format!("Not found place \"{}\"", place_id)))
+        .ok_or_else(|| place_not_found(place_id))
 }
 
 pub(crate) async fn fetch_world(state: &AppState, world_id: &str) -> Result<PlaceRow, ApiError> {
@@ -504,7 +506,30 @@ pub(crate) async fn fetch_world(state: &AppState, world_id: &str) -> Result<Plac
         .places
         .find_world_by_id(world_id)
         .await?
-        .ok_or_else(|| ApiError::not_found(format!("Not found world \"{}\"", world_id)))
+        .ok_or_else(|| world_not_found(world_id))
+}
+
+async fn write_place_highlight(
+    state: &AppState,
+    place_id: &str,
+    highlighted: bool,
+) -> Result<(), ApiError> {
+    if state.places.set_highlighted(place_id, highlighted).await? == 0 {
+        return Err(place_not_found(place_id));
+    }
+    Ok(())
+}
+
+async fn write_world_highlight(
+    state: &AppState,
+    world_id: &str,
+    row_id: &str,
+    highlighted: bool,
+) -> Result<(), ApiError> {
+    if state.places.set_highlighted(row_id, highlighted).await? == 0 {
+        return Err(world_not_found(world_id));
+    }
+    Ok(())
 }
 
 fn body_ranking(body: &Option<Json<Value>>) -> Result<Option<f64>, ApiError> {
@@ -593,7 +618,7 @@ pub async fn put_place_rating(
     params(("place_id" = String, Path)),
     request_body = serde_json::Value,
     responses(
-        (status = 200, body = ApiData<PlaceRow>),
+        (status = 201, body = ApiData<PlaceRow>),
         (status = 400, body = catalyrst_types::ApiErrorBody),
         (status = 401, body = catalyrst_types::ApiErrorBody),
         (status = 403, body = catalyrst_types::ApiErrorBody),
@@ -607,7 +632,7 @@ pub async fn put_place_ranking(
     headers: HeaderMap,
     Path(place_id): Path<String>,
     body: Option<Json<Value>>,
-) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
+) -> Result<(StatusCode, Json<ApiData<PlaceRow>>), ApiError> {
     require_ranking_token(
         &headers,
         state.data_team_auth_token.as_deref(),
@@ -641,7 +666,7 @@ pub async fn put_place_ranking(
         }
     }
     place.ranking = ranking;
-    Ok(Json(ApiData::ok(place)))
+    Ok((StatusCode::CREATED, Json(ApiData::ok(place))))
 }
 
 #[utoipa::path(
@@ -676,7 +701,7 @@ pub async fn put_place_highlight(
             ApiError::bad_request("Invalid highlight body. Expected { highlighted: boolean }.")
         })?;
     let mut place = fetch_place(&state, &place_id).await?;
-    state.places.set_highlighted(&place_id, highlighted).await?;
+    write_place_highlight(&state, &place_id, highlighted).await?;
     place.highlighted = highlighted;
     Ok(Json(ApiData::ok(place)))
 }
@@ -741,7 +766,7 @@ pub async fn put_place_featured(
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
     require_bearer_token(&headers, state.admin_auth_token.as_deref())?;
     let mut place = fetch_place(&state, &place_id).await?;
-    state.places.set_highlighted(&place_id, true).await?;
+    write_place_highlight(&state, &place_id, true).await?;
     place.highlighted = true;
     Ok(Json(ApiData::ok(place)))
 }
@@ -767,7 +792,7 @@ pub async fn delete_place_featured(
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
     require_bearer_token(&headers, state.admin_auth_token.as_deref())?;
     let mut place = fetch_place(&state, &place_id).await?;
-    state.places.set_highlighted(&place_id, false).await?;
+    write_place_highlight(&state, &place_id, false).await?;
     place.highlighted = false;
     Ok(Json(ApiData::ok(place)))
 }
@@ -804,7 +829,7 @@ pub async fn put_world_highlight(
             ApiError::bad_request("Invalid highlight body. Expected { highlighted: boolean }.")
         })?;
     let mut world = fetch_world(&state, &world_id).await?;
-    state.places.set_highlighted(&world.id, highlighted).await?;
+    write_world_highlight(&state, &world_id, &world.id, highlighted).await?;
     world.highlighted = highlighted;
     Ok(Json(ApiData::ok(WorldRow::from(world))))
 }
@@ -816,7 +841,7 @@ pub async fn put_world_highlight(
     params(("world_id" = String, Path)),
     request_body = serde_json::Value,
     responses(
-        (status = 200, body = ApiData<WorldRow>),
+        (status = 201, body = ApiData<WorldRow>),
         (status = 400, body = catalyrst_types::ApiErrorBody),
         (status = 401, body = catalyrst_types::ApiErrorBody),
         (status = 403, body = catalyrst_types::ApiErrorBody),
@@ -830,7 +855,7 @@ pub async fn put_world_ranking(
     headers: HeaderMap,
     Path(world_id): Path<String>,
     body: Option<Json<Value>>,
-) -> Result<Json<ApiData<WorldRow>>, ApiError> {
+) -> Result<(StatusCode, Json<ApiData<WorldRow>>), ApiError> {
     require_ranking_token(
         &headers,
         state.data_team_auth_token.as_deref(),
@@ -864,7 +889,10 @@ pub async fn put_world_ranking(
         }
     }
     world.ranking = ranking;
-    Ok(Json(ApiData::ok(WorldRow::from(world))))
+    Ok((
+        StatusCode::CREATED,
+        Json(ApiData::ok(WorldRow::from(world))),
+    ))
 }
 
 #[utoipa::path(
@@ -920,7 +948,7 @@ pub async fn put_world_featured(
 ) -> Result<Json<ApiData<WorldRow>>, ApiError> {
     require_bearer_token(&headers, state.admin_auth_token.as_deref())?;
     let mut world = fetch_world(&state, &world_id).await?;
-    state.places.set_highlighted(&world.id, true).await?;
+    write_world_highlight(&state, &world_id, &world.id, true).await?;
     world.highlighted = true;
     Ok(Json(ApiData::ok(WorldRow::from(world))))
 }
@@ -946,7 +974,7 @@ pub async fn delete_world_featured(
 ) -> Result<Json<ApiData<WorldRow>>, ApiError> {
     require_bearer_token(&headers, state.admin_auth_token.as_deref())?;
     let mut world = fetch_world(&state, &world_id).await?;
-    state.places.set_highlighted(&world.id, false).await?;
+    write_world_highlight(&state, &world_id, &world.id, false).await?;
     world.highlighted = false;
     Ok(Json(ApiData::ok(WorldRow::from(world))))
 }

@@ -154,6 +154,22 @@ describe("validateAuthRequest method and impersonation guards", () => {
     );
   });
 
+  it.each([
+    ["lowercase", "ab".repeat(20)],
+    ["uppercase", "AB".repeat(20)],
+  ])("blocks an identity payload whose %s authority carries no 0x prefix", (_label, address) => {
+    const payload = ephemeralPayload({ address });
+    expect(isEphemeralMessage(payload)).toBe(true);
+    expect(isEphemeralMessage(`0x${toHex(payload)}`)).toBe(true);
+    expect(rejection("personal_sign", [payload, SIGNER], SIGNER)).toMatchObject({
+      code: RPC_INVALID_PARAMS,
+      kind: "impersonated_sign_in",
+    });
+    expect(rejection("personal_sign", [`0x${toHex(payload)}`, SIGNER], SIGNER).kind).toBe(
+      "impersonated_sign_in",
+    );
+  });
+
   it("blocks a payload whose header line is anything at all", () => {
     expect(isEphemeralMessage(ephemeralPayload({ header: "Please sign in to continue" }))).toBe(true);
     expect(isEphemeralMessage(ephemeralPayload({ header: "" }))).toBe(true);

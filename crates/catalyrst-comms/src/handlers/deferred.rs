@@ -6,12 +6,13 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::auth_chain::verify_signed_fetch;
+use crate::extract::device_identifier;
 use crate::handlers::responses::SceneStreamAccessResponse;
 use crate::http::{auth_error, forbidden, not_implemented, service_unavailable, ApiError};
-use crate::livekit::{scene_room_name, world_scene_room_name, IngressClient};
+use crate::livekit::{is_world_realm_name, scene_room_name, world_scene_room_name, IngressClient};
 use crate::AppState;
 
-use super::scene_adapter::{fetch_world_scene_id, meta_str};
+use super::scene_adapter::{fetch_world_scene_id, meta_str, realm_name_from_metadata};
 
 const SCENE_SIGNER: &str = "decentraland-kernel-scene";
 const FOUR_DAYS_MS: i64 = 4 * 24 * 60 * 60 * 1000;
@@ -44,19 +45,25 @@ pub async fn scene_stream_access(
         .await
         .map_err(|e| auth_error(e.status, e.message))?;
 
-    let realm_name = meta_str(&sf.metadata, "realmName")
-        .or_else(|| {
-            sf.metadata
-                .get("realm")
-                .and_then(|r| meta_str(r, "serverName"))
-        })
+    let realm_name = realm_name_from_metadata(&sf.metadata)
         .ok_or_else(|| ApiError::bad_request("invalid signed-fetch request, no realmName"))?;
     let parcel = meta_str(&sf.metadata, "parcel");
+    let device_id = device_identifier(&sf.metadata);
+
+    if matches!(method, Method::GET | Method::POST) {
+        refuse_if_platform_banned(&state, sf.signer.as_str(), device_id.as_deref()).await?;
+    }
+
     let raw_scene_id = meta_str(&sf.metadata, "sceneId")
         .ok_or_else(|| ApiError::bad_request("invalid signed-fetch request, no sceneId"))?;
-    let is_world = realm_name.ends_with(".eth");
 
-    let scene_id = if is_world && raw_scene_id.ends_with(".eth") {
+    if method == Method::PUT {
+        refuse_if_platform_banned(&state, sf.signer.as_str(), device_id.as_deref()).await?;
+    }
+
+    let is_world = is_world_realm_name(&realm_name);
+
+    let scene_id = if is_world && is_world_realm_name(&raw_scene_id) {
         fetch_world_scene_id(&state, &realm_name)
             .await
             .ok_or_else(|| {
@@ -100,6 +107,26 @@ pub async fn scene_stream_access(
         Method::DELETE => remove_access(&state, &ingress, &place_id).await,
         _ => Ok(StatusCode::METHOD_NOT_ALLOWED.into_response()),
     }
+}
+
+/// Keep this ahead of the scene owner/admin check on every verb that hands back a
+/// streaming key: the key is honoured downstream without re-checking the wallet,
+/// so a ban that lands after the mint never reaches the stream. Upstream gates
+/// add/list/reset the same way and deliberately leaves remove ungated
+/// (`*-scene-stream-access-handler.ts`).
+async fn refuse_if_platform_banned(
+    state: &AppState,
+    signer: &str,
+    device_id: Option<&str>,
+) -> Result<(), ApiError> {
+    if crate::access_gate::is_connection_banned(state, signer, device_id).await? {
+        tracing::warn!(
+            address = %signer,
+            "rejected a stream key request from a platform-banned user"
+        );
+        return Err(forbidden(crate::access_gate::PLATFORM_BANNED_MSG));
+    }
+    Ok(())
 }
 
 async fn resolve_place_id(

@@ -33,6 +33,7 @@ mod db;
 mod rows;
 mod services;
 mod storage;
+mod tcp;
 
 use cache::*;
 use db::*;
@@ -148,6 +149,10 @@ const ENV_DOCS: &[(&str, &str)] = &[
     (
         "RETRY_FAILED_PRUNE_TTL_DAYS",
         "failed_deployments prune TTL in days (default 7)",
+    ),
+    (
+        "MAX_FAILED_DEPLOYMENT_RETRIES",
+        "attempts a failed deployment gets before the retry worker gives up and drops the row (default 10; 0 gives up on the first pass)",
     ),
     (
         "SNAPSHOT_GENERATION_INTERVAL_HOURS",
@@ -655,7 +660,7 @@ async fn main() -> anyhow::Result<()> {
             .filter(|s| !s.is_empty())
             .collect();
         let retry_worker = catalyrst_server::sync::retry_failed::RetryFailedDeployments::new(
-            catalyrst_server::sync::retry_failed::RetryFailedConfig::default(),
+            catalyrst_server::sync::retry_failed::RetryFailedConfig::from_env(),
             http_client.clone(),
             sync_storage.clone(),
             sync_deployer.clone(),
@@ -964,7 +969,7 @@ async fn main() -> anyhow::Result<()> {
     use tower::Layer as _;
     let app = tower_http::normalize_path::NormalizePathLayer::trim_trailing_slash().layer(app);
     axum::serve(
-        listener,
+        tcp::with_nodelay(listener),
         axum::ServiceExt::<axum::extract::Request>::into_make_service_with_connect_info::<
             std::net::SocketAddr,
         >(app),

@@ -346,7 +346,8 @@ async fn every_spec_route_answers_its_contract() {
         Case::new("put", "/api/places/{place_id}/ranking")
             .path(&ranking_path)
             .bearer(ADMIN_TOKEN)
-            .json(&json!({ "ranking": 1.5 })),
+            .json(&json!({ "ranking": 1.5 }))
+            .expect(201),
     )
     .await;
     gate.hit(
@@ -537,7 +538,8 @@ async fn every_spec_route_answers_its_contract() {
         Case::new("put", "/api/worlds/{world_id}/ranking")
             .path(&wrank_path)
             .bearer(ADMIN_TOKEN)
-            .json(&json!({ "ranking": 2.0 })),
+            .json(&json!({ "ranking": 2.0 }))
+            .expect(201),
     )
     .await;
     gate.hit(

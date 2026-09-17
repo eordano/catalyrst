@@ -90,4 +90,33 @@ describe("postIdentityHandoff", () => {
       "The sign-in server returned no identity id.",
     );
   });
+
+  it("hands the caller's deadline to the handoff so a hung server cannot freeze the sign-in", async () => {
+    const identity = await createIdentityFromPrivateKey(SIGNER_KEY);
+    const fetchMock = vi.fn(async () => jsonResponse(201, { identityId: "id-1", expiration: "" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    await postIdentityHandoff(identity, "/auth-api", { signal: controller.signal });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.signal).toBe(controller.signal);
+  });
+
+  it("gives the handoff up when the deadline passes", async () => {
+    const identity = await createIdentityFromPrivateKey(SIGNER_KEY);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string, init: RequestInit = {}) => {
+        if (init.signal?.aborted) throw init.signal.reason;
+        return jsonResponse(201, { identityId: "id-1", expiration: "" });
+      }),
+    );
+    const controller = new AbortController();
+    controller.abort(new DOMException("timed out", "TimeoutError"));
+
+    await expect(
+      postIdentityHandoff(identity, "/auth-api", { signal: controller.signal }),
+    ).rejects.toThrow("timed out");
+  });
 });

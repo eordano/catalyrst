@@ -478,3 +478,98 @@ async fn a_bulk_pick_and_unpick_lands_as_one_write() {
 
     scratch.drop().await;
 }
+
+/// Upstream `getPicksStats` (ports/favorites/picks/component.ts:24-48) answers with one row per
+/// requested id -- its RIGHT JOIN keeps the never-picked ones at zero -- and only projects
+/// `picked_by_user` when a checking address was supplied.
+#[tokio::test]
+async fn picks_stats_answers_one_row_per_requested_item() {
+    let Some(scratch) = build_scratch().await else {
+        return;
+    };
+    let lists = ListsComponent::new(scratch.pool.clone()).with_write(scratch.pool.clone());
+    const ITEM_Z: &str = "0x3333333333333333333333333333333333333333-0";
+
+    for wallet in [WALLET_A, WALLET_B] {
+        lists
+            .pick_in_lists(ITEM_X, wallet, &[DEFAULT_LIST_ID.to_string()])
+            .await
+            .unwrap();
+    }
+    lists
+        .pick_in_lists(ITEM_Y, WALLET_B, &[DEFAULT_LIST_ID.to_string()])
+        .await
+        .unwrap();
+
+    let ids = [ITEM_X.to_string(), ITEM_Y.to_string(), ITEM_Z.to_string()];
+
+    let anonymous = lists.get_picks_stats(&ids, None).await.unwrap();
+    assert_eq!(
+        anonymous.len(),
+        3,
+        "one row per requested id, zeroes included"
+    );
+    let by_id: std::collections::HashMap<_, _> =
+        anonymous.iter().map(|s| (s.item_id.as_str(), s)).collect();
+    assert_eq!(by_id[ITEM_X].count, 2);
+    assert_eq!(by_id[ITEM_Y].count, 1);
+    assert_eq!(by_id[ITEM_Z].count, 0, "a never-picked item is a zero row");
+    assert!(
+        anonymous.iter().all(|s| s.picked_by_user.is_none()),
+        "no checkingUserAddress means the pickedByUser key is omitted"
+    );
+
+    let checked = lists
+        .get_picks_stats(&ids, Some(&WALLET_A.to_uppercase()))
+        .await
+        .unwrap();
+    let by_id: std::collections::HashMap<_, _> =
+        checked.iter().map(|s| (s.item_id.as_str(), s)).collect();
+    assert_eq!(
+        by_id[ITEM_X].picked_by_user,
+        Some(true),
+        "the checking address is matched case-folded"
+    );
+    assert_eq!(by_id[ITEM_Y].picked_by_user, Some(false));
+    assert_eq!(
+        by_id[ITEM_Z].picked_by_user,
+        Some(false),
+        "a never-picked item answers false, never a missing key"
+    );
+    assert_eq!(
+        by_id[ITEM_X].count, 2,
+        "the counts do not change per caller"
+    );
+
+    scratch.drop().await;
+}
+
+/// Upstream's `unnest($1::text[])` caps nothing and collapses a repeated id into one group, so
+/// the shop's client-side 50-id chunking stays a client choice.
+#[tokio::test]
+async fn picks_stats_takes_a_repeated_id_and_a_long_batch() {
+    let Some(scratch) = build_scratch().await else {
+        return;
+    };
+    let lists = ListsComponent::new(scratch.pool.clone()).with_write(scratch.pool.clone());
+    lists
+        .pick_in_lists(ITEM_X, WALLET_A, &[DEFAULT_LIST_ID.to_string()])
+        .await
+        .unwrap();
+
+    let repeated = lists
+        .get_picks_stats(&[ITEM_X.to_string(), ITEM_X.to_string()], None)
+        .await
+        .unwrap();
+    assert_eq!(repeated.len(), 1);
+    assert_eq!(repeated[0].count, 1);
+
+    let batch: Vec<String> = (0..120)
+        .map(|n| format!("0x4444444444444444444444444444444444444444-{n}"))
+        .collect();
+    let stats = lists.get_picks_stats(&batch, None).await.unwrap();
+    assert_eq!(stats.len(), 120, "no server-side cap on the batch");
+    assert!(stats.iter().all(|s| s.count == 0));
+
+    scratch.drop().await;
+}

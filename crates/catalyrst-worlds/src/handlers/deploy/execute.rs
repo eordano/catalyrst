@@ -75,6 +75,31 @@ async fn store_auth_file(
     write_atomic(dir, &format!("{entity_id}.auth"), bytes).await
 }
 
+/// The deployment window, both directions. A timestamp dated forward is refused for the
+/// same reason a stale one is: the signature covers the entity id, so a deployment the
+/// clock has not reached yet would stay replayable until it does.
+fn entity_timestamp_error(entity: &Value, now_ms: i64) -> Option<String> {
+    let Some(ts) = entity.get("timestamp").and_then(|v| v.as_i64()) else {
+        return Some("The entity is missing a valid timestamp".to_string());
+    };
+    let ttl = now_ms.saturating_sub(ts);
+    if ttl > ENTITY_TTL_MS {
+        return Some(format!(
+            "The request is not authorized to deploy: the entity timestamp is too old \
+             (older than {}s)",
+            ENTITY_TTL_MS / 1000
+        ));
+    }
+    if ttl < -MAX_DEPLOYMENT_FUTURE_SKEW_MS {
+        return Some(format!(
+            "The request is not authorized to deploy: the entity timestamp is too far \
+             in the future (more than {}s)",
+            MAX_DEPLOYMENT_FUTURE_SKEW_MS / 1000
+        ));
+    }
+    None
+}
+
 pub(super) async fn deploy_entity_inner(
     state: AppState,
     headers: HeaderMap,
@@ -126,24 +151,8 @@ pub(super) async fn deploy_entity_inner(
     }
 
     let now_ms = chrono::Utc::now().timestamp_millis();
-    match entity.get("timestamp").and_then(|v| v.as_i64()) {
-        Some(ts) => {
-            let ttl = now_ms.saturating_sub(ts);
-            if ttl > ENTITY_TTL_MS {
-                errors.push(format!(
-                    "The request is not authorized to deploy: the entity timestamp is too old \
-                     (older than {}s)",
-                    ENTITY_TTL_MS / 1000
-                ));
-            } else if ttl < -MAX_DEPLOYMENT_FUTURE_SKEW_MS {
-                errors.push(format!(
-                    "The request is not authorized to deploy: the entity timestamp is too far \
-                     in the future (more than {}s)",
-                    MAX_DEPLOYMENT_FUTURE_SKEW_MS / 1000
-                ));
-            }
-        }
-        None => errors.push("The entity is missing a valid timestamp".to_string()),
+    if let Some(error) = entity_timestamp_error(&entity, now_ms) {
+        errors.push(error);
     }
 
     let raw_world_name = entity
@@ -556,4 +565,55 @@ pub(super) async fn deploy_entity_inner(
         }),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{entity_timestamp_error, MAX_DEPLOYMENT_FUTURE_SKEW_MS};
+    use serde_json::json;
+
+    const NOW_MS: i64 = 1_700_000_000_000;
+
+    #[test]
+    fn a_timestamp_inside_the_window_is_accepted_in_both_directions() {
+        for ts in [
+            NOW_MS,
+            NOW_MS - 299_000,
+            NOW_MS + MAX_DEPLOYMENT_FUTURE_SKEW_MS,
+        ] {
+            assert_eq!(
+                entity_timestamp_error(&json!({ "timestamp": ts }), NOW_MS),
+                None,
+                "{ts} is inside the deployment window"
+            );
+        }
+    }
+
+    #[test]
+    fn a_timestamp_past_the_forwards_bound_is_refused() {
+        let error = entity_timestamp_error(
+            &json!({ "timestamp": NOW_MS + MAX_DEPLOYMENT_FUTURE_SKEW_MS + 1 }),
+            NOW_MS,
+        )
+        .expect("a deployment the clock has not reached must not be accepted");
+        assert!(error.contains("too far in the future"), "{error}");
+        assert!(error.contains("900s"), "{error}");
+    }
+
+    #[test]
+    fn a_stale_timestamp_is_still_refused() {
+        let error = entity_timestamp_error(&json!({ "timestamp": NOW_MS - 300_001 }), NOW_MS)
+            .expect("a deployment older than the TTL must not be accepted");
+        assert!(error.contains("too old"), "{error}");
+    }
+
+    #[test]
+    fn a_missing_or_unreadable_timestamp_is_refused() {
+        for entity in [json!({}), json!({ "timestamp": "1700000000000" })] {
+            assert_eq!(
+                entity_timestamp_error(&entity, NOW_MS).as_deref(),
+                Some("The entity is missing a valid timestamp")
+            );
+        }
+    }
 }

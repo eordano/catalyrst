@@ -1,7 +1,7 @@
 mod component;
 mod contracts;
 mod create;
-mod eip712;
+pub(crate) mod eip712;
 mod events;
 mod ownership;
 mod types;
@@ -13,10 +13,12 @@ mod wire_tests;
 
 pub use component::TradesComponent;
 pub use contracts::{
-    offchain_marketplace_v2, offchain_marketplace_v3, offchain_marketplaces, OffChainMarketplace,
+    network_for_chain, offchain_marketplace_v2, offchain_marketplace_v3, offchain_marketplaces,
+    OffChainMarketplace, ETHEREUM_MAINNET, ETHEREUM_SEPOLIA, MATIC_AMOY, MATIC_MAINNET,
 };
+pub(crate) use create::checks_json;
 pub use create::{
-    create_trade, TradeChainAccess, TradeCreation, TradeCreationError,
+    create_trade, TradeChainAccess, TradeChecksInput, TradeCreation, TradeCreationError,
     TRADE_TYPE_PUBLIC_ITEM_ORDER, TRADE_TYPE_PUBLIC_NFT_ORDER,
 };
 pub use eip712::{resolve_signature, signing_hash, SignatureMatch};

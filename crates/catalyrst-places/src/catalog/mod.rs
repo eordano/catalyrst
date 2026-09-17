@@ -4,7 +4,22 @@ pub mod sync;
 pub mod worlds_mirror;
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
+
+/// Parse before binding, never through `::timestamptz`: a mirrored row carries
+/// a third-party string, and a cast error there fails the whole page instead of
+/// dropping the one unusable field.
+pub(crate) fn parse_mirror_timestamp(raw: Option<&str>) -> Option<DateTime<Utc>> {
+    let raw = raw?;
+    match DateTime::parse_from_rfc3339(raw) {
+        Ok(d) => Some(d.with_timezone(&Utc)),
+        Err(_) => {
+            tracing::debug!(value = raw, "mirror: unparseable deployed_at dropped");
+            None
+        }
+    }
+}
 
 const PLACE_BASE: &str = include_str!("../../migrations/0000_place.sql");
 const PLACE_INDEXED: &str = include_str!("../../migrations/0002_place_indexed.sql");

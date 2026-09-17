@@ -98,6 +98,8 @@ pub fn derive(
         "disabled": false,
         "world": false,
         "deployed_at": deployed_at,
+        "created_at": deployed_at,
+        "updated_at": deployed_at,
         "source": "content",
     });
 
@@ -146,6 +148,17 @@ mod tests {
         assert_eq!(p.raw["positions"], json!(["135,2", "135,3"]));
         assert_eq!(p.raw["source"], "content");
         assert_eq!(p.raw["world"], false);
+    }
+
+    #[test]
+    fn the_deployment_time_fills_both_timestamps_upstream_keeps_not_null() {
+        let at = DateTime::parse_from_rfc3339("2026-03-01T10:00:00Z")
+            .expect("parse")
+            .with_timezone(&Utc);
+        let p = derive("0x1", &[], Some(at), &wrapped(), None, "/content").expect("derives");
+        assert_eq!(p.raw["deployed_at"], json!(at));
+        assert_eq!(p.raw["created_at"], json!(at));
+        assert_eq!(p.raw["updated_at"], json!(at));
     }
 
     #[test]

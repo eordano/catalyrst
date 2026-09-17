@@ -53,6 +53,7 @@ function hostModule(name: string): HostModuleApi {
   }
   if (name === '~system/EngineApi') {
     return {
+      isServer: async () => ({ isServer: false }),
       crdtSendToRenderer: async () => { hostCalls.crdtSendToRenderer += 1; return { data: [] } },
       crdtGetState: async () => { hostCalls.crdtGetState += 1; return { data: [], hasEntities: false } },
       sendBatch: async () => { hostCalls.sendBatch += 1; return { events: [] } },

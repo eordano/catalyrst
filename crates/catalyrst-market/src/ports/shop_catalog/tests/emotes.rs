@@ -22,6 +22,7 @@ fn unified_selects_the_emote_play_mode_from_either_side_of_the_join() {
             rarity: Some("rare".to_string()),
         },
         None,
+        &RelatedItemsFilters::default(),
         0.5,
     );
     assert_eq!(occurrences(&related, COLUMN), 3, "{related}");

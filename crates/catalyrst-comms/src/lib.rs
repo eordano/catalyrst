@@ -1,5 +1,6 @@
 #![allow(clippy::result_large_err)]
 
+pub mod access_gate;
 pub mod auth_chain;
 pub mod config;
 pub mod extract;
@@ -85,6 +86,10 @@ pub struct AppStateInner {
     pub dapps_pool: Option<PgPool>,
 
     pub dapps_schema: String,
+
+    /// Upstream-scoped cache for `GET /world/:name/permissions` (5 min TTL);
+    /// shared by the world-access gate and the extra-address lookup.
+    pub world_permissions: crate::ports::extra_addresses::WorldPermissionsCache,
 }
 
 impl AppStateInner {
@@ -215,6 +220,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         moderator_addresses: cfg.moderator_addresses.clone(),
         gatekeeper_auth_token: cfg.gatekeeper_auth_token.clone(),
         fed_peer_id,
+        world_permissions: Default::default(),
     }))
 }
 

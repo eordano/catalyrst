@@ -204,6 +204,20 @@ What gets dropped, and the evidence for each (pre-existing prunes):
   fail if it did).
 * Source maps, `.md`, `test/`, `docs/`, `example/`, `bench*/`, `.github/`:
   nothing loads them at runtime and tsc never reads them.
+* `typescript/lib/lib.dom*.d.ts`, `lib.webworker*.d.ts`, `lib.scripthost.d.ts`,
+  `lib.d.ts`, `lib.es6.d.ts` and every `lib.*.full.d.ts` - 3.16 MB of the
+  9.6 MB the package still weighed, the DOM and its bundles. Every scene's
+  tsconfig extends `@dcl/sdk/types/tsconfig.ecs7.json` (`lib: ["ES2020"]`,
+  `types: ["@dcl/js-runtime"]`), and the traced tsc run above opens exactly
+  45 `lib.*.d.ts`: `lib.es5`, the `lib.es2015`-`lib.es2020` pieces and the
+  two `lib.decorators*`. `TS_LIB_RE` in `blob_collect.py` keeps every
+  ECMAScript library through `esnext` so a scene raising `lib` to a later
+  year still resolves it; a scene that names the DOM has to `npm install`,
+  the same divergence as every other prune here.
+* `long/index.js`, the ESM build (44 KB). `long`'s manifest routes
+  `require('long')` to `umd/index.js` (`exports.require`), and the blob only
+  ever `require`s it: `@dcl/ecs/dist-cjs` in node. The chunk bundles its own
+  copy from the install tree, so the ESM file was reached by nothing.
 
 Two packages stay pinned *below* their latest release, deliberately:
 
@@ -232,9 +246,9 @@ run. `blob_collect.py` decides what of the registry install ships - the
 entry points, the allowlists and the reachability walk that prunes the rest -
 and `blob_overlays.py` is every rewrite applied on top of that install: the
 pbmin codec, the `@dcl/inspector` stand-in and its service descriptor, the
-ecs7 tsconfig patch and the #1595 framing fix, each with its evidence. A
-rewrite lives nowhere else, which is what lets `src/vendor/README.md` list
-them completely.
+ecs7 tsconfig patch and the peer-trust gate on the auth-server sync transport,
+each with its evidence. A rewrite lives nowhere else, which is what lets
+`src/vendor/README.md` list them completely.
 
 Usage:  python3 scripts/build-base-blob.py [--work DIR] [--keep-work]
                                            [--reuse-install] [--sdk-bin PATH]
@@ -258,8 +272,8 @@ from blob_collect import (
     collect, list_packages, log, reachable, resolvable, specifiers_in_files,
 )
 from blob_overlays import (
-    add_pbmin, add_shim, build_service_descriptor, check_chunk_netdelete,
-    check_chunk_pbmin, patch_ecs7_tsconfig, patch_ecs_network_delete_length,
+    add_pbmin, add_shim, build_service_descriptor, check_chunk_pbmin,
+    check_chunk_peer_trust, patch_ecs7_tsconfig, patch_sdk_peer_trust,
     swap_pbmin_into_tree,
 )
 
@@ -718,10 +732,10 @@ def main() -> int:
     patch_ecs7_tsconfig(files)
 
     swap_pbmin_into_tree(args.work)
-    patch_ecs_network_delete_length(args.work, files, args.reuse_install)
+    patch_sdk_peer_trust(args.work, args.reuse_install)
     build_chunks(args.work, args.sdk_bin, files, kept_bytes)
     check_chunk_pbmin(files)
-    check_chunk_netdelete(files)
+    check_chunk_peer_trust(files)
     rollup = build_types_rollup(nm)
     files[TYPES_ROLLUP] = rollup
     kept_bytes['@dcl/js-runtime'] = kept_bytes.get('@dcl/js-runtime', 0) + len(rollup)

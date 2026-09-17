@@ -5,8 +5,21 @@ import {
   StaticRouterProvider,
   type LoaderFunction,
 } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AuthIdentity } from "@data/lib/auth/types";
+
+import {
+  AUTH_API_TIMEOUT_MS,
+  handoffWithDeadline,
+  loadRequest,
+  postOutcome,
+  reportOutcome,
+  requiresValidation,
+  validationRequirement,
+  withDeadline,
+} from "../lib/auth-api-client";
+import { completeDeepLinkSignIn } from "../lib/auth-deeplink";
 import {
   buildWalletRequest,
   unverifiableReason,
@@ -16,7 +29,11 @@ import type { ReadyRequest } from "../lib/auth-request-recovery";
 import { MAX_DISPLAYED_TYPED_DATA_CHARS } from "../lib/auth-typed-data-escape";
 import { SIGNED_BY_DAPPS } from "../lib/auth-typed-data-fixtures";
 
-import AuthRequestRoute, { ApprovalCard, describeRequest, loader } from "./auth.requests.$id";
+import AuthRequestRoute, {
+  ApprovalCard,
+  describeRequest,
+  loader,
+} from "./auth.requests.$id";
 
 const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
 const SENDER = "0x1234567890abcdef1234567890abcdef12345678";
@@ -27,7 +44,14 @@ const PERMIT = JSON.stringify({
   types: { Permit: [{ name: "spender", type: "address" }] },
   message: { spender: "0x000000000000000000000000000000000000dead" },
 });
-const EFFECTS_LABEL = "couldn&#x27;t be verified";
+const EFFECTS_LABEL = "I take full responsibility for what this action does";
+const CODE_LABEL = "I confirm the code above matches the one shown on my device.";
+const IDENTITY: AuthIdentity = {
+  signer: SENDER,
+  ephemeral: { address: TO, privateKey: "0x01" },
+  expiration: new Date(Date.now() + 600_000).toISOString(),
+  authChain: [],
+};
 
 const routes = [
   {
@@ -224,7 +248,7 @@ describe("approval gates", () => {
     const request = ready("eth_signTypedData_v4", [SENDER, PERMIT]);
     const unchecked = card(request);
     expect(unchecked).toContain("can&#x27;t preview what this signature authorizes");
-    expect(unchecked).toContain("effects of this signature");
+    expect(unchecked).toContain(EFFECTS_LABEL);
     expect(approveDisabled(unchecked)).toBe(true);
 
     const checked = card(request, { effectsAcknowledged: true });
@@ -257,6 +281,13 @@ describe("approval gates", () => {
     expect(detail).toBe("not json \\u{202e}0xattacker");
   });
 
+  it("keeps the lines of an unparsable typed-data param laid out as they were signed", () => {
+    const { detail } = describeRequest(
+      ready("eth_signTypedData_v4", [SENDER, "Order\n\ttoken: MANA\n\tto: \u{202e}0xattacker"]),
+    );
+    expect(detail).toBe("Order\n\ttoken: MANA\n\tto: \\u{202e}0xattacker");
+  });
+
   it("stops showing a payload once it is longer than the page can render", () => {
     const typedData = {
       domain: { name: "Token" },
@@ -285,18 +316,42 @@ describe("approval gates", () => {
       { to: "0xfef5c99885c3036e591b6e6db52482891834a5f4", data: "0xa9059cbb" },
     ]);
     const unchecked = card(request);
-    expect(unchecked).toContain("effects of this transaction");
+    expect(unchecked).toContain(EFFECTS_LABEL);
     expect(approveDisabled(unchecked)).toBe(true);
     expect(approveDisabled(card(request, { effectsAcknowledged: true }))).toBe(false);
   });
 
-  it("paints the acknowledgment open before the message block has been measured", () => {
-    const html = card(ready("personal_sign", ["Sign in to Decentraland\nNonce: 1234", SENDER]));
-    const checkbox = html.match(/<input[^>]*type="checkbox"[^>]*>/g)?.at(-1);
-    expect(checkbox).toBeDefined();
-    expect(/\sdisabled/.test(checkbox!)).toBe(false);
-    expect(html).not.toContain("Scroll to the end of the message");
-  });
+  it.each([
+    ["a message", "personal_sign", ["Sign in to Decentraland\nNonce: 1234", SENDER]],
+    ["typed data", "eth_signTypedData_v4", [SENDER, PERMIT]],
+    ["a transaction", "eth_sendTransaction", [{ to: TO, data: "0xa9059cbb" }]],
+  ] as [string, AllowedMethod, unknown[]][])(
+    "paints the acknowledgment of %s open before its payload block has been measured",
+    (_label, method, params) => {
+      const html = card(ready(method, params));
+      const checkbox = html.match(/<input[^>]*type="checkbox"[^>]*>/g)?.at(-1);
+      expect(checkbox).toBeDefined();
+      expect(/\sdisabled/.test(checkbox!)).toBe(false);
+      expect(html).not.toContain("Scroll to the end of the content");
+    },
+  );
+
+  it.each([
+    ["a message", "personal_sign", ["Sign in to Decentraland\nNonce: 1234", SENDER]],
+    ["typed data", "eth_signTypedData_v4", [SENDER, PERMIT]],
+    ["a transaction", "eth_sendTransaction", [{ to: TO, data: "0xa9059cbb" }]],
+  ] as [string, AllowedMethod, unknown[]][])(
+    "gives the payload block of %s a name and a way to reach it without a pointer",
+    (_label, method, params) => {
+      const html = card(ready(method, params));
+      const block = html.match(/<pre[^>]*>/)?.[0];
+      expect(block).toBeDefined();
+      expect(block).toContain('role="region"');
+      expect(block).toContain('tabindex="0"');
+      expect(block).toContain('aria-labelledby="auth-payload-label"');
+      expect(html).toContain('id="auth-payload-label"');
+    },
+  );
 
   it("keeps the code-match gate independent of the effects gate", () => {
     const request = ready("eth_signTypedData_v3", [SENDER, PERMIT]);
@@ -391,13 +446,46 @@ describe("transaction preview", () => {
     );
   });
 
-  it("truncates a note a single field name would otherwise blow up", () => {
+  it("bounds every field name it lists, not just the note as a whole", () => {
     const request = ready("eth_sendTransaction", [
       { to: TO, data: "0x", [`gas${"a".repeat(600 * 1024)}`]: "0x1" },
     ]);
     const note = describeRequest(request).note ?? "";
-    expect(note.length).toBeLessThan(MAX_DISPLAYED_TYPED_DATA_CHARS + 200);
-    expect(note).toContain("truncated");
+    expect(note.length).toBeLessThan("Not sent to the wallet: ".length + 64);
+    expect(note).toContain("\u{2026}");
+    expect(note).not.toContain("truncated");
+  });
+});
+
+describe("what a malicious request of this kind could do", () => {
+  it("warns a transaction moves assets and cannot be undone", () => {
+    const html = card(ready("eth_sendTransaction", [{ to: TO, data: "0xa9059cbb" }]));
+    expect(html).toContain("If this request is malicious, it could:");
+    expect(html).toContain("Move, sell or destroy any tokens, NFTs, LAND or names your wallet holds.");
+    expect(html).toContain("Once sent, it can");
+    expect(html).not.toContain("a signature doesn");
+  });
+
+  it("warns a typed-data signature is a bearer authorization", () => {
+    const html = card(ready("eth_signTypedData_v4", [SENDER, PERMIT]));
+    expect(html).toContain("Authorize an order, a listing or a spending permission over your assets.");
+    expect(html).toContain("anyone who holds it can submit it");
+    expect(html).not.toContain("Move, sell or destroy");
+  });
+
+  it("warns a signed message can be a login or an off-chain order", () => {
+    const html = card(ready("personal_sign", ["Please confirm your order", SENDER]));
+    expect(html).toContain("Log you in to another site or app as you.");
+    expect(html).toContain("Only continue if you trust the scene or app that asked for this.");
+    expect(html).not.toContain("Move, sell or destroy");
+  });
+
+  it("says which wallet operation a signature is consenting to, and omits it for a transaction", () => {
+    expect(card(ready("eth_signTypedData_v3", [SENDER, PERMIT]))).toContain("eth_signTypedData_v3");
+    expect(card(ready("eth_signTypedData_v4", [SENDER, PERMIT]))).toContain("eth_signTypedData_v4");
+    expect(card(ready("personal_sign", ["hello", SENDER]))).toContain("personal_sign");
+    const transaction = card(ready("eth_sendTransaction", [{ to: TO, data: "0x" }]));
+    expect(transaction).not.toContain("Wallet method");
   });
 });
 
@@ -417,5 +505,208 @@ describe("a message that is not text", () => {
     const { detail } = describeRequest(request);
     expect(detail).toContain("u{202e}");
     expect(detail).not.toContain("\u{202e}");
+  });
+});
+
+describe("every auth-api read the review waits on is bounded", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function jsonBody(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  function captureFetch(respond: () => Promise<Response>): RequestInit[] {
+    const calls: RequestInit[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string, init: RequestInit = {}) => {
+        calls.push(init);
+        return respond();
+      }),
+    );
+    return calls;
+  }
+
+  function timedOut(): DOMException {
+    return new DOMException("The operation was aborted due to timeout", "TimeoutError");
+  }
+
+  it("carries the same deadline on the request and validation reads", async () => {
+    const calls = captureFetch(async () => jsonBody({}));
+    await loadRequest(REQUEST_ID);
+    await validationRequirement(REQUEST_ID);
+
+    expect(AUTH_API_TIMEOUT_MS).toBe(10_000);
+    expect(calls).toHaveLength(2);
+    for (const init of calls) {
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+      expect(init.signal?.aborted).toBe(false);
+    }
+  });
+
+  it("never abandons the outcome of an executed wallet interaction", async () => {
+    const calls = captureFetch(async () => jsonBody({}));
+    await postOutcome(REQUEST_ID, { sender: SENDER, result: "0x" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.signal).toBeUndefined();
+  });
+
+  it("leaves the loading screen at the deadline while the outcome write stays in flight", async () => {
+    let delivered = false;
+    const write = new Promise<{ ok: boolean }>((resolve) => {
+      setTimeout(() => {
+        delivered = true;
+        resolve({ ok: true });
+      }, 20);
+    });
+
+    expect(await withDeadline(write, 1, { ok: false })).toEqual({ ok: false });
+    expect(delivered).toBe(false);
+    expect(await write).toEqual({ ok: true });
+    expect(delivered).toBe(true);
+  });
+
+  it("reads the request where the browser has no AbortSignal.timeout instead of failing every sign-in", async () => {
+    vi.stubGlobal("AbortSignal", class {});
+    const calls = captureFetch(async () =>
+      jsonBody({
+        expiration: new Date(Date.now() + 120_000).toISOString(),
+        code: 7,
+        method: "personal_sign",
+      }),
+    );
+
+    expect((await loadRequest(REQUEST_ID)).kind).toBe("ok");
+    expect(calls[0]?.signal).toBeUndefined();
+  });
+
+  it("gives a hung request read up rather than holding the page with nothing to deny", async () => {
+    captureFetch(async () => {
+      throw timedOut();
+    });
+    expect(await loadRequest(REQUEST_ID)).toEqual({
+      kind: "error",
+      message: "Couldn't reach the sign-in server.",
+    });
+  });
+
+  it("treats a validation lookup that cannot answer as no verdict", async () => {
+    captureFetch(async () => {
+      throw timedOut();
+    });
+    expect(await validationRequirement(REQUEST_ID)).toBeNull();
+
+    captureFetch(async () => new Response("no", { status: 503 }));
+    expect(await validationRequirement(REQUEST_ID)).toBeNull();
+  });
+
+  it("reads a definite validation answer either way", async () => {
+    captureFetch(async () => jsonBody({ requiresValidation: true }));
+    expect(await validationRequirement(REQUEST_ID)).toBe(true);
+
+    captureFetch(async () => jsonBody({ requiresValidation: false }));
+    expect(await validationRequirement(REQUEST_ID)).toBe(false);
+  });
+
+  it("keeps the device-code gate on the card when the validation read cannot answer", async () => {
+    captureFetch(async () => new Response("no", { status: 503 }));
+    const mustValidate = await requiresValidation(REQUEST_ID);
+    expect(mustValidate).toBe(true);
+
+    const request = ready("eth_signTypedData_v4", [SENDER, PERMIT]);
+    const gated = card(request, { mustValidate, effectsAcknowledged: true });
+    expect(gated).toContain(CODE_LABEL);
+    expect(approveDisabled(gated)).toBe(true);
+    const ticked = card(request, { mustValidate, effectsAcknowledged: true, acknowledged: true });
+    expect(approveDisabled(ticked)).toBe(false);
+  });
+
+  it("keeps the device-code gate when the validation read times out and drops it only on a server no", async () => {
+    captureFetch(async () => {
+      throw timedOut();
+    });
+    expect(await requiresValidation(REQUEST_ID)).toBe(true);
+
+    captureFetch(async () => jsonBody({ requiresValidation: true }));
+    expect(await requiresValidation(REQUEST_ID)).toBe(true);
+
+    captureFetch(async () => jsonBody({ requiresValidation: false }));
+    expect(await requiresValidation(REQUEST_ID)).toBe(false);
+  });
+
+  it("carries the deadline into the deep-link handoff", async () => {
+    let seen: AbortSignal | undefined;
+    const result = await handoffWithDeadline(async (opts) => {
+      seen = opts.signal;
+      return { identityId: "9b2c1a1e-4c3d-4f5e-8a6b-7c8d9e0f1a2b" };
+    });
+
+    expect(seen).toBeInstanceOf(AbortSignal);
+    expect(result.identityId).toBe("9b2c1a1e-4c3d-4f5e-8a6b-7c8d9e0f1a2b");
+  });
+
+  it("puts page copy on a handoff that ran out of time and keeps the identity for the retry", async () => {
+    const outcome = await completeDeepLinkSignIn({
+      connect: async () => SENDER,
+      cachedIdentity: () => IDENTITY,
+      createIdentity: async () => IDENTITY,
+      postIdentity: () =>
+        handoffWithDeadline(async () => {
+          throw timedOut();
+        }),
+      isUserRejection: () => false,
+    });
+
+    expect(outcome).toEqual({
+      kind: "post_error",
+      message: "Couldn't reach the sign-in server.",
+      identity: IDENTITY,
+    });
+  });
+
+  it("passes a handoff refusal through in the sign-in server's own words", async () => {
+    await expect(
+      handoffWithDeadline(async () => {
+        throw new Error("Request sender does not match identity owner");
+      }),
+    ).rejects.toThrow("Request sender does not match identity owner");
+  });
+
+  it("stops waiting on a report the page only records so the screen can move on", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const calls = captureFetch(() => new Promise<Response>(() => {}));
+      const reported = reportOutcome(REQUEST_ID, {
+        sender: SENDER,
+        error: { code: 4001, message: "Request rejected" },
+      });
+      await vi.advanceTimersByTimeAsync(AUTH_API_TIMEOUT_MS);
+
+      expect(await reported).toBeNull();
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.signal).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("records a report that the sign-in server refuses without throwing at the caller", async () => {
+    captureFetch(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(
+      await reportOutcome(REQUEST_ID, { sender: SENDER, error: { code: 999, message: "boom" } }),
+    ).toBeNull();
+
+    captureFetch(async () => new Response("no", { status: 500 }));
+    expect(
+      await reportOutcome(REQUEST_ID, { sender: SENDER, error: { code: 999, message: "boom" } }),
+    ).toBeNull();
   });
 });

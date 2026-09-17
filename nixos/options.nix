@@ -462,7 +462,6 @@ in
           "https://peer.decentraland.org/content"
           "https://peer.uadevops.com/content"
           "https://peer-eu1.decentraland.org/content"
-          "https://peer.melonwave.com/content"
         ];
         description = "Upstream DCL peers the content server syncs from.";
       };

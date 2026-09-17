@@ -6,8 +6,18 @@ use uuid::Uuid;
 use crate::rest::auth_chain::try_extract_signer;
 use crate::rest::handlers::enrich::enrich_posts_with_authors;
 use crate::rest::handlers::error::CommError;
+use crate::rest::handlers::require_membership_of_a_private_community;
 use crate::rest::http::get_pagination_params;
 use crate::rest::AppState;
+
+fn not_a_member_of_this_private_community(id: Uuid) -> impl FnOnce(&str) -> String {
+    move |addr| {
+        format!(
+            "{} is not a member of private community {}. You need to be a member to get posts in this community.",
+            addr, id
+        )
+    }
+}
 
 #[utoipa::path(
     get,
@@ -17,6 +27,7 @@ use crate::rest::AppState;
     responses(
         (status = 200, body = serde_json::Value),
         (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
         (status = 404, body = catalyrst_types::ApiErrorBody),
         (status = 500, body = catalyrst_types::ApiErrorBody)
     )
@@ -42,6 +53,14 @@ pub async fn get_posts(
             id_str
         )));
     }
+    require_membership_of_a_private_community(
+        &state,
+        id,
+        signer.as_ref(),
+        not_a_member_of_this_private_community(id),
+    )
+    .await?;
+
     let pagination = get_pagination_params(&pairs);
     let (posts, total) = state
         .posts
@@ -71,6 +90,7 @@ pub async fn get_posts(
     responses(
         (status = 200, body = serde_json::Value),
         (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
         (status = 404, body = catalyrst_types::ApiErrorBody),
         (status = 500, body = catalyrst_types::ApiErrorBody)
     )
@@ -96,6 +116,14 @@ pub async fn get_posts_v2(
             id_str
         )));
     }
+    require_membership_of_a_private_community(
+        &state,
+        id,
+        signer.as_ref(),
+        not_a_member_of_this_private_community(id),
+    )
+    .await?;
+
     let pagination = get_pagination_params(&pairs);
     let (posts, total) = state
         .posts

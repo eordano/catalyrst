@@ -36,6 +36,9 @@ use crate::ports::bids::BidsComponent;
 use crate::ports::catalog::CatalogComponent;
 use crate::ports::collections::CollectionsComponent;
 use crate::ports::contracts::ContractsComponent;
+use crate::ports::coupons::{
+    CouponsComponent, RpcCouponChainReader, COUPON_STATE_REFRESH_INTERVAL,
+};
 use crate::ports::items::ItemsComponent;
 use crate::ports::lists::ListsComponent;
 use crate::ports::mana_rate::ManaUsdRateComponent;
@@ -47,6 +50,7 @@ use crate::ports::rankings::RankingsComponent;
 use crate::ports::sales::SalesComponent;
 use crate::ports::shop_catalog::ShopCatalogComponent;
 use crate::ports::stats::StatsComponent;
+use crate::ports::suggestions::SuggestionsComponent;
 use crate::ports::trades::TradesComponent;
 use crate::ports::trendings::TrendingsComponent;
 use crate::ports::usage_grants::UsageGrantsComponent;
@@ -65,6 +69,7 @@ pub struct AppStateInner {
     pub catalog: CatalogComponent,
     pub collections: CollectionsComponent,
     pub contracts: ContractsComponent,
+    pub coupons: CouponsComponent,
     pub items: ItemsComponent,
     pub lists: ListsComponent,
     pub mana_usd_rate: ManaUsdRateComponent,
@@ -76,6 +81,7 @@ pub struct AppStateInner {
     pub sales: SalesComponent,
     pub shop_catalog: ShopCatalogComponent,
     pub stats: StatsComponent,
+    pub suggestions: SuggestionsComponent,
     pub trades: TradesComponent,
     pub trendings: TrendingsComponent,
     pub user_assets: UserAssetsComponent,
@@ -106,6 +112,12 @@ pub fn api_router_with_spec() -> (Router<AppState>, utoipa::openapi::OpenApi) {
         .routes(routes!(handlers::lists::get_lists))
         .routes(routes!(handlers::lists::get_list_picks))
         .routes(routes!(handlers::activity::get_activity))
+        .routes(routes!(handlers::picks::get_picks_stats))
+        .routes(routes!(
+            handlers::coupons::get_coupons,
+            handlers::coupons::add_coupon
+        ))
+        .routes(routes!(handlers::coupons::get_coupon))
         .routes(routes!(
             handlers::picks::pick_unpick_in_bulk,
             handlers::picks::unpick_everywhere
@@ -167,6 +179,10 @@ fn read_router() -> Router<AppState> {
             get(handlers::shop_catalog::get_trending_catalog),
         )
         .route(
+            "/v3/catalog/suggested",
+            get(handlers::suggestions::get_suggested_catalog),
+        )
+        .route(
             "/v3/catalog/creators",
             get(handlers::shop_catalog::get_top_creators),
         )
@@ -210,6 +226,7 @@ fn read_router() -> Router<AppState> {
         )
         .route("/v1/orders", get(handlers::orders::get_orders))
         .route("/v1/bids", get(handlers::bids::get_bids))
+        .route("/v1/sales/summary", get(handlers::sales::get_sales_summary))
         .route("/v1/sales", get(handlers::sales::get_sales))
         .route("/v1/prices", get(handlers::prices::get_prices))
         .route("/v1/trendings", get(handlers::trendings::get_trendings))
@@ -323,6 +340,9 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     let mv_trades_refresh_lock = Arc::new(tokio::sync::Mutex::new(()));
     spawn_mv_trades_refresh(dapps_write.clone(), mv_trades_refresh_lock.clone());
+    if cfg.suggestions_neighbours_job_enabled {
+        spawn_item_neighbours_rebuild(dapps_write.clone());
+    }
     match &cfg.trades_sync_upstream_url {
         Some(url) => trades_sync::spawn_trades_upstream_sync(
             dapps_write.clone(),
@@ -370,6 +390,19 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let activity_trades = Arc::new(TradesComponent::new(pool.clone(), false));
     let analytics_for_volume = AnalyticsDayDataComponent::new(pool.clone());
 
+    let http = reqwest::Client::new();
+    let trade_rpc = crate::ports::trades::RpcEndpoints::from_env(
+        std::env::var("TRADE_RPC_URLS").ok().as_deref(),
+    );
+    // CouponManager reads are more eth_call targets on the per-chain endpoints trades already
+    // use, so they need no endpoint of their own.
+    let coupons = CouponsComponent::new(
+        dapps_write.clone(),
+        pool.clone(),
+        Arc::new(RpcCouponChainReader::new(http.clone(), trade_rpc.clone())),
+    );
+    spawn_coupon_state_refresh(coupons.clone());
+
     Ok(Arc::new(AppStateInner {
         accounts: AccountsComponent::new(pool.clone()),
         activity: ActivityComponent::new(
@@ -383,6 +416,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         catalog: CatalogComponent::new(pool.clone()),
         collections: CollectionsComponent::new(pool.clone()),
         contracts: ContractsComponent::new(pool.clone()),
+        coupons,
         items: ItemsComponent::new(pool.clone()),
         lists: ListsComponent::new(pool.clone()).with_write(dapps_write.clone()),
         mana_usd_rate,
@@ -394,6 +428,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         sales: SalesComponent::new(pool.clone()),
         shop_catalog: ShopCatalogComponent::new(pool.clone()),
         stats: StatsComponent::new(pool.clone()),
+        suggestions: SuggestionsComponent::new(pool.clone(), cfg.suggestions_max_concurrent),
         trades: TradesComponent::new(pool.clone(), cfg.trades_pagination),
         trendings: TrendingsComponent::new(pool.clone()),
         user_assets: UserAssetsComponent::new(pool.clone(), grants_present),
@@ -405,11 +440,31 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         limiter,
         domain: market_domain(),
         admin_token: cfg.admin_token.clone(),
-        trade_rpc: crate::ports::trades::RpcEndpoints::from_env(
-            std::env::var("TRADE_RPC_URLS").ok().as_deref(),
-        ),
-        http: reqwest::Client::new(),
+        trade_rpc,
+        http,
     }))
+}
+
+/// `jitter` is a random 0..=N delay before the first pass rather than upstream's fixed 30s
+/// startup delay: the nearest primitive this workspace has, and not observable on the wire.
+const COUPON_STATE_REFRESH_JITTER: Duration = Duration::from_secs(30);
+
+fn spawn_coupon_state_refresh(coupons: CouponsComponent) {
+    spawn_periodic(
+        "coupon-state-refresh",
+        COUPON_STATE_REFRESH_INTERVAL,
+        PeriodicCfg::default().with_jitter(COUPON_STATE_REFRESH_JITTER),
+        CancellationToken::new(),
+        move || {
+            let coupons = coupons.clone();
+            async move {
+                if let Err(e) = coupons.refresh_state().await {
+                    tracing::warn!(error = %e, "coupon state refresh failed");
+                }
+                Ok::<(), Infallible>(())
+            }
+        },
+    );
 }
 
 const MV_TRADES_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
@@ -417,16 +472,11 @@ const MV_TRADES_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 /// Retried plain if the CONCURRENTLY form is refused (e.g. the view has never been
 /// populated), then a dirty notify so listeners re-read. The caller holds the refresh lock.
 async fn run_mv_trades_refresh(pool: &PgPool) {
-    let concurrent = sqlx::query("REFRESH MATERIALIZED VIEW CONCURRENTLY marketplace.mv_trades")
-        .execute(pool)
-        .await;
+    let concurrent = refresh_trades_view(pool, true).await;
     let mut refreshed = concurrent.is_ok();
     if let Err(e) = concurrent {
         tracing::debug!(error = %e, "concurrent mv_trades refresh failed; retrying plain");
-        match sqlx::query("REFRESH MATERIALIZED VIEW marketplace.mv_trades")
-            .execute(pool)
-            .await
-        {
+        match refresh_trades_view(pool, false).await {
             Ok(_) => refreshed = true,
             Err(e) => tracing::warn!(error = %e, "mv_trades refresh failed"),
         }
@@ -439,6 +489,51 @@ async fn run_mv_trades_refresh(pool: &PgPool) {
             tracing::debug!(error = %e, "mv_trades dirty notify failed");
         }
     }
+}
+
+/// Keep the view's ~32 MB aggregation sort in memory. Scope this to one
+/// transaction so pooled connections do not give every request a larger budget.
+async fn refresh_trades_view(pool: &PgPool, concurrently: bool) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET LOCAL work_mem = '64MB'")
+        .execute(&mut *tx)
+        .await?;
+    let query = if concurrently {
+        "REFRESH MATERIALIZED VIEW CONCURRENTLY marketplace.mv_trades"
+    } else {
+        "REFRESH MATERIALIZED VIEW marketplace.mv_trades"
+    };
+    sqlx::query(query).execute(&mut *tx).await?;
+    tx.commit().await
+}
+
+/// The offline half of `/v3/catalog/suggested`.
+///
+/// Opt-in per deployment (`CATALYRST_MARKET_SUGGESTIONS_NEIGHBOURS_JOB_ENABLED`) and held back
+/// before its first pass, because that pass is a multi-minute scan of every paid acquisition and
+/// a process that has just come up has warmer work to do. The delay is expressed as JITTER
+/// rather than a fixed wait, which also keeps a restarted fleet from starting the scan in
+/// lockstep and contending for the one advisory lock. A failed run is logged and dropped: the
+/// previous neighbours table keeps serving, so the rail degrades in freshness rather than going
+/// dark.
+fn spawn_item_neighbours_rebuild(pool: PgPool) {
+    use crate::ports::suggestions::job::{rebuild_interval, rebuild_neighbors, startup_delay};
+
+    spawn_periodic(
+        "item-neighbours-rebuild",
+        rebuild_interval(),
+        PeriodicCfg::default().with_jitter(startup_delay()),
+        CancellationToken::new(),
+        move || {
+            let pool = pool.clone();
+            async move {
+                if let Err(e) = rebuild_neighbors(&pool).await {
+                    tracing::warn!(error = %e, "item-neighbours rebuild failed");
+                }
+                Ok::<(), Infallible>(())
+            }
+        },
+    );
 }
 
 fn spawn_mv_trades_refresh(pool: PgPool, refresh_lock: Arc<tokio::sync::Mutex<()>>) {

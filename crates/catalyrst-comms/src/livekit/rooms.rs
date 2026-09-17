@@ -25,6 +25,17 @@ pub fn community_id_from_room_name(room_name: &str) -> String {
         .to_string()
 }
 
+pub const LOCAL_PREVIEW_REALM_NAMES: [&str; 2] = ["localpreview", "preview"];
+
+pub fn is_preview_realm_name(realm_name: &str) -> bool {
+    let lower = realm_name.to_lowercase();
+    LOCAL_PREVIEW_REALM_NAMES.contains(&lower.as_str())
+}
+
+pub fn is_world_realm_name(realm_name: &str) -> bool {
+    realm_name.ends_with(".eth")
+}
+
 pub fn scene_room_name(realm_name: &str, scene_id: &str) -> String {
     format!("scene:{realm_name}:{scene_id}")
 }

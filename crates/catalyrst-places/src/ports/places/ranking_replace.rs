@@ -160,6 +160,9 @@ fn world_resolution_sql() -> &'static str {
     &SQL
 }
 
+/// `updated_at` is owned by the upstream mirror inside `raw` and is re-derived
+/// on every resync, so neither this leg nor `clear_sql` bumps it: a bump written
+/// here would be dropped the next time the catalog is pulled.
 fn apply_sql(world: bool) -> String {
     let leg = if world { "TRUE" } else { "FALSE" };
     format!(

@@ -2,6 +2,9 @@ use thiserror::Error;
 
 use super::{room_admin_token, room_service_base, LivekitError};
 
+/// How many rooms the ban kick scans at once.
+pub(crate) const KICK_CONCURRENCY: usize = 8;
+
 pub async fn list_room_participant_identities(
     client: &reqwest::Client,
     host: &str,
@@ -241,7 +244,6 @@ impl<'a> RoomServiceClient<'a> {
         identity: &str,
     ) -> Result<(), RoomServiceError> {
         use futures::StreamExt;
-        const KICK_CONCURRENCY: usize = 8;
         let rooms = self.list_rooms().await?;
         let lower = identity.to_lowercase();
         futures::stream::iter(rooms)

@@ -22,7 +22,9 @@ use catalyrst_comms::handlers::scene_adapter::{
 };
 use catalyrst_comms::handlers::scene_participants::{list_participants, ParticipantsQuery};
 use catalyrst_comms::http::{conflict, not_found_labeled, unauthorized, ApiError};
-use catalyrst_comms::livekit::{scene_room_name, world_room_name, world_scene_room_name};
+use catalyrst_comms::livekit::{
+    scene_room_name, world_room_name, world_scene_room_name, BANNED_ADDRESSES_FIELD,
+};
 use catalyrst_comms::ports::extra_addresses::has_world_access_permission;
 use catalyrst_comms::ports::names::NamesComponent;
 use catalyrst_comms::ports::player_connection::PlayerConnectionComponent;
@@ -30,6 +32,7 @@ use catalyrst_comms::ports::player_reports::PlayerReportsComponent;
 use catalyrst_comms::ports::scene_admin::SceneAdminComponent;
 use catalyrst_comms::ports::scene_bans::SceneBansComponent;
 use catalyrst_comms::ports::user_bans::UserBansComponent;
+use catalyrst_comms::room_metadata_sync::{add_ban, kick, resolve_rooms, RoomContext};
 use catalyrst_comms::voice_db::{VoiceDb, VoiceDbConfig};
 use catalyrst_comms::{api_router, AppState, AppStateInner};
 use catalyrst_crypto::{create_simple_auth_chain, Wallet};
@@ -42,6 +45,18 @@ fn lazy_state(authoritative_server_address: Option<String>) -> AppState {
 fn lazy_state_with_world(
     authoritative_server_address: Option<String>,
     world_content_url: &str,
+) -> AppState {
+    lazy_state_full(
+        authoritative_server_address,
+        world_content_url,
+        "http://127.0.0.1:1",
+    )
+}
+
+fn lazy_state_full(
+    authoritative_server_address: Option<String>,
+    world_content_url: &str,
+    livekit_api_url: &str,
 ) -> AppState {
     let pool = PgPool::connect_lazy("postgres://postgres@127.0.0.1:1/postgres")
         .expect("lazy pool never connects in these tests");
@@ -61,7 +76,7 @@ fn lazy_state_with_world(
         world_content_url: world_content_url.into(),
         lambdas_url: "http://127.0.0.1:1".into(),
         pool,
-        livekit_api_url: "http://127.0.0.1:1".into(),
+        livekit_api_url: livekit_api_url.into(),
         livekit_ws_url: "wss://livekit.local".into(),
         livekit_api_key: "devkey".into(),
         livekit_api_secret: "devsecret".into(),
@@ -73,6 +88,7 @@ fn lazy_state_with_world(
         moderator_addresses: Vec::new(),
         gatekeeper_auth_token: None,
         fed_peer_id: "test-peer".into(),
+        world_permissions: Default::default(),
     })
 }
 
@@ -608,4 +624,295 @@ async fn world_access_permission_honors_owner_unrestricted_and_allow_list() {
     .await;
     let state = lazy_state_with_world(None, &allow_list);
     assert!(!has_world_access_permission(&state, identity, "foo.eth").await);
+}
+
+#[derive(Clone, Default)]
+struct TwirpCapture(Arc<std::sync::Mutex<Vec<(String, Value)>>>);
+
+impl TwirpCapture {
+    fn calls(&self, method: &str) -> Vec<Value> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(m, _)| m == method)
+            .map(|(_, body)| body.clone())
+            .collect()
+    }
+}
+
+/// A LiveKit RoomService twirp endpoint that records every call. `ListRooms`
+/// answers with the requested room carrying empty metadata, so the
+/// read-modify-write in `append_to_room_metadata_array` reaches
+/// `UpdateRoomMetadata`.
+async fn stub_room_service(capture: TwirpCapture) -> String {
+    let app = Router::new()
+        .route(
+            "/twirp/livekit.RoomService/{method}",
+            axum::routing::post(
+                |State(capture): State<TwirpCapture>,
+                 axum::extract::Path(method): axum::extract::Path<String>,
+                 Json(body): Json<Value>| async move {
+                    capture
+                        .0
+                        .lock()
+                        .unwrap()
+                        .push((method.clone(), body.clone()));
+                    if method == "ListRooms" {
+                        let name = body["names"][0].as_str().unwrap_or_default();
+                        Json(json!({ "rooms": [{ "name": name, "metadata": "{}" }] }))
+                    } else {
+                        Json(json!({}))
+                    }
+                },
+            ),
+        )
+        .with_state(capture);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://{addr}")
+}
+
+/// A world content server that counts every request and walks `responses` in
+/// order for `path`, repeating the last one. Used to observe the permissions
+/// cache: the counter is the number of lookups that actually left the process.
+async fn stub_counting_world_content(
+    path: &str,
+    responses: Vec<(StatusCode, Value)>,
+) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hits = Arc::new(AtomicUsize::new(0));
+    let served = Arc::new(AtomicUsize::new(0));
+    type CountingState = (
+        Arc<String>,
+        Arc<Vec<(StatusCode, Value)>>,
+        Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
+    );
+    let state: CountingState = (
+        Arc::new(path.to_string()),
+        Arc::new(responses),
+        hits.clone(),
+        served,
+    );
+    let app = Router::new()
+        .fallback(
+            |State((path, responses, hits, served)): State<CountingState>, uri: Uri| async move {
+                hits.fetch_add(1, Ordering::SeqCst);
+                if uri.path() != path.as_str() {
+                    return (StatusCode::NOT_FOUND, Json(json!({ "error": "Not Found" })))
+                        .into_response();
+                }
+                let n = served.fetch_add(1, Ordering::SeqCst);
+                let (status, body) = &responses[n.min(responses.len() - 1)];
+                (*status, Json(body.clone())).into_response()
+            },
+        )
+        .with_state(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (format!("http://{addr}"), hits)
+}
+
+fn ban_context(realm: Option<&str>, scene_id: Option<&str>) -> RoomContext {
+    let mut metadata = serde_json::Map::new();
+    if let Some(realm) = realm {
+        metadata.insert("realmName".into(), json!(realm));
+    }
+    if let Some(scene_id) = scene_id {
+        metadata.insert("sceneId".into(), json!(scene_id));
+    }
+    RoomContext::from_metadata(&Value::Object(metadata), "place-1")
+}
+
+#[tokio::test]
+async fn a_genesis_city_ban_targets_the_scene_room_from_the_request_context() {
+    let state = lazy_state(None);
+
+    assert_eq!(
+        resolve_rooms(&state, &ban_context(Some("main"), Some("bafkreiabc")))
+            .await
+            .expect("no place catalog leaves the context unchecked"),
+        vec![scene_room_name("main", "bafkreiabc")],
+        "upstream derives the room from realmName + sceneId for non-world places too"
+    );
+}
+
+#[tokio::test]
+async fn a_world_ban_keeps_targeting_the_legacy_and_per_scene_world_rooms() {
+    let about = json!({
+        "configurations": {
+            "scenesUrn": ["urn:decentraland:entity:bafkreiworldentity?baseUrl=https://x/contents/"]
+        }
+    });
+    let world_content =
+        stub_world_content(&[("/world/foo.eth/about", StatusCode::OK, about)]).await;
+    let state = lazy_state_with_world(None, &world_content);
+
+    assert_eq!(
+        resolve_rooms(&state, &ban_context(Some("foo.eth"), Some("bafkreiabc")))
+            .await
+            .unwrap(),
+        vec![
+            world_room_name("foo.eth"),
+            world_scene_room_name("foo.eth", "bafkreiabc")
+        ]
+    );
+
+    assert_eq!(
+        resolve_rooms(&state, &ban_context(Some("foo.eth"), Some("foo.eth")))
+            .await
+            .unwrap(),
+        vec![
+            world_room_name("foo.eth"),
+            world_scene_room_name("foo.eth", "bafkreiworldentity")
+        ],
+        "a world name sent as the sceneId resolves through /about"
+    );
+
+    assert_eq!(
+        resolve_rooms(&state, &ban_context(Some("foo.eth"), None))
+            .await
+            .unwrap(),
+        vec![
+            world_room_name("foo.eth"),
+            world_scene_room_name("foo.eth", "bafkreiworldentity")
+        ]
+    );
+}
+
+#[tokio::test]
+async fn preview_realms_reach_their_room_and_scene_less_requests_name_none() {
+    let state = lazy_state(None);
+
+    for realm in ["preview", "localpreview", "LocalPreview", "PREVIEW"] {
+        assert_eq!(
+            resolve_rooms(&state, &ban_context(Some(realm), Some("b64-local")))
+                .await
+                .unwrap(),
+            vec![scene_room_name(realm, "b64-local")],
+            "upstream only skips previews on the webhook refresh path, not on a ban"
+        );
+    }
+
+    assert!(
+        resolve_rooms(&state, &ban_context(Some("main"), None))
+            .await
+            .unwrap()
+            .is_empty(),
+        "upstream refuses to name a scene room without a sceneId"
+    );
+}
+
+#[tokio::test]
+async fn a_genesis_city_ban_kicks_and_writes_metadata_on_the_derived_room() {
+    let capture = TwirpCapture::default();
+    let room_service = stub_room_service(capture.clone()).await;
+    let state = lazy_state_full(None, "http://127.0.0.1:1", &room_service);
+
+    let rooms = resolve_rooms(&state, &ban_context(Some("main"), Some("bafkreiabc")))
+        .await
+        .unwrap();
+    let room = scene_room_name("main", "bafkreiabc");
+    assert_eq!(rooms, vec![room.clone()]);
+
+    kick(&state, &rooms, "0xABC0000000000000000000000000000000000001").await;
+    add_ban(&state, &rooms, "0xABC0000000000000000000000000000000000001").await;
+
+    let kicked = capture.calls("RemoveParticipant");
+    assert_eq!(
+        kicked.len(),
+        1,
+        "the ban kicks the participant it just banned"
+    );
+    assert_eq!(kicked[0]["room"], room);
+    assert_eq!(
+        kicked[0]["identity"],
+        "0xabc0000000000000000000000000000000000001"
+    );
+
+    let writes = capture.calls("UpdateRoomMetadata");
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0]["room"], room);
+    let metadata: Value = serde_json::from_str(writes[0]["metadata"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        metadata[BANNED_ADDRESSES_FIELD],
+        json!(["0xabc0000000000000000000000000000000000001"])
+    );
+}
+
+#[tokio::test]
+async fn world_permissions_are_fetched_once_per_world_within_the_ttl() {
+    let identity = "0xabc0000000000000000000000000000000000001";
+    let (world_content, hits) = stub_counting_world_content(
+        "/world/foo.eth/permissions",
+        vec![(
+            StatusCode::OK,
+            json!({
+                "owner": identity,
+                "permissions": { "access": { "type": "allow-list", "wallets": [] } }
+            }),
+        )],
+    )
+    .await;
+
+    let state = lazy_state_with_world(None, &world_content);
+    assert!(has_world_access_permission(&state, identity, "foo.eth").await);
+    assert!(has_world_access_permission(&state, identity, "foo.eth").await);
+    assert_eq!(
+        hits.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "a second join inside the TTL must not re-fetch the world permissions"
+    );
+
+    assert!(!has_world_access_permission(&state, identity, "other.eth").await);
+    assert_eq!(
+        hits.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "the cache is keyed per world, not per service"
+    );
+
+    let fresh = lazy_state_with_world(None, &world_content);
+    assert!(has_world_access_permission(&fresh, identity, "foo.eth").await);
+    assert_eq!(
+        hits.load(std::sync::atomic::Ordering::SeqCst),
+        3,
+        "the cache is scoped to the component, not process-global"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_world_permissions_lookup_is_not_cached() {
+    let identity = "0xabc0000000000000000000000000000000000001";
+    let (world_content, hits) = stub_counting_world_content(
+        "/world/foo.eth/permissions",
+        vec![
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": "boom" }),
+            ),
+            (
+                StatusCode::OK,
+                json!({
+                    "owner": identity,
+                    "permissions": { "access": { "type": "allow-list", "wallets": [] } }
+                }),
+            ),
+        ],
+    )
+    .await;
+
+    let state = lazy_state_with_world(None, &world_content);
+    assert!(!has_world_access_permission(&state, identity, "foo.eth").await);
+    assert!(
+        has_world_access_permission(&state, identity, "foo.eth").await,
+        "a transient failure must not pin the world closed for the whole TTL"
+    );
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 2);
 }

@@ -14,6 +14,12 @@ pub struct DataTotal<T> {
 
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "market/"))]
+pub struct DataOnly<T> {
+    pub data: T,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "market/"))]
 pub struct DataTotalString<T> {
     pub data: Vec<T>,
     pub total: String,

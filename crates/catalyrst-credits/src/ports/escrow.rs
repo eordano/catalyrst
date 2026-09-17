@@ -124,6 +124,19 @@ pub struct ReleaseWorker {
 
 impl ReleaseWorker {
     pub fn spawn(self, interval_secs: u64) {
+        // Configuration is immutable for this worker. Report a disabled release
+        // capability once, but keep sweeping expired authorizations every tick.
+        if self.usage_grants_pool.is_none()
+            || self.economy_admin_token.is_none()
+            || self.escrow_address.is_none()
+        {
+            tracing::warn!(
+                usage_grants_configured = self.usage_grants_pool.is_some(),
+                economy_token_configured = self.economy_admin_token.is_some(),
+                escrow_address_configured = self.escrow_address.is_some(),
+                "escrow releases disabled: incomplete configuration; authorization expiry remains active"
+            );
+        }
         spawn_periodic(
             "credits-escrow-release",
             Duration::from_secs(interval_secs.max(1)),
@@ -152,13 +165,9 @@ impl ReleaseWorker {
             self.usage_grants_pool.as_ref(),
             self.economy_admin_token.as_ref(),
         ) else {
-            tracing::warn!(
-                "escrow release worker idle: USAGE_GRANTS_PG / CATALYRST_ECONOMY_ADMIN_TOKEN unset"
-            );
             return Ok(0);
         };
         if self.escrow_address.is_none() {
-            tracing::warn!("escrow release worker idle: LANDILER_ESCROW_ADDRESS unset");
             return Ok(0);
         }
 

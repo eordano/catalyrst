@@ -1,3 +1,4 @@
+use sqlx::types::JsonValue;
 use sqlx::PgPool;
 
 use super::sql::{
@@ -6,10 +7,12 @@ use super::sql::{
 };
 use super::types::{
     ImportableListing, ImportableListingRow, LegacyCatalogFilters, LegacyListing, LegacyListingRow,
-    ShopCatalogFilters, ShopListing, ShopListingRow, TopCreator, TopCreatorRow,
+    ShopCatalogFilters, ShopCoupon, ShopCouponRow, ShopListing, ShopListingRow, ShopSaleFields,
+    TopCreator, TopCreatorRow,
 };
 use crate::dcl_schemas::{ethereum_chain_id, polygon_chain_id, ChainId, Network};
 use crate::http::response::ApiError;
+use crate::ports::coupons::merkle::collection_proof_hex;
 
 pub(super) fn top_level_category(item_type: Option<&str>) -> &'static str {
     if item_type
@@ -40,6 +43,54 @@ pub(super) fn listing_type(trade_type: &str) -> &'static str {
 
 pub(super) fn parse_available(available: Option<&str>) -> i64 {
     available.and_then(|s| s.parse::<i64>().ok()).unwrap_or(1)
+}
+
+/// The coupon payload with the Merkle proof for this listing's collection, built from the
+/// coupons port's own tree so the shop and the CouponManager can never disagree about a root.
+///
+/// A coupon whose proof cannot be built is dropped and logged rather than shown: a sale the
+/// checkout cannot settle is worse than no sale.
+pub(super) fn to_shop_coupon(raw: Option<JsonValue>, contract_address: &str) -> Option<ShopCoupon> {
+    let raw = raw?;
+    let row: ShopCouponRow = match serde_json::from_value(raw) {
+        Ok(row) => row,
+        Err(err) => {
+            tracing::warn!(contract_address = %contract_address, error = %err, "dropping unreadable catalogue coupon");
+            return None;
+        }
+    };
+    match collection_proof_hex(&row.collections, contract_address) {
+        Ok(proof) => Some(ShopCoupon { row, proof }),
+        Err(err) => {
+            tracing::warn!(
+                coupon_id = %row.id,
+                contract_address = %contract_address,
+                error = %err,
+                "dropping catalogue coupon whose collection proof could not be built"
+            );
+            None
+        }
+    }
+}
+
+/// A sale only counts once BOTH prices are rounded up to whole credits and still differ: a
+/// coupon that rounds away would otherwise advertise a discount the buyer cannot see.
+pub(super) fn shop_sale_fields(
+    on_sale: bool,
+    compare_at_credits: Option<i64>,
+    sale_ends_at: Option<i64>,
+    sale_units_left: Option<i64>,
+    coupon: Option<ShopCoupon>,
+) -> ShopSaleFields {
+    if !on_sale {
+        return ShopSaleFields::default();
+    }
+    ShopSaleFields {
+        compare_at_credits,
+        sale_ends_at,
+        sale_units_left,
+        coupon,
+    }
 }
 
 pub struct ShopCatalogComponent {
@@ -76,7 +127,20 @@ impl ShopCatalogComponent {
 
         let mut data = Vec::with_capacity(rows.len());
         for r in rows {
-            let Some(price_credits) = r.price.as_deref().and_then(to_credits) else {
+            let contract_address = r.contract_address.unwrap_or_default();
+            let list_price_credits = r.price.as_deref().and_then(to_credits);
+            let sale_price_credits = r.sale_price.as_deref().and_then(to_credits);
+            let coupon = to_shop_coupon(r.coupon, &contract_address);
+            let on_sale = match (&coupon, sale_price_credits, list_price_credits) {
+                (Some(_), Some(sale), Some(list)) => sale < list,
+                _ => false,
+            };
+            let price_credits = if on_sale {
+                sale_price_credits
+            } else {
+                list_price_credits
+            };
+            let Some(price_credits) = price_credits else {
                 tracing::warn!(
                     trade_id = %r.trade_id,
                     price = r.price.as_deref().unwrap_or(""),
@@ -88,7 +152,7 @@ impl ShopCatalogComponent {
             data.push(ShopListing {
                 trade_id: r.trade_id,
                 listing_type: listing_type(&r.trade_type).to_string(),
-                contract_address: r.contract_address.unwrap_or_default(),
+                contract_address,
                 item_id: r.item_id,
                 token_id: r.token_id,
                 name: r.name.unwrap_or_default(),
@@ -101,6 +165,13 @@ impl ShopCatalogComponent {
                 seller: r.seller,
                 issued_id: r.issued_id,
                 price_credits,
+                sale: shop_sale_fields(
+                    on_sale,
+                    list_price_credits.map(|c| c as i64),
+                    r.sale_ends_at,
+                    r.sale_units_left,
+                    coupon,
+                ),
                 available: parse_available(r.available.as_deref()),
                 network,
                 chain_id,

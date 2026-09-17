@@ -31,6 +31,7 @@ fn related_reuses_the_item_unified_core_for_one_card_per_item() {
         "3",
         &reference("wearable", Some("hat"), Some("rare")),
         None,
+        &RelatedItemsFilters::default(),
         0.5,
     );
     assert!(
@@ -56,6 +57,7 @@ fn related_hard_filters_on_the_anchor_category_and_subcategory() {
         "3",
         &reference("wearable", Some("hat"), Some("rare")),
         None,
+        &RelatedItemsFilters::default(),
         0.5,
     );
     assert_eq!(
@@ -84,6 +86,7 @@ fn related_filters_emotes_to_emotes_when_the_anchor_is_an_emote() {
         "3",
         &reference("emote", Some("dance"), Some("rare")),
         None,
+        &RelatedItemsFilters::default(),
         0.5,
     );
     assert_eq!(
@@ -105,10 +108,11 @@ fn related_falls_back_to_top_level_category_when_the_anchor_has_no_subcategory()
         "3",
         &reference("wearable", None, Some("rare")),
         None,
+        &RelatedItemsFilters::default(),
         0.5,
     );
     assert!(sql.contains("NOT ILIKE 'emote%'"), "{sql}");
-    assert!(!sql.contains("= ANY("), "{sql}");
+    assert!(!sql.contains("= ANY($"), "{sql}");
     assert!(bind_arrays(&binds).is_empty(), "{binds:?}");
 }
 
@@ -119,6 +123,7 @@ fn related_excludes_the_anchor_with_a_null_safe_disjunction() {
         "3",
         &reference("wearable", Some("hat"), Some("rare")),
         None,
+        &RelatedItemsFilters::default(),
         0.5,
     );
     assert!(sql.contains("d.contract_address <> $"), "{sql}");
@@ -136,6 +141,7 @@ fn related_orders_by_rarity_distance_then_recency_then_trade_id() {
         "3",
         &reference("wearable", Some("hat"), Some("rare")),
         None,
+        &RelatedItemsFilters::default(),
         0.5,
     );
     assert!(sql.contains("ORDER BY CASE lower(d.rarity)"), "{sql}");
@@ -156,6 +162,7 @@ fn related_applies_no_rarity_preference_when_the_anchor_rarity_is_missing() {
             "3",
             &reference("wearable", Some("hat"), anchor_rarity),
             None,
+            &RelatedItemsFilters::default(),
             0.5,
         );
         assert!(
@@ -166,17 +173,98 @@ fn related_applies_no_rarity_preference_when_the_anchor_rarity_is_missing() {
     }
 }
 
+/// The rail is drawn from the same universe as the grid, so it takes the same two filters --
+/// a rail showing a row the grid excludes would contradict the page around it. The opt-in
+/// governs the LEGACY branch only; native resales reach the rail unconditionally, which is why
+/// `listingType` is needed here too.
+#[test]
+fn related_takes_the_same_listing_filters_as_the_grid() {
+    const PRIMARY: &str = "AND mv.type = 'public_item_order'";
+    const SECONDARY: &str = "AND mv.type <> 'public_item_order'";
+    let anchor = reference("wearable", Some("hat"), Some("rare"));
+
+    let (baseline, _) = build_related_items_sql(
+        "0xcollection",
+        "3",
+        &anchor,
+        None,
+        &RelatedItemsFilters::default(),
+        0.5,
+    );
+    let baseline_primaries = occurrences(&baseline, PRIMARY);
+    assert!(!baseline.contains(SECONDARY), "{baseline}");
+
+    let (opened, _) = build_related_items_sql(
+        "0xcollection",
+        "3",
+        &anchor,
+        None,
+        &RelatedItemsFilters {
+            include_legacy_secondary: true,
+            listing_type: None,
+        },
+        0.5,
+    );
+    assert_eq!(
+        occurrences(&opened, PRIMARY),
+        baseline_primaries - 1,
+        "{opened}"
+    );
+
+    let (secondary, _) = build_related_items_sql(
+        "0xcollection",
+        "3",
+        &anchor,
+        None,
+        &RelatedItemsFilters {
+            include_legacy_secondary: false,
+            listing_type: Some(ShopListingType::Secondary),
+        },
+        0.5,
+    );
+    assert!(secondary.contains(SECONDARY), "{secondary}");
+}
+
+#[test]
+fn related_handler_filters_are_read_off_the_query_string() {
+    let pairs = vec![
+        ("includeLegacySecondary".to_string(), "true".to_string()),
+        ("listingType".to_string(), "secondary".to_string()),
+    ];
+    let parsed = parse_related_filters(&pairs);
+    assert!(parsed.include_legacy_secondary);
+    assert_eq!(parsed.listing_type, Some(ShopListingType::Secondary));
+
+    let defaults = parse_related_filters(&[]);
+    assert!(!defaults.include_legacy_secondary);
+    assert_eq!(defaults.listing_type, None);
+}
+
 #[test]
 fn related_clamps_the_limit_to_the_rail_cap_and_never_paginates() {
     let anchor = reference("wearable", Some("hat"), Some("rare"));
 
-    let (sql, binds) = build_related_items_sql("0xcollection", "3", &anchor, Some(9999), 0.5);
+    let (sql, binds) = build_related_items_sql(
+        "0xcollection",
+        "3",
+        &anchor,
+        Some(9999),
+        &RelatedItemsFilters::default(),
+        0.5,
+    );
     assert!(sql.contains("LIMIT $"), "{sql}");
     assert!(!sql.contains("OFFSET"), "{sql}");
     assert!(!sql.contains("COUNT(*) OVER() AS total"), "{sql}");
     assert!(bind_ints(&binds).contains(&RELATED_MAX_LIMIT), "{binds:?}");
 
-    let (_, binds) = build_related_items_sql("0xcollection", "3", &anchor, None, 0.5);
+    let (_, binds) = build_related_items_sql(
+        "0xcollection",
+        "3",
+        &anchor,
+        None,
+        &RelatedItemsFilters::default(),
+        0.5,
+    );
     assert!(
         bind_ints(&binds).contains(&RELATED_DEFAULT_LIMIT),
         "{binds:?}"
@@ -190,6 +278,7 @@ fn related_inherits_the_overflow_bound_and_trade_over_store_tiebreak_from_the_co
         "3",
         &reference("wearable", Some("hat"), Some("rare")),
         None,
+        &RelatedItemsFilters::default(),
         0.5,
     );
     assert!(
@@ -521,6 +610,7 @@ fn related_items_include_social_emotes_by_default() {
         "7",
         &reference("emote", None, Some("rare")),
         None,
+        &RelatedItemsFilters::default(),
         0.5,
     );
     assert!(
@@ -528,5 +618,35 @@ fn related_items_include_social_emotes_by_default() {
             "COALESCE(item_p.search_emote_outcome_type, item_s.search_emote_outcome_type) IS NULL"
         ),
         "related rail must not drop social emotes by default: {sql}"
+    );
+}
+
+/// The suggestions rail resolves the candidates' collections before hydrating, so the union the
+/// core builds is narrowed to them rather than to the whole catalogue and then filtered.
+#[test]
+fn items_by_ids_narrows_the_core_to_the_candidate_collections() {
+    let ids = vec!["0xaaa-1".to_string(), "0xbbb-2".to_string()];
+    let (wide, _) = build_items_by_ids_sql(&ids, None, 0.5);
+    assert!(!wide.contains("mv.sent_contract_address = ANY("), "{wide}");
+
+    let (narrow, binds) = build_items_by_ids_sql(
+        &ids,
+        Some(vec!["0xAAA".to_string(), "0xBBB".to_string()]),
+        0.5,
+    );
+    assert!(
+        narrow.contains("mv.sent_contract_address = ANY("),
+        "{narrow}"
+    );
+    assert!(
+        narrow.contains("(d.contract_address || '-' || d.item_id) = ANY("),
+        "{narrow}"
+    );
+    assert!(
+        binds.iter().any(|b| matches!(
+            b,
+            Bind::TextArray(values) if values == &vec!["0xaaa".to_string(), "0xbbb".to_string()]
+        )),
+        "collections reach the query lowercased"
     );
 }

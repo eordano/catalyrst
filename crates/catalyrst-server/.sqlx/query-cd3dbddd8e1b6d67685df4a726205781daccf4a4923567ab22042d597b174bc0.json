@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT entity_id, entity_type, reason, auth_chain, error_description, COALESCE(snapshot_hash, '') AS \"snapshot_hash!\" FROM failed_deployments",
+  "query": "SELECT entity_id, entity_type, reason, auth_chain, error_description, COALESCE(snapshot_hash, '') AS \"snapshot_hash!\", retry_count, date_part('epoch', next_retry_at) * 1000 AS \"next_retry_at!\", date_part('epoch', failure_time) * 1000 AS \"failure_timestamp!\" FROM failed_deployments",
   "describe": {
     "columns": [
       {
@@ -63,6 +63,29 @@
         "name": "snapshot_hash!",
         "type_info": "Text",
         "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "retry_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "failed_deployments",
+            "name": "retry_count"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "next_retry_at!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "failure_timestamp!",
+        "type_info": "Float8",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -74,8 +97,11 @@
       false,
       false,
       false,
+      null,
+      false,
+      null,
       null
     ]
   },
-  "hash": "63b4760815a61b48a7b91d0bc2d42c0523a72950df1dc8feecdd028eada26288"
+  "hash": "cd3dbddd8e1b6d67685df4a726205781daccf4a4923567ab22042d597b174bc0"
 }

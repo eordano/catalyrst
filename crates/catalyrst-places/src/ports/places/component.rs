@@ -7,7 +7,8 @@ use crate::http::errors::ApiError;
 use super::content_quality::ROAD_POSITIONS_TABLE;
 use super::query::{
     bind_param, build_live_user_count_order, build_order_by, build_where, description_plain_sql,
-    destinations_highlighted_prefix, destinations_ranking_prefix, EXCLUDE_FROM_RANKING_SQL,
+    destinations_highlighted_prefix, destinations_ranking_prefix, order_tail,
+    EXCLUDE_FROM_RANKING_SQL, SHOW_IN_PLACES_SQL,
 };
 use super::rows::{
     place_columns, row_to_place, row_to_poi, row_to_report, CategoryTarget, PlaceListFilters,
@@ -549,16 +550,15 @@ impl PlacesComponent {
         &self,
         entity_id: &str,
         highlighted: bool,
-    ) -> Result<(), ApiError> {
-        let Some(writer) = self.writer.as_ref() else {
-            return Ok(());
-        };
-        sqlx::query("UPDATE place SET highlighted = $2 WHERE id = $1")
+    ) -> Result<u64, ApiError> {
+        let writer = self.place_writer()?;
+        let updated = sqlx::query("UPDATE place SET highlighted = $2 WHERE id = $1")
             .bind(entity_id)
             .bind(highlighted)
             .execute(writer)
-            .await?;
-        Ok(())
+            .await?
+            .rows_affected();
+        Ok(updated)
     }
 
     pub async fn set_ranking(
@@ -976,6 +976,7 @@ impl PlacesComponent {
             &rank_prefix,
             order,
             dir,
+            order_tail(f),
         );
         let sql = format!(
             r#"
@@ -1076,13 +1077,14 @@ impl PlacesComponent {
     }
 
     pub async fn world_names(&self) -> Result<Vec<String>, ApiError> {
-        let rows = sqlx::query(
+        let sql = format!(
             "SELECT DISTINCT world_name FROM place_indexed \
              WHERE world IS TRUE AND world_name IS NOT NULL \
-             AND COALESCE((raw->>'show_in_places')::bool, true) IS TRUE ORDER BY 1",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+             AND {SHOW_IN_PLACES_SQL} IS TRUE ORDER BY 1"
+        );
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows
             .into_iter()
             .filter_map(|r| r.try_get::<Option<String>, _>("world_name").ok().flatten())

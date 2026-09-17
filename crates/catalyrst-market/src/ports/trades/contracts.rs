@@ -40,10 +40,23 @@ pub fn offchain_marketplace_v2(chain_id: i64) -> Option<OffChainMarketplace> {
     }
 }
 
-/// decentraland-transactions 3.1.1 `offChainMarketplaceV3`: testnets only
-/// until a mainnet deployment lands in the registry.
+/// decentraland-transactions 3.3.0 `offChainMarketplaceV3`, now deployed on both mainnets as
+/// well: while two versions are live a trade signed against either one verifies, and a new one
+/// settles on V3.
 pub fn offchain_marketplace_v3(chain_id: i64) -> Option<OffChainMarketplace> {
     match chain_id {
+        ETHEREUM_MAINNET => Some(OffChainMarketplace {
+            name: "DecentralandMarketplaceEthereum",
+            version: "1.0.0",
+            address: "0x0f11d0d1671519683bd48abf3dbe779e300941cd",
+            cancels_by_digest: true,
+        }),
+        MATIC_MAINNET => Some(OffChainMarketplace {
+            name: "DecentralandMarketplacePolygon",
+            version: "1.0.0",
+            address: "0xe38ef22abe871513555cba89adfe45ab4f548ada",
+            cancels_by_digest: true,
+        }),
         ETHEREUM_SEPOLIA => Some(OffChainMarketplace {
             name: "DecentralandMarketplaceEthereum",
             version: "1.0.0",
@@ -124,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn candidates_run_newest_first_and_mainnet_has_only_v2() {
+    fn candidates_run_newest_first_on_every_chain_that_has_two() {
         let amoy = offchain_marketplaces(MATIC_AMOY);
         assert_eq!(amoy.len(), 2);
         assert!(amoy[0].cancels_by_digest);
@@ -138,10 +151,29 @@ mod tests {
             sepolia[0].address,
             "0x257db44ac97789c16ab277eae87dcde0c246cc9f"
         );
-        for mainnet in [ETHEREUM_MAINNET, MATIC_MAINNET] {
+        for (mainnet, v3) in [
+            (
+                ETHEREUM_MAINNET,
+                "0x0f11d0d1671519683bd48abf3dbe779e300941cd",
+            ),
+            (MATIC_MAINNET, "0xe38ef22abe871513555cba89adfe45ab4f548ada"),
+        ] {
             let candidates = offchain_marketplaces(mainnet);
-            assert_eq!(candidates, vec![offchain_marketplace_v2(mainnet).unwrap()]);
+            assert_eq!(
+                candidates,
+                vec![
+                    offchain_marketplace_v3(mainnet).unwrap(),
+                    offchain_marketplace_v2(mainnet).unwrap()
+                ]
+            );
+            assert_eq!(candidates[0].address, v3);
+            assert!(candidates[0].cancels_by_digest);
         }
+    }
+
+    #[test]
+    fn a_chain_without_an_off_chain_marketplace_lists_nothing() {
+        assert!(offchain_marketplaces(5).is_empty());
     }
 
     #[test]

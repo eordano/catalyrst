@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -11,6 +12,7 @@ import { data, useLoaderData } from "react-router";
 
 import { isIdentityExpired } from "@data/lib/auth/expiry";
 import type { AuthIdentity } from "@data/lib/auth/types";
+import { formatUntrustedLabel } from "@data/lib/auth/untrusted-label";
 import {
   connectWallet,
   getConnectedAddress,
@@ -19,6 +21,16 @@ import {
   walletProvider,
 } from "@data/lib/auth/wallet";
 
+import {
+  AUTH_API_TIMEOUT_MS,
+  handoffWithDeadline,
+  loadRequest,
+  postOutcome,
+  reportOutcome,
+  requiresValidation,
+  validationRequirement,
+  withDeadline,
+} from "../lib/auth-api-client";
 import {
   completeDeepLinkSignIn,
   getAuthRequestId,
@@ -33,7 +45,7 @@ import {
 } from "../lib/auth-deeplink";
 import {
   acknowledgmentBlocked,
-  gatesOnMessageReading,
+  gatesOnPayloadReading,
   isScrolledToEnd,
 } from "../lib/auth-message-scroll";
 import { runExclusive } from "../lib/auth-reentrancy";
@@ -52,12 +64,11 @@ import {
   type UnverifiableReason,
 } from "../lib/auth-request-params";
 import {
-  parseRecoverResponse,
+  isRequestExpired,
   recoverAuthRequest,
-  type LoadResult,
-  type OutcomeError,
   type ReadyRequest,
 } from "../lib/auth-request-recovery";
+import { MALICIOUS_REQUEST_TITLE, requestWarnings } from "../lib/auth-request-warnings";
 import {
   escapeUnreadableTypedDataText,
   sanitizeTypedDataForDisplay,
@@ -70,7 +81,6 @@ export function meta(_args: Route.MetaArgs) {
   return [{ title: "Approve sign-in request \u{2014} Decentraland" }];
 }
 
-const AUTH_API = "/auth-api";
 const ID_RE = /^[0-9a-fA-F-]{30,80}$/;
 const NO_STORE = { headers: { "cache-control": "no-store" } };
 
@@ -106,54 +116,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 const INVALID_DEEP_LINK_ID_MESSAGE = "The sign-in link is invalid.";
-
-async function loadRequest(id: string): Promise<LoadResult> {
-  let res: Response;
-  try {
-    res = await fetch(`${AUTH_API}/v2/requests/${encodeURIComponent(id)}`, {
-      headers: { accept: "application/json" },
-      cache: "no-store",
-    });
-  } catch {
-    return { kind: "error", message: "Couldn't reach the sign-in server." };
-  }
-  if (res.ok) {
-    const request = parseRecoverResponse(await res.json().catch(() => null));
-    return request
-      ? { kind: "ok", request }
-      : { kind: "error", message: "The sign-in server returned an unexpected response." };
-  }
-  const body = (await res.json().catch(() => null)) as { error?: string } | null;
-  const err = body?.error ?? "";
-  if (/already been fulfilled|already has a response/.test(err)) return { kind: "fulfilled" };
-  if (/has expired/.test(err)) return { kind: "expired" };
-  if (/not found/.test(err)) return { kind: "not_found" };
-  return { kind: "error", message: err || `The request couldn't be loaded (${res.status}).` };
-}
-
-async function requiresValidation(id: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${AUTH_API}/v2/requests/${encodeURIComponent(id)}/validation`, {
-      cache: "no-store",
-    });
-    if (!res.ok) return false;
-    const body = (await res.json()) as { requiresValidation?: boolean };
-    return body?.requiresValidation === true;
-  } catch {
-    return false;
-  }
-}
-
-async function postOutcome(
-  id: string,
-  body: { sender: string; result?: unknown; error?: OutcomeError },
-): Promise<Response> {
-  return fetch(`${AUTH_API}/v2/requests/${encodeURIComponent(id)}/outcome`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
 
 const RDNS_BY_METHOD: Record<string, string> = {
   metamask: "io.metamask",
@@ -203,7 +165,9 @@ function messageDetail(params: unknown[]): string {
 const MAX_LISTED_DROPPED_FIELDS = 3;
 
 function droppedFieldsNote(dropped: string[]): string {
-  const listed = dropped.slice(0, MAX_LISTED_DROPPED_FIELDS).map(escapeUnreadableTypedDataText);
+  const listed = dropped
+    .slice(0, MAX_LISTED_DROPPED_FIELDS)
+    .map((name) => formatUntrustedLabel(name));
   const rest = dropped.length - listed.length;
   return truncateForDisplay(
     `Not sent to the wallet: ${listed.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}`,
@@ -343,6 +307,17 @@ const ackRow: CSSProperties = {
   margin: "14px 2px 4px",
   fontSize: 14,
 };
+const warningBox: CSSProperties = {
+  ...subtle,
+  margin: "12px 0 4px",
+  padding: "12px 14px",
+  borderRadius: 8,
+  background: "#2c2837",
+  textAlign: "left",
+  fontSize: 13,
+};
+const warningTitle: CSSProperties = { margin: "0 0 6px", fontWeight: 600, color: "#fcfcfc" };
+const warningList: CSSProperties = { margin: 0, paddingLeft: 18, lineHeight: 1.6 };
 const brandFooter: CSSProperties = {
   ...subtle,
   fontSize: 12,
@@ -381,6 +356,14 @@ export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
   const isApprovingRef = useRef(false);
   const isDenyingRef = useRef(false);
   const isDeepLinkSigningRef = useRef(false);
+  const isReviewedRef = useRef(true);
+
+  useEffect(() => {
+    isReviewedRef.current = true;
+    return () => {
+      isReviewedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!startsRequestRecovery(loaded) || startedRef.current) return;
@@ -392,7 +375,12 @@ export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
         load: loadRequest,
         requiresValidation,
         connectedAddress: () => getConnectedAddress().catch(() => null),
-        postOutcome,
+        postOutcome: (id, body) =>
+          withDeadline(
+            postOutcome(id, body).then((res) => ({ ok: res.ok })),
+            AUTH_API_TIMEOUT_MS,
+            { ok: false },
+          ),
       });
       if (cancelled) return;
 
@@ -472,16 +460,16 @@ export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
 
       const wallet = buildWalletRequest(request, sender);
       if (!wallet.ok) {
-        await postOutcome(loaded.id, {
+        await reportOutcome(loaded.id, {
           sender,
           error: rejectionOutcome(wallet.rejection),
-        }).catch(() => null);
+        });
         setRejection(wallet.rejection);
         setPhase("unsupported");
         return;
       }
 
-      if (mustValidate && !(await requiresValidation(loaded.id))) {
+      if (mustValidate && (await validationRequirement(loaded.id)) === false) {
         setMustValidate(false);
       }
 
@@ -491,10 +479,17 @@ export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
         return;
       }
 
+      if (!isReviewedRef.current) return;
+      if (isRequestExpired(request.expiration)) {
+        setPhase("expired");
+        return;
+      }
+
       let executed = false;
       try {
         const result = await walletProvider().request(wallet.request);
         executed = true;
+        setPhase("done");
         const res = await postOutcome(loaded.id, { sender, result });
         if (!res.ok) {
           const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -503,22 +498,21 @@ export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
             throw new Error(message || `The approval couldn't be recorded (${res.status}).`);
           }
         }
-        setPhase("done");
       } catch (err) {
         if (executed) {
-          setPhase("done");
+          console.error("Error delivering the outcome of an executed wallet interaction", err);
           return;
         }
         if (isUserRejection(err)) {
-          await postOutcome(loaded.id, {
+          await reportOutcome(loaded.id, {
             sender,
             error: { code: RPC_USER_REJECTED, message: "Request rejected" },
-          }).catch(() => null);
+          });
           setPhase("denied");
           return;
         }
         const message = (err as Error)?.message ?? "The wallet couldn't complete the request.";
-        await postOutcome(loaded.id, { sender, error: { code: 999, message } }).catch(() => null);
+        await reportOutcome(loaded.id, { sender, error: { code: 999, message } });
         setError(message);
         setPhase("error");
       }
@@ -578,7 +572,8 @@ export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
         },
         createIdentity: (sender) =>
           createIdentityFor(sender, { expirationMs: DEEPLINK_IDENTITY_EXPIRATION_MS }),
-        postIdentity: (identity) => postIdentityHandoff(identity, loaded.authApiUrl),
+        postIdentity: (identity) =>
+          handoffWithDeadline((opts) => postIdentityHandoff(identity, loaded.authApiUrl, opts)),
         isUserRejection,
       });
 
@@ -853,7 +848,7 @@ export function ApprovalCard({
   onApprove,
   onDeny,
 }: ApprovalCardProps) {
-  const summary = describeRequest(request);
+  const summary = useMemo(() => describeRequest(request), [request]);
   const isTransaction = request.method === "eth_sendTransaction";
   const blocked = approveBlocked({
     isSigning,
@@ -863,15 +858,17 @@ export function ApprovalCard({
     effectsAcknowledged,
   });
 
-  const gatesOnReading = gatesOnMessageReading(request.method, unverifiable);
+  const gatesOnReading = gatesOnPayloadReading(unverifiable);
   const detailRef = useRef<HTMLPreElement>(null);
   const [readToEnd, setReadToEnd] = useState(true);
   const measureDetail = useCallback(() => {
     const element = detailRef.current;
-    if (element) setReadToEnd(isScrolledToEnd(element));
+    if (element && isScrolledToEnd(element)) setReadToEnd(true);
   }, []);
   useIsomorphicLayoutEffect(() => {
     if (!gatesOnReading) return;
+    if (detailRef.current) detailRef.current.scrollTop = 0;
+    setReadToEnd(false);
     measureDetail();
     window.addEventListener("resize", measureDetail);
     return () => window.removeEventListener("resize", measureDetail);
@@ -895,10 +892,25 @@ export function ApprovalCard({
         tab {"\u{2014}"} someone may be trying to trick you.
       </p>
 
-      <p style={{ ...subtle, fontWeight: 600, color: "#fcfcfc", margin: "18px 0 4px", textAlign: "left" }}>
+      <p
+        id="auth-payload-label"
+        style={{ ...subtle, fontWeight: 600, color: "#fcfcfc", margin: "18px 0 4px", textAlign: "left" }}
+      >
         {summary.title}
       </p>
-      <pre style={detailBox} ref={detailRef} onScroll={measureDetail}>
+      {isTransaction ? null : (
+        <p style={{ ...subtle, fontSize: 13, textAlign: "left", margin: "0 0 6px" }}>
+          Wallet method <span style={chip}>{request.method}</span>
+        </p>
+      )}
+      <pre
+        style={detailBox}
+        ref={detailRef}
+        onScroll={measureDetail}
+        role="region"
+        aria-labelledby="auth-payload-label"
+        tabIndex={0}
+      >
         {summary.detail}
       </pre>
       {summary.note ? (
@@ -936,9 +948,17 @@ export function ApprovalCard({
           </p>
           {ackBlocked ? (
             <p style={{ ...subtle, fontSize: 13, textAlign: "left", margin: "8px 2px 0" }}>
-              Scroll to the end of the message before continuing.
+              Scroll to the end of the content before continuing.
             </p>
           ) : null}
+          <div style={warningBox} role="alert">
+            <p style={warningTitle}>{MALICIOUS_REQUEST_TITLE}</p>
+            <ul style={warningList}>
+              {requestWarnings(request.method).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
           <label style={ackRow}>
             <input
               type="checkbox"
@@ -948,7 +968,8 @@ export function ApprovalCard({
               style={{ marginTop: 3 }}
             />
             <span>
-              {`I understand the effects of this ${isTransaction ? "transaction" : "signature"} couldn't be verified.`}
+              I have read everything above and I take full responsibility for what this action does
+              with my wallet, including any loss of assets.
             </span>
           </label>
         </>
@@ -960,7 +981,7 @@ export function ApprovalCard({
         </p>
       ) : null}
 
-      <button style={button} onClick={onApprove} disabled={blocked}>
+      <button style={button} onClick={onApprove} disabled={blocked || ackBlocked}>
         {isSigning ? "Waiting for your wallet\u{2026}" : "Approve in wallet"}
       </button>
       <button style={denyButton} onClick={onDeny} disabled={isSigning}>

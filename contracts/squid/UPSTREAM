@@ -113,3 +113,176 @@ rev    = 065f5d2d4b0f2e0b8563736f16bc5b9c244897ea
 #   no-comment rule); the semantics are pinned by the ported sale-attribution cases in
 #   src/common/utils/offChainMarketplace.test.ts, whose stale "this tree does not carry
 #   #95/#96" caveat is now gone.
+# - 2026-09-14 sweep: b81f7ee (#120 grant the reporting reader on each new squid
+#   schema) ported into indexer.sh -- REPORTING_READER_USER="meltano_dapps_ro" plus
+#   the two list appends (GRANT USAGE ON SCHEMA, and ALTER DEFAULT PRIVILEGES ...
+#   GRANT SELECT ON TABLES). FIDELITY ONLY: indexer.sh is a vendored reference
+#   script, kept text-synced to upstream (src/common/utils/schemaEnv.test.ts pins its
+#   SQUID_SCHEMA lines) and never executed here -- the units exec the nix-wrapped
+#   lib/*/main.js off an EnvironmentFile, and the deployment's bootstrap-squid.sh
+#   creates the role/db/schema without the per-schema GRANT dance. meltano_dapps_ro is
+#   upstream's BI reader and has no analog on this machine's clusters, so the port has
+#   zero operational effect; it keeps the script diffable against upstream. The file
+#   now matches upstream b81f7ee except for the explanatory `#` comments the house
+#   no-comment rule strips.
+# - portal-source-object-only (fork cleanup, 2026-09-14): PortalSource lost its dead
+#   `| string` arm. portalSource() builds the object shape on both branches and its only
+#   callers (src/{eth,polygon}/processor.ts .setPortal) consume that return value
+#   directly; publicPortalDataset() returns a plain string and is typed as such.
+#   Upstream has no named PortalSource type at all (portalSource() there returns an
+#   inline object type), so there is no upstream shape to preserve.
+# - portal-key-fail-open-loud (FORK-DIVERGENT from upstream, 2026-09-14): upstream's
+#   portalSource() hard-requires the key -- `"x-api-key": assertNotNull(process.env.
+#   SQD_PORTAL_API_KEY, ...)` -- so an unset key stops the boot. We keep the key-less
+#   fallback to the unauthenticated public Portal, because the ETH filter is small
+#   enough for the public endpoint and src/polygon/tools/collectionsRetriever.ts runs
+#   key-less by design; adopting assertNotNull would break both. What was WEAKER than
+#   upstream is now fixed: the fallback branch emits an error-level `[PORTAL]`
+#   diagnostic naming SQD_PORTAL_API_KEY and the consequence, so a key-less Polygon
+#   processor no longer retries a permanently-rejected `400 Query is too large` query
+#   forever in silence (retryAttempts stays Infinity). The returned object is byte-
+#   identical on both branches; src/common/utils/portal.test.ts pins the shape AND
+#   that the diagnostic fires only on the key-less path. Drop this once the squid
+#   unit env provisions SQD_PORTAL_API_KEY, after which assertNotNull could be
+#   reconsidered for the processors only.
+# - 2026-09-15 sweep: 4f013f4 (#124 strip NUL bytes from indexed strings before
+#   persisting) ported verbatim -- stripNul() in src/common/utils/utils.ts (same
+#   /\u0000/g regex and signature) plus all six upstream call sites: buildData() in
+#   src/common/utils/data.ts (param csv -> rawCsv, `const csv = stripNul(rawCsv)` as
+#   the first statement, BEFORE the charAt(0) version check, so a payload whose "0"
+#   marker is preceded by a NUL is now accepted), ens.subdomain (handleNameRegistered),
+#   estate.rawData in BOTH handleCreateEstate and handleUpdate, collection.name +
+#   collection.symbol in handleAddItemV1, and parcel.rawData in handleUpdate. The
+#   buildData(id, _data/data, ...) calls still pass the raw variable, as upstream does,
+#   because buildData strips internally. Upstream's five-line rationale comment above
+#   stripNul and its one-liner in buildData are NOT carried (house no-comment rule);
+#   the semantics are pinned by src/common/utils/utils.test.ts, which mirrors upstream's
+#   five stripNul cases and adds three fork-only buildData cases (upstream has none)
+#   that pin the strip-before-validate ORDERING -- the part of the fix that actually
+#   changes acceptance behavior. src/polygon/** is deliberately NOT stripped: upstream's
+#   own 4f013f4 touches only common/utils/ and eth/handlers/ (7 files), and buildData is
+#   called only from src/eth/handlers/{estate.ts:60,268, parcel.ts:39}, so the polygon
+#   metadata writers get nothing for free -- see the polygon watch item below.
+# - portal-diagnostic-dataset-aware (fork-only, 2026-09-15, closes S-portal2): the
+#   `if (!apiKey)` branch of portalSource() now picks its consequence clause from
+#   dataset.startsWith("polygon-"). The Polygon arm keeps the 256 KiB query-cap /
+#   400 Query is too large text (PORTAL_DATASET is `polygon-mainnet` or
+#   `polygon-amoy-testnet` in src/polygon/processor.ts:31); every other dataset
+#   (`ethereum-mainnet` / `ethereum-sepolia`, src/eth/processor.ts:25) now names itself
+#   and states the real consequence (public-tier rate limits, no quota guarantees)
+#   instead of asserting a Polygon-only failure on the ETH path. Diagnostic text only:
+#   the returned PortalSource is byte-identical on every path. portal.test.ts's seven
+#   pre-existing assertions are unchanged and two cases were added.
+# - polygon-nul-exposure (WATCH ITEM, opened 2026-09-15, deliberately NOT fixed): the
+#   NUL-poisoning failure mode 4f013f4 closes on the ETH side is still open on Polygon.
+#   src/polygon/modules/metadata/wearable/index.ts:38-39 and .../emote/index.ts:40-41
+#   (name/description out of the tokenURI CSV) and src/polygon/modules/rarity.ts:21 /
+#   src/polygon/handlers/collectionManager.ts:37,56 (rarity.name) write on-chain strings
+#   into TEXT columns without stripNul, and buildData() -- the one shared writer that
+#   does strip -- is called only from the two ETH handlers, so the common fix does not
+#   reach them. Upstream 4f013f4 does not touch src/polygon/**, so porting would put us
+#   AHEAD of upstream; left alone on purpose. Consequence if it fires: the batch write
+#   throws `invalid byte sequence for encoding "UTF8": 0x00`, the batch transaction
+#   aborts and the processor retries the same batch forever, wedging the Polygon indexer
+#   at that block. This deploy does NOT unwedge an already-wedged Polygon processor. Take
+#   the polygon hunks the moment upstream ships them; re-check src/polygon/** on the next
+#   sweep.
+# - 2026-09-17 sweep: dd72e10 (#125 make the amoy contract addresses match the logs
+#   they are compared to) ported in full -- src/polygon/addresses/amoy.ts lowercases
+#   CollectionFactory, Marketplace and OldCommittee (same values, case only; Subsquid
+#   log addresses arrive lowercase and src/polygon/main.ts's batch-relevance check,
+#   isMarketplaceV1 and the V1 fee-cut branch all compare with ===, so those three
+#   comparisons were silently always false on Amoy and a batch whose only interesting
+#   logs came from them was dropped); src/polygon/main.ts drops the dead
+#   `log.address === addresses.ERC721Bid` disjunct (no Polygon address file exports
+#   ERC721Bid -- Bid v1 is Ethereum-only -- so it compared against undefined on every
+#   log, and BidV2 beside it already covers Polygon's only bid contract); and
+#   src/common/utils/addresses.test.ts is taken VERBATIM (upstream's own file is
+#   already node:test/node:assert, so no runner adaptation was needed, only the
+#   house no-comment strip): it walks the four address modules -- arrays and plain
+#   objects included, so polygon CreditsManager[] and eth collections{} are covered --
+#   asserts every 0x-prefixed value matches /^0x[0-9a-f]{40}$/ naming the offending
+#   path, and pins that the walk really descends past the top level.
+# - 2026-09-17 sweep: 3a97f0d (#121 index the mainnet off-chain marketplace v3) ported
+#   in full, all three behaviors. This also RESOLVES the standing DECISION item
+#   trades-squid-core a993dd6 (#48): we are no longer fork-ahead on the mainnet V3
+#   addresses, upstream fills the same two.
+#   (1) FEE RESOLUTION BY EMITTING CONTRACT. New src/common/utils/feeCache.ts
+#   (createFeeCache<T>(empty, merge) -> {begin,end,view,write,reset}) carries the
+#   three-tier staging shared by both chains: committed map, a staged map for the open
+#   batch, and one parked {fromBlock,toBlock,writes} slot promoted only when a later
+#   batch starts past the parked batch's last block (the processor advances only past a
+#   range it committed). begin() clears everything on a rollback into promoted history,
+#   promotes on a clean advance, invalidates just the parked keys on a partial
+#   re-delivery (a start INSIDE the parked range never replays the updates before it),
+#   and drops the parked writes on a plain retry. Keys are lowercased on view/write.
+#   ETH src/eth/state.ts gains offChainMarketplaceFeeCache plus
+#   begin/endOffChainMarketplaceFeeBatch, resetOffChainMarketplaceContractData,
+#   setOffChainMarketplaceFeeRate(marketplaceAddress, value) and
+#   getOffChainMarketplaceFeeRate(ctx, block, marketplaceAddress), which seeds a cold
+#   entry by reading feeRate() at block N-1 (state at N is post-block, so a rate update
+#   later in N would otherwise price an earlier trade in it) and is deliberately NOT
+#   try/caught. src/eth/handlers/marketplace.ts's handleTraded takes the emitting
+#   address and drops its per-trade `new OffChainMarketplaceABI.Contract(...).feeRate()`
+#   RPC read entirely. src/eth/main.ts begins the batch as the first statement of the
+#   run callback, queues FeeRateUpdated in pass one, applies it in pass two at its
+#   position in log order (before the Traded branch), passes log.address to
+#   handleTraded, and ends the batch OUTSIDE the existing try/catch so begin and end
+#   pair on every path. NOTE: upstream's commit body says a failed ETH fee read is
+#   swallowed because the handler wraps its whole body in catch-and-log. That is not
+#   true of upstream's file and is not true here: in src/eth/main.ts the only try in
+#   the run callback opens AFTER the second-pass markteplaceEvents loop closes and
+#   wraps the store writes only, so a throw out of getOffChainMarketplaceFeeRate
+#   escapes the run callback and the batch fails and is retried -- the same semantics
+#   as Polygon. endOffChainMarketplaceFeeBatch is therefore skipped on that path,
+#   which is correct: the staged writes are dropped by the next begin().
+#   POLYGON src/polygon/state.ts replaces the single shared
+#   offChainMarketplaceContractData object with the same keyed cache;
+#   getOffChainMarketplaceContractData(ctx, block, marketplaceAddress) reads the
+#   contract at {...block, height: block.height - 1} against the EMITTING address (was:
+#   the hardcoded V1 address at the trade's own block) and uses ??= per field so a value
+#   already replayed in this batch is never overwritten by the chain read; the three
+#   setters each take the marketplace address first. New src/polygon/utils/feeUpdates.ts
+#   holds queueFeeUpdate/applyFeeUpdate (V2 and V3 share the same fee events, so one
+#   wrapper serves every version). src/polygon/main.ts begins the batch first thing,
+#   ends it on BOTH the early-return no-important-data path and the normal path, folds
+#   the three previously-apply-on-sight fee cases into one queueing case (throwing
+#   loudly if a topic reaches it that queueFeeUpdate does not know), applies them in
+#   pass two in log order, and passes log.address to handleTraded.
+#   src/polygon/handlers/marketplace.ts drops the `block.logs.find()` scan for the
+#   first Traded log in the transaction and uses the emitting address it is now given:
+#   THIS is the mint-attribution fix -- an aggregator settling one order on V2 and
+#   another on V3 in one transaction used to attribute every mint in it to whichever
+#   Traded log the linear scan found first. Both processors build
+#   offChainMarketplaceAddresses = [V1,V2,V3].filter(a => a !== Null) and THROW when it
+#   comes out empty, because an empty Subsquid `address` filter matches ANY address;
+#   ETH subscribes to FeeRateUpdated only (its Sale has no collector column, so
+#   FeeCollectorUpdated would be stream volume for a value nothing reads), Polygon keeps
+#   all three fee events and widens the filter from the V1 address alone to all three.
+#   (2) MAINNET V3 ADDRESSES FILLED: src/eth/addresses/mainnet.ts
+#   OffChainMarketplaceV3 = 0x0f11d0d1671519683bd48abf3dbe779e300941cd (its now-unused
+#   `Null` import is gone) and src/polygon/addresses/mainnet.ts
+#   OffChainMarketplaceV3 = 0xe38ef22abe871513555cba89adfe45ab4f548ada (that file KEEPS
+#   the Null import -- Bid = Null there). Until this landed the mainnet processors
+#   matched no V3 log at all, so a mainnet V3 trade produced no Sale, no NFT owner
+#   update and no primary-sale Issue accounting on either chain.
+#   (3) FEE UPDATES APPLIED IN LOG ORDER, described under (1).
+#   TESTS: upstream's three new suites are mirrored, not transplanted -- upstream moved
+#   its suite to jest in 7836cc3 (#126) and ours stays on `node --test` over the
+#   compiled lib (package.json:6, unchanged), so src/eth/state.test.ts,
+#   src/polygon/state.test.ts and src/polygon/utils/feeUpdates.test.ts keep upstream's
+#   describe/it structure and every case but use node:test + node:assert, and replace
+#   jest.mock of the ABI module with a direct assignment to the module's `Contract`
+#   export (tsc emits a lazy `Abi_1.Contract` property read at the construction site,
+#   and node --test gives each test file its own process, so the swap is contained).
+#   console.log is silenced with node:test's mock.method where the seed logs.
+#   7836cc3 (#126 run the last two suites under jest) is NOT ported: test-tooling only,
+#   and this fork's runner is unchanged. fc34c38 (#114) is a comment-only chore the
+#   house no-comment rule drops either way.
+#   REINDEX CONSEQUENCE (deploy-time, nothing here touches the deployment tree or nix/squid.nix):
+#   filling the two mainnet V3 addresses and widening both fee-update log
+#   subscriptions changes what the mainnet processors ingest GOING FORWARD only. A
+#   running deployment will not backfill historical V3 trades or historical V2/V3
+#   fee-rate history without a cold reindex from each contract's deployment block, and
+#   a cold Polygon reindex still needs SQD_PORTAL_API_KEY provisioned first (the
+#   address-filtered Portal query is already over the unauthenticated 256 KiB cap).

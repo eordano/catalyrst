@@ -7,7 +7,11 @@ use catalyrst_crypto::{reject_if_signer, Signer, SignerGate};
 
 pub use catalyrst_crypto::signed_fetch::AuthChainError;
 
-pub const FIVE_MINUTES: i64 = 5 * 60;
+/// Upstream's `setupRouter` passes no `expiration` to `wellKnownComponents`, so every
+/// route on this surface runs on crypto-middleware's `DEFAULT_EXPIRATION` of `1000 * 60`
+/// (core-libs/libs/crypto-middleware/src/types.ts). The world-storage surface already
+/// reads the same default.
+pub const SIGNED_FETCH_EXPIRATION_SECS: i64 = 60;
 
 pub const KERNEL_SCENE_SIGNER: &str = "decentraland-kernel-scene";
 
@@ -63,7 +67,7 @@ pub async fn require_verified(
         headers,
         method,
         path,
-        FIVE_MINUTES,
+        SIGNED_FETCH_EXPIRATION_SECS,
         canonical_metadata_keys,
         Some(scene_signer_gate()),
     )
@@ -80,6 +84,18 @@ mod tests {
 
     fn permits(metadata: serde_json::Value) -> bool {
         scene_signer_gate().permits(&metadata)
+    }
+
+    /// Upstream names no `expiration`, so the window is crypto-middleware's
+    /// `DEFAULT_EXPIRATION = 1000 * 60`, the same value the world-storage half of
+    /// this crate already reads.
+    #[test]
+    fn the_signed_fetch_window_is_upstreams_default_expiration() {
+        assert_eq!(SIGNED_FETCH_EXPIRATION_SECS, 60);
+        assert_eq!(
+            SIGNED_FETCH_EXPIRATION_SECS,
+            crate::world_storage::auth_chain::ONE_MINUTE
+        );
     }
 
     #[test]

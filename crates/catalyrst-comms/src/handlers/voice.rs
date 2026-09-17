@@ -10,7 +10,7 @@ use serde::Deserialize;
 use crate::auth_chain::verify_signed_fetch;
 use crate::extract::{device_identifier, get_request_ip};
 use crate::handlers::responses::{CommunityVoiceChatStatusResponse, VoiceChatStatusResponse};
-use crate::http::{service_unavailable, unauthorized, ApiError};
+use crate::http::{forbidden, service_unavailable, unauthorized, ApiError};
 use crate::livekit::{build_adapter_url, community_voice_chat_room_name, join_grants, AccessToken};
 use crate::ports::player_connection::UpsertPlayerConnection;
 use crate::util::now_ms;
@@ -65,12 +65,10 @@ pub async fn private_messages_token(
         tracing::warn!(error = %e, address = %identity, "failed to store player connection info");
     }
 
-    let banned = state
-        .user_bans
-        .is_banned_for_connection(&identity, device_id.as_deref())
-        .await?;
+    let banned =
+        crate::access_gate::is_connection_banned(&state, &identity, device_id.as_deref()).await?;
     if banned {
-        return Err(unauthorized("Access denied, deny-listed wallet"));
+        return Err(forbidden(crate::access_gate::PLATFORM_BANNED_MSG));
     }
 
     let privacy = sqlx::query_scalar::<_, String>(
@@ -442,6 +440,11 @@ pub async fn community_voice_chat_create_or_join(
         ));
     }
     let claimed = ServiceClaimedCommunityRole::shape_check_only_from_the_request_body(&body)?;
+    crate::access_gate::ensure_no_active_platform_ban(
+        &state,
+        &[claimed.claimed_wallet_address_as_unverified_text()],
+    )
+    .await?;
     let claimed_role_grants_speaker_rights =
         claimed.the_gatekeeper_service_claimed_a_role_that_grants_voice_speaker_rights();
     let action = body.action.as_deref().unwrap_or("join").to_lowercase();

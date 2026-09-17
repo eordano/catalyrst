@@ -3,8 +3,19 @@ use serde::Serialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::rest::community_membership_authority::CommunityMembershipTier;
 use crate::rest::handlers::dto::{CommunityDetail, CommunityListItem, VoiceChatStatus};
 use crate::rest::http::{ApiError, Pagination};
+
+fn wire_role_of_a_real_membership(tier: CommunityMembershipTier) -> Option<&'static str> {
+    match tier {
+        CommunityMembershipTier::OwnerOfThisCommunity => Some("owner"),
+        CommunityMembershipTier::ModeratorOfThisCommunity => Some("moderator"),
+        CommunityMembershipTier::OrdinaryMemberOfThisCommunity => Some("member"),
+        CommunityMembershipTier::NotAMemberOfThisCommunity
+        | CommunityMembershipTier::BannedFromThisCommunity => None,
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct CommunityRow {
@@ -95,6 +106,30 @@ impl CommunitiesComponent {
         Ok(row.unwrap_or(false))
     }
 
+    async fn may_read_private(
+        &self,
+        id: Uuid,
+        viewer: Option<&str>,
+        member_role: Option<&str>,
+    ) -> Result<bool, ApiError> {
+        if member_role.is_some() {
+            return Ok(true);
+        }
+        let Some(address) = viewer else {
+            return Ok(false);
+        };
+        let invited: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM community_requests \
+             WHERE community_id = $1 AND member_address = $2 \
+               AND type = 'invite' AND status = 'pending')",
+        )
+        .bind(id)
+        .bind(address)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(invited)
+    }
+
     pub async fn get_by_id(
         &self,
         id: Uuid,
@@ -124,6 +159,34 @@ impl CommunitiesComponent {
         };
         let privacy = if private { "private" } else { "public" };
         let visibility = if unlisted { "unlisted" } else { "all" };
+
+        let viewer = as_user.map(|addr| addr.to_lowercase());
+        let mut member_role: Option<String> = None;
+        let mut banned: Option<bool> = None;
+        if let Some(addr) = viewer.as_deref() {
+            member_role = sqlx::query_scalar(
+                "SELECT role FROM community_members WHERE community_id = $1 AND member_address = $2",
+            )
+            .bind(id)
+            .bind(addr)
+            .fetch_optional(&self.pool)
+            .await?;
+            banned = sqlx::query_scalar(
+                "SELECT active FROM community_bans WHERE community_id = $1 AND banned_address = $2",
+            )
+            .bind(id)
+            .bind(addr)
+            .fetch_optional(&self.pool)
+            .await?;
+        }
+
+        if private
+            && !self
+                .may_read_private(id, viewer.as_deref(), member_role.as_deref())
+                .await?
+        {
+            return Ok(None);
+        }
 
         let members_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM community_members WHERE community_id = $1")
@@ -170,37 +233,19 @@ impl CommunitiesComponent {
             has_thumbnail,
         };
 
-        if let Some(addr) = as_user {
-            let db_role: Option<String> = sqlx::query_scalar(
-                "SELECT role FROM community_members WHERE community_id = $1 AND member_address = $2",
-            )
-            .bind(id)
-            .bind(addr.to_lowercase())
-            .fetch_optional(&self.pool)
-            .await?;
-            let banned: Option<bool> = sqlx::query_scalar(
-                "SELECT active FROM community_bans WHERE community_id = $1 AND banned_address = $2",
-            )
-            .bind(id)
-            .bind(addr.to_lowercase())
-            .fetch_optional(&self.pool)
-            .await?;
+        if viewer.is_some() {
             detail.visibility = Some(visibility.to_string());
-            detail.role = Some(db_role.unwrap_or_else(|| "none".to_string()));
+            detail.role = Some(member_role.unwrap_or_else(|| "none".to_string()));
             detail.is_banned = Some(banned.unwrap_or(false));
         }
 
-        let role_str = detail.role.as_deref().unwrap_or("none");
-        let voice_visible = privacy != "private" || role_str != "none";
-        if voice_visible {
-            if let Some((participants, moderators)) = voice_row {
-                detail.is_live = true;
-                detail.voice_chat_status = VoiceChatStatus {
-                    is_active: true,
-                    participant_count: participants as i64,
-                    moderator_count: moderators as i64,
-                };
-            }
+        if let Some((participants, moderators)) = voice_row {
+            detail.is_live = true;
+            detail.voice_chat_status = VoiceChatStatus {
+                is_active: true,
+                participant_count: participants as i64,
+                moderator_count: moderators as i64,
+            };
         }
 
         Ok(Some(detail))
@@ -642,32 +687,38 @@ impl CommunitiesComponent {
         Ok(affected > 0)
     }
 
-    pub async fn visible_communities_by_ids(
+    pub async fn member_communities_by_ids(
         &self,
         community_ids: &[Uuid],
-        user_address: &str,
-    ) -> Result<Vec<Uuid>, ApiError> {
+        member_address: &str,
+    ) -> Result<Vec<(Uuid, String)>, ApiError> {
         if community_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let lower = user_address.to_lowercase();
-        let rows = sqlx::query_scalar::<_, Uuid>(
-            "SELECT DISTINCT c.id \
+        let lower = member_address.to_lowercase();
+        let rows = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT c.id, cm.role \
              FROM communities c \
-             LEFT JOIN community_members cm \
+             JOIN community_members cm \
                ON c.id = cm.community_id AND cm.member_address = $2 \
              LEFT JOIN community_bans cb \
                ON c.id = cb.community_id AND cb.banned_address = $2 AND cb.active = TRUE \
              WHERE c.id = ANY($1) \
                AND c.active = TRUE \
-               AND cb.banned_address IS NULL \
-               AND (c.unlisted = FALSE OR cm.member_address IS NOT NULL)",
+               AND c.suspended = FALSE \
+               AND cb.banned_address IS NULL",
         )
         .bind(community_ids)
         .bind(&lower)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows)
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, role)| {
+                let tier = CommunityMembershipTier::parse_role_text_as_stored_in_a_table(&role);
+                wire_role_of_a_real_membership(tier).map(|wire| (id, wire.to_string()))
+            })
+            .collect())
     }
 
     pub async fn search_communities(

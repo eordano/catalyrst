@@ -50,7 +50,9 @@ lib.mkIf (cfg.enable && cfg.subServices.sites) {
       PORT = "5158";
       HOST = "127.0.0.1";
       CATALYST_URL = d.publicUrl;
-      CATALYST_DATABASE_URL = "postgresql:///content?host=/run/postgresql&user=catalyrst${d.pgPortQuery}";
+      CATALYST_DATABASE_URL = "postgresql:///places?host=/run/postgresql&user=catalyrst${d.pgPortQuery}";
+      # Content-database connection, set explicitly rather than inherited from CATALYST_DATABASE_URL.
+      FOUNDRY_DATABASE_URL = "postgresql:///content?host=/run/postgresql&user=catalyrst${d.pgPortQuery}";
       TELEMETRY_URL = "http://127.0.0.1:5150";
       GOVERNANCE_API_URL = "http://127.0.0.1:5151";
       WORLDS_URL = "http://127.0.0.1:5143";

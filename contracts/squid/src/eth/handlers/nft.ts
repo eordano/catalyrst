@@ -52,6 +52,7 @@ import {
   getTokenURI,
   isMint,
 } from "../../common/utils";
+import { stripNul } from "../../common/utils/utils";
 import {
   ZERO_ADDRESS,
   createAccount,
@@ -302,8 +303,8 @@ export async function handleAddItemV1(
       collectionContract.symbol(),
       collectionContract.baseURI(),
     ]);
-    collection.name = name;
-    collection.symbol = symbol;
+    collection.name = stripNul(name);
+    collection.symbol = stripNul(symbol);
     collection.owner = owner;
     collection.creator = owner;
     collection.isCompleted = true;

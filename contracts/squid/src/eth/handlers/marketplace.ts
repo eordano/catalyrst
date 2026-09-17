@@ -5,7 +5,7 @@ import {
   OrderCreatedEventArgs,
   OrderSuccessfulEventArgs,
 } from "../../abi/Marketplace";
-import * as OffChainMarketplaceABI from "../../abi/DecentralandMarketplaceEthereum";
+import { getOffChainMarketplaceFeeRate } from "../state";
 import { getCategory } from "../../common/utils/category";
 import {
   cancelActiveOrder,
@@ -29,7 +29,6 @@ import { ORDER_SALE_TYPE, trackSale } from "../modules/analytics";
 import { Context } from "../processor";
 import { buildCountFromOrder } from "../modules/count";
 import { TradedEventArgs } from "../../abi/DecentralandMarketplaceEthereum";
-import { getAddresses } from "../../common/utils/addresses";
 import {
   getTradeEventData,
   getTradeEventType,
@@ -178,6 +177,7 @@ export async function handleOrderSuccessful(
 export async function handleTraded(
   ctx: Context,
   event: TradedEventArgs,
+  marketplaceAddress: string,
   block: BlockData,
   txHash: string,
   nfts: Map<string, NFT>,
@@ -224,13 +224,6 @@ export async function handleTraded(
 
   nft.updatedAt = timestamp;
 
-  const addresses = getAddresses(Network.ETHEREUM);
-  const offChainMarketplaceContract = new OffChainMarketplaceABI.Contract(
-    ctx,
-    block.header,
-    addresses.OffChainMarketplace
-  );
-
   await trackSale(
     ctx,
     block.header,
@@ -239,7 +232,7 @@ export async function handleTraded(
     seller,
     nft.id,
     price,
-    await offChainMarketplaceContract.feeRate(),
+    await getOffChainMarketplaceFeeRate(ctx, block, marketplaceAddress),
     BigInt(block.header.timestamp / 1000),
     txHash,
     nfts,

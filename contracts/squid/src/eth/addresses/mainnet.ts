@@ -1,5 +1,3 @@
-import { Null } from "../../common/utils/constants";
-
 export const LANDRegistry = "0xf87e31492faf9a91b02ee0deaad50d51d56d5d4d";
 export const EstateRegistry = "0x959e104e1a4db6317fa58f8295f586e1a978c297";
 export const Marketplace = "0x8e5660b4ab70168b5a6feea0e0315cb49c8cd539";
@@ -8,7 +6,7 @@ export const ERC721Bid = "0xe479dfd9664c693b2e2992300930b00bfde08233";
 export const DCLControllerV2 = "0xbe92b49aee993adea3a002adcda189a2b7dec56c";
 export const OffChainMarketplace = "0x2d6b3508f9aca32d2550f92b2addba932e73c1ff";
 export const OffChainMarketplaceV2 = "0x1b67d0e31eeb6b52d8eeed71d3616c2f5b33b8e7";
-export const OffChainMarketplaceV3 = Null;
+export const OffChainMarketplaceV3 = "0x0f11d0d1671519683bd48abf3dbe779e300941cd";
 export const Spoke = "0xfe91aaa1012b47499cfe8758874f2d2c52b22cd8";
 
 export const MANA = "0x0f5d2fb29fb7d3cfee444a200298f468908cc942";

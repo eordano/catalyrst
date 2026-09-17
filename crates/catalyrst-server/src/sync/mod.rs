@@ -54,6 +54,14 @@ pub struct FailedDeployment {
     pub failure_timestamp: Timestamp,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_hash: Option<String>,
+    /// Retry attempts already spent on this entity. The retry worker gives up once it reaches
+    /// the configured cap; a plain failure report leaves it at 0 and lets the stored value stand.
+    #[serde(default)]
+    pub retry_count: u32,
+    /// Epoch ms before which the retry worker must not touch this entity again. 0 means due now,
+    /// which is what a fresh failure reports.
+    #[serde(default)]
+    pub next_retry_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

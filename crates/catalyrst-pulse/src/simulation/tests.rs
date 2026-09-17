@@ -7,6 +7,7 @@ use crate::interest::{
 use crate::messages::spec;
 use crate::snapshot::{EmoteState, PeerSnapshotPublisher};
 
+mod resync_metrics;
 mod scene_listener;
 
 fn v3(x: f32, z: f32) -> Vector3 {

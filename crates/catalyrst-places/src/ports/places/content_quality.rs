@@ -70,7 +70,6 @@ pub(super) fn build_content_quality_condition(
          AND LOWER(TRIM(REGEXP_REPLACE(title, ${suffix}, ''))) <> ALL (${titles}::text[]) \
          AND (TRIM(COALESCE(raw->>'owner', '')) <> '' \
            OR (world IS TRUE AND TRIM(COALESCE(raw->>'creator_address', '')) <> '') \
-           OR (world IS TRUE AND TRIM(COALESCE(world_name, '')) <> '') \
            OR (TRIM(COALESCE(raw->>'contact_name', '')) <> '' \
              AND LOWER(TRIM(raw->>'contact_name')) <> ${contact})){not_a_road}",
         images = idx,
@@ -275,7 +274,7 @@ mod tests {
     }
 
     #[test]
-    fn creator_leg_accepts_owner_world_deployer_world_name_or_a_named_contact() {
+    fn creator_leg_accepts_an_owner_a_world_deployer_or_a_named_contact() {
         let (clause, _) = build_content_quality_condition(&feed(true, true), false, 1).unwrap();
         assert!(
             clause.contains("TRIM(COALESCE(raw->>'owner', '')) <> ''"),
@@ -291,8 +290,9 @@ mod tests {
             "{clause}"
         );
         assert!(
-            clause.contains("(world IS TRUE AND TRIM(COALESCE(world_name, '')) <> '')"),
-            "{clause}"
+            !clause.contains("world_name"),
+            "0003 makes world_name non-empty for every world row, so a world-name leg \
+             would make the whole creator check vacuous for worlds: {clause}"
         );
         assert!(
             clause.contains("TRIM(COALESCE(raw->>'contact_name', '')) <> ''"),

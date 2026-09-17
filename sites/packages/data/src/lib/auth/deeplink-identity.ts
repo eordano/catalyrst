@@ -27,7 +27,7 @@ export type IdentityHandoffResponse = { identityId: string; expiration: string }
 export async function postIdentityHandoff(
   identity: AuthIdentity,
   authApiUrl: string,
-  opts: { isMobile?: boolean } = {},
+  opts: { isMobile?: boolean; signal?: AbortSignal } = {},
 ): Promise<IdentityHandoffResponse> {
   const res = await signedFetch(identity, `${authApiUrl}/identities`, {
     method: "POST",
@@ -36,6 +36,7 @@ export async function postIdentityHandoff(
       identity: toHandoffIdentity(identity),
       isMobile: opts.isMobile ?? false,
     }),
+    signal: opts.signal,
   });
   const body = (await res.json().catch(() => null)) as
     | { identityId?: unknown; expiration?: unknown; error?: unknown }

@@ -15,9 +15,9 @@ describe("escapeUnreadableTypedDataText", () => {
       "Send 1 MANA to \\u{202e}0xattacker",
     ],
     [
-      "line breaks, tabs and backslashes",
-      "allow\n\nall\tnow\r\\done",
-      "allow\\n\\nall\\tnow\\r\\\\done",
+      "a backslash, so the escapes around it cannot be forged",
+      "allow\\u{202e}done",
+      "allow\\\\u{202e}done",
     ],
     ["a zero-width space", "1\u{200b}", "1\\u{200b}"],
     ["a byte-order mark", "\u{feff}Decentraland", "\\u{feff}Decentraland"],
@@ -26,6 +26,11 @@ describe("escapeUnreadableTypedDataText", () => {
     ["a private-use code point", "\u{f0000}", "\\u{f0000}"],
   ])("shows %s as a visible escape", (_label, text, expected) => {
     expect(escapeUnreadableTypedDataText(text)).toBe(expected);
+  });
+
+  it("leaves the line breaks and tabs a reader can see as they were signed", () => {
+    const laid = "Order\n\ttoken: MANA\r\n\tamount: 1";
+    expect(escapeUnreadableTypedDataText(laid)).toBe(laid);
   });
 
   it("leaves readable text, the ordinary space included, exactly as it was signed", () => {

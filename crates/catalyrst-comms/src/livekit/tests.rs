@@ -656,17 +656,36 @@ async fn metadata_write_is_noop_for_missing_room() {
 
 /// A mock LiveKit that spawns a task PER connection (unlike `capture_seq`,
 /// which serves one socket serially and would deadlock under concurrent
-/// connections). Each request is recorded, then answered after `delay` by
-/// request line: ListRooms -> 16 rooms r0..r15; ListParticipants -> the target
-/// `0xban` only in room r7, else an empty roster; RemoveParticipant -> `{}`.
-async fn capture_concurrent(
-    delay: std::time::Duration,
-) -> (String, std::sync::Arc<std::sync::Mutex<Vec<Captured>>>) {
+/// connections). Each request is recorded, then answered by request line:
+/// ListRooms -> 16 rooms r0..r15; ListParticipants -> the target `0xban` only in
+/// room r7, else an empty roster; RemoveParticipant -> `{}`.
+///
+/// ListParticipants replies are held at a [`tokio::sync::Barrier`] of
+/// `batch`, so the roster calls can only be answered once `batch` of them are
+/// in flight at the same instant -- the fan-out width is observed directly
+/// rather than inferred from wall-clock time. A regression to sequential
+/// issuing releases each request on the barrier timeout instead of hanging, so
+/// the `max_in_flight` assertion still fails cleanly.
+struct ConcurrentCapture {
+    host: String,
+    captured: std::sync::Arc<std::sync::Mutex<Vec<Captured>>>,
+    max_in_flight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+const BARRIER_ESCAPE: std::time::Duration = std::time::Duration::from_secs(5);
+
+async fn capture_concurrent(batch: usize) -> ConcurrentCapture {
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::AsyncWriteExt;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let in_flight = std::sync::Arc::new(AtomicUsize::new(0));
+    let max_in_flight = std::sync::Arc::new(AtomicUsize::new(0));
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(batch));
     let captured_for_server = captured.clone();
+    let in_flight_for_server = in_flight.clone();
+    let max_for_server = max_in_flight.clone();
     tokio::spawn(async move {
         loop {
             let (mut sock, _) = match listener.accept().await {
@@ -674,6 +693,9 @@ async fn capture_concurrent(
                 Err(_) => break,
             };
             let captured = captured_for_server.clone();
+            let in_flight = in_flight_for_server.clone();
+            let max_in_flight = max_for_server.clone();
+            let barrier = barrier.clone();
             tokio::spawn(async move {
                 while let Some((line, body)) = read_one_request(&mut sock).await {
                     let resp_body: String = if line.contains("ListRooms") {
@@ -690,12 +712,18 @@ async fn capture_concurrent(
                     } else {
                         "{}".to_string()
                     };
+                    let gated = line.contains("ListParticipants");
                     captured.lock().unwrap().push(Captured {
                         line,
                         auth: String::new(),
                         body,
                     });
-                    tokio::time::sleep(delay).await;
+                    if gated {
+                        let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                        max_in_flight.fetch_max(now, Ordering::SeqCst);
+                        let _ = tokio::time::timeout(BARRIER_ESCAPE, barrier.wait()).await;
+                        in_flight.fetch_sub(1, Ordering::SeqCst);
+                    }
                     let resp = format!(
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{resp_body}",
                         resp_body.len()
@@ -708,28 +736,33 @@ async fn capture_concurrent(
             });
         }
     });
-    (format!("http://{addr}"), captured)
+    ConcurrentCapture {
+        host: format!("http://{addr}"),
+        captured,
+        max_in_flight,
+    }
 }
 
 #[tokio::test]
 async fn ban_kick_fans_out_bounded_not_sequential() {
-    let delay = std::time::Duration::from_millis(25);
-    let (host, captured) = capture_concurrent(delay).await;
+    let server = capture_concurrent(KICK_CONCURRENCY).await;
     let http = reqwest::Client::new();
-    let client = RoomServiceClient::new(&http, &host, "devkey", "devsecret");
+    let client = RoomServiceClient::new(&http, &server.host, "devkey", "devsecret");
 
-    let t0 = tokio::time::Instant::now();
     client
         .remove_participant_from_all_rooms("0xban")
         .await
         .unwrap();
-    let elapsed = t0.elapsed();
 
-    assert!(
-        elapsed < std::time::Duration::from_millis(250),
-        "kick must fan out concurrently, took {elapsed:?}"
+    assert_eq!(
+        server
+            .max_in_flight
+            .load(std::sync::atomic::Ordering::SeqCst),
+        KICK_CONCURRENCY,
+        "the roster scan must keep {KICK_CONCURRENCY} requests in flight at once"
     );
 
+    let captured = server.captured;
     let caps = captured.lock().unwrap();
     let lp: Vec<_> = caps
         .iter()

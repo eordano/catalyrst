@@ -766,7 +766,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -777,7 +777,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1122,6 +1122,18 @@ dependencies = [
  "event-listener-strategy",
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "async-compression"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24a8ec73eb862508b7041723c89386365894b4e7d9f6998bf1b8529e5b0ee254"
+dependencies = [
+ "compression-codecs",
+ "compression-core",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
@@ -1691,7 +1703,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-archipelago"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -1730,7 +1742,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-auth-chain"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "hex",
  "serde",
@@ -1740,7 +1752,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-authenticated-admin"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "axum",
  "catalyrst-authenticated-principal",
@@ -1750,7 +1762,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-authenticated-principal"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "catalyrst-crypto",
  "catalyrst-types",
@@ -1761,7 +1773,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-badges"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1783,7 +1795,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-bench"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -1806,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-builder"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -1830,7 +1842,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-bvimposters"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1851,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-camera-reel"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1879,7 +1891,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-commons"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1896,7 +1908,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-comms"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1935,7 +1947,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-conformance"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1957,7 +1969,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-contract-gate"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "axum",
  "catalyrst-crypto",
@@ -1972,7 +1984,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-create"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1987,7 +1999,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-credits"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2021,7 +2033,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-crypto"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2043,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-data"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2061,7 +2073,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-db"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "bytes",
  "catalyrst-contract-gate",
@@ -2078,7 +2090,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-deploy-signer"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2099,7 +2111,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-drpc"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "async-channel",
  "async-trait",
@@ -2117,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-economy"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2144,7 +2156,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-envcfg"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2157,7 +2169,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-events"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2195,7 +2207,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-explore"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2214,7 +2226,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-explorer-api"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2238,7 +2250,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-fed"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "async-nats",
@@ -2263,7 +2275,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-fuzz"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2276,7 +2288,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-governance"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2300,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-hashing"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "bs58",
  "data-encoding",
@@ -2309,7 +2321,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-land-authz"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "async-trait",
  "catalyrst-contract-gate",
@@ -2326,7 +2338,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-livekit"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "base64 0.23.1",
  "hmac 0.13.0",
@@ -2341,7 +2353,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-map"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2364,11 +2376,12 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-market"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
  "anyhow",
+ "async-trait",
  "axum",
  "bytes",
  "catalyrst-authenticated-admin",
@@ -2382,6 +2395,7 @@ dependencies = [
  "catalyrst-testgate",
  "catalyrst-types",
  "chrono",
+ "futures",
  "hex",
  "parking_lot",
  "rand 0.10.2",
@@ -2403,7 +2417,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-media"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2423,7 +2437,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-notifications"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2447,7 +2461,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-oracle-tests"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -2464,7 +2478,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-places"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2501,7 +2515,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-presence"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2524,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-preview-tunnel"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2542,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-price"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2561,7 +2575,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-profile-images"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2579,7 +2593,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-pulse"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2606,7 +2620,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-quests"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2635,7 +2649,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-rpc"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2650,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-scene-state"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2677,7 +2691,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-server"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2728,7 +2742,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-signatures"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -2750,7 +2764,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-social"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2768,7 +2782,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-social-service"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2818,7 +2832,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-storage"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "bytes",
  "catalyrst-hashing",
@@ -2835,7 +2849,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-telemetry"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2856,7 +2870,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-testgate"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "axum",
  "reqwest",
@@ -2866,7 +2880,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-tunnel-protocol"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2874,7 +2888,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-types"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "axum",
  "catalyrst-auth-chain",
@@ -2890,7 +2904,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-validator"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -2908,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-worlds"
-version = "0.24.1"
+version = "0.26.0"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -3182,7 +3196,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3208,6 +3222,23 @@ dependencies = [
  "static_assertions",
  "zmij",
 ]
+
+[[package]]
+name = "compression-codecs"
+version = "0.4.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "100590da849306918656ffbb22576bbdfc1382b50ad10d1d50ec177d3b205fb2"
+dependencies = [
+ "compression-core",
+ "flate2",
+ "memchr",
+]
+
+[[package]]
+name = "compression-core"
+version = "0.4.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e8ccc4ea9f6acc32d102c0f6d471d11d913ad15f20c04de743374861fa1d414"
 
 [[package]]
 name = "concurrent-queue"
@@ -3637,7 +3668,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "dcl-one-sdk"
-version = "0.24.1"
+version = "0.26.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -3654,6 +3685,7 @@ dependencies = [
  "flate2",
  "futures",
  "hex",
+ "hmac 0.13.0",
  "if-addrs",
  "ignore",
  "libc",
@@ -3669,6 +3701,7 @@ dependencies = [
  "rolldown",
  "rolldown_common",
  "rolldown_utils",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -4044,7 +4077,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4087,6 +4120,18 @@ dependencies = [
  "left-right",
  "smallvec",
 ]
+
+[[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
+name = "fallible-streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
 name = "fancy-regex"
@@ -5940,6 +5985,7 @@ version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f111c8c41e7c61a49cd34e44c7619462967221a6443b0ec299e0ac30cfb9b1"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]
@@ -6424,7 +6470,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7901,7 +7947,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8721,6 +8767,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsqlite-vfs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c51c9ae4df8a7fba42103df5c621fa3c37eccf3a3c650879e90fc48b11cc192c"
+dependencies = [
+ "hashbrown 0.16.1",
+ "thiserror",
+]
+
+[[package]]
 name = "ruint"
 version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8754,6 +8810,21 @@ name = "ruint-macro"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48fd7bd8a6377e15ad9d42a8ec25371b94ddc67abe7c8b9127bec79bebaaae18"
+
+[[package]]
+name = "rusqlite"
+version = "0.39.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0d2b0146dd9661bf67bb107c0bb2a55064d556eeb3fc314151b957f313bcd4e"
+dependencies = [
+ "bitflags 2.13.2",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "hashlink",
+ "libsqlite3-sys",
+ "smallvec",
+ "sqlite-wasm-rs",
+]
 
 [[package]]
 name = "rustc-hash"
@@ -8817,7 +8888,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8885,7 +8956,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9495,7 +9566,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9532,6 +9603,18 @@ name = "sponge-cursor"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a0219bd7d979d58245a4f41f695e1ac9f8befdffadd7f61f1bae9e39abc6620"
+
+[[package]]
+name = "sqlite-wasm-rs"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc3efc0da82635d7e1ced0053bbbfa8c7ab9645d0bf36ceb4f7127bb85315d75"
+dependencies = [
+ "cc",
+ "js-sys",
+ "rsqlite-vfs",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "sqlx"
@@ -9900,7 +9983,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9953,7 +10036,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10357,6 +10440,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c"
 dependencies = [
+ "async-compression",
  "bitflags 2.13.2",
  "bytes",
  "futures-core",
@@ -11106,7 +11190,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

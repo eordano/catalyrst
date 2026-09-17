@@ -686,6 +686,190 @@
         }
       }
     },
+    "/v1/coupons": {
+      "get": {
+        "tags": [
+          "market"
+        ],
+        "operationId": "get_coupons",
+        "parameters": [
+          {
+            "name": "signer",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CouponsEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "market"
+        ],
+        "operationId": "add_coupon",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CouponEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/coupons/{id}": {
+      "get": {
+        "tags": [
+          "market"
+        ],
+        "operationId": "get_coupon",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CouponEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/federation/bid": {
       "post": {
         "tags": [
@@ -1248,6 +1432,81 @@
         }
       }
     },
+    "/v1/picks/stats": {
+      "get": {
+        "tags": [
+          "market"
+        ],
+        "summary": "Upstream `getPickStatsHandler` (picks-handlers.ts:51-92) is the one picks route registered\nwithout any `wellKnownComponents` wrapper (favorites/routes.ts:66): the bulk read is\nunsigned and `checkingUserAddress` arrives as a plain query string. Upstream lower-cases it\nbefore testing it against its address regex, so a `0X`-prefixed address is accepted.",
+        "description": "`power` is parsed only so its malformed-value 400 fires exactly where upstream's does; it is\nnot applied. Upstream counts a pick only when the picker's `favorites.voting.power` clears it\n(picks component.ts:36-42) and we have no `favorites.voting` table -- thread the value into\n`get_picks_stats` once that table lands.",
+        "operationId": "get_picks_stats",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "query",
+            "description": "Repeated once per item to read.",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "checkingUserAddress",
+            "in": "query",
+            "description": "Unsigned address whose own pick is reported as pickedByUser.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "power",
+            "in": "query",
+            "description": "Minimum voting power; accepted, not applied.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PicksStatsEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/picks/{item_id}": {
       "post": {
         "tags": [
@@ -1379,6 +1638,174 @@
   },
   "components": {
     "schemas": {
+      "Coupon": {
+        "type": "object",
+        "required": [
+          "id",
+          "signer",
+          "chainId",
+          "network",
+          "checks",
+          "couponManager",
+          "couponAddress",
+          "discountType",
+          "discount",
+          "root",
+          "collections",
+          "signature",
+          "createdAt",
+          "status"
+        ],
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "checks": {},
+          "collections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "couponAddress": {
+            "type": "string"
+          },
+          "couponManager": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "discount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "discountType": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "marketplace": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CouponMarketplace",
+                "description": "The off-chain marketplace version whose manager the coupon was signed against, the only\none that redeems it. None if that manager left the registry."
+              }
+            ]
+          },
+          "network": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "signer": {
+            "type": "string"
+          },
+          "state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CouponState"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/CouponStatus"
+          }
+        }
+      },
+      "CouponEnvelope": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Coupon"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CouponMarketplace": {
+        "type": "string",
+        "description": "The off-chain marketplace version a manager is wired into: the only one that redeems coupons\nsigned against it. Spelled as decentraland-transactions `ContractName`, which is what the\nwire value of `Coupon.marketplace` is.",
+        "enum": [
+          "OffChainMarketplaceV3",
+          "OffChainMarketplaceV2"
+        ]
+      },
+      "CouponState": {
+        "type": "object",
+        "description": "Consumed uses, cancellation and index revocation as last read from the CouponManager.",
+        "required": [
+          "uses",
+          "cancelled",
+          "revoked",
+          "checkedAt"
+        ],
+        "properties": {
+          "cancelled": {
+            "type": "boolean"
+          },
+          "checkedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "uses": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "CouponStatus": {
+        "type": "string",
+        "description": "`revoked` covers the signature indexes moving past the ones the coupon was signed with. A\ncreator who wants every sale to stop calls `increaseSignerSignatureIndex()` -- one\nargumentless call, against rebuilding each coupon's calldata for `cancelSignature` -- and\nthe contract then refuses all of them.",
+        "enum": [
+          "scheduled",
+          "active",
+          "ended",
+          "cancelled",
+          "exhausted",
+          "revoked"
+        ]
+      },
+      "CouponsEnvelope": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Coupon"
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
       "FavoriteList": {
         "type": "object",
         "required": [
@@ -1612,6 +2039,28 @@
           }
         }
       },
+      "PickStats": {
+        "type": "object",
+        "required": [
+          "count",
+          "itemId"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "pickedByUser": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
       "PickUnpick404": {
         "oneOf": [
           {
@@ -1718,6 +2167,24 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "PicksStatsEnvelope": {
+        "type": "object",
+        "required": [
+          "ok",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PickStats"
+            }
+          },
+          "ok": {
+            "type": "boolean"
           }
         }
       }

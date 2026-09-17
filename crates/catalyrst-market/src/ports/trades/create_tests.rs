@@ -240,6 +240,54 @@ fn trade_json_with_external_checks(signer_address: &str) -> String {
     )
 }
 
+/// A real Polygon trade, its wallet signature and the signer it must recover to. Synthetic
+/// vectors only pin this implementation against itself; this one pins it against what a wallet
+/// really signed, which is what decides whether the referenced `ExternalCheck` belongs in the
+/// `Checks` type hash.
+#[test]
+fn a_real_mainnet_trade_signature_recovers_its_signer() {
+    const SIGNER: &str = "0x02d0bb59a5f04a12d883751dc1605e15b4959b7e";
+    let marketplace = OffChainMarketplace {
+        name: "DecentralandMarketplacePolygon",
+        version: "1.0.0",
+        address: "0x540fb08edb56aae562864b390542c97f562825ba",
+        cancels_by_digest: false,
+    };
+    let mut trade = parse(&format!(
+        r#"{{
+          "signer": "{SIGNER}",
+          "signature": "0x2860a680deb41ba57ee26d6972c21d49d6cca25c74613ca04b9ed15d48a154f205fd3554d71836277e9d3f0143a62afad6f5c1636a7cd3d8f691dc4b0d8ccd011b",
+          "type": "public_nft_order",
+          "network": "MATIC",
+          "chainId": 137,
+          "checks": {{
+            "uses": 1,
+            "expiration": 1798783200000,
+            "effective": 1733927535000,
+            "salt": "0x199a4082c5",
+            "contractSignatureIndex": 0,
+            "signerSignatureIndex": 0,
+            "allowedRoot": "0x",
+            "externalChecks": []
+          }},
+          "sent": [
+            {{"assetType": 3, "contractAddress": "0xe9e86941b23fbe9d8f4dd0c5b7e5f89722936878", "tokenId": "283", "extra": "0x"}}
+          ],
+          "received": [
+            {{"assetType": 1, "contractAddress": "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4", "amount": "1000000000000000000", "extra": "0x", "beneficiary": "{SIGNER}"}}
+          ]
+        }}"#
+    ));
+    assert_eq!(
+        hex::encode(signing_hash(&trade, &marketplace).unwrap()),
+        "d4d6a86e2a1f0ab327b88353ef9cbd59ddde578a73fdcc176d8b07564c6f7718"
+    );
+    verify_signature(&trade, &marketplace).expect("a real signature verifies");
+
+    trade.checks.uses = 2;
+    assert!(verify_signature(&trade, &marketplace).is_err());
+}
+
 #[test]
 fn the_signing_hash_matches_its_captured_vectors() {
     let address = signer().address().to_checksum(None);
@@ -249,17 +297,17 @@ fn the_signing_hash_matches_its_captured_vectors() {
     let plain = parse(&trade_json(&address, "0x00"));
     assert_eq!(
         hex::encode(signing_hash(&plain, &polygon).unwrap()),
-        "dc0df04c7e569fc389d3ac0e83953c19bd3b67a0846ab91e7051028da2b2dba9"
+        "3d05ec81149b209755d224fbdc951ac74a14e0dce7ae990544483f3d9e98b6c8"
     );
     assert_eq!(
         hex::encode(signing_hash(&plain, &ethereum).unwrap()),
-        "049f24ed8e4ddc3de92359db8c1850463463a72fc109cbdcdbf193471992fc9f"
+        "cf23221fb47430c0c2cda5f501d69f68426ddeab266e9fb96be581c994154108"
     );
 
     let checked = parse(&trade_json_with_external_checks(&address));
     assert_eq!(
         hex::encode(signing_hash(&checked, &polygon).unwrap()),
-        "0822b5db5233d3d47802e19cb9c612f2e3716fe2e1793030871b2f3cd0e7b14f"
+        "082dcf8039c260f5ca1e02f811d3beb9ec6c2c4a64607086c912697b85c39a3c"
     );
 }
 
@@ -355,4 +403,106 @@ async fn a_trade_signed_by_someone_else_is_refused() {
     .await
     .unwrap_err();
     assert!(matches!(err, TradeCreationError::SignerMismatch));
+}
+
+mod checks_input {
+    use super::*;
+    use crate::ports::trades::create::checks_json;
+
+    fn with_checks(extra: &str) -> String {
+        let base = trade_json("0x1111111111111111111111111111111111111111", "0x00");
+        base.replace(r#""allowedRoot": "0x","#, extra)
+    }
+
+    fn respelled(pairs: &[(&str, &str)]) -> String {
+        let mut body = trade_json("0x1111111111111111111111111111111111111111", "0x00");
+        for (from, to) in pairs {
+            assert!(body.contains(from), "{from} is not in the fixture");
+            body = body.replace(from, to);
+        }
+        body
+    }
+
+    #[test]
+    fn an_integral_float_is_the_same_number_however_the_wallet_spelled_it() {
+        let body = respelled(&[
+            (r#""chainId": 137"#, r#""chainId": 137.0"#),
+            (r#""uses": 1"#, r#""uses": 1.0"#),
+            (
+                r#""expiration": 4102444800000"#,
+                r#""expiration": 4102444800000.0"#,
+            ),
+            (
+                r#""contractSignatureIndex": 0"#,
+                r#""contractSignatureIndex": 0.0"#,
+            ),
+        ]);
+        let trade: TradeCreation = serde_json::from_str(&body).expect("floats parse");
+        assert_eq!(trade.chain_id, MATIC_MAINNET);
+        assert_eq!(trade.checks.uses, 1);
+        assert_eq!(trade.checks.expiration, 4_102_444_800_000);
+        assert_eq!(trade.checks.contract_signature_index, 0);
+    }
+
+    #[test]
+    fn a_fractional_or_negative_number_is_still_refused() {
+        for body in [
+            respelled(&[(r#""uses": 1"#, r#""uses": 1.5"#)]),
+            respelled(&[(r#""chainId": 137"#, r#""chainId": 137.5"#)]),
+            respelled(&[(
+                r#""signerSignatureIndex": 0"#,
+                r#""signerSignatureIndex": -1"#,
+            )]),
+        ] {
+            assert!(
+                serde_json::from_str::<TradeCreation>(&body).is_err(),
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_allowed_proof_survives_into_the_stored_checks() {
+        let body = with_checks(r#""allowedRoot": "0xabc", "allowedProof": ["0x01", "0x02"],"#);
+        let trade = parse(&body);
+        assert_eq!(
+            trade.checks.allowed_proof.as_deref(),
+            Some(["0x01".to_string(), "0x02".to_string()].as_slice())
+        );
+        let stored = checks_json(&trade.checks).unwrap();
+        assert_eq!(
+            stored["allowedProof"],
+            serde_json::json!(["0x01", "0x02"]),
+            "a proof the caller supplied must be readable back off the trade"
+        );
+    }
+
+    #[test]
+    fn a_trade_without_a_proof_stores_no_proof_key() {
+        let trade = parse(&trade_json(
+            "0x1111111111111111111111111111111111111111",
+            "0x00",
+        ));
+        let stored = checks_json(&trade.checks).unwrap();
+        assert!(
+            stored.get("allowedProof").is_none(),
+            "an absent proof must not become a null the signer never sent: {stored}"
+        );
+    }
+
+    #[test]
+    fn the_proof_is_not_part_of_what_the_wallet_signed() {
+        let address = signer().address().to_checksum(None);
+        let polygon = offchain_marketplace_v2(MATIC_MAINNET).unwrap();
+        let plain = parse(&trade_json(&address, "0x00"));
+        let proved = parse(&trade_json(&address, "0x00").replace(
+            r#""allowedRoot": "0x","#,
+            r#""allowedRoot": "0x", "allowedProof": ["0x01"],"#,
+        ));
+        assert_eq!(
+            signing_hash(&plain, &polygon).unwrap(),
+            signing_hash(&proved, &polygon).unwrap(),
+            "allowedProof is supplied at redemption, not signed over"
+        );
+    }
 }

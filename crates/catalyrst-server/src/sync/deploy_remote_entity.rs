@@ -106,6 +106,7 @@ pub async fn deploy_entity_streaming(
     context: DeploymentContext,
     content_semaphore: Arc<Semaphore>,
     report: Option<&std::sync::Arc<super::batch_deployer::DeploymentReport>>,
+    retry_state: Option<(u32, u64)>,
 ) -> Result<(), SyncError> {
     download_file_with_retries(client, storage.as_ref(), entity_id, servers).await?;
 
@@ -179,7 +180,14 @@ pub async fn deploy_entity_streaming(
     }
 
     deployer
-        .deploy_entity(&entity_data, entity_id, auth_chain, context, report)
+        .deploy_entity(
+            &entity_data,
+            entity_id,
+            auth_chain,
+            context,
+            report,
+            retry_state,
+        )
         .await?;
 
     Ok(())

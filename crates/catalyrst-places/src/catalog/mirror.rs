@@ -7,6 +7,8 @@ use serde_json::Value;
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 
+use crate::catalog::parse_mirror_timestamp;
+
 const PAGE: i64 = 100;
 const INTERVAL: Duration = Duration::from_secs(3600);
 const USER_AGENT: &str =
@@ -18,7 +20,7 @@ const UPSERT: &str = r#"
          categories, likes, dislikes, favorites, deployed_at, disabled, highlighted,
          raw, fetched_at)
     VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12, $13, $14, now())
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now())
     ON CONFLICT (id) DO UPDATE SET
         base_position   = EXCLUDED.base_position,
         title           = EXCLUDED.title,
@@ -146,7 +148,9 @@ async fn upsert(pool: &PgPool, place: &Value) -> Result<()> {
         .bind(int(place, "likes"))
         .bind(int(place, "dislikes"))
         .bind(int(place, "favorites"))
-        .bind(place.get("deployed_at").and_then(Value::as_str))
+        .bind(parse_mirror_timestamp(
+            place.get("deployed_at").and_then(Value::as_str),
+        ))
         .bind(
             place
                 .get("disabled")

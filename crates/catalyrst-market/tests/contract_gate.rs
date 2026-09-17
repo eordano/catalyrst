@@ -19,6 +19,7 @@ use catalyrst_market::ports::bids::BidsComponent;
 use catalyrst_market::ports::catalog::CatalogComponent;
 use catalyrst_market::ports::collections::CollectionsComponent;
 use catalyrst_market::ports::contracts::ContractsComponent;
+use catalyrst_market::ports::coupons::{CouponsComponent, RpcCouponChainReader};
 use catalyrst_market::ports::items::ItemsComponent;
 use catalyrst_market::ports::lists::ListsComponent;
 use catalyrst_market::ports::mana_rate::ManaUsdRateComponent;
@@ -45,6 +46,7 @@ const ADMIN_TOKEN: &str = "cg-market-admin";
 const PICK_ITEM: &str = "0x1111111111111111111111111111111111111111-0";
 const BID_ITEM: &str = "0x2222222222222222222222222222222222222222-0";
 const ORDER_ITEM: &str = "0x3333333333333333333333333333333333333333-0";
+const COUPON_ID: &str = "4f0f8d9a-8f2c-4a15-9f6b-1c2d3e4f5a6b";
 
 async fn seed_squid(pool: &PgPool, accept: &str, owner: &str) {
     sqlx::query(
@@ -84,6 +86,18 @@ async fn seed_squid(pool: &PgPool, accept: &str, owner: &str) {
     .unwrap();
 }
 
+async fn seed_coupon(pool: &PgPool, signer: &str) {
+    sqlx::query(
+        "INSERT INTO marketplace.coupons (id, network, chain_id, signer, signature, hashed_signature, state_key, coupon_manager, coupon_address, checks, discount_type, discount_ppm, root, collections, effective_since, expires_at) VALUES ($1::uuid, 'MATIC', 80002, $2, '0xgate-coupon-signature', '0xgate-coupon-hashed', '0xgate-coupon-state-key', '0x6c956587d9fe70032781edcdc626310648575382', '0x4ee8f6b87f4917a3bbc7c8bb3a06db8555f83db9', $3::jsonb, 1, 100000, '0xbb275d33d9fbb90ff34fd53181283e8cdebb0dd8e764f5cb6852d976a4495fa9', ARRAY['0x1111111111111111111111111111111111111111'], now() - interval '1 hour', now() + interval '1 day')",
+    )
+    .bind(COUPON_ID)
+    .bind(signer.to_lowercase())
+    .bind(r#"{"uses":10,"expiration":0,"effective":0,"salt":"0x","contractSignatureIndex":0,"signerSignatureIndex":0,"allowedRoot":"0x0000000000000000000000000000000000000000000000000000000000000000","externalChecks":[]}"#)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 async fn seed_list(pool: &PgPool, user: &str) {
     sqlx::query("INSERT INTO favorites.lists (name, user_address, is_private) VALUES ('gate list', $1, false)")
         .bind(user)
@@ -108,6 +122,14 @@ async fn build_state(pool: PgPool) -> AppState {
         catalog: CatalogComponent::new(pool.clone()),
         collections: CollectionsComponent::new(pool.clone()),
         contracts: ContractsComponent::new(pool.clone()),
+        coupons: CouponsComponent::new(
+            pool.clone(),
+            pool.clone(),
+            Arc::new(RpcCouponChainReader::new(
+                reqwest::Client::new(),
+                Default::default(),
+            )),
+        ),
         items: ItemsComponent::new(pool.clone()),
         lists: ListsComponent::new(pool.clone()).with_write(pool.clone()),
         mana_usd_rate: ManaUsdRateComponent::new("http://127.0.0.1:9".into(), 0.02, 86400),
@@ -119,6 +141,10 @@ async fn build_state(pool: PgPool) -> AppState {
         sales: SalesComponent::new(pool.clone()),
         shop_catalog: ShopCatalogComponent::new(pool.clone()),
         stats: StatsComponent::new(pool.clone()),
+        suggestions: catalyrst_market::ports::suggestions::SuggestionsComponent::new(
+            pool.clone(),
+            1,
+        ),
         trades: TradesComponent::new(pool.clone(), false),
         trendings: TrendingsComponent::new(pool.clone()),
         user_assets: UserAssetsComponent::new(pool.clone(), false),
@@ -208,6 +234,9 @@ async fn every_spec_route_answers_its_contract() {
     scratch
         .apply_sql(include_str!("../migrations/0007_usage_grants.sql"))
         .await;
+    scratch
+        .apply_sql(include_str!("../migrations/0013_coupons.sql"))
+        .await;
 
     let user = test_wallet(7);
     let bidder = test_wallet(9);
@@ -216,6 +245,7 @@ async fn every_spec_route_answers_its_contract() {
 
     seed_squid(&scratch.pool, &accepter.address(), &owner.address()).await;
     seed_list(&scratch.pool, &user.address()).await;
+    seed_coupon(&scratch.pool, &user.address()).await;
 
     let (router, spec) = api_router_with_spec();
     let state = build_state(scratch.pool.clone()).await;
@@ -624,6 +654,81 @@ async fn every_spec_route_answers_its_contract() {
             .expect(401),
     )
     .await;
+
+    gate.hit(
+        &app,
+        Case::new("get", "/v1/picks/stats").query(&format!("itemId={}", PICK_ITEM)),
+    )
+    .await;
+    gate.hit(
+        &app,
+        Case::new("get", "/v1/picks/stats").query(&format!(
+            "itemId={}&checkingUserAddress={}",
+            PICK_ITEM,
+            user.address()
+        )),
+    )
+    .await;
+    gate.hit(
+        &app,
+        Case::new("get", "/v1/picks/stats")
+            .query("itemId=0xabc-0&checkingUserAddress=not-an-address")
+            .expect(400),
+    )
+    .await;
+
+    gate.hit(
+        &app,
+        Case::new("get", "/v1/coupons").query(&format!("signer={}", user.address())),
+    )
+    .await;
+    gate.hit(
+        &app,
+        Case::new("get", "/v1/coupons")
+            .query("signer=not-an-address")
+            .expect(400),
+    )
+    .await;
+
+    let coupon_path = format!("/v1/coupons/{}", COUPON_ID);
+    gate.hit(
+        &app,
+        Case::new("get", "/v1/coupons/{id}").path(&coupon_path),
+    )
+    .await;
+    gate.hit(
+        &app,
+        Case::new("get", "/v1/coupons/{id}")
+            .path("/v1/coupons/not-a-uuid")
+            .expect(404),
+    )
+    .await;
+
+    gate.hit(
+        &app,
+        Case::new("post", "/v1/coupons")
+            .json(&json!({}))
+            .expect(401),
+    )
+    .await;
+    gate.hit(
+        &app,
+        with_signed_meta_for(
+            Case::new("post", "/v1/coupons"),
+            &user,
+            "post",
+            "/v1/coupons",
+            r#"{"signer":"dcl:marketplace","intent":"dcl:create-trade"}"#,
+        )
+        .json(&json!({}))
+        .expect(400),
+    )
+    .await;
+    gate.waive_success(
+        "post",
+        "/v1/coupons",
+        "a 201 needs an EIP-712 CouponManager signature over a live chain id, a squid_marketplace.collection row whose creator is the recovered signer, and reachable CouponManager RPC for the signature indexes; none of those exist in the federation-scoped scratch database. The signature, ordering and persistence path is covered by the ports::coupons unit tests and by tests/coupons_pg.rs; unsigned->401 and wrong-intent->400 auth cases are asserted here",
+    );
 
     gate.hit(
         &app,

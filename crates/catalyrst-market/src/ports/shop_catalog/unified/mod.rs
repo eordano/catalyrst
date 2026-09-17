@@ -1,16 +1,19 @@
 use serde::Serialize;
+use sqlx::types::JsonValue;
 
 use super::component::{
-    listing_type, network_and_chain, parse_available, top_level_category, ShopCatalogComponent,
+    listing_type, network_and_chain, parse_available, shop_sale_fields, to_shop_coupon,
+    top_level_category, ShopCatalogComponent,
 };
 use super::sql::{
-    credits_to_wei, emit, gender_expr, metadata_joins, received_asset_exists, shop_clamp_first,
+    coupon_columns, coupon_join, credits_to_wei, discounted_predicate, effective_wei_expr, emit,
+    gender_expr, metadata_joins, null_coupon_columns, received_asset_exists, shop_clamp_first,
     shop_clamp_skip, shop_search_where, store_base_relation, Bind, APPROVED_COLLECTION_PREDICATE,
     ASSET_TYPE_ERC20, ASSET_TYPE_USD_PEGGED_MANA, MAX_USD_WEI, SHOP_NAME_EXPR, USD_WEI_PER_CREDIT,
 };
 use super::types::{
-    trending_clamp_days, trending_clamp_first, ShopCatalogFilters, ShopSortBy, SHOP_MIN_PAGE_SIZE,
-    TRENDING_SALES_CUT,
+    trending_clamp_days, trending_clamp_first, ShopCatalogFilters, ShopSaleFields, ShopSortBy,
+    SHOP_MIN_PAGE_SIZE, TRENDING_SALES_CUT,
 };
 use crate::dcl_schemas::{ChainId, Network};
 use crate::http::response::ApiError;
@@ -20,10 +23,14 @@ use crate::ports::trendings::midnight_days_ago;
 
 mod params;
 
+#[cfg(test)]
+mod map_tests;
+
 pub use params::{
-    body_shapes_for_genders, parse_trending_filters, parse_unified_filters, parse_unified_group_by,
-    ShopListingType, TrendingRequest, UnifiedAcquisition, UnifiedCatalogFilters, UnifiedGroupBy,
-    UnifiedSource, SHOP_LISTING_TYPE_VALUES, UNIFIED_GROUP_BY_VALUES,
+    body_shapes_for_genders, parse_related_filters, parse_trending_filters, parse_unified_filters,
+    parse_unified_group_by, RelatedItemsFilters, ShopListingType, TrendingRequest,
+    UnifiedAcquisition, UnifiedCatalogFilters, UnifiedGroupBy, UnifiedSource,
+    SHOP_LISTING_TYPE_VALUES, UNIFIED_GROUP_BY_VALUES,
 };
 
 #[derive(Debug, Serialize)]
@@ -65,8 +72,12 @@ pub struct UnifiedListing {
     pub seller: Option<String>,
     /// NFT mint index (issued id); null for primary listings.
     pub issued_id: Option<String>,
+    /// The SALE price while a creator coupon applies, else the list price.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub price_credits: i64,
+    #[serde(flatten)]
+    #[cfg_attr(feature = "ts", ts(flatten))]
+    pub sale: ShopSaleFields,
     pub mana_wei: Option<String>,
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub available: i64,
@@ -111,8 +122,12 @@ pub struct UnifiedItem {
     pub seller: Option<String>,
     /// Representative listing's NFT mint index (issued id); null for a primary headline.
     pub issued_id: Option<String>,
+    /// The SALE price while a creator coupon applies, else the list price.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub price_credits: i64,
+    #[serde(flatten)]
+    #[cfg_attr(feature = "ts", ts(flatten))]
+    pub sale: ShopSaleFields,
     pub mana_wei: Option<String>,
     /// How many open credit-buyable listings this item has (primary + secondary, native + legacy).
     #[cfg_attr(feature = "ts", ts(type = "number"))]
@@ -164,6 +179,10 @@ struct ListingCore {
     seller: Option<String>,
     issued_id: Option<String>,
     price_credits: i64,
+    compare_at_credits: Option<i64>,
+    sale_ends_at: Option<i64>,
+    sale_units_left: Option<i64>,
+    coupon: Option<JsonValue>,
     mana_wei: Option<String>,
     available: Option<String>,
     network: Option<String>,
@@ -209,11 +228,13 @@ fn lowercased(values: &[String]) -> Vec<String> {
 
 fn append_unified_filters(
     wheres: &mut Vec<String>,
-    filters: &ShopCatalogFilters,
-    listing_type: Option<ShopListingType>,
+    unified: &UnifiedCatalogFilters,
+    with_coupons: bool,
     binds: &mut Vec<Bind>,
     next_idx: &mut usize,
 ) {
+    let filters = &unified.base;
+    let listing_type = filters.listing_type;
     wheres.push(format!(" {APPROVED_COLLECTION_PREDICATE} "));
     if let Some(ca) = filters
         .contract_address
@@ -222,6 +243,14 @@ fn append_unified_filters(
     {
         let p = emit(Bind::Text(ca.to_lowercase()), binds, next_idx);
         wheres.push(format!(" mv.sent_contract_address = {p} "));
+    }
+    if let Some(addrs) = unified.contract_addresses.as_deref() {
+        if addrs.is_empty() {
+            wheres.push(" FALSE ".to_string());
+        } else {
+            let p = emit(Bind::TextArray(lowercased(addrs)), binds, next_idx);
+            wheres.push(format!(" mv.sent_contract_address = ANY({p}) "));
+        }
     }
     if let Some(iid) = &filters.item_id {
         let p = emit(Bind::Text(iid.clone()), binds, next_idx);
@@ -296,25 +325,42 @@ fn append_unified_filters(
         }
         None => {}
     }
+    if let Some(predicate) = discounted_predicate(filters.discounted, with_coupons) {
+        wheres.push(predicate);
+    }
 }
 
+/// `with_coupons` is the NATIVE-primary branch only: the coupon contract mints collection items,
+/// so a legacy trade or a CollectionStore mint can never be discounted by one.
+///
+/// The LEGACY TRADE branch is primary-only unless the request sets `includeLegacySecondary`.
+/// Opening it adds `public_nft_order` rows priced in MANA -- what a resale listed through the
+/// classic Marketplace looks like; everything downstream already handles them, because a
+/// native resale takes the same shape (a token id, a seller and an issued id off
+/// `mv.assets->'sent'`) and only the price treatment differs, which the rate decides.
 fn unified_branch(
     source: UnifiedSource,
     acquisition: UnifiedAcquisition,
     rate_placeholder: Option<&str>,
-    filters: &ShopCatalogFilters,
-    listing_type: Option<ShopListingType>,
+    filters: &UnifiedCatalogFilters,
+    with_coupons: bool,
     binds: &mut Vec<Bind>,
     next_idx: &mut usize,
 ) -> String {
     let is_store = acquisition == UnifiedAcquisition::Store;
     let (asset_type, primary_only) = match source {
         UnifiedSource::Native => (ASSET_TYPE_USD_PEGGED_MANA, false),
-        UnifiedSource::Legacy => (ASSET_TYPE_ERC20, true),
+        UnifiedSource::Legacy => (ASSET_TYPE_ERC20, !filters.include_legacy_secondary),
     };
     let usd_wei = match rate_placeholder {
         Some(rate_p) => format!("(mv.amount_received::numeric * {rate_p}::numeric)"),
+        None if with_coupons => effective_wei_expr(),
         None => "mv.amount_received::numeric".to_string(),
+    };
+    let compare_at_usd_wei = if with_coupons {
+        "CASE WHEN cp.id IS NOT NULL THEN mv.amount_received::numeric END".to_string()
+    } else {
+        "NULL::numeric".to_string()
     };
     let mana_wei = match source {
         UnifiedSource::Native => "NULL::text",
@@ -334,7 +380,7 @@ fn unified_branch(
         w.push(received_asset_exists(asset_type, binds, next_idx));
         w
     };
-    append_unified_filters(&mut wheres, filters, listing_type, binds, next_idx);
+    append_unified_filters(&mut wheres, filters, with_coupons, binds, next_idx);
 
     format!(
         "SELECT\n\
@@ -358,22 +404,31 @@ fn unified_branch(
            mv.assets->'sent'->>'owner' AS seller,\n\
            mv.assets->'sent'->>'issued_id' AS issued_id,\n\
            {usd_wei} AS usd_wei,\n\
+           {compare_at_usd_wei} AS compare_at_usd_wei,\n\
            mv.available::text AS available,\n\
            mv.network::text AS network,\n\
            EXTRACT(EPOCH FROM mv.created_at)::bigint * 1000 AS created_at,\n\
            {mana_wei} AS mana_wei,\n\
+           {coupon_columns},\n\
            {gender}\n\
          {joins}\n\
+         {coupon_join}\n\
          {where_clause}",
         source = source.as_str(),
         acquisition = acquisition.as_str(),
         name_expr = SHOP_NAME_EXPR,
+        coupon_columns = if with_coupons {
+            coupon_columns()
+        } else {
+            null_coupon_columns()
+        },
         gender = gender_expr(),
         joins = if is_store {
             store_base_relation()
         } else {
             metadata_joins()
         },
+        coupon_join = if with_coupons { coupon_join() } else { "" },
         where_clause = where_from(&wheres),
     )
 }
@@ -401,14 +456,14 @@ fn unified_inner(
     });
 
     let branches = [
-        (UnifiedSource::Native, UnifiedAcquisition::Trade),
-        (UnifiedSource::Legacy, UnifiedAcquisition::Trade),
-        (UnifiedSource::Legacy, UnifiedAcquisition::Store),
+        (UnifiedSource::Native, UnifiedAcquisition::Trade, true),
+        (UnifiedSource::Legacy, UnifiedAcquisition::Trade, false),
+        (UnifiedSource::Legacy, UnifiedAcquisition::Store, false),
     ];
     let parts: Vec<String> = branches
         .into_iter()
-        .filter(|(source, _)| filters.source.is_none_or(|s| s == *source))
-        .map(|(source, acquisition)| {
+        .filter(|(source, _, _)| filters.source.is_none_or(|s| s == *source))
+        .map(|(source, acquisition, with_coupons)| {
             let rate = match source {
                 UnifiedSource::Native => None,
                 UnifiedSource::Legacy => rate_p.as_deref(),
@@ -417,8 +472,8 @@ fn unified_inner(
                 source,
                 acquisition,
                 rate,
-                &filters.base,
-                filters.listing_type,
+                filters,
+                with_coupons,
                 binds,
                 next_idx,
             )
@@ -450,10 +505,13 @@ fn outer_page_clauses(
     }
 
     let sort_key = match filters.sort_by {
-        Some(ShopSortBy::Cheapest) => "usd_wei ASC",
-        Some(ShopSortBy::MostExpensive) => "usd_wei DESC",
-        Some(ShopSortBy::Name) => "name ASC",
-        Some(ShopSortBy::Newest) | None => "created_at DESC",
+        Some(ShopSortBy::Cheapest) => format!("{alias}.usd_wei ASC"),
+        Some(ShopSortBy::MostExpensive) => format!("{alias}.usd_wei DESC"),
+        Some(ShopSortBy::Name) => format!("{alias}.name ASC"),
+        Some(ShopSortBy::Discount) => format!(
+            "{alias}.coupon_discount_ppm DESC NULLS LAST, {alias}.sale_ends_at ASC NULLS LAST"
+        ),
+        Some(ShopSortBy::Newest) | None => format!("{alias}.created_at DESC"),
     };
 
     let limit_p = emit(Bind::Int(shop_clamp_first(filters.first)), binds, next_idx);
@@ -461,7 +519,7 @@ fn outer_page_clauses(
 
     (
         where_from(&wheres),
-        format!("ORDER BY {alias}.{sort_key}, {alias}.trade_id"),
+        format!("ORDER BY {sort_key}, {alias}.trade_id"),
         limit_p,
         offset_p,
     )
@@ -490,15 +548,26 @@ pub fn build_unified_listings_sql(
         "SELECT\n\
            sub.*,\n\
            CEIL(sub.usd_wei / {credit_wei}::numeric)::bigint AS price_credits,\n\
+           {compare_at} AS compare_at_credits,\n\
            COUNT(*) OVER() AS total\n\
          FROM (\n{inner}\n) sub\n\
          {where_clause}\n\
          {order}\n\
          LIMIT {limit_p} OFFSET {offset_p}",
         credit_wei = USD_WEI_PER_CREDIT,
+        compare_at = compare_at_credits_expr("sub"),
     );
 
     (sql, binds)
+}
+
+/// The list price in whole credits, rounded the same way `price_credits` is so the two are
+/// comparable; NULL on any row no coupon reached.
+fn compare_at_credits_expr(alias: &str) -> String {
+    format!(
+        "CASE WHEN {alias}.compare_at_usd_wei IS NOT NULL \
+           THEN CEIL({alias}.compare_at_usd_wei / {USD_WEI_PER_CREDIT}::numeric)::bigint END"
+    )
 }
 
 /// The UNION ALL of the source branches collapsed to ONE representative row per (contract,
@@ -520,7 +589,8 @@ fn build_item_unified_core(
     format!(
         "SELECT DISTINCT ON (f.contract_address, f.item_id)\n\
            f.*,\n\
-           CEIL(f.usd_wei / {credit_wei}::numeric)::bigint AS price_credits\n\
+           CEIL(f.usd_wei / {credit_wei}::numeric)::bigint AS price_credits,\n\
+           {compare_at} AS compare_at_credits\n\
          FROM (\n\
            SELECT\n\
              u.*,\n\
@@ -537,6 +607,7 @@ fn build_item_unified_core(
            (CASE WHEN f.acquisition = 'trade' THEN 0 ELSE 1 END),\n\
            f.trade_id",
         credit_wei = USD_WEI_PER_CREDIT,
+        compare_at = compare_at_credits_expr("f"),
         max_usd_wei = MAX_USD_WEI,
     )
 }
@@ -565,6 +636,54 @@ pub fn build_unified_items_sql(
          {where_clause}\n\
          {order}\n\
          LIMIT {limit_p} OFFSET {offset_p}",
+    );
+
+    (sql, binds)
+}
+
+/// The item-unified core restricted to an explicit id list (`<contract>-<itemId>`).
+///
+/// The suggestions rail decides WHICH items to show, from precomputed neighbours and a taste
+/// profile. What it must not decide is whether an item is approved, priced, buyable with credits
+/// or social -- that is the browse grid's definition of sellable and it lives in one place. So
+/// the rail hydrates through the same core and an id that is not sellable simply does not come
+/// back, which is also how a rail built from a six-hour-old neighbour table stays honest.
+///
+/// `contract_addresses` is the collections the ids live in, resolved by the caller before this
+/// runs. The core is a union over the trades view and the store relation and is expensive
+/// unrestricted; handing it the contracts the candidates actually live in narrows both branches
+/// before the id array is ever applied, and nothing outside those collections could have been
+/// returned anyway. `None` keeps the unrestricted core for a caller that has nothing to narrow
+/// with.
+pub(crate) fn build_items_by_ids_sql(
+    item_ids: &[String],
+    contract_addresses: Option<Vec<String>>,
+    mana_usd_rate: f64,
+) -> (String, Vec<Bind>) {
+    let mut binds: Vec<Bind> = Vec::new();
+    let mut next_idx = 1usize;
+
+    let filters = UnifiedCatalogFilters {
+        base: ShopCatalogFilters {
+            include_social_emotes: false,
+            ..Default::default()
+        },
+        contract_addresses,
+        ..Default::default()
+    };
+
+    let core = build_item_unified_core(&filters, mana_usd_rate, &mut binds, &mut next_idx);
+    let ids_p = emit(
+        Bind::TextArray(item_ids.to_vec()),
+        &mut binds,
+        &mut next_idx,
+    );
+
+    let sql = format!(
+        "SELECT d.*\n\
+         FROM (\n{core}\n) d\n\
+         WHERE d.usd_wei > 0\n\
+           AND (d.contract_address || '-' || d.item_id) = ANY({ids_p})"
     );
 
     (sql, binds)
@@ -694,6 +813,7 @@ pub(super) fn build_related_items_sql(
     item_id: &str,
     reference: &ReferenceItem,
     first: Option<i64>,
+    rail: &RelatedItemsFilters,
     mana_usd_rate: f64,
 ) -> (String, Vec<Bind>) {
     let mut binds: Vec<Bind> = Vec::new();
@@ -707,10 +827,12 @@ pub(super) fn build_related_items_sql(
                 .clone()
                 .map(|c| vec![c])
                 .unwrap_or_default(),
+            listing_type: rail.listing_type,
             ..Default::default()
         },
         source: None,
-        listing_type: None,
+        contract_addresses: None,
+        include_legacy_secondary: rail.include_legacy_secondary,
     };
 
     let core = build_item_unified_core(&filters, mana_usd_rate, &mut binds, &mut next_idx);
@@ -833,6 +955,7 @@ pub(super) fn build_trending_items_sql(
 /// reference reaching credit authorization.
 fn map_unified_listing(r: ListingCore) -> UnifiedListing {
     let (network, chain_id) = network_and_chain(r.network.as_deref());
+    let contract_address = r.contract_address.unwrap_or_default();
     UnifiedListing {
         acquisition: r.acquisition.clone(),
         trade_id: if r.acquisition == "store" {
@@ -842,7 +965,7 @@ fn map_unified_listing(r: ListingCore) -> UnifiedListing {
         },
         source: r.source,
         listing_type: listing_type(&r.trade_type).to_string(),
-        contract_address: r.contract_address.unwrap_or_default(),
+        contract_address: contract_address.clone(),
         item_id: r.item_id,
         token_id: r.token_id,
         name: r.name.unwrap_or_default(),
@@ -856,12 +979,42 @@ fn map_unified_listing(r: ListingCore) -> UnifiedListing {
         seller: r.seller,
         issued_id: r.issued_id,
         price_credits: r.price_credits,
+        sale: unified_sale_fields(
+            r.coupon,
+            &contract_address,
+            r.price_credits,
+            r.compare_at_credits,
+            r.sale_ends_at,
+            r.sale_units_left,
+        ),
         mana_wei: r.mana_wei,
         available: parse_available(r.available.as_deref()),
         network,
         chain_id,
         created_at: r.created_at,
     }
+}
+
+/// `price_credits` on this feed is ALREADY the sale price -- `usd_wei` carries the discount
+/// server-side -- so only the compare-at half needs deriving. The gate is the same one the
+/// per-listing shop feed applies: strictly cheaper once both are whole credits.
+fn unified_sale_fields(
+    coupon: Option<JsonValue>,
+    contract_address: &str,
+    price_credits: i64,
+    compare_at_credits: Option<i64>,
+    sale_ends_at: Option<i64>,
+    sale_units_left: Option<i64>,
+) -> ShopSaleFields {
+    let coupon = to_shop_coupon(coupon, contract_address);
+    let on_sale = coupon.is_some() && compare_at_credits.is_some_and(|c| c > price_credits);
+    shop_sale_fields(
+        on_sale,
+        compare_at_credits,
+        sale_ends_at,
+        sale_units_left,
+        coupon,
+    )
 }
 
 /// `listing_count` counts store mints alongside trades, so it is "credit-buyable offers"
@@ -889,6 +1042,7 @@ fn map_unified_item(r: RelatedItemRow) -> UnifiedItem {
         seller: l.seller,
         issued_id: l.issued_id,
         price_credits: l.price_credits,
+        sale: l.sale,
         mana_wei: l.mana_wei,
         listing_count: r.listing_count,
         available: l.available,
@@ -929,6 +1083,22 @@ impl ShopCatalogComponent {
         Ok((data, total))
     }
 
+    /// Hydrates an explicit id list through the shared item-unified core. Order is NOT
+    /// preserved -- the caller already holds the ranking and re-imposes it.
+    pub(crate) async fn get_items_by_ids(
+        &self,
+        item_ids: &[String],
+        contract_addresses: Option<Vec<String>>,
+        mana_usd_rate: f64,
+    ) -> Result<Vec<UnifiedItem>, ApiError> {
+        if item_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (sql, binds) = build_items_by_ids_sql(item_ids, contract_addresses, mana_usd_rate);
+        let rows: Vec<RelatedItemRow> = self.fetch(sql, binds).await?;
+        Ok(rows.into_iter().map(map_unified_item).collect())
+    }
+
     /// Two statements: the anchor lookup, then the item-unified feed built from the same
     /// shared core as the browse grid. An unknown/missing anchor yields an empty rail (no
     /// second query) rather than an error.
@@ -937,6 +1107,7 @@ impl ShopCatalogComponent {
         contract_address: &str,
         item_id: &str,
         first: Option<i64>,
+        rail: &RelatedItemsFilters,
         mana_usd_rate: f64,
     ) -> Result<Vec<UnifiedItem>, ApiError> {
         let (anchor_sql, anchor_binds) = build_reference_item_sql(contract_address, item_id);
@@ -945,8 +1116,14 @@ impl ShopCatalogComponent {
             return Ok(Vec::new());
         };
 
-        let (sql, binds) =
-            build_related_items_sql(contract_address, item_id, &reference, first, mana_usd_rate);
+        let (sql, binds) = build_related_items_sql(
+            contract_address,
+            item_id,
+            &reference,
+            first,
+            rail,
+            mana_usd_rate,
+        );
         let rows: Vec<RelatedItemRow> = self.fetch(sql, binds).await?;
         Ok(rows.into_iter().map(map_unified_item).collect())
     }
@@ -969,107 +1146,5 @@ impl ShopCatalogComponent {
                 trending_sales: r.sales,
             })
             .collect())
-    }
-}
-
-#[cfg(test)]
-mod map_tests {
-    use super::*;
-
-    fn core(acquisition: &str) -> ListingCore {
-        ListingCore {
-            source: "legacy".to_string(),
-            acquisition: acquisition.to_string(),
-            trade_id: "row-id".to_string(),
-            trade_type: "public_item_order".to_string(),
-            contract_address: Some("0xc".to_string()),
-            item_id: Some("7".to_string()),
-            token_id: None,
-            name: Some("hat".to_string()),
-            image: None,
-            rarity: Some("Rare".to_string()),
-            item_type: Some("wearable_v2".to_string()),
-            wearable_category: Some("hat".to_string()),
-            emote_loop: None,
-            gender: None,
-            creator: Some("0xdead".to_string()),
-            seller: None,
-            issued_id: None,
-            price_credits: 5,
-            mana_wei: Some("1000".to_string()),
-            available: Some("3".to_string()),
-            network: Some("MATIC".to_string()),
-            created_at: 1_000,
-        }
-    }
-
-    fn item_row(acquisition: &str) -> RelatedItemRow {
-        RelatedItemRow {
-            core: core(acquisition),
-            listing_count: 2,
-        }
-    }
-
-    #[test]
-    fn store_rows_carry_acquisition_and_drop_the_tiebreak_trade_id() {
-        let m = map_unified_listing(core("store"));
-        assert_eq!(m.acquisition, "store");
-        assert_eq!(m.trade_id, None, "a mint has no trade");
-        assert_eq!(m.listing_type, "primary");
-        assert_eq!(m.mana_wei.as_deref(), Some("1000"));
-    }
-
-    #[test]
-    fn trade_rows_keep_their_trade_id() {
-        let m = map_unified_listing(core("trade"));
-        assert_eq!(m.acquisition, "trade");
-        assert_eq!(m.trade_id.as_deref(), Some("row-id"));
-    }
-
-    #[test]
-    fn item_feed_maps_store_rows_the_same_way_plus_listing_count() {
-        let m = map_unified_item(item_row("store"));
-        assert_eq!(m.acquisition, "store");
-        assert_eq!(m.trade_id, None);
-        assert_eq!(m.listing_count, 2);
-
-        let t = map_unified_item(item_row("trade"));
-        assert_eq!(t.trade_id.as_deref(), Some("row-id"));
-    }
-
-    /// Never give `emote_loop` a `skip_serializing_if`: the key has to reach the
-    /// wire even when it is null, because the client tells an emote from a
-    /// wearable by `emoteLoop !== null` and an absent key reads as a wearable.
-    fn assert_play_mode_on_the_wire(v: &serde_json::Value, column: Option<bool>) {
-        assert_eq!(
-            v.get("emoteLoop"),
-            Some(&serde_json::json!(column)),
-            "emoteLoop must be present, and null only for a non-emote: {v}"
-        );
-    }
-
-    #[test]
-    fn emote_play_mode_keeps_plays_once_distinct_from_not_an_emote() {
-        for column in [Some(true), Some(false), None] {
-            let mut listing = core("trade");
-            listing.emote_loop = column;
-            let listing = map_unified_listing(listing);
-            assert_eq!(listing.emote_loop, column);
-            assert_play_mode_on_the_wire(&serde_json::to_value(listing).unwrap(), column);
-
-            let mut item = item_row("trade");
-            item.core.emote_loop = column;
-            let item = map_unified_item(item);
-            assert_eq!(item.emote_loop, column);
-            assert_play_mode_on_the_wire(&serde_json::to_value(item).unwrap(), column);
-        }
-    }
-
-    #[test]
-    fn unified_wire_shape_serializes_acquisition_and_null_trade_id() {
-        let v = serde_json::to_value(map_unified_listing(core("store"))).unwrap();
-        assert_eq!(v["acquisition"], "store");
-        assert!(v["tradeId"].is_null(), "{v}");
-        assert_eq!(v["source"], "legacy");
     }
 }

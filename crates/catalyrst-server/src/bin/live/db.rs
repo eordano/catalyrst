@@ -55,6 +55,23 @@ const POINTER_CHANGES_SELECT: &str = r#"
 
 #[async_trait]
 impl Database for LiveDatabase {
+    async fn deployment_committed(&self, entity_id: &str) -> Result<(), DatabaseError> {
+        if let Err(error) = invalidate_deployment_caches(
+            &self.pool,
+            &self.entity_cache,
+            &self.profile_lru,
+            &self.prefix_ids_cache,
+            entity_id,
+        )
+        .await
+        {
+            // Invalidation evicts before refilling and clears every cache if it
+            // cannot identify the affected entries. Reads safely fall back to SQL.
+            tracing::warn!(entity_id, %error, "Deployment committed; cache refresh failed after eviction");
+        }
+        Ok(())
+    }
+
     async fn active_entities_by_pointers(
         &self,
         pointers: &[String],
@@ -69,8 +86,8 @@ impl Database for LiveDatabase {
         let mut seen_ids: HashSet<String> = HashSet::new();
         let mut uncached_pointers: Vec<String> = Vec::new();
 
+        let cache = self.entity_cache.read().await;
         {
-            let cache = self.entity_cache.read().await;
             for ptr in &lower_pointers {
                 if let Some(entity_id) = cache.pointer_to_id.get(ptr) {
                     if seen_ids.insert(entity_id.clone()) {
@@ -140,8 +157,8 @@ impl Database for LiveDatabase {
         let mut results: Vec<Value> = Vec::new();
         let mut uncached_ids: Vec<String> = Vec::new();
 
+        let cache = self.entity_cache.read().await;
         {
-            let cache = self.entity_cache.read().await;
             let lru = self.profile_lru.lock().await;
             for id in ids {
                 if let Some(entity) = cache.by_id.get(id) {
@@ -205,6 +222,7 @@ impl Database for LiveDatabase {
         offset: i64,
         limit: i64,
     ) -> Result<PrefixQueryResult, DatabaseError> {
+        let cache_barrier = self.entity_cache.read().await;
         let cached = {
             let cache = self.prefix_ids_cache.lock().await;
             cache.get(prefix)
@@ -225,6 +243,7 @@ impl Database for LiveDatabase {
             }
         };
 
+        drop(cache_barrier);
         let total = entity_ids.len() as i64;
 
         if entity_ids.is_empty() {
@@ -804,6 +823,10 @@ impl Database for LiveDatabase {
             error_description: String,
             #[serde(rename = "snapshotHash")]
             snapshot_hash: String,
+            #[serde(rename = "retryCount")]
+            retry_count: i32,
+            #[serde(rename = "nextRetryAt")]
+            next_retry_at: i64,
         }
 
         let rows = catalyrst_db::failed_deployments_repository::get_snapshot_failed_deployments(
@@ -823,6 +846,8 @@ impl Database for LiveDatabase {
                     auth_chain: fd.auth_chain,
                     error_description: fd.error_description,
                     snapshot_hash: fd.snapshot_hash,
+                    retry_count: fd.retry_count,
+                    next_retry_at: fd.next_retry_at as i64,
                 })
                 .unwrap_or_default()
             })

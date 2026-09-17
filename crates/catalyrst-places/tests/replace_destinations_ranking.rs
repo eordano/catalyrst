@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 
 use catalyrst_places::clients::{CommsGatekeeper, Events, Presence};
-use catalyrst_places::handlers::federation::{put_place_ranking, put_world_ranking};
+use catalyrst_places::handlers::federation::{
+    put_place_featured, put_place_ranking, put_world_featured, put_world_ranking,
+};
 use catalyrst_places::handlers::replace_ranking::put_destinations_ranking;
 use catalyrst_places::ports::lists::ListsComponent;
 use catalyrst_places::ports::places::{PlaceListFilters, PlacesComponent, ReplaceRankingResult};
@@ -182,6 +184,16 @@ async fn ranking_of_world(state: &AppState, id: &str) -> Option<f64> {
         .ranking
 }
 
+async fn highlighted_world(state: &AppState, id: &str) -> bool {
+    state
+        .places
+        .find_world_by_id(id)
+        .await
+        .expect("read world")
+        .expect("the world exists")
+        .highlighted
+}
+
 #[tokio::test]
 async fn a_run_without_a_bearer_token_writes_nothing() {
     let Some(scratch) = setup("cg_places_replace_authz").await else {
@@ -280,6 +292,56 @@ async fn a_negative_ranking_rejects_the_whole_run() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(ranking_of_place(&state, "plain").await, Some(5.0));
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_full_precision_ranking_survives_the_round_trip_and_keeps_its_order() {
+    let Some(scratch) = setup("cg_places_replace_precision").await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    create_place_table(&pool).await;
+    seed_place(&pool, "precise", false, json!({})).await;
+    seed_place(&pool, "coarse", false, json!({})).await;
+    let state = state_for(&pool);
+
+    let precise = 0.1f64 + 0.2f64;
+    let result = replace(
+        &state,
+        json!([
+            { "entity_type": "place", "id": "precise", "ranking": precise },
+            { "entity_type": "place", "id": "coarse", "ranking": 0.1 },
+        ]),
+    )
+    .await;
+    assert_eq!(result.places.applied, 2);
+    assert_eq!(
+        ranking_of_place(&state, "precise").await,
+        Some(precise),
+        "an automated score is a full-precision double and the reader must return it"
+    );
+
+    let ids: Vec<String> = state
+        .places
+        .find_list(&PlaceListFilters {
+            limit: 100,
+            order_desc: true,
+            destinations_mode: true,
+            only_places: true,
+            ..Default::default()
+        })
+        .await
+        .expect("destinations list")
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["precise".to_string(), "coarse".to_string()],
+        "the curated order the run installed must be the order the feed serves"
+    );
 
     scratch.drop().await;
 }
@@ -730,6 +792,111 @@ async fn the_single_destination_routes_refuse_a_node_without_a_writer() {
     }
     assert_eq!(ranking_of_place(&state, "plain").await, Some(5.0));
     assert_eq!(ranking_of_world(&state, "named.dcl.eth").await, Some(11.0));
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn the_single_destination_ranking_routes_answer_201_like_the_bulk_route() {
+    let Some(scratch) = setup("cg_places_single_created").await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    create_place_table(&pool).await;
+    seed_place(&pool, "plain", false, json!({})).await;
+    seed_world(&pool, "w-named", "named.dcl.eth", false, json!({})).await;
+    let state = state_for(&pool);
+
+    let (status, Json(body)) = put_place_ranking(
+        State(state.clone()),
+        bearer(DATA_TEAM_TOKEN),
+        Path("plain".to_string()),
+        Some(Json(json!({ "ranking": 7 }))),
+    )
+    .await
+    .expect("the place ranking was written");
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body.data.ranking, Some(7.0));
+    assert_eq!(ranking_of_place(&state, "plain").await, Some(7.0));
+
+    let (status, Json(body)) = put_world_ranking(
+        State(state.clone()),
+        bearer(ADMIN_TOKEN),
+        Path("named.dcl.eth".to_string()),
+        Some(Json(json!({ "ranking": 11 }))),
+    )
+    .await
+    .expect("the world ranking was written");
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body.data.ranking, Some(11.0));
+    assert_eq!(ranking_of_world(&state, "named.dcl.eth").await, Some(11.0));
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn featuring_a_destination_the_writer_cannot_reach_is_not_a_silent_success() {
+    let Some(scratch) = setup("cg_places_highlight_unwritable").await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    create_place_table(&pool).await;
+    seed_local_world(&pool, "local-world-3", "mine.dcl.eth").await;
+    let state = state_for(&pool);
+
+    let err = put_world_featured(
+        State(state.clone()),
+        bearer(ADMIN_TOKEN),
+        Path("mine.dcl.eth".to_string()),
+    )
+    .await
+    .expect_err("a highlight that cannot land is not a success");
+    assert_eq!(err.to_string(), "Not found world \"mine.dcl.eth\"");
+    assert_eq!(
+        err.into_response().status(),
+        StatusCode::NOT_FOUND,
+        "an unreachable destination answers the way upstream answers a missing one"
+    );
+    assert!(
+        !highlighted_world(&state, "mine.dcl.eth").await,
+        "the refusal must not claim a highlight the catalog never took"
+    );
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn featuring_a_destination_on_a_node_without_a_writer_is_refused() {
+    let Some(scratch) = setup("cg_places_highlight_no_writer").await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    create_place_table(&pool).await;
+    seed_place(&pool, "plain", false, json!({})).await;
+    seed_world(&pool, "w-named", "named.dcl.eth", false, json!({})).await;
+    let state = state_without_writer(&pool);
+
+    let status = put_place_featured(
+        State(state.clone()),
+        bearer(ADMIN_TOKEN),
+        Path("plain".to_string()),
+    )
+    .await
+    .expect_err("a highlight with nowhere to land is not a success")
+    .into_response()
+    .status();
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+
+    let status = put_world_featured(
+        State(state.clone()),
+        bearer(ADMIN_TOKEN),
+        Path("named.dcl.eth".to_string()),
+    )
+    .await
+    .expect_err("a highlight with nowhere to land is not a success")
+    .into_response()
+    .status();
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
 
     scratch.drop().await;
 }

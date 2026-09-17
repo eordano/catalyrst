@@ -52,6 +52,9 @@ import {
   getMarketplaceOwnerCutPerMillion,
   setMarketplaceOwnerCutPerMillion,
   setBidOwnerCutPerMillion,
+  beginOffChainMarketplaceFeeBatch,
+  endOffChainMarketplaceFeeBatch,
+  setOffChainMarketplaceFeeRate,
 } from "./state";
 import { handleNameBought, handleNameRegistered } from "./handlers/ens";
 import {
@@ -103,6 +106,7 @@ const db = new TypeormDatabase({
 const prometheus = new PrometheusServer();
 prometheus.setPort(Number(process.env.ETH_PROMETHEUS_PORT || 3000));
 run(dataSource, db, async (simpleCtx) => {
+  beginOffChainMarketplaceFeeBatch(simpleCtx.blocks[0].header.height);
   const ctx: Context = {
     ...simpleCtx,
     ...chainContext,
@@ -586,6 +590,15 @@ run(dataSource, db, async (simpleCtx) => {
             });
             break;
           }
+          case OffChainMarketplaceABI.events.FeeRateUpdated.topic: {
+            markteplaceEvents.push({
+              topic,
+              event: OffChainMarketplaceABI.events.FeeRateUpdated.decode(log),
+              block,
+              log,
+            });
+            break;
+          }
           case OffChainMarketplaceABI.events.Traded.topic:
           case OffChainMarketplaceV3ABI.events.Traded.topic: {
             const event =
@@ -727,6 +740,11 @@ run(dataSource, db, async (simpleCtx) => {
           nfts,
           counts
         );
+      } else if (topic === OffChainMarketplaceABI.events.FeeRateUpdated.topic) {
+        setOffChainMarketplaceFeeRate(
+          log.address,
+          (event as OffChainMarketplaceABI.FeeRateUpdatedEventArgs)._feeRate
+        );
       } else if (
         topic === OffChainMarketplaceABI.events.Traded.topic ||
         topic === OffChainMarketplaceV3ABI.events.Traded.topic
@@ -734,6 +752,7 @@ run(dataSource, db, async (simpleCtx) => {
         await handleTraded(
           ctx,
           event as OffChainMarketplaceABI.TradedEventArgs,
+          log.address,
           block,
           log.transactionHash,
           nfts,
@@ -1003,6 +1022,9 @@ run(dataSource, db, async (simpleCtx) => {
     } catch (error) {
       ctx.log.error(`error: ${error}`);
     }
+    endOffChainMarketplaceFeeBatch(
+      ctx.blocks[ctx.blocks.length - 1].header.height
+    );
   },
   { prometheus }
 );

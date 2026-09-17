@@ -2,6 +2,7 @@ import { ChainId, Network } from "@dcl/schemas";
 import { PolygonInMemoryState } from "./types";
 import { Sale } from "../model";
 import { getAddresses } from "../common/utils/addresses";
+import { createFeeCache } from "../common/utils/feeCache";
 import { Contract as MarketplaceContract } from "./abi/Marketplace";
 import { Contract as MarketplaceV2Contract } from "./abi/MarketplaceV2";
 import { Contract as OffChainMarketplaceContract } from "./abi/DecentralandMarketplacePolygon";
@@ -88,47 +89,91 @@ export type OffChainMarketplaceContractData = {
   royaltiesRate: bigint | undefined;
 };
 
-export let offChainMarketplaceContractData: OffChainMarketplaceContractData = {
-  feeCollector: undefined,
-  feeRate: undefined,
-  royaltiesRate: undefined,
-};
+const offChainMarketplaceFeeCache =
+  createFeeCache<OffChainMarketplaceContractData>(
+    () => ({
+      feeCollector: undefined,
+      feeRate: undefined,
+      royaltiesRate: undefined,
+    }),
+    (base, patch) => ({
+      feeCollector: patch.feeCollector ?? base.feeCollector,
+      feeRate: patch.feeRate ?? base.feeRate,
+      royaltiesRate: patch.royaltiesRate ?? base.royaltiesRate,
+    })
+  );
+
+export const beginOffChainMarketplaceFeeBatch = (fromBlock: number) =>
+  offChainMarketplaceFeeCache.begin(fromBlock);
+
+export const endOffChainMarketplaceFeeBatch = (toBlock: number) =>
+  offChainMarketplaceFeeCache.end(toBlock);
+
+export const resetOffChainMarketplaceContractData = () =>
+  offChainMarketplaceFeeCache.reset();
+
+const writeOffChainMarketplaceContractData = (
+  marketplaceAddress: string,
+  patch: Partial<OffChainMarketplaceContractData>
+) => offChainMarketplaceFeeCache.write(marketplaceAddress, patch);
 
 export const getOffChainMarketplaceContractData = async (
   ctx: Context,
-  block: Block
+  block: Block,
+  marketplaceAddress: string
 ): Promise<{ feeCollector: string; feeRate: bigint; royaltiesRate: bigint }> => {
-  let { feeCollector, feeRate, royaltiesRate } = offChainMarketplaceContractData;
+  let { feeCollector, feeRate, royaltiesRate } =
+    offChainMarketplaceFeeCache.view(marketplaceAddress);
   if (
     feeCollector === undefined ||
     feeRate === undefined ||
     royaltiesRate === undefined
   ) {
-    console.log("INFO: Fetching marketplace v3 contract data for first time");
-    const addresses = getAddresses(Network.MATIC);
-    const c = new OffChainMarketplaceContract(ctx, block, addresses.OffChainMarketplace);
-    [feeCollector, feeRate, royaltiesRate] = await Promise.all([
-      c.feeCollector(),
-      c.feeRate(),
-      c.royaltiesRate(),
-    ]);
-    offChainMarketplaceContractData.feeCollector = feeCollector;
-    offChainMarketplaceContractData.feeRate = feeRate;
-    offChainMarketplaceContractData.royaltiesRate = royaltiesRate;
+    console.log(
+      `INFO: Fetching marketplace contract data for ${marketplaceAddress} for first time`
+    );
+    const c = new OffChainMarketplaceContract(
+      ctx,
+      { ...block, height: block.height - 1 },
+      marketplaceAddress
+    );
+    const [chainFeeCollector, chainFeeRate, chainRoyaltiesRate] =
+      await Promise.all([c.feeCollector(), c.feeRate(), c.royaltiesRate()]);
+    feeCollector ??= chainFeeCollector;
+    feeRate ??= chainFeeRate;
+    royaltiesRate ??= chainRoyaltiesRate;
+    writeOffChainMarketplaceContractData(marketplaceAddress, {
+      feeCollector,
+      feeRate,
+      royaltiesRate,
+    });
   }
   return { feeCollector, feeRate, royaltiesRate };
 };
 
-export const setOffChainMarketplaceFeeCollector = (value: string) => {
-  offChainMarketplaceContractData.feeCollector = value;
+export const setOffChainMarketplaceFeeCollector = (
+  marketplaceAddress: string,
+  value: string
+) => {
+  writeOffChainMarketplaceContractData(marketplaceAddress, {
+    feeCollector: value,
+  });
 };
 
-export const setOffChainMarketplaceFeeRate = (value: bigint) => {
-  offChainMarketplaceContractData.feeRate = value;
+export const setOffChainMarketplaceFeeRate = (
+  marketplaceAddress: string,
+  value: bigint
+) => {
+  writeOffChainMarketplaceContractData(marketplaceAddress, { feeRate: value });
 };
 
-export const setOffChainMarketplaceRoyaltiesRate = (value: bigint) => {
-  offChainMarketplaceContractData.royaltiesRate = value;
+export const setOffChainMarketplaceRoyaltiesRate = (
+  marketplaceAddress: string,
+  value: bigint
+) => {
+  writeOffChainMarketplaceContractData(marketplaceAddress, {
+    royaltiesRate: value,
+  });
 };
 
 const START_BLOCK_COLLECTION_STORE: Record<number, number> = {

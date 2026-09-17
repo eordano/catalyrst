@@ -6,7 +6,8 @@ use catalyrst_contract_gate::pg::ScratchSchema;
 use catalyrst_fed::sig::{domains, Eip712Domain};
 use catalyrst_fed::{RateLimiter, Signed, TypedMessage};
 use catalyrst_social_service::rest::community_membership_authority::{
-    load_standing_from_community_role_current, CommunityMembershipTier,
+    load_standing_from_community_members, load_standing_from_community_role_current,
+    CommunityMembershipTier,
 };
 use catalyrst_social_service::rest::fed::apply;
 use catalyrst_social_service::rest::fed::authority::FederatedCommunityWriteAuthority;
@@ -15,6 +16,7 @@ use catalyrst_social_service::rest::fed::messages::{
     CommunityBan, CommunityCreate, CommunityJoin, CommunityPost, CommunityRole,
 };
 use catalyrst_social_service::rest::fed::replay::Replay;
+use catalyrst_social_service::rest::ports::communities::CommunitiesComponent;
 use rand::Rng;
 use sqlx::PgPool;
 
@@ -25,16 +27,16 @@ async fn setup() -> Option<ScratchSchema> {
         "cg_social_fedsmoke",
     )
     .await?;
-    apply_migration(
-        &scratch.pool,
+    for sql in [
         include_str!("../migrations/0001_initial.sql"),
-    )
-    .await;
-    apply_migration(
-        &scratch.pool,
         include_str!("../migrations/0002_federation.sql"),
-    )
-    .await;
+        include_str!("../migrations/0003_voice_moderators.sql"),
+        include_str!("../migrations/0004_thumbnail_hash.sql"),
+        include_str!("../migrations/0005_suspension.sql"),
+        include_str!("../migrations/0006_role_check_reconcile.sql"),
+    ] {
+        apply_migration(&scratch.pool, sql).await;
+    }
     Some(scratch)
 }
 
@@ -665,4 +667,105 @@ async fn signer_authority_enforced_in_handlers_via_apply() {
     let _ = post;
 
     scratch.drop().await;
+}
+
+#[tokio::test]
+async fn a_federated_demotion_to_none_removes_the_membership_row() {
+    let Some(scratch) = setup().await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    let domain = domains::communities();
+    let owner = mk_wallet(70);
+    let member = mk_wallet(71);
+
+    let create = sign(
+        &owner,
+        CommunityCreate {
+            name: "DemoteToNone".into(),
+            description: "".into(),
+            private: true,
+            unlisted: false,
+            flags: vec![],
+        },
+        domain.clone(),
+        rand_nonce(),
+        now(),
+    )
+    .await;
+    let cid = apply::apply_create(&pool, &create, &addr(&owner))
+        .await
+        .unwrap()
+        .community_id;
+    let uuid = community_uuid_from_hex(&cid);
+
+    let join = sign(
+        &member,
+        CommunityJoin {
+            community_id: cid.clone(),
+        },
+        domain.clone(),
+        rand_nonce(),
+        now() + 1,
+    )
+    .await;
+    apply::apply_join(&pool, &join, &addr(&member))
+        .await
+        .unwrap();
+    assert_eq!(
+        membership_rows(&pool, uuid, &addr(&member)).await,
+        1,
+        "the join must have produced a membership row to demote"
+    );
+
+    let demote = sign(
+        &owner,
+        CommunityRole {
+            community_id: cid.clone(),
+            target: addr(&member),
+            role: "none".into(),
+        },
+        domain.clone(),
+        rand_nonce(),
+        now() + 2,
+    )
+    .await;
+    apply::apply_role(&pool, &demote, &addr(&owner))
+        .await
+        .expect("apply_role must accept a demotion to none");
+
+    assert_eq!(
+        membership_rows(&pool, uuid, &addr(&member)).await,
+        0,
+        "a demotion to none removes the membership row exactly as a ban does"
+    );
+    assert_eq!(
+        load_standing_from_community_members(&pool, uuid, &addr(&member))
+            .await
+            .unwrap()
+            .tier(),
+        CommunityMembershipTier::NotAMemberOfThisCommunity
+    );
+
+    let batch = CommunitiesComponent::new(pool.clone())
+        .member_communities_by_ids(&[uuid], &addr(&member))
+        .await
+        .expect("batch read");
+    assert!(
+        batch.is_empty(),
+        "the demoted wallet holds no membership the batch can report: {batch:?}"
+    );
+
+    scratch.drop().await;
+}
+
+async fn membership_rows(pool: &PgPool, community_id: uuid::Uuid, member_address: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM community_members WHERE community_id = $1 AND member_address = $2",
+    )
+    .bind(community_id)
+    .bind(member_address)
+    .fetch_one(pool)
+    .await
+    .expect("membership row count")
 }

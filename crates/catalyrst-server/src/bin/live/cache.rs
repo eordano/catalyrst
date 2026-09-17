@@ -26,7 +26,7 @@ impl EntityCache {
         }
     }
 
-    fn upsert(&mut self, entity: CachedEntity) {
+    fn upsert(&mut self, entity: CachedEntity, active_pointers: Vec<String>) {
         if let Some(old) = self.by_id.get(&entity.entity_id) {
             for ptr in &old.pointers {
                 if self
@@ -40,9 +40,9 @@ impl EntityCache {
             }
         }
 
-        for ptr in &entity.pointers {
+        for ptr in active_pointers {
             self.pointer_to_id
-                .insert(ptr.clone(), entity.entity_id.clone());
+                .insert(ptr.to_lowercase(), entity.entity_id.clone());
         }
 
         let etype = entity.entity_type;
@@ -55,8 +55,12 @@ impl EntityCache {
     /// Folds a separately-loaded cache in, one `upsert` per entity so the
     /// pointer-reassignment rules are exactly those of a sequential load.
     pub(crate) fn absorb(&mut self, other: EntityCache) {
-        for (_, entity) in other.by_id {
-            self.upsert(entity);
+        let mut pointers: HashMap<String, Vec<String>> = HashMap::new();
+        for (pointer, id) in other.pointer_to_id {
+            pointers.entry(id).or_default().push(pointer);
+        }
+        for (id, entity) in other.by_id {
+            self.upsert(entity, pointers.remove(&id).unwrap_or_default());
         }
     }
 
@@ -183,12 +187,19 @@ impl PrefixIdsCache {
 
 const CACHED_ENTITY_TYPES: &[&str] = &["scene", "wearable", "emote", "store", "outfits"];
 
+#[derive(sqlx::FromRow)]
+struct CachedEntityRow {
+    #[sqlx(flatten)]
+    entity: ActiveEntityRow,
+    active_pointers: Vec<String>,
+}
+
 pub(crate) async fn load_entity_type_into_cache(
     pool: &PgPool,
     cache: &mut EntityCache,
     entity_type: &str,
 ) -> Result<usize, sqlx::Error> {
-    let rows: Vec<ActiveEntityRow> = sqlx::query_as(
+    let rows: Vec<CachedEntityRow> = sqlx::query_as(
         r#"
         SELECT
             dep.entity_id,
@@ -198,6 +209,7 @@ pub(crate) async fn load_entity_type_into_cache(
             date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
             dep.version,
             dep.id,
+            array_agg(ap.pointer::text) AS active_pointers,
             COALESCE(
                 (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
                  FROM content_files cf WHERE cf.deployment = dep.id),
@@ -216,83 +228,104 @@ pub(crate) async fn load_entity_type_into_cache(
 
     let count = rows.len();
     for row in rows {
-        let entity = row_to_cached_entity(row);
-        cache.upsert(entity);
+        let entity = row_to_cached_entity(row.entity);
+        cache.upsert(entity, row.active_pointers);
     }
     Ok(count)
 }
 
-async fn refresh_entity_in_cache(
+pub(crate) async fn invalidate_deployment_caches(
     pool: &PgPool,
-    cache: &Arc<RwLock<EntityCache>>,
-    entity_type: &str,
+    entity_cache: &Arc<RwLock<EntityCache>>,
+    profile_lru: &Arc<Mutex<ProfileLru>>,
+    prefix_ids_cache: &Arc<Mutex<PrefixIdsCache>>,
     entity_id: &str,
-) -> Vec<String> {
+) -> Result<(), sqlx::Error> {
+    // Cache reads hold this barrier through any database fetch and cache fill.
+    // Eviction therefore cannot race with a stale in-flight query refilling it.
+    let mut cache = entity_cache.write().await;
+    let affected: Result<Vec<(String, Vec<String>)>, _> = sqlx::query_as(
+        r#"
+        SELECT entity_id, entity_pointers FROM deployments WHERE entity_id = $1
+        UNION ALL
+        SELECT old.entity_id, old.entity_pointers
+        FROM deployments old
+        INNER JOIN deployments incoming ON old.deleter_deployment = incoming.id
+        WHERE incoming.entity_id = $1
+        "#,
+    )
+    .bind(entity_id)
+    .fetch_all(pool)
+    .await;
+    let mut profiles = profile_lru.lock().await;
+    let mut prefixes = prefix_ids_cache.lock().await;
+    let affected = match affected {
+        Ok(rows) => rows,
+        Err(error) => {
+            cache.by_id.clear();
+            cache.pointer_to_id.clear();
+            cache.by_type.clear();
+            profiles.map.clear();
+            profiles.order.clear();
+            prefixes.map.clear();
+            prefixes.order.clear();
+            return Err(error);
+        }
+    };
+    let pointers: Vec<String> = affected
+        .iter()
+        .flat_map(|(_, pointers)| pointers.iter().map(|p| p.to_lowercase()))
+        .collect();
+    let mut ids: HashSet<String> = affected.into_iter().map(|(id, _)| id).collect();
+    ids.insert(entity_id.to_string());
+    for pointer in &pointers {
+        if let Some(id) = cache.pointer_to_id.get(pointer) {
+            ids.insert(id.clone());
+        }
+    }
+    // Evict whole entities: replacing one parcel also clears any other parcels
+    // from the superseded scene.
+    for id in ids {
+        cache.remove(&id);
+        profiles.remove(&id);
+    }
+    prefixes.remove_matching(&pointers);
     let tombstone_filter = if catalyrst_server::land_publish::local_entities_present(pool).await {
-        "AND NOT EXISTS (SELECT 1 FROM local_entities le \
+        "AND NOT EXISTS (SELECT 1 FROM local_entities le
          WHERE le.entity_id = dep.entity_id AND le.tombstoned_at IS NOT NULL)"
     } else {
         ""
     };
-    let sql = format!(
+    // Read current ownership under the same barrier. Even an old notification
+    // refreshes the latest database state, rather than its original deployment.
+    let refreshed: Vec<CachedEntityRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         r#"
-        SELECT
-            dep.entity_id,
-            dep.entity_type,
-            dep.entity_pointers,
-            dep.entity_metadata,
-            date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
-            dep.version,
-            dep.id,
-            COALESCE(
-                (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
-                 FROM content_files cf WHERE cf.deployment = dep.id),
-                '[]'::json
-            ) AS content_json
+        SELECT dep.entity_id, dep.entity_type, dep.entity_pointers, dep.entity_metadata,
+               date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
+               dep.version, dep.id,
+               array_agg(ap.pointer::text) AS active_pointers,
+               COALESCE(
+                   (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
+                    FROM content_files cf WHERE cf.deployment = dep.id),
+                   '[]'::json
+               ) AS content_json
         FROM deployments dep
-        WHERE dep.entity_id = $1
-          AND dep.entity_type = $2
+        INNER JOIN active_pointers ap ON ap.entity_id = dep.entity_id
+        WHERE dep.entity_id IN (SELECT entity_id FROM active_pointers WHERE pointer = ANY($1))
+          AND dep.entity_type = ANY($2)
           AND dep.deleter_deployment IS NULL
           {tombstone_filter}
-        LIMIT 1
+        GROUP BY dep.id
         "#
-    );
-    let row: Option<ActiveEntityRow> = match sqlx::query_as(sqlx::AssertSqlSafe(sql))
-        .bind(entity_id)
-        .bind(entity_type)
-        .fetch_optional(pool)
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!(entity_id, entity_type, error = %e, "Failed to refresh entity in cache");
-            return Vec::new();
-        }
-    };
-
-    let mut cache = cache.write().await;
-    let mut affected: Vec<String> = cache
-        .by_id
-        .get(entity_id)
-        .map(|e| e.pointers.clone())
-        .unwrap_or_default();
-    match row {
-        Some(row) => {
-            let entity = row_to_cached_entity(row);
-            for ptr in &entity.pointers {
-                if !affected.contains(ptr) {
-                    affected.push(ptr.clone());
-                }
-            }
-            cache.upsert(entity);
-            tracing::debug!(entity_id, entity_type, "Cache: refreshed entity");
-        }
-        None => {
-            cache.remove(entity_id);
-            tracing::debug!(entity_id, entity_type, "Cache: removed deleted entity");
-        }
+    )))
+    .bind(&pointers)
+    .bind(CACHED_ENTITY_TYPES)
+    .fetch_all(pool)
+    .await?;
+    for row in refreshed {
+        cache.upsert(row_to_cached_entity(row.entity), row.active_pointers);
     }
-    affected
+    Ok(())
 }
 
 pub(crate) async fn install_notify_trigger(pool: &PgPool) -> Result<(), sqlx::Error> {
@@ -366,20 +399,17 @@ pub(crate) async fn listen_for_invalidations(
             continue;
         };
 
-        match entity_type {
-            "profile" => {
-                let mut lru = profile_lru.lock().await;
-                lru.remove(entity_id);
-                tracing::debug!(entity_id, "Profile LRU: invalidated");
-            }
-            _ => {
-                if CACHED_ENTITY_TYPES.contains(&entity_type) {
-                    let affected =
-                        refresh_entity_in_cache(&pool, &entity_cache, entity_type, entity_id).await;
-                    if matches!(entity_type, "wearable" | "emote") && !affected.is_empty() {
-                        prefix_ids_cache.lock().await.remove_matching(&affected);
-                    }
-                }
+        if entity_type == "profile" || CACHED_ENTITY_TYPES.contains(&entity_type) {
+            if let Err(error) = invalidate_deployment_caches(
+                &pool,
+                &entity_cache,
+                &profile_lru,
+                &prefix_ids_cache,
+                entity_id,
+            )
+            .await
+            {
+                tracing::warn!(entity_id, %error, "Failed deployment cache refresh; affected entries evicted");
             }
         }
     }
@@ -395,6 +425,307 @@ mod tests {
     use super::PrefixIdsCache;
     use std::sync::Arc;
     use std::time::Duration;
+
+    #[test]
+    fn deployment_visibility_preserves_authoritative_pointer_ownership_during_absorb() {
+        use super::*;
+        let mut partial = EntityCache::new();
+        partial.upsert(
+            CachedEntity {
+                entity_id: "old".into(),
+                entity_type: "scene",
+                pointers: vec!["0,0".into(), "1,0".into()],
+                bytes: Bytes::from_static(b"{}"),
+            },
+            vec!["0,0".into()],
+        );
+        let mut cache = EntityCache::new();
+        cache.absorb(partial);
+        assert_eq!(
+            cache.pointer_to_id.get("0,0").map(String::as_str),
+            Some("old")
+        );
+        assert!(!cache.pointer_to_id.contains_key("1,0"));
+        cache.upsert(
+            CachedEntity {
+                entity_id: "new".into(),
+                entity_type: "scene",
+                pointers: vec!["1,0".into()],
+                bytes: Bytes::from_static(b"{}"),
+            },
+            vec!["1,0".into()],
+        );
+        cache.remove("old");
+        assert_eq!(
+            cache.pointer_to_id.get("1,0").map(String::as_str),
+            Some("new")
+        );
+    }
+
+    async fn visibility_fixture() -> Option<(super::LiveDatabase, String)> {
+        use super::*;
+        let url = catalyrst_testgate::require_pg("CATALYRST_SERVER_TEST_PG")?;
+        let schema = format!("test_visibility_{}", uuid::Uuid::new_v4().simple());
+        let admin = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&admin)
+            .await
+            .unwrap();
+        let options: PgConnectOptions = url.parse().unwrap();
+        let options = options.options([("search_path", schema.as_str())]);
+        let pool = PgPoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await
+            .unwrap();
+        admin.close().await;
+        for ddl in [
+            "CREATE TABLE deployments (id integer PRIMARY KEY, entity_id text UNIQUE NOT NULL,
+             entity_type text NOT NULL, entity_pointers text[] NOT NULL, entity_metadata json,
+             entity_timestamp timestamp NOT NULL DEFAULT now(), version text NOT NULL DEFAULT 'v3',
+             deleter_deployment integer)",
+            "CREATE TABLE active_pointers (pointer text PRIMARY KEY, entity_id text NOT NULL)",
+            "CREATE TABLE content_files (deployment integer, key text, content_hash text)",
+        ] {
+            sqlx::query(sqlx::AssertSqlSafe(ddl))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let db = LiveDatabase {
+            pool,
+            entity_cache: Arc::new(RwLock::new(EntityCache::new())),
+            profile_lru: Arc::new(Mutex::new(ProfileLru::new(10))),
+            prefix_ids_cache: Arc::new(Mutex::new(PrefixIdsCache::new(
+                10,
+                Duration::from_secs(60),
+            ))),
+        };
+        Some((db, schema))
+    }
+
+    async fn drop_visibility_fixture(db: super::LiveDatabase, schema: String) {
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn deployment_visibility_evicts_superseded_ids_and_removed_parcels() {
+        use super::*;
+        let Some((db, schema)) = visibility_fixture().await else {
+            return;
+        };
+        sqlx::query(
+            "INSERT INTO deployments (id, entity_id, entity_type, entity_pointers)
+                     VALUES (1, 'old', 'scene', ARRAY['0,0', '1,0']),
+                            (2, 'unrelated', 'scene', ARRAY['9,9'])",
+        )
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO active_pointers VALUES ('0,0', 'old'), ('1,0', 'old'), ('9,9', 'unrelated')")
+            .execute(&db.pool).await.unwrap();
+        load_entity_type_into_cache(&db.pool, &mut *db.entity_cache.write().await, "scene")
+            .await
+            .unwrap();
+        let mut tx = db.pool.begin().await.unwrap();
+        sqlx::query(
+            "INSERT INTO deployments (id, entity_id, entity_type, entity_pointers)
+                     VALUES (3, 'new', 'scene', ARRAY['0,0'])",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE deployments SET deleter_deployment = 3 WHERE id = 1")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE active_pointers SET entity_id = 'new' WHERE pointer = '0,0'")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM active_pointers WHERE pointer = '1,0'")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        // No listener is running: this deterministically recreates the interval
+        // between commit and asynchronous notification processing.
+        assert_eq!(
+            db.active_entities_by_pointers(&["0,0".into()])
+                .await
+                .unwrap()[0]["id"],
+            "old"
+        );
+        db.deployment_committed("new").await.unwrap();
+        assert!(db.entity_cache.read().await.by_id.contains_key("new"));
+        assert_eq!(
+            db.active_entities_by_pointers(&["0,0".into()])
+                .await
+                .unwrap()[0]["id"],
+            "new"
+        );
+        assert!(db
+            .active_entities_by_pointers(&["1,0".into()])
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(db
+            .active_entities_by_ids(&["old".into()])
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(db.entity_cache.read().await.by_id.contains_key("unrelated"));
+        // A delayed notification for the old deployment must not resurrect it.
+        db.deployment_committed("old").await.unwrap();
+        assert_eq!(
+            db.active_entities_by_pointers(&["0,0".into()])
+                .await
+                .unwrap()[0]["id"],
+            "new"
+        );
+        assert!(db
+            .active_entities_by_pointers(&["1,0".into()])
+            .await
+            .unwrap()
+            .is_empty());
+        let mut reloaded = EntityCache::new();
+        load_entity_type_into_cache(&db.pool, &mut reloaded, "scene")
+            .await
+            .unwrap();
+        assert!(!reloaded.by_id.contains_key("old"));
+        drop_visibility_fixture(db, schema).await;
+    }
+
+    #[tokio::test]
+    async fn deployment_visibility_refresh_failure_preserves_commit_and_evicts_stale_entries() {
+        use super::*;
+        let Some((db, schema)) = visibility_fixture().await else {
+            return;
+        };
+        sqlx::query(
+            "INSERT INTO deployments (id, entity_id, entity_type, entity_pointers)
+                     VALUES (1, 'old', 'scene', ARRAY['0,0']),
+                            (2, 'new', 'scene', ARRAY['0,0']),
+                            (3, 'unrelated', 'scene', ARRAY['9,9'])",
+        )
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO active_pointers VALUES ('0,0', 'old'), ('9,9', 'unrelated')")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        load_entity_type_into_cache(&db.pool, &mut *db.entity_cache.write().await, "scene")
+            .await
+            .unwrap();
+        sqlx::query("UPDATE deployments SET deleter_deployment = 2 WHERE id = 1")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE active_pointers SET entity_id = 'new' WHERE pointer = '0,0'")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("DROP TABLE content_files")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.deployment_committed("new")
+            .await
+            .expect("refill failure must not reject a committed deployment");
+        {
+            let cache = db.entity_cache.read().await;
+            assert!(!cache.by_id.contains_key("old"));
+            assert!(!cache.pointer_to_id.contains_key("0,0"));
+            assert!(cache.by_id.contains_key("unrelated"));
+        }
+        assert!(
+            db.active_entities_by_pointers(&["0,0".into()])
+                .await
+                .is_err(),
+            "a database failure must not serve the evicted stale scene"
+        );
+        db.profile_lru
+            .lock()
+            .await
+            .insert("profile".into(), json!({"id": "profile"}));
+        db.prefix_ids_cache
+            .lock()
+            .await
+            .insert("prefix".into(), ids(&["old"]));
+        sqlx::query("DROP TABLE deployments")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.deployment_committed("new")
+            .await
+            .expect("affected-lookup failure must not reject a committed deployment");
+        assert!(db.entity_cache.read().await.by_id.is_empty());
+        assert!(db.entity_cache.read().await.pointer_to_id.is_empty());
+        assert!(db.profile_lru.lock().await.map.is_empty());
+        assert!(db.prefix_ids_cache.lock().await.map.is_empty());
+        drop_visibility_fixture(db, schema).await;
+    }
+
+    #[tokio::test]
+    async fn deployment_visibility_waits_for_inflight_profile_and_prefix_fills() {
+        use super::*;
+        let Some((db, schema)) = visibility_fixture().await else {
+            return;
+        };
+        let pointer = "urn:decentraland:matic:collections-v2:0xaaa:1";
+        sqlx::query("INSERT INTO deployments (id, entity_id, entity_type, entity_pointers, deleter_deployment)
+                     VALUES (1, 'old', 'wearable', ARRAY[$1], 2), (2, 'new', 'wearable', ARRAY[$1], NULL)")
+            .bind(pointer).execute(&db.pool).await.unwrap();
+        let cache = db.entity_cache.clone();
+        let profile_lru = db.profile_lru.clone();
+        let prefix_cache = db.prefix_ids_cache.clone();
+        let pool = db.pool.clone();
+        let read_guard = db.entity_cache.read().await;
+        let task = tokio::spawn(async move {
+            invalidate_deployment_caches(&pool, &cache, &profile_lru, &prefix_cache, "new")
+                .await
+                .unwrap();
+        });
+        tokio::pin!(task);
+        assert!(tokio::time::timeout(Duration::from_millis(20), &mut task)
+            .await
+            .is_err());
+        // These are stale results returned by a read started before the commit.
+        db.profile_lru
+            .lock()
+            .await
+            .insert("old".into(), json!({"id": "old"}));
+        db.prefix_ids_cache.lock().await.insert(
+            "urn:decentraland:matic:collections-v2:0xaaa".into(),
+            ids(&["old"]),
+        );
+        db.prefix_ids_cache
+            .lock()
+            .await
+            .insert("unrelated".into(), ids(&["other"]));
+        drop(read_guard);
+        tokio::time::timeout(Duration::from_secs(5), &mut task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(db.profile_lru.lock().await.get("old").is_none());
+        let prefixes = db.prefix_ids_cache.lock().await;
+        assert!(prefixes
+            .get("urn:decentraland:matic:collections-v2:0xaaa")
+            .is_none());
+        assert!(prefixes.get("unrelated").is_some());
+        drop(prefixes);
+        drop_visibility_fixture(db, schema).await;
+    }
 
     fn ids(v: &[&str]) -> Arc<Vec<String>> {
         Arc::new(v.iter().map(|s| s.to_string()).collect())

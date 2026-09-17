@@ -59,21 +59,37 @@ pub fn test_state(
         moderator_addresses: Vec::new(),
         gatekeeper_auth_token: None,
         fed_peer_id: "test-peer".into(),
+        world_permissions: Default::default(),
     })
 }
 
 /// Signed-fetch headers for `method`+`path` (metadata `{}`), copied from
 /// `tests/submit_commit_epoch_author.rs`.
 pub fn signed_headers(wallet: &Wallet, method: &str, path: &str) -> HeaderMap {
+    signed_headers_with_metadata(wallet, method, path, "{}")
+}
+
+/// The same, with the signed-fetch metadata the scene-signed routes read their
+/// realm, parcel and scene out of. The delivered header and the signed payload
+/// must carry the byte-identical string, so callers pass one.
+pub fn signed_headers_with_metadata(
+    wallet: &Wallet,
+    method: &str,
+    path: &str,
+    metadata: &str,
+) -> HeaderMap {
     let timestamp = chrono::Utc::now().timestamp_millis().to_string();
-    let payload = build_payload(method, path, &timestamp, "{}");
+    let payload = build_payload(method, path, &timestamp, metadata);
     let chain = create_simple_auth_chain(wallet, &payload).unwrap();
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTH_TIMESTAMP_HEADER,
         HeaderValue::from_str(&timestamp).unwrap(),
     );
-    headers.insert(AUTH_METADATA_HEADER, HeaderValue::from_static("{}"));
+    headers.insert(
+        AUTH_METADATA_HEADER,
+        HeaderValue::from_str(metadata).unwrap(),
+    );
     for (i, link) in chain.as_array().into_iter().flatten().enumerate() {
         headers.insert(
             HeaderName::from_bytes(format!("{AUTH_CHAIN_HEADER_PREFIX}{i}").as_bytes()).unwrap(),

@@ -69,6 +69,10 @@ impl ParcelEncoder {
         (index as u32) < (self.max_index_exclusive as u32)
     }
 
+    pub fn max_index_exclusive(&self) -> i32 {
+        self.max_index_exclusive
+    }
+
     pub fn encode(&self, x: i32, z: i32) -> i32 {
         x - self.min_x + (z - self.min_z) * self.width
     }

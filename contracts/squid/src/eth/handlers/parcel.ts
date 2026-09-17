@@ -11,6 +11,7 @@ import {
 } from "../../model";
 import { getAddresses } from "../../common/utils/addresses";
 import { DataType, buildData } from "../../common/utils";
+import { stripNul } from "../../common/utils/utils";
 import { Coordinate } from "../../types";
 import { getParcelText } from "../LANDs/utils";
 
@@ -34,7 +35,7 @@ export function handleUpdate(
     parcel = new Parcel({ id });
     parcels.set(id, parcel);
   }
-  parcel.rawData = data;
+  parcel.rawData = stripNul(data);
   const parcelData = buildData(id, data, DataType.PARCEL);
   if (parcelData) {
     parcel.data = parcelData;

@@ -157,6 +157,7 @@ pub async fn create_entity_multipart(
             );
             state.deployments_cache.clear();
             super::lambdas_catalog::invalidate_outfits_cache();
+            state.database.deployment_committed(&entity_id).await?;
             Ok((
                 StatusCode::OK,
                 Json(json!({ "creationTimestamp": creation_timestamp })),
@@ -240,6 +241,7 @@ pub async fn create_entity(
             );
             state.deployments_cache.clear();
             super::lambdas_catalog::invalidate_outfits_cache();
+            state.database.deployment_committed(&body.entity_id).await?;
             Ok((
                 StatusCode::OK,
                 Json(json!({ "creationTimestamp": creation_timestamp })),
@@ -399,6 +401,52 @@ mod tests {
             "outfits cache served a stale entry after a successful deployment"
         );
         assert_eq!(v, json!({ "id": "fresh-outfits-entity" }));
+    }
+
+    #[tokio::test]
+    async fn committed_deployment_clears_response_caches_even_if_backend_refresh_fails() {
+        use crate::{handlers::lambdas_catalog, test_support};
+        use axum::{body::Body, http::Request, routing::post, Router};
+        use tower::ServiceExt;
+
+        for multipart in [false, true] {
+            let state = test_support::app_state_with_refresh_failure();
+            let address = format!("refresh-failure-{multipart}");
+            state
+                .deployments_cache
+                .insert("old-listing".into(), Bytes::from_static(b"[]"));
+            lambdas_catalog::outfits_cache().insert(address.clone(), json!({"id": "old"}));
+            let (app, content_type, body) = if multipart {
+                let body = concat!(
+                    "--boundary\r\nContent-Disposition: form-data; name=\"entityId\"\r\n\r\nQmCommitted\r\n",
+                    "--boundary\r\nContent-Disposition: form-data; name=\"authChain\"\r\n\r\n",
+                    "[{\"type\":\"SIGNER\",\"payload\":\"0xabc\"}]\r\n--boundary--\r\n"
+                );
+                (
+                    Router::new().route("/entities", post(create_entity_multipart)),
+                    "multipart/form-data; boundary=boundary",
+                    body.to_string(),
+                )
+            } else {
+                (Router::new().route("/entities", post(create_entity)),
+                 "application/json", json!({"entityId": "QmCommitted", "authChain": [{"type": "SIGNER", "payload": "0xabc"}]}).to_string())
+            };
+            let response = app
+                .with_state(state.clone())
+                .oneshot(
+                    Request::post("/entities")
+                        .header("content-type", content_type)
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            assert!(state.deployments_cache.is_empty());
+            assert!(lambdas_catalog::outfits_cache()
+                .get_fresh(&address)
+                .is_none());
+        }
     }
 
     #[test]

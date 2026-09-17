@@ -1,15 +1,15 @@
 import { Null } from "../../common/utils/constants";
 
-export const CollectionFactory = "0x2A72Ec4241Ac4fBc915ae98aC5a5b01AdE721f4B";
+export const CollectionFactory = "0x2a72ec4241ac4fbc915ae98ac5a5b01ade721f4b";
 export const CollectionFactoryV3 = "0x802de0c509add2ee29de24de7225daaff4741c43";
 
 export const Bid = Null;
 export const BidV2 = "0x4b66eab79cc03a96fb6275cfcdf23c0db431606d";
 
-export const Marketplace = "0x2a09a000224f5dbe0E17214cA95CDe506DA7CB74";
+export const Marketplace = "0x2a09a000224f5dbe0e17214ca95cde506da7cb74";
 export const MarketplaceV2 = "0x0c8ad1f6aadf89d2eb19f01a100a6143108fe2b0";
 
-export const OldCommittee = "0x4bb5ACe5ceB3Dd51ea35fa01a8f9B5507c234270";
+export const OldCommittee = "0x4bb5ace5ceb3dd51ea35fa01a8f9b5507c234270";
 export const Committee = "0x53c9c388000b6fc91b91fb466742d0e869785c3b";
 
 export const CollectionStore = "0xe36abc9ec616c83caaa386541380829106149d68";

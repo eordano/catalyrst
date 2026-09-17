@@ -37,6 +37,11 @@ export function parseRecoverResponse(value: unknown): RecoverResponse | null {
   return { expiration, code, method, params, sender, challenge };
 }
 
+export function isRequestExpired(expiration: string, now: number = Date.now()): boolean {
+  const expiresAt = Date.parse(expiration);
+  return Number.isFinite(expiresAt) && expiresAt <= now;
+}
+
 export type LoadResult =
   | { kind: "ok"; request: RecoverResponse }
   | { kind: "not_found" }
@@ -78,8 +83,7 @@ export async function recoverAuthRequest(
   if (result.kind !== "ok") return result;
 
   const req = result.request;
-  const expiresAt = Date.parse(req.expiration);
-  if (Number.isFinite(expiresAt) && expiresAt <= (deps.now ?? Date.now)()) {
+  if (isRequestExpired(req.expiration, (deps.now ?? Date.now)())) {
     return { kind: "expired" };
   }
 

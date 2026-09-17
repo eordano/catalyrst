@@ -9,13 +9,20 @@ use sqlx::{PgPool, Row};
 use tokio_util::sync::CancellationToken;
 
 use crate::catalog::derive::{derive, DerivedPlace};
-use crate::ports::places::EXCLUDE_FROM_RANKING_SQL;
+use crate::ports::places::{raw_float8_sql, EXCLUDE_FROM_RANKING_SQL};
 
-const PAGE: i64 = 1000;
+pub const PAGE: i64 = 1000;
+/// deployments.id is a plain `integer` sequence, so the walk starts below every
+/// row it can hold.
+pub const BEFORE_FIRST_SCENE: i32 = i32::MIN;
 const INTERVAL: Duration = Duration::from_secs(3600);
 
-const SELECT_SCENES: &str = r#"
+/// Keyset, never OFFSET: an undeployment sets deleter_deployment mid-scan and
+/// shifts every later OFFSET window back a row, so a still-served scene goes
+/// unvisited and PRUNE then deletes it on its stale fetched_at.
+pub const SELECT_SCENES: &str = r#"
     SELECT
+        d.id,
         d.deployer_address,
         d.entity_pointers,
         (d.entity_timestamp AT TIME ZONE 'UTC') AS deployed_at,
@@ -25,11 +32,14 @@ const SELECT_SCENES: &str = r#"
             AND cf.key = (d.entity_metadata::jsonb)->'v'->'display'->>'navmapThumbnail'
           LIMIT 1) AS thumbnail_hash
     FROM deployments d
-    WHERE d.entity_type = 'scene' AND d.deleter_deployment IS NULL
+    WHERE d.entity_type = 'scene' AND d.deleter_deployment IS NULL AND d.id > $2
     ORDER BY d.id
-    LIMIT $1 OFFSET $2
+    LIMIT $1
 "#;
 
+/// Every raw key an operator writes outside this rebuild has to be named in the
+/// preservation object: the pass rebuilds `raw` wholesale from the deployment,
+/// so a key it does not carry forward is erased within the hour.
 const UPSERT: &str = r#"
     INSERT INTO place
         (id, base_position, title, description, creator_address, content_rating,
@@ -47,18 +57,22 @@ const UPSERT: &str = r#"
             'exclude_from_ranking', place.raw->'exclude_from_ranking',
             'highlighted_image',    place.raw->'highlighted_image',
             'like_score',           place.raw->'like_score',
-            'like_rate',            place.raw->'like_rate'
+            'like_rate',            place.raw->'like_rate',
+            'created_at',           place.raw->'created_at',
+            'disabled_at',          place.raw->'disabled_at',
+            'disabled_reason',      place.raw->'disabled_reason'
         )),
         fetched_at = now()
     RETURNING (xmax = 0) AS inserted
 "#;
 
-fn overlapping_places_sql() -> &'static str {
+pub(crate) fn overlapping_places_sql() -> &'static str {
     static SQL: LazyLock<String> = LazyLock::new(|| {
+        let ranking = raw_float8_sql("ranking");
         format!(
             r#"
     SELECT id, highlighted, creator_address,
-           NULLIF(raw->>'ranking', '')::float8 AS ranking,
+           {ranking} AS ranking,
            {EXCLUDE_FROM_RANKING_SQL} AS exclude_from_ranking,
            raw->>'highlighted_image' AS highlighted_image
     FROM place
@@ -142,22 +156,31 @@ pub fn spawn(places: PgPool, content: PgPool, content_public_url: String) {
     );
 }
 
-async fn run_once(
+pub async fn fetch_scene_page(
+    content: &PgPool,
+    page: i64,
+    after_id: i32,
+) -> Result<Vec<sqlx::postgres::PgRow>> {
+    Ok(sqlx::query(SELECT_SCENES)
+        .bind(page)
+        .bind(after_id)
+        .fetch_all(content)
+        .await?)
+}
+
+pub async fn run_once(
     places: &PgPool,
     content: &PgPool,
     content_public_url: &str,
 ) -> Result<(usize, u64)> {
     let started: DateTime<Utc> = sqlx::query_scalar("SELECT now()").fetch_one(places).await?;
-    let mut offset = 0i64;
+    let mut last_id = BEFORE_FIRST_SCENE;
     let mut derived = 0usize;
     loop {
-        let rows = sqlx::query(SELECT_SCENES)
-            .bind(PAGE)
-            .bind(offset)
-            .fetch_all(content)
-            .await?;
+        let rows = fetch_scene_page(content, PAGE, last_id).await?;
         let fetched = rows.len() as i64;
         for row in &rows {
+            last_id = row.try_get("id")?;
             let deployer: String = row.try_get("deployer_address").unwrap_or_default();
             let pointers: Vec<String> = row.try_get("entity_pointers").unwrap_or_default();
             let deployed_at: Option<DateTime<Utc>> = row.try_get("deployed_at").unwrap_or(None);
@@ -178,7 +201,6 @@ async fn run_once(
         if fetched < PAGE {
             break;
         }
-        offset += fetched;
     }
     let pruned = sqlx::query(PRUNE)
         .bind(started)

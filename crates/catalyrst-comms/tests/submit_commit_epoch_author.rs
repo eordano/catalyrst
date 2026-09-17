@@ -72,6 +72,7 @@ fn test_state(pool: PgPool, fed_peer_id: &str) -> AppState {
         moderator_addresses: Vec::new(),
         gatekeeper_auth_token: None,
         fed_peer_id: fed_peer_id.into(),
+        world_permissions: Default::default(),
     })
 }
 

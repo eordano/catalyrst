@@ -2,7 +2,7 @@ use super::{
     expand_urn_network_forms, get_item_types_from_nft_category, CatalogItemsParams, ItemFilters,
     ItemSortBy, ItemType, DEFAULT_LIMIT,
 };
-use crate::dcl_schemas::{get_db_networks, NftCategory};
+use crate::dcl_schemas::get_db_networks;
 use crate::logic::sql_filters::{clamp_first, clamp_skip, where_from};
 use crate::ports::shop_catalog::ShopSortBy;
 use crate::MARKETPLACE_SQUID_SCHEMA;
@@ -22,16 +22,6 @@ fn emit(bind: Bind, binds: &mut Vec<Bind>, idx: &mut usize) -> String {
     let s = format!("${}", *idx);
     *idx += 1;
     s
-}
-
-fn nft_category_db_str(c: NftCategory) -> &'static str {
-    match c {
-        NftCategory::Parcel => "parcel",
-        NftCategory::Estate => "estate",
-        NftCategory::Wearable => "wearable",
-        NftCategory::Ens => "ens",
-        NftCategory::Emote => "emote",
-    }
 }
 
 fn body_shapes_for_genders(genders: &[String]) -> Option<Vec<String>> {
@@ -108,7 +98,8 @@ fn catalog_items_order_by(sort_by: Option<ShopSortBy>, price_credits_expr: &str)
         Some(ShopSortBy::Name) => {
             " ORDER BY coalesce(wearable.name, emote.name) ASC, item.id ASC ".to_string()
         }
-        Some(ShopSortBy::Newest) | None => {
+        // This feed carries no coupon join, so `discount` has nothing to order by.
+        Some(ShopSortBy::Newest) | Some(ShopSortBy::Discount) | None => {
             " ORDER BY item.created_at DESC, item.id ASC ".to_string()
         }
     }
@@ -133,17 +124,6 @@ fn build_items_query_with(
 ) -> (String, Vec<Bind>) {
     let mut binds: Vec<Bind> = Vec::new();
     let mut next_idx = 1usize;
-
-    let trades_category_clause = if let Some(c) = filters.category {
-        let placeholder = emit(
-            Bind::Text(nft_category_db_str(c).to_string()),
-            &mut binds,
-            &mut next_idx,
-        );
-        format!("WHERE sent_nft_category = {}", placeholder)
-    } else {
-        String::new()
-    };
 
     let mut wheres: Vec<String> = Vec::new();
 
@@ -359,8 +339,8 @@ fn build_items_query_with(
     let offset_p = emit(Bind::Int(offset), &mut binds, &mut next_idx);
 
     let sql = format!(
-        "WITH unified_trades AS (\
-            SELECT * FROM marketplace.mv_trades {trades_cat}\
+        "WITH item_trades AS (\
+            SELECT * FROM marketplace.mv_trades\
          )\n\
          SELECT\n\
            COUNT(*) OVER() as count,\n\
@@ -404,13 +384,18 @@ fn build_items_query_with(
          LEFT JOIN {schema}.metadata metadata ON item.metadata_id = metadata.id\n\
          LEFT JOIN {schema}.wearable wearable ON metadata.wearable_id = wearable.id\n\
          LEFT JOIN {schema}.emote emote ON metadata.emote_id = emote.id\n\
-         LEFT JOIN unified_trades ON sent_item_id = item.blockchain_id::text \
-            AND sent_contract_address = item.collection_id \
-            AND type = 'public_item_order' AND status = 'open'\n\
+         LEFT JOIN LATERAL (\n\
+            SELECT * FROM item_trades\n\
+            WHERE sent_item_id = item.blockchain_id::text\n\
+              AND sent_contract_address = item.collection_id\n\
+              AND type = 'public_item_order'\n\
+              AND status = 'open'\n\
+            ORDER BY id::text DESC\n\
+            LIMIT 1\n\
+         ) unified_trades ON TRUE\n\
          {where_clause}\n\
          {order_by}\n\
          LIMIT {limit_p} OFFSET {offset_p}",
-        trades_cat = trades_category_clause,
         schema = MARKETPLACE_SQUID_SCHEMA,
         where_clause = where_clause,
         order_by = order_by,
@@ -527,7 +512,7 @@ mod tests {
         assert!(sql.contains("LOWER(item.creator) = ANY($"), "{sql}");
         assert!(sql.contains("LIMIT $"), "{sql}");
         assert!(sql.contains("COUNT(*) OVER() as count"), "{sql}");
-        assert!(sql.contains("WITH unified_trades AS"), "{sql}");
+        assert!(sql.contains("WITH item_trades AS"), "{sql}");
     }
 
     #[test]
@@ -649,5 +634,40 @@ mod tests {
             "recently_listed".into(),
         )]);
         assert_eq!(params.sort_by, None);
+    }
+
+    fn both_item_feeds(filters: &ItemFilters) -> Vec<String> {
+        vec![
+            build_items_query(filters).0,
+            build_catalog_items_query(filters, &CatalogItemsParams::default(), "0.5").0,
+        ]
+    }
+
+    /// Upstream 83efd20: a `public_item_order` row in mv_trades carries sent_nft_category NULL,
+    /// so narrowing the trades CTE by category dropped every primary listing.
+    #[test]
+    fn category_filter_does_not_narrow_the_trades_cte() {
+        let filters = ItemFilters {
+            category: Some(crate::dcl_schemas::NftCategory::Wearable),
+            ..Default::default()
+        };
+        for sql in both_item_feeds(&filters) {
+            assert!(!sql.contains("sent_nft_category"), "{sql}");
+            assert!(sql.contains("LOWER(item.item_type) = ANY"), "{sql}");
+        }
+    }
+
+    /// Upstream 83efd20: an item can carry several open item orders; a plain join emitted it once
+    /// per trade. The LATERAL picks the row /v2/catalog's MAX(id::text) picks.
+    #[test]
+    fn trades_join_is_lateral_and_picks_one_row() {
+        for sql in both_item_feeds(&ItemFilters::default()) {
+            assert!(sql.contains("LEFT JOIN LATERAL"), "{sql}");
+            assert!(sql.contains("ORDER BY id::text DESC"), "{sql}");
+            assert!(sql.contains("LIMIT 1"), "{sql}");
+            assert!(sql.contains("type = 'public_item_order'"), "{sql}");
+            assert!(sql.contains("status = 'open'"), "{sql}");
+            assert!(sql.contains(") unified_trades ON TRUE"), "{sql}");
+        }
     }
 }

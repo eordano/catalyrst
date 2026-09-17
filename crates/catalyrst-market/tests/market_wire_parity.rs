@@ -19,6 +19,9 @@ use catalyrst_market::ports::catalog::{
 };
 use catalyrst_market::ports::collections::CollectionsComponent;
 use catalyrst_market::ports::contracts::ContractsComponent;
+use catalyrst_market::ports::coupons::{
+    Coupon, CouponMarketplace, CouponState, CouponStatus, CouponsComponent, RpcCouponChainReader,
+};
 use catalyrst_market::ports::items::ItemsComponent;
 use catalyrst_market::ports::lists::ListsComponent;
 use catalyrst_market::ports::mana_rate::ManaUsdRateComponent;
@@ -237,6 +240,81 @@ fn picks_stats_wire() {
     assert_eq!(authed["pickedByUser"], json!(true));
 }
 
+/// The shop reads these keys by name (shop app/src/lib/coupons.ts CreatorSale), so the casing
+/// of every one of them is the wire contract, not an internal detail.
+#[test]
+fn coupon_wire() {
+    let coupon = Coupon {
+        id: "4f0f8d9a-8f2c-4a15-9f6b-1c2d3e4f5a6b".into(),
+        signer: "0x4c09495cd2d4e3d3fa2808eb655d013de426157b".into(),
+        chain_id: 80_002,
+        network: "MATIC".into(),
+        checks: json!({ "uses": 10, "effective": 1, "expiration": 2 }),
+        coupon_manager: "0x6c956587d9fe70032781edcdc626310648575382".into(),
+        marketplace: Some(CouponMarketplace::OffChainMarketplaceV3),
+        coupon_address: "0x4ee8f6b87f4917a3bbc7c8bb3a06db8555f83db9".into(),
+        discount_type: 1,
+        discount: 300_000,
+        root: "0xbb275d33d9fbb90ff34fd53181283e8cdebb0dd8e764f5cb6852d976a4495fa9".into(),
+        collections: vec!["0x4c09495cd2d4e3d3fa2808eb655d013de426157b".into()],
+        signature: "0xabc".into(),
+        created_at: 1_700_000_000_000,
+        state: Some(CouponState {
+            uses: 3,
+            cancelled: false,
+            revoked: false,
+            checked_at: 1_700_000_060_000,
+        }),
+        status: CouponStatus::Active,
+    };
+    let wire = serde_json::to_value(&coupon).unwrap();
+    for key in [
+        "id",
+        "signer",
+        "chainId",
+        "network",
+        "checks",
+        "couponManager",
+        "marketplace",
+        "couponAddress",
+        "discountType",
+        "discount",
+        "root",
+        "collections",
+        "signature",
+        "createdAt",
+        "state",
+        "status",
+    ] {
+        assert!(wire.get(key).is_some(), "a coupon must carry {key}");
+    }
+    assert_eq!(wire.as_object().unwrap().len(), 16);
+    assert_eq!(wire["marketplace"], json!("OffChainMarketplaceV3"));
+    assert_eq!(wire["chainId"], json!(80_002));
+    assert_eq!(wire["createdAt"], json!(1_700_000_000_000i64));
+    assert_eq!(wire["status"], json!("active"));
+    assert_eq!(wire["state"]["checkedAt"], json!(1_700_000_060_000i64));
+    assert_eq!(wire["state"]["uses"], json!(3));
+
+    let unread = Coupon {
+        state: None,
+        status: CouponStatus::Scheduled,
+        ..coupon
+    };
+    let wire = serde_json::to_value(&unread).unwrap();
+    assert_eq!(wire["state"], Value::Null);
+    assert_eq!(wire["status"], json!("scheduled"));
+
+    for (status, wire) in [
+        (CouponStatus::Ended, "ended"),
+        (CouponStatus::Cancelled, "cancelled"),
+        (CouponStatus::Exhausted, "exhausted"),
+        (CouponStatus::Revoked, "revoked"),
+    ] {
+        assert_eq!(serde_json::to_value(status).unwrap(), json!(wire));
+    }
+}
+
 fn header_map(pairs: Vec<(String, String)>) -> HeaderMap {
     let mut h = HeaderMap::new();
     for (k, v) in pairs {
@@ -294,6 +372,14 @@ fn lazy_state() -> AppState {
         catalog: CatalogComponent::new(pool.clone()),
         collections: CollectionsComponent::new(pool.clone()),
         contracts: ContractsComponent::new(pool.clone()),
+        coupons: CouponsComponent::new(
+            pool.clone(),
+            pool.clone(),
+            Arc::new(RpcCouponChainReader::new(
+                reqwest::Client::new(),
+                Default::default(),
+            )),
+        ),
         items: ItemsComponent::new(pool.clone()),
         lists: ListsComponent::new(pool.clone()).with_write(pool.clone()),
         mana_usd_rate: ManaUsdRateComponent::new("http://127.0.0.1:9".into(), 0.02, 86400),
@@ -305,6 +391,10 @@ fn lazy_state() -> AppState {
         sales: SalesComponent::new(pool.clone()),
         shop_catalog: ShopCatalogComponent::new(pool.clone()),
         stats: StatsComponent::new(pool.clone()),
+        suggestions: catalyrst_market::ports::suggestions::SuggestionsComponent::new(
+            pool.clone(),
+            1,
+        ),
         trades: TradesComponent::new(pool.clone(), false),
         trendings: TrendingsComponent::new(pool.clone()),
         user_assets: UserAssetsComponent::new(pool.clone(), false),
@@ -356,6 +446,8 @@ const READ_PATHS: &[&str] = &[
     "/v1/trades",
     "/v1/trades/x",
     "/v1/trades/0xabc/accept",
+    "/v1/picks/stats",
+    "/v1/coupons",
 ];
 
 #[tokio::test]
@@ -402,6 +494,144 @@ async fn live_upstream_matches_fixture_skeleton() {
             "upstream {url} drifted from the checked-in fixture skeleton"
         );
     }
+}
+
+async fn picks_stats_answer(query: &str) -> (StatusCode, Value) {
+    let app = api_router().with_state(lazy_state());
+    let res = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/v1/picks/stats{query}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = res.status();
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// Upstream registers `/v1/picks/stats` with no `wellKnownComponents` wrapper
+/// (favorites/routes.ts:66), so it answers an unsigned request, and it validates in this order
+/// (picks-handlers.ts:59-82): power format, then address format, then the missing item ids.
+#[tokio::test]
+async fn picks_stats_answers_unsigned_and_rejects_like_upstream() {
+    assert_eq!(
+        picks_stats_answer("").await,
+        (
+            StatusCode::BAD_REQUEST,
+            json!({ "ok": false, "message": "The request must include at least one item id." })
+        )
+    );
+
+    assert_eq!(
+        picks_stats_answer("?checkingUserAddress=not-an-address").await,
+        (
+            StatusCode::BAD_REQUEST,
+            json!({
+                "ok": false,
+                "message": "The checking user address parameter must be an Ethereum Address.",
+            })
+        ),
+        "the address check runs before the item-id check"
+    );
+
+    assert_eq!(
+        picks_stats_answer("?itemId=0xabc-1&checkingUserAddress=not-an-address&power=nope").await,
+        (
+            StatusCode::BAD_REQUEST,
+            json!({ "ok": false, "message": "The value of the power parameter is invalid: nope" })
+        ),
+        "the power format check runs first"
+    );
+
+    let (status, _) = picks_stats_answer("?itemId=0xabc-1&checkingUserAddress=&power=").await;
+    assert_ne!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "an empty checkingUserAddress or power is absent, not malformed"
+    );
+
+    let upper = "0XAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let (status, _) =
+        picks_stats_answer(&format!("?itemId=0xabc-1&checkingUserAddress={upper}")).await;
+    assert_ne!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "upstream lower-cases the address before testing it, so 0X is accepted"
+    );
+}
+
+/// `/v1/catalog` embeds the signer's own `picks[].pickedByUser` (handlers/catalog.rs:75-108)
+/// while the cache key is path+query only, so a signed response must neither be stored under
+/// that signer-free key nor served from it. Upstream has no shared response store at all.
+#[tokio::test]
+async fn a_signed_catalog_read_neither_reads_nor_writes_the_shared_cache() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let served = Arc::new(AtomicUsize::new(0));
+    let counter = served.clone();
+    let cache = Arc::new(catalyrst_market::http::response_cache::ResponseCache::new(
+        60,
+    ));
+    let app = axum::Router::new()
+        .route(
+            "/v1/catalog",
+            axum::routing::get(move || {
+                let counter = counter.clone();
+                async move { counter.fetch_add(1, Ordering::SeqCst).to_string() }
+            }),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            cache,
+            catalyrst_market::http::response_cache::middleware,
+        ));
+
+    let read = |headers: HeaderMap| {
+        let app = app.clone();
+        async move {
+            let mut req = Request::builder().uri("/v1/catalog?first=1");
+            for (name, value) in headers.iter() {
+                req = req.header(name, value);
+            }
+            let res = app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
+            let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            String::from_utf8(bytes.to_vec()).unwrap()
+        }
+    };
+
+    let mut signed = HeaderMap::new();
+    signed.insert(
+        HeaderName::from_static("x-identity-auth-chain-0"),
+        HeaderValue::from_static("{}"),
+    );
+
+    assert_eq!(read(HeaderMap::new()).await, "0");
+    assert_eq!(read(HeaderMap::new()).await, "0", "anonymous reads cache");
+    assert_eq!(
+        read(signed.clone()).await,
+        "1",
+        "a signed read must not be answered from the anonymous entry"
+    );
+    assert_eq!(
+        read(signed).await,
+        "2",
+        "a signed read must not be answered from another signed read either"
+    );
+    assert_eq!(
+        read(HeaderMap::new()).await,
+        "0",
+        "no signed response may be stored under the signer-free key"
+    );
+    assert_eq!(served.load(Ordering::SeqCst), 3);
 }
 
 const MARKETPLACE_METADATA: &str = r#"{"signer":"dcl:marketplace","intent":"dcl:create-trade"}"#;

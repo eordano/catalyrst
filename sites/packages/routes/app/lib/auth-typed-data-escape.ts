@@ -1,18 +1,7 @@
-
-const UNREADABLE_CHARACTER_RE = /(?! )[\\\p{C}\p{Zl}\p{Zp}\uFFFD]/gu;
-const SHORT_ESCAPES: ReadonlyMap<string, string> = new Map([
-  ["\\", "\\\\"],
-  ["\t", "\\t"],
-  ["\n", "\\n"],
-  ["\r", "\\r"],
-]);
+import { revealUnreadableCharacters } from "@data/lib/auth/untrusted-label";
 
 export function escapeUnreadableTypedDataText(text: string): string {
-  return text.replace(
-    UNREADABLE_CHARACTER_RE,
-    (character) =>
-      SHORT_ESCAPES.get(character) ?? `\\u{${(character.codePointAt(0) ?? 0).toString(16)}}`,
-  );
+  return revealUnreadableCharacters(text);
 }
 
 export function sanitizeTypedDataForDisplay(value: unknown): unknown {

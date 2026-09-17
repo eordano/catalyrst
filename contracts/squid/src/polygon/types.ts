@@ -5,6 +5,7 @@ import * as erc721abi from "../abi/ERC721";
 import * as marketplaceAbi from "../abi/Marketplace";
 import * as erc721BidAbi from "../abi/ERC721Bid";
 import * as CommitteeABI from "./abi/Committee";
+import * as offChainMarketplaceAbi from "./abi/DecentralandMarketplacePolygon";
 import {
   Account,
   AccountsDayData,
@@ -84,7 +85,10 @@ export type PolygonInMemoryState = {
       | erc721BidAbi.BidCreatedEventArgs
       | erc721BidAbi.BidCancelledEventArgs
       | erc721BidAbi.BidAcceptedEventArgs
-      | erc721abi.TransferEventArgs_2;
+      | erc721abi.TransferEventArgs_2
+      | offChainMarketplaceAbi.FeeCollectorUpdatedEventArgs
+      | offChainMarketplaceAbi.FeeRateUpdatedEventArgs
+      | offChainMarketplaceAbi.RoyaltiesRateUpdatedEventArgs;
     block: BlockData;
     log: Log & { transactionHash: string };
     transaction?: Transaction & { input: string };

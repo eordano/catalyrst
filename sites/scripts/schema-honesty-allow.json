@@ -118,5 +118,10 @@
     "file": "packages/data/src/lib/operator/probe.server.ts",
     "line": 61,
     "why": "This catch IS the probe's measurement: the operator page exists to report reachability, so a refused/timed-out fetch returning state 'down' with describeError(e) publishes the real observation, not a fabricated success. httpStatus is null in this branch -- no HTTP status is invented -- and latencyMs is the genuinely elapsed time until the failure."
+  },
+  {
+    "file": "packages/data/src/lib/catalyst/schema.ts",
+    "line": 93,
+    "why": "exclude_from_ranking is an additive moderation flag; a peer whose place records omit it predates the field and so has excluded nothing from ranking -- false is the real reading of its absence, not a guess. The generated PlaceRowSchema stays strict for current peers; only this compat wrapper supplies the default, and the Rust ingest in catalyrst-places (catalog/sync.rs reads the column with unwrap_or(false)) treats the same absence the same way, so both halves agree."
   }
 ]

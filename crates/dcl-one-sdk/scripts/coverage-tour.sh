@@ -227,7 +227,9 @@ c36_start_probe_suite() {
   STARTDIR=$SCENE start_static 61010 --skip-type-check
   local base=$LH:61010 out=$LOGS/.c36
   curl -sf "$base/about" > "$out.about"
-  grep -q 'ws-room:ws' "$out.about"        # comms ON by default
+  # comms ON by default: the embedded livekit-server's signed-login (ws-room
+  # only on a build that embeds none, macOS)
+  grep -qE 'signed-login:http|ws-room:ws' "$out.about"
   grep -q 'localSceneParcels' "$out.about"
   curl -sf -H 'accept: text/html' "$base/" | grep -q '<html'   # browser landing page
   code "$base/" | grep -q 307              # non-browser -> redirect /about

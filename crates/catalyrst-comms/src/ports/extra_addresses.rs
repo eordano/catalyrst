@@ -1,13 +1,27 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
+use std::time::Duration;
 
+use catalyrst_commons::cache::TtlMap;
 use serde::Deserialize;
 use sqlx::Row;
 
-use crate::http::encode_path_segment;
+use crate::http::{encode_path_segment, ApiError};
 use crate::AppState;
 
 const LEASE_AUTHORIZATIONS_URL: &str =
     "https://decentraland.github.io/linker-server-authorizations/authorizations.json";
+
+pub const WORLD_PERMISSIONS_UNAVAILABLE_MSG: &str =
+    "the world permission service is unavailable, so this ban target cannot be checked for \
+     protection";
+
+pub const LAND_OPERATORS_UNAVAILABLE_MSG: &str =
+    "the land permission service is unavailable, so this ban target cannot be checked for \
+     protection";
+
+const WORLD_PERMISSIONS_TTL: Duration = Duration::from_secs(300);
+const WORLD_PERMISSIONS_MAX_ENTRIES: usize = 5000;
 
 pub struct PlaceInfo {
     pub world: bool,
@@ -36,7 +50,7 @@ struct ParcelAddressesResponse {
     addresses: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct WorldPermissions {
     #[serde(default)]
     owner: Option<String>,
@@ -44,7 +58,7 @@ struct WorldPermissions {
     permissions: Option<WorldPermissionSettings>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct WorldPermissionSettings {
     #[serde(default)]
     deployment: Option<AllowListSetting>,
@@ -54,12 +68,42 @@ struct WorldPermissionSettings {
     streaming: Option<AllowListSetting>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct AllowListSetting {
     #[serde(default, rename = "type")]
     kind: String,
     #[serde(default)]
     wallets: Vec<String>,
+}
+
+/// Upstream reads `GET /world/:name/permissions` through a URL-keyed LRU
+/// (`cachedFetch.cache<PermissionsOverWorld>()`, 5 min TTL, 5000 entries, misses
+/// on error), shared by the world-access gate and the extra-address lookup. Same
+/// scope here: keyed on the request URL, so a second join for the same world on
+/// the same content server inside the TTL costs no fetch. `TtlMap::bounded`
+/// flushes the whole map on overflow rather than evicting the oldest entry, so
+/// keep the cap far above the live world count or every join pays a refetch.
+#[derive(Clone)]
+pub struct WorldPermissionsCache {
+    entries: Arc<TtlMap<String, WorldPermissions>>,
+}
+
+impl Default for WorldPermissionsCache {
+    fn default() -> Self {
+        Self {
+            entries: Arc::new(TtlMap::bounded(
+                "comms-world-permissions",
+                WORLD_PERMISSIONS_TTL,
+                WORLD_PERMISSIONS_MAX_ENTRIES,
+            )),
+        }
+    }
+}
+
+impl WorldPermissionsCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,9 +122,21 @@ fn parse_xy(s: &str) -> Option<(i32, i32)> {
     ))
 }
 
+/// Best-effort read: a places-DB fault is indistinguishable from a missing row
+/// here, so anything that has to answer differently on a fault calls
+/// `try_load_place_info` instead.
 pub async fn load_place_info(state: &AppState, place_id: &str) -> Option<PlaceInfo> {
-    let pool = state.places_pool.as_ref()?;
-    let row = sqlx::query(
+    try_load_place_info(state, place_id).await.ok().flatten()
+}
+
+pub async fn try_load_place_info(
+    state: &AppState,
+    place_id: &str,
+) -> Result<Option<PlaceInfo>, sqlx::Error> {
+    let Some(pool) = state.places_pool.as_ref() else {
+        return Ok(None);
+    };
+    let Some(row) = sqlx::query(
         "SELECT COALESCE((raw->>'world')::bool, false) AS world, \
                 raw->>'world_name' AS world_name, \
                 raw->'positions' AS positions, \
@@ -89,9 +145,10 @@ pub async fn load_place_info(state: &AppState, place_id: &str) -> Option<PlaceIn
     )
     .bind(place_id)
     .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten()?;
+    .await?
+    else {
+        return Ok(None);
+    };
 
     let world: bool = row.try_get("world").unwrap_or(false);
     let world_name: Option<String> = row.try_get("world_name").ok().flatten();
@@ -111,12 +168,12 @@ pub async fn load_place_info(state: &AppState, place_id: &str) -> Option<PlaceIn
         }
     }
 
-    Some(PlaceInfo {
+    Ok(Some(PlaceInfo {
         world,
         world_name,
         positions,
         base_position,
-    })
+    }))
 }
 
 async fn fetch_world_permissions(state: &AppState, world_name: &str) -> Option<WorldPermissions> {
@@ -125,11 +182,18 @@ async fn fetch_world_permissions(state: &AppState, world_name: &str) -> Option<W
         state.world_content_url,
         encode_path_segment(&world_name.to_lowercase())
     );
-    let resp = state.http.get(&url).send().await.ok()?;
-    if !resp.status().is_success() {
-        return None;
-    }
-    resp.json::<WorldPermissions>().await.ok()
+    state
+        .world_permissions
+        .entries
+        .get_or_fetch(url.clone(), || async {
+            let resp = state.http.get(&url).send().await.map_err(|_| ())?;
+            if !resp.status().is_success() {
+                return Err(());
+            }
+            resp.json::<WorldPermissions>().await.map_err(|_| ())
+        })
+        .await
+        .ok()
 }
 
 fn world_access_allowed(perms: Option<&WorldPermissions>, identity: &str) -> bool {
@@ -197,24 +261,66 @@ async fn fetch_world_parcel_permission_addresses(
     Ok(body.addresses)
 }
 
-async fn fetch_land_operators(state: &AppState, parcel: &str) -> Option<LandOperators> {
-    let (x, y) = parse_xy(parcel)?;
+/// Upstream's `getLandOperators` (adapters/lands/component.ts) reads through
+/// `parcelOperatorsCache.fetch`, whose fetchMethod re-throws on a transport
+/// error and on any non-2xx, so a lambdas fault reaches the caller as a
+/// rejection and never as "this parcel has no operators".
+async fn try_fetch_land_operators(
+    state: &AppState,
+    parcel: &str,
+) -> Result<Option<LandOperators>, ApiError> {
+    let Some((x, y)) = parse_xy(parcel) else {
+        return Ok(None);
+    };
 
     let base = state.lambdas_url.trim_end_matches('/');
     let url = format!("{base}/parcels/{x}/{y}/operators");
-    let resp = state.http.get(&url).send().await.ok()?;
-    if !resp.status().is_success() {
-        return None;
+    let resp = state
+        .http
+        .get(&url)
+        .send()
+        .await
+        .map_err(|_| crate::http::service_unavailable(LAND_OPERATORS_UNAVAILABLE_MSG))?;
+    if resp.status().as_u16() == 404 {
+        return Ok(None);
     }
-    resp.json::<LandOperators>().await.ok()
+    if !resp.status().is_success() {
+        return Err(crate::http::service_unavailable(
+            LAND_OPERATORS_UNAVAILABLE_MSG,
+        ));
+    }
+    resp.json::<LandOperators>()
+        .await
+        .map(Some)
+        .map_err(|_| crate::http::service_unavailable(LAND_OPERATORS_UNAVAILABLE_MSG))
 }
 
+/// Swallows a permission-surface outage into a short list. Anything deciding
+/// whether an address is PROTECTED must use `try_get_extra_addresses` instead:
+/// an empty list there reads as "nobody is protected".
 pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSet<String> {
+    try_get_extra_addresses(state, place)
+        .await
+        .unwrap_or_default()
+}
+
+/// Upstream reads the same surface through `getUserScenePermissions`
+/// (adapters/scene-manager.ts) and `getAdminsAndExtraAddresses`
+/// (adapters/scene-admins.ts), where a permission fetch that cannot run throws
+/// rather than reporting the flags as false, so a ban target is never cleared by
+/// an outage. A world whose permission document cannot be read is an outage on
+/// both the fast path and the allow-list fallback, and so is a genesis parcel
+/// whose land operators cannot be read; a surface that legitimately lists no
+/// extra address answers with an empty set.
+pub async fn try_get_extra_addresses(
+    state: &AppState,
+    place: &PlaceInfo,
+) -> Result<BTreeSet<String>, ApiError> {
     let mut extra: BTreeSet<String> = BTreeSet::new();
 
     if place.world {
         let Some(world_name) = place.world_name.as_deref() else {
-            return extra;
+            return Ok(extra);
         };
 
         let deployment = fetch_world_parcel_permission_addresses(
@@ -231,7 +337,11 @@ pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSe
             &place.positions,
         )
         .await;
-        let perms = fetch_world_permissions(state, world_name).await;
+        let Some(perms) = fetch_world_permissions(state, world_name).await else {
+            return Err(crate::http::service_unavailable(
+                WORLD_PERMISSIONS_UNAVAILABLE_MSG,
+            ));
+        };
 
         match (deployment, streaming) {
             (Ok(dep), Ok(stream)) => {
@@ -241,31 +351,29 @@ pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSe
                 for a in stream {
                     extra.insert(a.to_lowercase());
                 }
-                if let Some(owner) = perms.as_ref().and_then(|p| p.owner.as_deref()) {
+                if let Some(owner) = perms.owner.as_deref() {
                     extra.insert(owner.to_lowercase());
                 }
             }
             _ => {
-                if let Some(p) = perms {
-                    if let Some(settings) = p.permissions.as_ref() {
-                        if let Some(dep) = settings.deployment.as_ref() {
-                            if dep.kind == "allow-list" {
-                                for w in &dep.wallets {
-                                    extra.insert(w.to_lowercase());
-                                }
-                            }
-                        }
-                        if let Some(stream) = settings.streaming.as_ref() {
-                            if stream.kind == "allow-list" {
-                                for w in &stream.wallets {
-                                    extra.insert(w.to_lowercase());
-                                }
+                if let Some(settings) = perms.permissions.as_ref() {
+                    if let Some(dep) = settings.deployment.as_ref() {
+                        if dep.kind == "allow-list" {
+                            for w in &dep.wallets {
+                                extra.insert(w.to_lowercase());
                             }
                         }
                     }
-                    if let Some(owner) = p.owner.as_deref() {
-                        extra.insert(owner.to_lowercase());
+                    if let Some(stream) = settings.streaming.as_ref() {
+                        if stream.kind == "allow-list" {
+                            for w in &stream.wallets {
+                                extra.insert(w.to_lowercase());
+                            }
+                        }
                     }
+                }
+                if let Some(owner) = perms.owner.as_deref() {
+                    extra.insert(owner.to_lowercase());
                 }
             }
         }
@@ -275,7 +383,7 @@ pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSe
             .clone()
             .or_else(|| place.positions.first().cloned());
         if let Some(parcel) = parcel {
-            if let Some(ops) = fetch_land_operators(state, &parcel).await {
+            if let Some(ops) = try_fetch_land_operators(state, &parcel).await? {
                 extra.insert(ops.owner.to_lowercase());
                 if let Some(op) = ops.operator {
                     extra.insert(op.to_lowercase());
@@ -293,7 +401,7 @@ pub async fn get_extra_addresses(state: &AppState, place: &PlaceInfo) -> BTreeSe
         }
     }
 
-    extra
+    Ok(extra)
 }
 
 pub async fn get_lease_holders_for_parcels(

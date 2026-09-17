@@ -143,6 +143,43 @@ enum Command {
             help = "Serve comms locally so the preview needs no comms service"
         )]
         offline_comms: bool,
+        #[arg(
+            long,
+            value_name = "WS_URL",
+            help = "Put comms, and with them voice, on a LiveKit server instead of the built-in ws-room: the SFU's ws:// or wss:// address as the explorer reaches it [env: LIVEKIT_URL]"
+        )]
+        livekit_url: Option<String>,
+        #[arg(
+            long,
+            value_name = "KEY",
+            help = "The LiveKit API key the preview mints room tokens with [env: LIVEKIT_API_KEY]"
+        )]
+        livekit_api_key: Option<String>,
+        #[arg(
+            long,
+            value_name = "SECRET",
+            help = "The LiveKit API secret; prefer --livekit-api-secret-file or LIVEKIT_API_SECRET, an argument shows in ps"
+        )]
+        livekit_api_secret: Option<String>,
+        #[arg(
+            long,
+            value_name = "FILE",
+            help = "Read the LiveKit API secret from this file"
+        )]
+        livekit_api_secret_file: Option<PathBuf>,
+        #[arg(
+            long,
+            value_name = "NAME",
+            default_value = dcl_one_sdk::livekit::DEFAULT_ROOM,
+            help = "The LiveKit room of the realm; scene rooms are scene:<NAME>:<sceneId>. Rename it to keep two previews on one server apart"
+        )]
+        livekit_room: String,
+        #[arg(
+            long,
+            conflicts_with = "livekit_url",
+            help = "Do not run the built-in livekit-server: comms stay on the built-in ws-room (positions, chat, scene messages; no voice). Voice is on by default \u{2014} every dcl-one-sdk binary embeds livekit-server and runs it for the preview (LIVEKIT_SERVER_BIN runs a different one)"
+        )]
+        no_livekit: bool,
         #[arg(long = "multi-instance", hide = true)]
         multi_instance: bool,
         #[arg(long = "no-client", hide = true)]
@@ -353,6 +390,13 @@ enum Command {
         #[command(subcommand)]
         command: WorldCommand,
     },
+    #[command(
+        about = "Read and write the scene's server-side storage (scene, player and env values), locally or on a storage service"
+    )]
+    Storage {
+        #[command(subcommand)]
+        command: dcl_one_sdk::storage_cli::StorageCommand,
+    },
     /// Generate main.crdt from a scene's composites into an arbitrary file, so
     /// the native generator's bytes can be diffed against a node data-layer dump.
     #[command(hide = true)]
@@ -379,6 +423,18 @@ enum Command {
 
 #[derive(Subcommand)]
 enum WorldCommand {
+    #[command(about = "Remove one reviewed World scene; keep all other scenes")]
+    RemoveScene {
+        name: String,
+        coordinate: String,
+        #[arg(
+            long = "entity",
+            help = "Expected deployed entity ID; removal is refused if it changed"
+        )]
+        entity_id: String,
+        #[command(flatten)]
+        signed: SignedWriteArgs,
+    },
     #[command(about = "Get or set world metadata (title, spawn, skybox, categories, ...)")]
     Settings {
         #[command(subcommand)]
@@ -638,6 +694,12 @@ async fn run(command: Command) -> Result<()> {
             data_layer,
             ignore_composite,
             offline_comms,
+            livekit_url,
+            livekit_api_key,
+            livekit_api_secret,
+            livekit_api_secret_file,
+            livekit_room,
+            no_livekit,
             multi_instance,
             no_client,
             mobile,
@@ -665,6 +727,14 @@ async fn run(command: Command) -> Result<()> {
             } else {
                 tunnel_token
             };
+            let livekit = dcl_one_sdk::livekit::resolve(dcl_one_sdk::livekit::CliArgs {
+                url: livekit_url,
+                api_key: livekit_api_key,
+                api_secret: livekit_api_secret,
+                api_secret_file: livekit_api_secret_file,
+                room: livekit_room.clone(),
+                offline_comms,
+            })?;
             for (given, note) in [
                 (skip_install, NO_INSTALL_NOTE),
                 (no_browser, "--no-browser has no effect (dcl-one-sdk never opens a browser)"),
@@ -684,6 +754,9 @@ async fn run(command: Command) -> Result<()> {
                 no_watch,
                 ignore_composite,
                 offline_comms,
+                livekit,
+                embedded_livekit: !no_livekit,
+                livekit_room,
                 mobile,
                 ab_sidecar: !no_asset_bundles,
                 local_ab: !no_asset_bundles,
@@ -760,11 +833,28 @@ async fn run(command: Command) -> Result<()> {
             pack::pack(&pack::PackOptions { dir, skip_build }).await
         }
         Command::World { command } => run_world(command).await,
+        Command::Storage { command } => dcl_one_sdk::storage_cli::run(command).await,
     }
 }
 
 async fn run_world(command: WorldCommand) -> Result<()> {
     match command {
+        WorldCommand::RemoveScene {
+            name,
+            coordinate,
+            entity_id,
+            signed,
+        } => {
+            signed
+                .run(
+                    &name,
+                    world::WorldAction::SceneRemove {
+                        coordinate,
+                        entity_id,
+                    },
+                )
+                .await
+        }
         WorldCommand::Settings { command } => match command {
             WorldSettingsCommand::Get {
                 name,

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -18,6 +19,64 @@ struct ParsedEntity {
     auth_chain: Value,
     content: Vec<(String, String)>,
     report: Option<Arc<DeploymentReport>>,
+    /// Retry state the entity must be recorded with if the batch flush that carries it fails.
+    /// The deployer is asynchronous -- `deploy_entity` returns once the entity is buffered, so
+    /// the caller's attempt is already spent by the time a flush failure re-reports it, and
+    /// reporting a fresh 0/0 here would rewind the backoff the retry worker had accrued.
+    /// The wait stays relative: the deadline is stamped when the failure is recorded, not when
+    /// the attempt was dispatched, so a slow attempt does not eat the wait it just earned.
+    retry_count: u32,
+    backoff_ms: u64,
+}
+
+fn flush_failure_record(
+    entity: &ParsedEntity,
+    auth_chain: AuthChain,
+    error_description: String,
+    retry: (u32, u64),
+) -> FailedDeployment {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    FailedDeployment {
+        entity_type: entity.entity_type.clone(),
+        entity_id: entity.entity_id.clone(),
+        reason: FailureReason::DeploymentError,
+        auth_chain,
+        error_description,
+        failure_timestamp: now_ms,
+        snapshot_hash: None,
+        retry_count: retry.0,
+        next_retry_at: now_ms + retry.1 as i64,
+    }
+}
+
+/// Strongest retry state per entity id in a batch. One batch can carry the same entity twice --
+/// the sync path keeps re-encountering exactly the entity the retry worker keeps re-attempting --
+/// and the single record a failed flush writes has to be the stronger sighting, or the accrued
+/// attempts are lost to whichever copy happened to be buffered first.
+fn strongest_retry_state(entities: &[ParsedEntity]) -> HashMap<&str, (u32, u64)> {
+    let mut strongest: HashMap<&str, (u32, u64)> = HashMap::with_capacity(entities.len());
+    for entity in entities {
+        let slot = strongest
+            .entry(entity.entity_id.as_str())
+            .or_insert((entity.retry_count, entity.backoff_ms));
+        slot.0 = slot.0.max(entity.retry_count);
+        slot.1 = slot.1.max(entity.backoff_ms);
+    }
+    strongest
+}
+
+fn reason_label(reason: &FailureReason) -> &'static str {
+    match reason {
+        FailureReason::DeploymentError => "Deployment error",
+        FailureReason::NoEntity => "No entity",
+    }
+}
+
+fn reason_from_label(label: &str) -> FailureReason {
+    match label {
+        "No entity" => FailureReason::NoEntity,
+        _ => FailureReason::DeploymentError,
+    }
 }
 
 fn parse_entity_for_deploy(
@@ -92,6 +151,8 @@ fn parse_entity_for_deploy(
         auth_chain: auth_chain_json,
         content,
         report: None,
+        retry_count: 0,
+        backoff_ms: 0,
     })
 }
 
@@ -134,11 +195,11 @@ fn spawn_flush(
         if let Err(e) = flush_batch(&pool, &entities).await {
             tracing::error!(error = %e, count = entities.len(), "Batch flush failed");
             let failed_store = LiveFailedDeploymentsStore::new(pool.clone());
-            let mut seen = std::collections::HashSet::with_capacity(entities.len());
+            let mut strongest = strongest_retry_state(&entities);
             for entity in &entities {
-                if !seen.insert(entity.entity_id.as_str()) {
+                let Some(retry) = strongest.remove(entity.entity_id.as_str()) else {
                     continue;
-                }
+                };
                 let auth_chain: AuthChain = match serde_json::from_value(entity.auth_chain.clone())
                 {
                     Ok(chain) => chain,
@@ -156,15 +217,12 @@ fn spawn_flush(
                         continue;
                     }
                 };
-                let failure = FailedDeployment {
-                    entity_type: entity.entity_type.clone(),
-                    entity_id: entity.entity_id.clone(),
-                    reason: FailureReason::DeploymentError,
+                let failure = flush_failure_record(
+                    entity,
                     auth_chain,
-                    error_description: format!("batch flush failed: {}", e),
-                    failure_timestamp: chrono::Utc::now().timestamp_millis(),
-                    snapshot_hash: None,
-                };
+                    format!("batch flush failed: {}", e),
+                    retry,
+                );
                 if let Err(record_err) = failed_store.report_failure(failure).await {
                     lost.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     if let Some(report) = &entity.report {
@@ -544,9 +602,14 @@ impl LiveSyncDeployer {
         auth_chain: &AuthChain,
         _context: DeploymentContext,
         report: Option<&Arc<DeploymentReport>>,
+        retry_state: Option<(u32, u64)>,
     ) -> Result<(), SyncError> {
         let mut parsed = parse_entity_for_deploy(entity_data, entity_id, auth_chain)?;
         parsed.report = report.cloned();
+        if let Some((retry_count, backoff_ms)) = retry_state {
+            parsed.retry_count = retry_count;
+            parsed.backoff_ms = backoff_ms;
+        }
 
         let entities_to_flush = {
             let mut buf = self.batch.lock().await;
@@ -647,22 +710,27 @@ impl LiveFailedDeploymentsStore {
         Self { pool }
     }
 
+    /// GREATEST-monotonic on the retry columns: the sync path reports a failure with a fresh
+    /// entity's zeroed retry state every time an entity reappears in a snapshot, and that must
+    /// never rewind a backoff deadline or attempt count the retry worker already advanced.
     pub async fn report_failure(&self, failure: FailedDeployment) -> Result<(), SyncError> {
-        let reason = match failure.reason {
-            FailureReason::DeploymentError => "Deployment error",
-            FailureReason::NoEntity => "No entity",
-        };
+        let reason = reason_label(&failure.reason);
         sqlx::query!(
-            r#"INSERT INTO failed_deployments (entity_id, entity_type, failure_time, reason, auth_chain, error_description, snapshot_hash)
-               VALUES ($1, $2, now(), $3, $4::json, $5, $6)
+            r#"INSERT INTO failed_deployments (entity_id, entity_type, failure_time, reason, auth_chain, error_description, snapshot_hash, retry_count, next_retry_at)
+               VALUES ($1, $2, to_timestamp($9::double precision / 1000.0), $3, $4::json, $5, $6, $7, to_timestamp($8::double precision / 1000.0))
                ON CONFLICT (entity_id) DO UPDATE
-               SET failure_time = now(), reason = $3, error_description = $5"#,
+               SET failure_time = EXCLUDED.failure_time, reason = $3, error_description = $5,
+                   retry_count = GREATEST(failed_deployments.retry_count, EXCLUDED.retry_count),
+                   next_retry_at = GREATEST(failed_deployments.next_retry_at, EXCLUDED.next_retry_at)"#,
             &failure.entity_id,
             &failure.entity_type,
             reason,
             serde_json::to_value(&failure.auth_chain).unwrap_or_else(|_| Value::Array(Vec::new())),
             &failure.error_description,
-            failure.snapshot_hash.as_deref().unwrap_or("")
+            failure.snapshot_hash.as_deref().unwrap_or(""),
+            failure.retry_count as i32,
+            failure.next_retry_at as f64,
+            failure.failure_timestamp as f64
         )
         .execute(&self.pool).await.map_err(|e| SyncError::Storage(e.to_string()))?;
         Ok(())
@@ -670,7 +738,7 @@ impl LiveFailedDeploymentsStore {
 
     pub async fn get_all_failed(&self) -> Result<Vec<FailedDeployment>, SyncError> {
         let rows = sqlx::query!(
-            r#"SELECT entity_id, entity_type, reason, auth_chain, error_description, COALESCE(snapshot_hash, '') AS "snapshot_hash!" FROM failed_deployments"#,
+            r#"SELECT entity_id, entity_type, reason, auth_chain, error_description, COALESCE(snapshot_hash, '') AS "snapshot_hash!", retry_count, date_part('epoch', next_retry_at) * 1000 AS "next_retry_at!", date_part('epoch', failure_time) * 1000 AS "failure_timestamp!" FROM failed_deployments"#,
         ).fetch_all(&self.pool).await.map_err(|e| SyncError::Storage(e.to_string()))?;
 
         Ok(rows
@@ -678,30 +746,69 @@ impl LiveFailedDeploymentsStore {
             .map(|r| FailedDeployment {
                 entity_id: r.entity_id,
                 entity_type: r.entity_type,
-                reason: serde_json::from_str(&r.reason).unwrap_or(FailureReason::DeploymentError),
+                reason: reason_from_label(&r.reason),
                 auth_chain: serde_json::from_value(r.auth_chain).unwrap_or_default(),
                 error_description: r.error_description,
-                failure_timestamp: 0,
+                failure_timestamp: r.failure_timestamp as i64,
                 snapshot_hash: if r.snapshot_hash.is_empty() {
                     None
                 } else {
                     Some(r.snapshot_hash)
                 },
+                retry_count: r.retry_count.max(0) as u32,
+                next_retry_at: r.next_retry_at as i64,
             })
             .collect())
     }
 
-    pub async fn remove(&self, entity_id: &str) -> Result<(), SyncError> {
+    /// Clears the row of an entity that deployed successfully, pinned to the attempt count the
+    /// caller read. The deployer is asynchronous, so a flush failure for the same entity can have
+    /// committed a report at a higher count between the read and this DELETE, and that report is
+    /// then the only record of a real failure: dropping it would lose the evidence, the accrued
+    /// backoff and the entity's progress towards the cap. Mirrors the `remove_exhausted` guard.
+    pub async fn remove(&self, entity_id: &str, max_retry_count: u32) -> Result<(), SyncError> {
         sqlx::query!(
-            "DELETE FROM failed_deployments WHERE entity_id = $1",
-            entity_id
+            "DELETE FROM failed_deployments WHERE entity_id = $1 AND retry_count <= $2",
+            entity_id,
+            max_retry_count as i32
         )
         .execute(&self.pool)
         .await
         .map_err(|e| SyncError::Storage(e.to_string()))?;
         Ok(())
     }
+
+    /// Drops the entries that have burned through the retry cap, answering which ones actually
+    /// went. The `retry_count >= $2` guard is the point of the call: a give-up decision taken
+    /// against an earlier read must not delete a row that a successful deployment cleared and a
+    /// fresh failure has since re-created with a lower count. Chunked so one give-up pass over a
+    /// large backlog never grows into a single unbounded statement; a chunk that fails leaves its
+    /// entries in place for the next cycle.
+    pub async fn remove_exhausted(
+        &self,
+        entity_ids: &[String],
+        min_retry_count: u32,
+    ) -> Result<Vec<String>, SyncError> {
+        let mut removed = Vec::new();
+        for chunk in entity_ids.chunks(EXHAUSTED_DELETE_BATCH_SIZE) {
+            let rows = sqlx::query!(
+                r#"DELETE FROM failed_deployments WHERE entity_id = ANY($1::text[]) AND retry_count >= $2 RETURNING entity_id"#,
+                chunk,
+                min_retry_count as i32
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| SyncError::Storage(e.to_string()))?;
+            removed.extend(rows.into_iter().map(|r| r.entity_id));
+        }
+        Ok(removed)
+    }
 }
+
+/// Entity ids per give-up DELETE. `ANY($1)` binds the whole chunk as one parameter, so this is
+/// not about the bind-parameter ceiling: it bounds each statement's payload, lock footprint and
+/// duration.
+const EXHAUSTED_DELETE_BATCH_SIZE: usize = 1000;
 
 #[derive(Clone, Default)]
 pub struct SyncGauges {
@@ -926,6 +1033,105 @@ mod tests {
         assert!(super::ADVANCE_SYNC_FRONTIER_SQL
             .contains("GREATEST(system_properties.value::bigint, EXCLUDED.value::bigint)"));
         assert!(super::ADVANCE_SYNC_FRONTIER_SQL.contains("ON CONFLICT (key) DO UPDATE"));
+    }
+
+    const ENTITY_BODY: &[u8] = br#"{"type":"scene","pointers":["0,0"],"timestamp":1,"content":[]}"#;
+
+    #[test]
+    fn a_flush_failure_record_carries_the_stamped_retry_state() {
+        let entity = super::parse_entity_for_deploy(ENTITY_BODY, "bafytest", &Vec::new()).unwrap();
+        let before = chrono::Utc::now().timestamp_millis();
+
+        let fresh = super::flush_failure_record(&entity, Vec::new(), String::new(), (0, 0));
+        assert_eq!(fresh.retry_count, 0);
+        assert!(fresh.next_retry_at >= before);
+
+        let record =
+            super::flush_failure_record(&entity, Vec::new(), "boom".to_string(), (4, 1_800_000));
+        assert_eq!(record.retry_count, 4);
+        assert!(record.next_retry_at >= before + 1_800_000);
+        assert!(record.next_retry_at <= chrono::Utc::now().timestamp_millis() + 1_800_000);
+        assert_eq!(record.entity_id, "bafytest");
+        assert_eq!(record.error_description, "boom");
+    }
+
+    #[test]
+    fn a_repeated_entity_in_one_batch_is_recorded_with_its_strongest_retry_state() {
+        let weak = super::parse_entity_for_deploy(ENTITY_BODY, "bafydup", &Vec::new()).unwrap();
+        let mut strong =
+            super::parse_entity_for_deploy(ENTITY_BODY, "bafydup", &Vec::new()).unwrap();
+        strong.retry_count = 4;
+        strong.backoff_ms = 1_800_000;
+        let entities = vec![weak, strong];
+
+        let mut strongest = super::strongest_retry_state(&entities);
+        assert_eq!(strongest.len(), 1);
+
+        let before = chrono::Utc::now().timestamp_millis();
+        let retry = strongest
+            .remove(entities[0].entity_id.as_str())
+            .expect("the first sighting takes the merged state");
+        let record =
+            super::flush_failure_record(&entities[0], Vec::new(), "boom".to_string(), retry);
+        assert_eq!(record.retry_count, 4);
+        assert!(record.next_retry_at >= before + 1_800_000);
+        assert!(strongest.remove(entities[1].entity_id.as_str()).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_buffered_entity_carries_the_retry_state_of_the_attempt_that_queued_it() {
+        let deployer = super::LiveSyncDeployer {
+            pool: sqlx::PgPool::connect_lazy("postgres://nobody@127.0.0.1:1/none").unwrap(),
+            batch: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            flush_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
+            in_flight: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            idle_notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+            lost: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        };
+        let entity = ENTITY_BODY;
+
+        deployer
+            .deploy_entity(
+                entity,
+                "bafysync",
+                &Vec::new(),
+                crate::sync::DeploymentContext::Synced,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        deployer
+            .deploy_entity(
+                entity,
+                "bafyretry",
+                &Vec::new(),
+                crate::sync::DeploymentContext::SyncedFix,
+                None,
+                Some((4, 1_800_000)),
+            )
+            .await
+            .unwrap();
+
+        let buffered = deployer.batch.lock().await;
+        assert_eq!(buffered[0].retry_count, 0);
+        assert_eq!(buffered[0].backoff_ms, 0);
+        assert_eq!(buffered[1].retry_count, 4);
+        assert_eq!(buffered[1].backoff_ms, 1_800_000);
+    }
+
+    #[test]
+    fn a_failure_reason_survives_the_column_round_trip() {
+        use crate::sync::FailureReason;
+        for reason in [FailureReason::DeploymentError, FailureReason::NoEntity] {
+            let label = super::reason_label(&reason);
+            assert_eq!(super::reason_from_label(label), reason);
+        }
+        assert_eq!(super::reason_label(&FailureReason::NoEntity), "No entity");
+        assert_eq!(
+            super::reason_label(&FailureReason::DeploymentError),
+            "Deployment error"
+        );
     }
 
     #[test]

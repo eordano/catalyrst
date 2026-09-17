@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-commons"
-version = "0.24.1"
+version = "0.26.0"
 edition = "2021"
 description = "Shared building blocks for catalyrst services: TTL caches, hardened HTTP client + SSRF guards, and periodic / LISTEN-NOTIFY workers"
 

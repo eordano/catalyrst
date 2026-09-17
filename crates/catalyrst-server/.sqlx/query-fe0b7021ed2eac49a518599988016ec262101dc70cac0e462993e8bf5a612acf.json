@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO failed_deployments (entity_id, entity_type, failure_time, reason, auth_chain, error_description, snapshot_hash, retry_count, next_retry_at)\n               VALUES ($1, $2, to_timestamp($9::double precision / 1000.0), $3, $4::json, $5, $6, $7, to_timestamp($8::double precision / 1000.0))\n               ON CONFLICT (entity_id) DO UPDATE\n               SET failure_time = EXCLUDED.failure_time, reason = $3, error_description = $5,\n                   retry_count = GREATEST(failed_deployments.retry_count, EXCLUDED.retry_count),\n                   next_retry_at = GREATEST(failed_deployments.next_retry_at, EXCLUDED.next_retry_at)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Json",
+        "Text",
+        "Text",
+        "Int4",
+        "Float8",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fe0b7021ed2eac49a518599988016ec262101dc70cac0e462993e8bf5a612acf"
+}

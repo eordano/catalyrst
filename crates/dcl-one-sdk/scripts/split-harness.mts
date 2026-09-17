@@ -70,6 +70,7 @@ function hostModule(name: string): HostModuleApi {
   }
   if (name === '~system/EngineApi') {
     return {
+      isServer: async () => ({ isServer: false }),
       crdtSendToRenderer: async () => {
         hostCalls.crdtSendToRenderer += 1
         return { data: [] }

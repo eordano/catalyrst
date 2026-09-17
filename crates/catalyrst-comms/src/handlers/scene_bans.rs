@@ -7,11 +7,13 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::auth_chain::verify_signed_fetch;
-use crate::http::{auth_error, ApiError};
+use crate::http::{auth_error, service_unavailable, ApiError};
+use crate::livekit::is_world_realm_name;
 use crate::ports::extra_addresses;
+use crate::room_metadata_sync::{self, RoomContext, PLACE_LOOKUP_UNAVAILABLE_MSG};
 use crate::AppState;
 
-use super::scene_adapter::{fetch_world_scene_id, meta_str};
+use super::scene_adapter::{fetch_world_scene_id, meta_str, realm_name_from_metadata};
 
 const SCENE_SIGNER: &str = "decentraland-kernel-scene";
 
@@ -45,12 +47,11 @@ fn one_based_page<T>(results: Vec<T>, total: i64, limit: i64, offset: i64) -> Pa
 }
 
 fn listing_key_candidate(meta: &Value) -> Option<String> {
-    let realm_name = meta_str(meta, "realmName")
-        .or_else(|| meta.get("realm").and_then(|r| meta_str(r, "serverName")));
+    let realm_name = realm_name_from_metadata(meta);
     let scene_id = meta_str(meta, "sceneId");
     match realm_name {
-        Some(realm) if realm.ends_with(".eth") => match scene_id {
-            Some(id) if !id.ends_with(".eth") => Some(id),
+        Some(realm) if is_world_realm_name(&realm) => match scene_id {
+            Some(id) if !is_world_realm_name(&id) => Some(id),
             _ => Some(realm),
         },
         _ => scene_id,
@@ -66,7 +67,7 @@ pub async fn resolve_listing_place_id(
         .filter(|s| !s.is_empty())
         .or_else(|| listing_key_candidate(meta))
         .ok_or_else(|| ApiError::bad_request("missing place_id query"))?;
-    if !candidate.ends_with(".eth") {
+    if !is_world_realm_name(&candidate) {
         return Ok(candidate);
     }
     fetch_world_scene_id(state, &candidate)
@@ -134,8 +135,18 @@ pub async fn ensure_target_not_protected(
     if crate::scene_perms::is_scene_owner_or_admin(state, place_id, &target).await? {
         return Err(ApiError::bad_request("Cannot ban this address"));
     }
-    if let Some(place) = extra_addresses::load_place_info(state, place_id).await {
-        let mut protected = extra_addresses::get_extra_addresses(state, &place).await;
+    let place = extra_addresses::try_load_place_info(state, place_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(
+                %error,
+                %place_id,
+                "places lookup failed while checking a ban target for protection"
+            );
+            service_unavailable(PLACE_LOOKUP_UNAVAILABLE_MSG)
+        })?;
+    if let Some(place) = place {
+        let mut protected = extra_addresses::try_get_extra_addresses(state, &place).await?;
         if !place.world {
             protected.extend(
                 extra_addresses::get_lease_holders_for_parcels(state, &place.positions).await,
@@ -164,11 +175,16 @@ pub async fn ban_user(
         ));
     }
     ensure_target_not_protected(&state, &body.place_id, &body.banned_address).await?;
+    let ctx = RoomContext::from_metadata(&sf.metadata, &body.place_id);
+    let rooms = room_metadata_sync::resolve_rooms(&state, &ctx).await?;
     state
         .scene_bans
         .ban(&body.place_id, &body.banned_address, sf.signer.as_str())
         .await?;
-    crate::room_metadata_sync::add_ban(&state, &body.place_id, &body.banned_address).await;
+    tokio::join!(
+        room_metadata_sync::kick(&state, &rooms, &body.banned_address),
+        room_metadata_sync::add_ban(&state, &rooms, &body.banned_address),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -191,8 +207,10 @@ pub async fn unban_user(
             "signer is not an owner or admin of this scene",
         ));
     }
+    let ctx = RoomContext::from_metadata(&sf.metadata, &place_id);
+    let rooms = room_metadata_sync::resolve_rooms(&state, &ctx).await?;
     state.scene_bans.unban(&place_id, &banned_address).await?;
-    crate::room_metadata_sync::remove_ban(&state, &place_id, &banned_address).await;
+    room_metadata_sync::remove_ban(&state, &rooms, &banned_address).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

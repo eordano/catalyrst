@@ -1,7 +1,12 @@
+use std::sync::OnceLock;
+
 use axum::http::HeaderMap;
 
 use catalyrst_crypto::signed_fetch;
-use catalyrst_crypto::Signer;
+use catalyrst_crypto::{
+    reject_if_signer, require_canonical_field, require_signer as signer_gate, RequiredFieldGate,
+    Signer, SignerGate,
+};
 use catalyrst_types::AuthLinkType;
 
 use crate::http::response::ApiError;
@@ -13,35 +18,51 @@ pub use catalyrst_crypto::signed_fetch::{
 
 pub const FIVE_MINUTES: i64 = 5 * 60;
 
-/// Mirrors @dcl/crypto-middleware >=5.1.0 (marketplace-server #388): rejects, with the
-/// route-facing 400 message prefixed `Invalid chain metadata: `, any `x-identity-metadata`
-/// whose `signer` or `intent` differs from its own `trim().to_lowercase()`. Fires before any
-/// route-specific validator; metadata with no `signer`/`intent`, or non-JSON, is unaffected.
+/// The `signer` an explorer sets on an auth chain it signed on a scene's behalf.
+pub const SCENE_SIGNER: &str = "decentraland-kernel-scene";
+
+/// Upstream's `validateNotKernelSceneSigner` (marketplace-server
+/// src/controllers/utils.ts:9-16), the `metadataValidator` of /v1/catalog,
+/// /v2/catalog, /v1/wert/sign, /v1/transak/orders, /v1/nfts, /v1/items and every
+/// favorites/picks/lists route (routes.ts:73,82,91,100,124,161,177 and
+/// favorites/routes.ts:30-158).
 ///
-/// Why it matters: the signed-fetch client lowercases the payload before signing but delivers
-/// the metadata header with its original casing, so a mixed-case `signer` produces a
-/// signature byte-identical to the canonical spelling's -- a scene-signed request
-/// (`Decentraland-Kernel-Scene`) could otherwise slip past a case-sensitive service gate as
-/// if directly user-signed.
-pub fn check_canonical_metadata(metadata: &str) -> Result<(), String> {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(metadata) else {
-        return Ok(());
-    };
-    for key in ["signer", "intent"] {
-        if let Some(raw) = value.get(key).and_then(serde_json::Value::as_str) {
-            if raw != raw.trim().to_lowercase() {
-                let echo: String = metadata.chars().take(64).collect();
-                return Err(format!("Invalid chain metadata: {echo}"));
-            }
-        }
-    }
-    Ok(())
+/// `rejectIfSigner` refuses a `signer` that is not already canonical instead of
+/// folding it before comparing: the pre-6.0.0 payload lowercased the metadata
+/// before signing, so `{"Signer":"Decentraland-Kernel-Scene"}` carries a signature
+/// byte-identical to the canonical spelling's while a folding comparison decides on
+/// a value the handler never sees. Nothing is rewritten.
+fn scene_signer_gate() -> &'static SignerGate {
+    static GATE: OnceLock<SignerGate> = OnceLock::new();
+    GATE.get_or_init(|| reject_if_signer(&[SCENE_SIGNER]).expect("SCENE_SIGNER is canonical"))
 }
 
-/// Reads `x-identity-metadata`, defaulting to `{}` like the signature path does.
-pub fn require_canonical_metadata(headers: &HeaderMap) -> Result<(), ApiError> {
-    let metadata = signed_fetch::header_str(headers, AUTH_METADATA_HEADER).unwrap_or("{}");
-    check_canonical_metadata(metadata).map_err(ApiError::bad_request)
+/// Upstream's `verifyMetadata` refuses an unparseable or non-object
+/// `x-identity-metadata` outright, before any validator runs, and reads an explicit
+/// JSON `null` as an empty object. Coercing it instead let every gate below pass
+/// vacuously over a delivery upstream drops.
+fn metadata_object(raw: &str) -> Result<serde_json::Value, ApiError> {
+    match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(serde_json::Value::Null) => Ok(serde_json::Value::Object(serde_json::Map::new())),
+        Ok(value @ serde_json::Value::Object(_)) => Ok(value),
+        _ => {
+            let echo: String = raw.chars().take(64).collect();
+            Err(ApiError::bad_request(format!(
+                "Invalid chain metadata: {echo}"
+            )))
+        }
+    }
+}
+
+/// Reads `x-identity-metadata`, defaulting to `{}` like the signature path does,
+/// and runs [`scene_signer_gate`] over it. Upstream answers 400 "Invalid signer".
+pub fn require_not_scene_signer(headers: &HeaderMap) -> Result<(), ApiError> {
+    let raw = signed_fetch::header_str(headers, AUTH_METADATA_HEADER).unwrap_or("{}");
+    let metadata = metadata_object(raw)?;
+    if !scene_signer_gate().permits(&metadata) {
+        return Err(ApiError::bad_request("Invalid signer"));
+    }
+    Ok(())
 }
 
 /// Upstream installs this on the routes a marketplace or builder client is the only
@@ -50,6 +71,9 @@ pub const MARKETPLACE_AUTH_SIGNERS: &[&str] = &["dcl:marketplace", "dcl:builder"
 
 /// The intent upstream demands of POST /v1/trades (routes.ts:122).
 pub const CREATE_TRADE_INTENT: &str = "dcl:create-trade";
+
+/// The intent upstream demands of POST /v1/coupons (routes.ts:127).
+pub const CREATE_COUPON_INTENT: &str = "dcl:create-coupon";
 
 /// Upstream `validateAuthMetadata(signers, intent)` (marketplace-server
 /// src/controllers/utils.ts), the route-level policy behind POST /v1/trades and
@@ -60,23 +84,28 @@ pub const CREATE_TRADE_INTENT: &str = "dcl:create-trade";
 /// legacy payload lowercases it before signing, so a re-spelled `Dcl:Marketplace` or
 /// `Decentraland-Kernel-Scene` carries a byte-identical signature. Folding before comparing
 /// would authorize a request as something it is not -- the whole point of upstream #393.
+///
+/// The read, the form check and the comparison all happen inside the shared gate, so
+/// no plain field read here can reintroduce a spelling it refused. Both helpers
+/// refuse a non-canonical declaration at construction, as upstream does when the
+/// route is defined.
 pub fn require_auth_metadata(
     headers: &HeaderMap,
     allowed_signers: &[&str],
     intent: Option<&str>,
 ) -> Result<(), ApiError> {
     let raw = signed_fetch::header_str(headers, AUTH_METADATA_HEADER).unwrap_or("{}");
-    let metadata =
-        serde_json::from_str::<serde_json::Value>(raw).unwrap_or(serde_json::Value::Null);
+    let metadata = metadata_object(raw)?;
 
-    let signer = metadata.get("signer").and_then(serde_json::Value::as_str);
-    if !signer.is_some_and(|declared| allowed_signers.contains(&declared)) {
+    let signer = signer_gate(allowed_signers).expect("route signers are canonical");
+    if !signer.permits(&metadata) {
         return Err(ApiError::bad_request("Invalid auth signer"));
     }
 
     if let Some(expected) = intent {
-        let declared = metadata.get("intent").and_then(serde_json::Value::as_str);
-        if declared != Some(expected) {
+        let gate: RequiredFieldGate =
+            require_canonical_field("intent", &[expected]).expect("route intent is canonical");
+        if !gate.permits(&metadata) {
             return Err(ApiError::bad_request(
                 "Invalid auth intent to perform this operation",
             ));
@@ -211,6 +240,11 @@ fn auth_chain_error_to_api(e: AuthChainError) -> ApiError {
     }
 }
 
+/// Upstream's `wellKnownComponents({ optional: true })` swallows a verification
+/// failure - the `metadataValidator` refusal included (core-libs
+/// crypto-middleware src/index.ts:92-98) - and continues with no verification
+/// rather than answering, so a scene-signed catalog or picks-list request reads as
+/// a signed-out visitor instead of 400.
 pub async fn optional_signer(
     headers: &HeaderMap,
     method: &str,
@@ -220,7 +254,9 @@ pub async fn optional_signer(
     if !headers.contains_key(first_link.as_str()) {
         return Ok(None);
     }
-    require_canonical_metadata(headers)?;
+    if require_not_scene_signer(headers).is_err() {
+        return Ok(None);
+    }
     require_signer(headers, method, path)
         .await
         .map(|s| Some(s.as_str().to_string()))
@@ -228,37 +264,105 @@ pub async fn optional_signer(
 }
 
 #[cfg(test)]
-mod canonical_metadata_tests {
-    use super::check_canonical_metadata;
+mod scene_signer_gate_tests {
+    use super::{require_not_scene_signer, AUTH_METADATA_HEADER};
+    use axum::http::{HeaderMap, HeaderValue};
 
-    /// The rejection matrix of marketplace-server's `signed-fetch-authentication.spec.ts`.
+    fn headers(metadata: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTH_METADATA_HEADER,
+            HeaderValue::from_str(metadata).unwrap(),
+        );
+        headers
+    }
+
+    fn refusal(metadata: &str) -> String {
+        let err = require_not_scene_signer(&headers(metadata)).expect_err(metadata);
+        format!("{err:?}")
+    }
+
+    /// The hole this gate closes: a scene runtime signs on the visiting player's
+    /// behalf and every favorites, picks, lists and catalog route served it as that
+    /// player, because the check it replaced only compared the value to its own
+    /// `trim().to_lowercase()`.
     #[test]
-    fn rejects_non_canonical_signer_and_intent() {
-        for meta in [
-            r#"{"signer":"Dcl:Marketplace","intent":"dcl:marketplace:add-pick"}"#,
-            r#"{"signer":" dcl:marketplace","intent":"dcl:marketplace:add-pick"}"#,
-            r#"{"signer":"dcl:marketplace","intent":"Dcl:Marketplace:Add-Pick"}"#,
-            r#"{"signer":"dcl:marketplace","intent":"dcl:marketplace:add-pick "}"#,
-            r#"{"origin":"https://play.decentraland.org","signer":"Decentraland-Kernel-Scene"}"#,
+    fn the_canonical_scene_signer_is_refused() {
+        assert!(refusal(r#"{"signer":"decentraland-kernel-scene"}"#).contains("Invalid signer"));
+        assert!(refusal(
+            r#"{"origin":"https://play.decentraland.org","signer":"decentraland-kernel-scene"}"#
+        )
+        .contains("Invalid signer"));
+    }
+
+    /// The fold is why the gate refuses a non-canonical spelling rather than
+    /// comparing it: under the legacy payload these carry a signature identical to
+    /// the canonical spelling's.
+    #[test]
+    fn a_folded_or_re_cased_signer_is_refused() {
+        for metadata in [
+            r#"{"Signer":"decentraland-kernel-scene"}"#,
+            r#"{"signer":"Decentraland-Kernel-Scene"}"#,
+            r#"{"signer":"decentraland-kernel-scene","Signer":"x"}"#,
+            r#"{"signer":" dcl:marketplace"}"#,
+            r#"{"signer":"Dcl:Marketplace"}"#,
         ] {
-            let err = check_canonical_metadata(meta).expect_err(meta);
             assert!(
-                err.starts_with("Invalid chain metadata: "),
-                "message must match upstream prefix, got: {err}"
+                refusal(metadata).contains("Invalid signer"),
+                "{metadata} must be refused"
             );
         }
     }
 
     #[test]
-    fn accepts_canonical_and_absent_metadata() {
-        assert!(check_canonical_metadata(
-            r#"{"signer":"dcl:marketplace","intent":"dcl:marketplace:add-pick"}"#
-        )
-        .is_ok());
-        assert!(check_canonical_metadata(r#"{"signer":"decentraland-kernel-scene"}"#).is_ok());
-        assert!(check_canonical_metadata(r#"{"intent":"dcl:marketplace:remove-pick"}"#).is_ok());
-        assert!(check_canonical_metadata("{}").is_ok());
-        assert!(check_canonical_metadata("not json").is_ok());
+    fn an_ordinary_signer_and_absent_metadata_pass() {
+        for metadata in [
+            r#"{"signer":"dcl:marketplace","intent":"dcl:marketplace:add-pick"}"#,
+            r#"{"intent":"dcl:marketplace:remove-pick"}"#,
+            "{}",
+            "null",
+        ] {
+            assert!(
+                require_not_scene_signer(&headers(metadata)).is_ok(),
+                "{metadata} must be served"
+            );
+        }
+        assert!(require_not_scene_signer(&HeaderMap::new()).is_ok());
+    }
+
+    /// The optional routes (/v1/catalog, /v1/lists/:id/picks) reproduce upstream's
+    /// `optional: true`: a refused request reads as a signed-out visitor, never as
+    /// the visiting user.
+    #[tokio::test]
+    async fn an_optional_route_reads_a_refused_request_as_anonymous() {
+        for metadata in [
+            r#"{"signer":"decentraland-kernel-scene"}"#,
+            r#"{"Signer":"decentraland-kernel-scene"}"#,
+            "not json",
+        ] {
+            let mut h = headers(metadata);
+            h.insert(
+                axum::http::HeaderName::from_static("x-identity-auth-chain-0"),
+                HeaderValue::from_static("{}"),
+            );
+            assert_eq!(
+                super::optional_signer(&h, "get", "/v1/catalog").await.ok(),
+                Some(None),
+                "{metadata}"
+            );
+        }
+    }
+
+    /// Upstream's `verifyMetadata` 400s on these before any validator runs; ours
+    /// used to return Ok and let every gate pass vacuously.
+    #[test]
+    fn unparseable_or_non_object_metadata_is_refused() {
+        for metadata in ["not json", "[]", r#""a string""#, "7"] {
+            assert!(
+                refusal(metadata).contains("Invalid chain metadata: "),
+                "{metadata} must be refused"
+            );
+        }
     }
 }
 
@@ -304,9 +408,10 @@ mod auth_metadata_tests {
             r#"{"signer":"Dcl:Marketplace","intent":"dcl:create-trade"}"#,
             r#"{"signer":" dcl:marketplace","intent":"dcl:create-trade"}"#,
             r#"{"signer":42,"intent":"dcl:create-trade"}"#,
+            r#"{"Signer":"dcl:marketplace","intent":"dcl:create-trade"}"#,
+            r#"{"signer":"dcl:marketplace","Signer":"x","intent":"dcl:create-trade"}"#,
             r#"{"intent":"dcl:create-trade"}"#,
             "{}",
-            "not json",
         ] {
             let err = require_auth_metadata(
                 &headers(metadata),
@@ -359,5 +464,19 @@ mod auth_metadata_tests {
         let err = require_auth_metadata(&HeaderMap::new(), MARKETPLACE_AUTH_SIGNERS, None)
             .expect_err("no metadata header means no signer");
         assert_eq!(message(err), "Invalid auth signer");
+    }
+
+    /// Upstream refuses an unparseable or non-object header in `verifyMetadata`,
+    /// before the route validator is reached, so it never reads as "no signer".
+    #[test]
+    fn unparseable_metadata_is_refused_before_the_signer_is_read() {
+        for metadata in ["not json", "[]", "7"] {
+            let err = require_auth_metadata(&headers(metadata), MARKETPLACE_AUTH_SIGNERS, None)
+                .expect_err(metadata);
+            assert!(
+                message(err).starts_with("Invalid chain metadata: "),
+                "{metadata}"
+            );
+        }
     }
 }

@@ -22,6 +22,7 @@ let
     corsFallback
     protectedStorage
     contentReadLocations
+    builderLocations
     ;
 
   acmeHttp01ExtraDomainNames = [
@@ -313,6 +314,7 @@ let
     // playLocations
     // imposterLocations
     // contentReadLocations
+    // builderLocations
     // {
       "= /" = {
         root = "${landingRoot}";

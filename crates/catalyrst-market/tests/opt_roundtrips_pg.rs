@@ -16,6 +16,7 @@ use catalyrst_market::ports::bids::BidsComponent;
 use catalyrst_market::ports::catalog::CatalogComponent;
 use catalyrst_market::ports::collections::CollectionsComponent;
 use catalyrst_market::ports::contracts::ContractsComponent;
+use catalyrst_market::ports::coupons::{CouponsComponent, RpcCouponChainReader};
 use catalyrst_market::ports::items::ItemsComponent;
 use catalyrst_market::ports::lists::ListsComponent;
 use catalyrst_market::ports::mana_rate::ManaUsdRateComponent;
@@ -56,6 +57,14 @@ async fn build_state(pool: PgPool) -> AppState {
         catalog: CatalogComponent::new(pool.clone()),
         collections: CollectionsComponent::new(pool.clone()),
         contracts: ContractsComponent::new(pool.clone()),
+        coupons: CouponsComponent::new(
+            pool.clone(),
+            pool.clone(),
+            std::sync::Arc::new(RpcCouponChainReader::new(
+                reqwest::Client::new(),
+                Default::default(),
+            )),
+        ),
         items: ItemsComponent::new(pool.clone()),
         lists: ListsComponent::new(pool.clone()).with_write(pool.clone()),
         mana_usd_rate: ManaUsdRateComponent::new("http://127.0.0.1:9".into(), 0.02, 86400),
@@ -67,6 +76,10 @@ async fn build_state(pool: PgPool) -> AppState {
         sales: SalesComponent::new(pool.clone()),
         shop_catalog: ShopCatalogComponent::new(pool.clone()),
         stats: StatsComponent::new(pool.clone()),
+        suggestions: catalyrst_market::ports::suggestions::SuggestionsComponent::new(
+            pool.clone(),
+            1,
+        ),
         trades: TradesComponent::new(pool.clone(), false),
         trendings: TrendingsComponent::new(pool.clone()),
         user_assets: UserAssetsComponent::new(pool.clone(), false),

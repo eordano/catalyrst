@@ -1558,7 +1558,7 @@ export interface operations {
       };
     };
     responses: {
-      200: {
+      201: {
         content: {
           "application/json": components["schemas"]["ApiData_PlaceRow"];
         };
@@ -2269,7 +2269,7 @@ export interface operations {
       };
     };
     responses: {
-      200: {
+      201: {
         content: {
           "application/json": components["schemas"]["ApiData_WorldRow"];
         };

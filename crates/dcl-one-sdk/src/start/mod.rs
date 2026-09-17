@@ -11,6 +11,7 @@ mod land_picker;
 mod landing;
 pub(crate) mod proxy;
 pub(crate) mod scene_logs;
+mod storage_page;
 
 use crate::build::{self, BuildOptions};
 use crate::data_layer::{self, DataLayerState};
@@ -33,7 +34,7 @@ use axum::{
 use editor::{data_layer_ws, inspector_asset, inspector_index, inspector_redirect, mobile_preview};
 use http::{
     about, contents, entities_active, entities_scene, feature_flags, get_scene_adapter,
-    preview_wearables, root, scene_id_for, scene_json, scenes,
+    preview_wearables, root, scene_id_for, scene_json, scenes, signed_login,
 };
 use proxy::{
     catalyst_proxy, lambdas_contracts_servers, lambdas_explore_realms, world_about, world_content,
@@ -61,6 +62,13 @@ pub struct StartOptions {
     pub no_watch: bool,
     pub ignore_composite: bool,
     pub offline_comms: bool,
+    /// Comms (and so voice) on a LiveKit SFU elsewhere (`--livekit-url`).
+    pub livekit: Option<crate::livekit::Livekit>,
+    /// Run a livekit-server of this preview's own when `livekit` names none:
+    /// the default; `--no-livekit` keeps the built-in ws-room.
+    pub embedded_livekit: bool,
+    /// The realm room of that embedded server.
+    pub livekit_room: String,
     pub mobile: bool,
     pub ab_sidecar: bool,
     /// Forward `local-ab=true` in the desktop deep link (tracks `ab_sidecar`):
@@ -113,6 +121,9 @@ pub(crate) struct AppState {
     machine: String,
     reload_tx: broadcast::Sender<ReloadFrame>,
     offline_comms: bool,
+    /// Set: `/about` hands out `signed-login:` and the signed endpoints mint
+    /// LiveKit tokens; unset: mini-comms ws-rooms on this server.
+    livekit: Option<crate::livekit::Livekit>,
     port: u16,
     data_layer: Option<DataLayerState>,
     entity_cache: Mutex<HashMap<PathBuf, (Instant, Value)>>,
@@ -145,6 +156,7 @@ impl AppState {
             machine: machine_id(),
             reload_tx,
             offline_comms: false,
+            livekit: None,
             port,
             data_layer: None,
             entity_cache: Mutex::new(HashMap::new()),
@@ -325,6 +337,31 @@ pub async fn start(opts: StartOptions) -> Result<()> {
     crate::deploy::forget_remembered_target(&first.root);
     let (port, listener) = bind_preview_port(opts.port).await?;
 
+    // Voice by default: a livekit-server of this preview's own, unless comms
+    // are off, on a server elsewhere, or the preview is reached through a
+    // tunnel, which forwards the preview port alone and never media ports.
+    let mut livekit = opts.livekit.clone();
+    let mut livekit_server = None;
+    if opts.embedded_livekit && livekit.is_none() && !opts.offline_comms {
+        crate::livekit::validate_room(&opts.livekit_room)?;
+        if trunk_url.is_some() {
+            ux::note(
+                "voice off over a tunnel: the built-in livekit-server is reachable from this machine and its LAN only; \
+                 pass --livekit-url with a LiveKit server the tunnel's peers can reach",
+            );
+        } else if let Some(running) =
+            crate::livekit_server::spawn(crate::livekit_server::DEFAULT_PORT).await
+        {
+            livekit = Some(crate::livekit::Livekit::embedded(
+                running.port,
+                crate::livekit_server::API_KEY,
+                running.api_secret(),
+                &opts.livekit_room,
+            )?);
+            livekit_server = Some(running);
+        }
+    }
+
     let data_layer = if opts.data_layer {
         let public_dir = data_layer::locate_inspector_public(&first.root)?;
         if public_dir.is_none() {
@@ -344,6 +381,7 @@ pub async fn start(opts: StartOptions) -> Result<()> {
 
     let mut state = AppState::new(workspace.projects.clone(), port, broadcast::channel(32).0);
     state.offline_comms = opts.offline_comms;
+    state.livekit = livekit.clone();
     state.data_layer = data_layer;
     state.local_ab = opts.local_ab;
     state.mcp = opts.mcp;
@@ -368,6 +406,30 @@ pub async fn start(opts: StartOptions) -> Result<()> {
     };
 
     let app = build_router(state.clone(), comms_state);
+
+    if let Some(lk) = &livekit {
+        let server = match &livekit_server {
+            Some(running) => format!("0.0.0.0:{}", running.port),
+            None => lk.describe_url(),
+        };
+        let rooms = workspace
+            .projects
+            .iter()
+            .map(|project| lk.scene_room(&scene_id_for(project, &state.machine)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        ux::note_arrow(format!("Voice: comms on {server}, {rooms}"));
+    }
+
+    // where Storage/EnvVar reads and writes go, before the host that uses them
+    match crate::storage::open(&first.root).and_then(|db| db.target()) {
+        Ok(target) => ux::note_arrow(storage_page::start_line(
+            &target,
+            storage_page::signer(&state).as_ref(),
+            &format!("http://127.0.0.1:{port}"),
+        )),
+        Err(e) => ux::report_watch(&e.context("reading the storage target")),
+    }
 
     let _host_isolate = if !opts.no_host && crate::entrypoint::authoritative_multiplayer(&first) {
         match crate::host::spawn_isolate(&first.root, &format!("http://127.0.0.1:{port}"), "room-1")
@@ -469,13 +531,15 @@ pub async fn start(opts: StartOptions) -> Result<()> {
         _ = shutdown_signal() => Ok(()),
     };
     crate::asset_bundles::kill_sidecar_group();
+    crate::livekit_server::kill_group();
+    drop(livekit_server);
     result
 }
 
 /// A CLI publish waiting on its wallet signature, served as the normal preview
 /// server: the printed URL is /deploy, which carries the signing panel, and the
 /// scene about to go up can be walked from the same origin meanwhile. Resolves
-/// when the signature lands or the wait runs out.
+/// after the browser publish completes and the user stops the preview.
 pub(crate) async fn serve_signing(
     dir: &Path,
     port: Option<u16>,
@@ -490,8 +554,8 @@ pub(crate) async fn serve_signing(
     let mut state = AppState::new(workspace.projects.clone(), port, broadcast::channel(32).0);
     state.allow_remote_deploy = allow_remote;
     let state = Arc::new(state);
-    deploy_page::adopt_cli_signing(&state, signer);
-    let app = build_router(state, Arc::new(crate::comms::CommsState::default()));
+    deploy_page::adopt_cli_signing(&state, signer.clone());
+    let app = build_router(state.clone(), Arc::new(crate::comms::CommsState::default()));
     let url = format!("http://localhost:{port}/deploy");
     println!();
     println!("Sign the deployment with your wallet in a browser:");
@@ -511,8 +575,10 @@ pub(crate) async fn serve_signing(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     );
+    let serve = std::future::IntoFuture::into_future(serve);
+    tokio::pin!(serve);
     tokio::select! {
-        r = serve => {
+        r = &mut serve => {
             r.context("serving the signing page")?;
             Err(UserError::new(
                 "the signing page stopped before a signature arrived",
@@ -520,7 +586,26 @@ pub(crate) async fn serve_signing(
             )
             .into())
         }
-        outcome = crate::linker::await_outcome(rx, timeout, &url) => outcome,
+        outcome = crate::linker::await_outcome(rx, timeout, &url) => {
+            deploy_page::finish_cli_signing(&state, &outcome);
+            // An unanswered CLI request must finish on its deadline. Once
+            // a wallet submits, keep the preview available to inspect the
+            // deployment result (including an upload failure) and retry.
+            if outcome.is_err() && signer.signer_address().is_none() {
+                return outcome;
+            }
+            match &outcome {
+                Ok(message) => println!("{message}"),
+                Err(error) => eprintln!("{error}"),
+            }
+            ux::note(format!("preview remains available at {url} — press Ctrl+C to stop"));
+            tokio::select! {
+                result = &mut serve => { result.context("serving the preview")?; }
+                _ = shutdown_signal() => {}
+            }
+            outcome
+        },
+        _ = shutdown_signal() => Err(anyhow::anyhow!("publishing cancelled")),
     }
 }
 
@@ -540,6 +625,7 @@ fn build_router(state: Arc<AppState>, comms_state: Arc<crate::comms::CommsState>
         .route("/", get(root))
         .route("/about", get(about))
         .route("/get-scene-adapter", post(get_scene_adapter))
+        .route("/signed-login", post(signed_login))
         .route("/scenes", get(scenes))
         .route("/scene.json", get(scene_json))
         .route("/preview-wearables", get(preview_wearables))
@@ -573,6 +659,11 @@ fn build_router(state: Arc<AppState>, comms_state: Arc<crate::comms::CommsState>
                 .route("/target/address", post(deploy_page::target_address))
                 .route("/target/connect", post(deploy_page::target_connect))
                 .route("/target/point", post(deploy_page::target_point))
+                .route("/target/entrance", post(deploy_page::target_entrance))
+                .route(
+                    "/target/scene/remove",
+                    post(deploy_page::target_remove_scene),
+                )
                 .route("/target/base", post(deploy_page::target_base))
                 .route("/deploy/preflight", post(deploy_page::preflight))
                 .route("/scene", get(scene_route))
@@ -580,9 +671,64 @@ fn build_router(state: Arc<AppState>, comms_state: Arc<crate::comms::CommsState>
                 .route("/deploy/progress", get(deploy_page::sign_progress))
                 .route("/scene-json", post(edit::scene_json))
                 .route("/scene-thumbnail", post(edit::thumbnail))
+                .merge(storage_page::routes())
                 .with_state(state.clone()),
         )
         .layer(middleware::from_fn_with_state(state, access_log))
+        .layer(compression_layer())
+}
+
+/// gzip, fastest level, on text-like bodies above 1 KB: the scene's chunks
+/// (`prebuilt/core.js` is 475 KB raw, 122 KB gzipped), the inspector's
+/// bundles, JSON. Never media (already compressed), never `text/event-stream`
+/// (buffering would hold the events back), and never a body with no
+/// content-type, which is what the websocket upgrades answer with. Only gzip
+/// is compiled in: brotli would add a native crate to every build for a
+/// preview served over loopback or a tunnel.
+fn compression_layer() -> tower_http::compression::CompressionLayer<
+    tower_http::compression::predicate::And<
+        tower_http::compression::predicate::SizeAbove,
+        TextLike,
+    >,
+> {
+    use tower_http::compression::predicate::{Predicate as _, SizeAbove};
+    tower_http::compression::CompressionLayer::new()
+        .quality(tower_http::CompressionLevel::Fastest)
+        .compress_when(SizeAbove::new(1024).and(TextLike))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TextLike;
+
+impl tower_http::compression::Predicate for TextLike {
+    fn should_compress<B>(&self, response: &axum::http::Response<B>) -> bool
+    where
+        B: axum::body::HttpBody,
+    {
+        response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(compressible_mime)
+    }
+}
+
+fn compressible_mime(content_type: &str) -> bool {
+    let mime = content_type.split(';').next().unwrap_or("").trim();
+    if mime == "text/event-stream" {
+        return false;
+    }
+    mime.starts_with("text/")
+        || matches!(
+            mime,
+            "application/javascript"
+                | "application/x-javascript"
+                | "application/json"
+                | "application/manifest+json"
+                | "application/wasm"
+                | "application/xml"
+                | "image/svg+xml"
+        )
 }
 
 /// The `optimized-assets-url` the join block advertises. Never alongside
@@ -1114,3 +1260,7 @@ fn data_layer_origin_allowed(headers: &HeaderMap) -> bool {
 #[cfg(test)]
 #[path = "start_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "storage_page_tests.rs"]
+mod storage_page_tests;

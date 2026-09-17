@@ -145,7 +145,7 @@ fn row_to_member(
     }
 }
 
-fn normalize_role(role: &str) -> String {
+pub(crate) fn normalize_role(role: &str) -> String {
     match role {
         "owner" => "owner",
         "admin" | "mod" | "moderator" => "moderator",

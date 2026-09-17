@@ -29,6 +29,11 @@ import * as CommitteeABI from "./abi/Committee";
 import * as RaritiesABI from "./abi/Rarity";
 import * as OffChainMarketplaceABI from "./abi/DecentralandMarketplacePolygon";
 import * as OffChainMarketplaceV3ABI from "./abi/DecentralandMarketplacePolygonV3";
+import {
+  applyFeeUpdate,
+  FeeUpdateEventArgs,
+  queueFeeUpdate,
+} from "./utils/feeUpdates";
 import * as ERC721BidABI from "./abi/ERC721Bid";
 import * as CollectionStoreABI from "./abi/CollectionStore";
 import * as CollectionManagerABI from "./abi/CollectionManager";
@@ -76,11 +81,10 @@ import {
   getStoreContractData,
   setBidOwnerCutPerMillion,
   setMarketplaceOwnerCutPerMillion,
-  setOffChainMarketplaceFeeCollector,
-  setOffChainMarketplaceFeeRate,
-  setOffChainMarketplaceRoyaltiesRate,
   setStoreFee,
   setStoreFeeOwner,
+  beginOffChainMarketplaceFeeBatch,
+  endOffChainMarketplaceFeeBatch,
 } from "./state";
 import { getStoredData } from "./store";
 import { PolygonStoredData } from "./types";
@@ -303,6 +307,7 @@ const db = new TypeormDatabase({
 const prometheus = new PrometheusServer();
 prometheus.setPort(Number(process.env.POLYGON_PROMETHEUS_PORT || 3001));
 run(dataSource, db, async (simpleCtx) => {
+  beginOffChainMarketplaceFeeBatch(simpleCtx.blocks[0].header.height);
   const ctx: Context = {
     ...simpleCtx,
     ...chainContext,
@@ -432,7 +437,6 @@ run(dataSource, db, async (simpleCtx) => {
           log.address === addresses.CollectionFactory ||
           log.address === addresses.CollectionFactoryV3 ||
           log.address === addresses.BidV2 ||
-          log.address === addresses.ERC721Bid ||
           log.address === addresses.Marketplace ||
           log.address === addresses.MarketplaceV2 ||
           log.address === addresses.OldCommittee ||
@@ -457,6 +461,9 @@ run(dataSource, db, async (simpleCtx) => {
       console.log(
         "INFO: Batch contains important data: ",
         isThereImportantDataInBatch
+      );
+      endOffChainMarketplaceFeeBatch(
+        ctx.blocks[ctx.blocks.length - 1].header.height
       );
       return;
     }
@@ -859,22 +866,16 @@ run(dataSource, db, async (simpleCtx) => {
             });
             break;
           }
-          case OffChainMarketplaceABI.events.FeeCollectorUpdated.topic: {
-            setOffChainMarketplaceFeeCollector(
-              OffChainMarketplaceABI.events.FeeCollectorUpdated.decode(log)._feeCollector
-            );
-            break;
-          }
-          case OffChainMarketplaceABI.events.FeeRateUpdated.topic: {
-            setOffChainMarketplaceFeeRate(
-              OffChainMarketplaceABI.events.FeeRateUpdated.decode(log)._feeRate
-            );
-            break;
-          }
+          case OffChainMarketplaceABI.events.FeeCollectorUpdated.topic:
+          case OffChainMarketplaceABI.events.FeeRateUpdated.topic:
           case OffChainMarketplaceABI.events.RoyaltiesRateUpdated.topic: {
-            setOffChainMarketplaceRoyaltiesRate(
-              OffChainMarketplaceABI.events.RoyaltiesRateUpdated.decode(log)._royaltiesRate
-            );
+            const queued = queueFeeUpdate(topic, log, block);
+            if (!queued) {
+              throw new Error(
+                `Fee update topic ${topic} is not handled by queueFeeUpdate`
+              );
+            }
+            events.push(queued);
             break;
           }
           case MarketplaceV2ABI.events.ChangedFeesCollectorCutPerMillion.topic:
@@ -1292,6 +1293,11 @@ run(dataSource, db, async (simpleCtx) => {
             storedData
           );
           break;
+        case OffChainMarketplaceABI.events.FeeCollectorUpdated.topic:
+        case OffChainMarketplaceABI.events.FeeRateUpdated.topic:
+        case OffChainMarketplaceABI.events.RoyaltiesRateUpdated.topic:
+          applyFeeUpdate(topic, log, event as FeeUpdateEventArgs);
+          break;
         case OffChainMarketplaceABI.events.Traded.topic:
         case OffChainMarketplaceV3ABI.events.Traded.topic: {
           if (!storeContractData || !transaction) {
@@ -1301,6 +1307,7 @@ run(dataSource, db, async (simpleCtx) => {
           await handleTraded(
             ctx,
             event as OffChainMarketplaceABI.TradedEventArgs,
+            log.address,
             block,
             transaction,
             storedData,
@@ -1688,6 +1695,9 @@ run(dataSource, db, async (simpleCtx) => {
 `);
     }
 
+    endOffChainMarketplaceFeeBatch(
+      ctx.blocks[ctx.blocks.length - 1].header.height
+    );
     ctx.log.info(
       `Batch ${metrics.blockRange} saved: nfts=${nfts.size}, items=${items.size}, sales=${sales.size}, mints=${mints.size}, transfers=${transfers.size}`
     );

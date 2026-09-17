@@ -16,10 +16,16 @@ const TRADE_TYPE: &str = concat!(
     "ExternalCheck(address contractAddress,bytes4 selector,bytes value,bool required)",
 );
 
-const EXTERNAL_CHECK_TYPE: &str =
+pub(crate) const EXTERNAL_CHECK_TYPE: &str =
     "ExternalCheck(address contractAddress,bytes4 selector,bytes value,bool required)";
 
-const CHECKS_TYPE: &str = "Checks(uint256 uses,uint256 expiration,uint256 effective,bytes32 salt,uint256 contractSignatureIndex,uint256 signerSignatureIndex,bytes32 allowedRoot,ExternalCheck[] externalChecks)";
+/// A struct's EIP-712 type hash is taken over its own definition followed by every struct it
+/// references, so `Checks` carries `ExternalCheck` even when the array is empty. Dropping the
+/// suffix hashes to a different type and rejects every genuine wallet signature.
+pub(crate) const CHECKS_TYPE: &str = concat!(
+    "Checks(uint256 uses,uint256 expiration,uint256 effective,bytes32 salt,uint256 contractSignatureIndex,uint256 signerSignatureIndex,bytes32 allowedRoot,ExternalCheck[] externalChecks)",
+    "ExternalCheck(address contractAddress,bytes4 selector,bytes value,bool required)",
+);
 
 const ASSET_TYPE: &str =
     "Asset(uint256 assetType,address contractAddress,uint256 value,bytes extra,address beneficiary)";
@@ -48,7 +54,7 @@ impl std::fmt::Display for SignatureError {
     }
 }
 
-fn hex_bytes(value: &str) -> Result<Vec<u8>, SignatureError> {
+pub(crate) fn hex_bytes(value: &str) -> Result<Vec<u8>, SignatureError> {
     let trimmed = value.strip_prefix("0x").unwrap_or(value);
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -80,7 +86,7 @@ fn right_padded_32(value: &str) -> Result<[u8; 32], SignatureError> {
     Ok(out)
 }
 
-fn parse_address(value: &str) -> Result<Address, SignatureError> {
+pub(crate) fn parse_address(value: &str) -> Result<Address, SignatureError> {
     Address::from_str(value)
         .map_err(|e| SignatureError::Malformed(format!("bad address {value}: {e}")))
 }
@@ -123,7 +129,7 @@ fn hash_external_checks(checks: &TradeChecksInput) -> Result<[u8; 32], Signature
     Ok(hash_array_of_structs(&members))
 }
 
-fn hash_checks(checks: &TradeChecksInput) -> Result<[u8; 32], SignatureError> {
+pub(crate) fn hash_checks(checks: &TradeChecksInput) -> Result<[u8; 32], SignatureError> {
     Ok(struct_hash(
         hash_dynamic(CHECKS_TYPE.as_bytes()),
         &[

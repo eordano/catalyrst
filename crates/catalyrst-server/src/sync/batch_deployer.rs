@@ -232,6 +232,7 @@ impl BatchDeployer {
                 DeploymentContext::Synced,
                 content_semaphore,
                 report.as_ref(),
+                None,
             )
             .await;
 
@@ -261,6 +262,8 @@ impl BatchDeployer {
                             error_description: e.to_string(),
                             failure_timestamp: chrono::Utc::now().timestamp_millis(),
                             snapshot_hash: None,
+                            retry_count: 0,
+                            next_retry_at: 0,
                         })
                         .await
                     {

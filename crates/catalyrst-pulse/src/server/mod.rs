@@ -534,12 +534,18 @@ impl PulseServer {
     /// announcement, realms and parcels alike, so neither can be bought by adding more of the
     /// other. Overlapping rects are budgeted by sum, not union. The second pass also takes the
     /// covering grid cells off each rect, the only point that holds both a rect and its set.
+    /// Parcel expansion stops once a realm's union already covers the world, but its cell cover
+    /// never does: the cover is O(covered cells) rather than O(area), and running it for every
+    /// rect is what keeps the cell set independent of rect order. No test can hold that ordering:
+    /// a rect behind a world-covering union only ever contributes cells the union already holds,
+    /// so moving `add_covering_cells` after the `continue` stays invisible in a single world.
     fn build_listener(&self, aoi: &[SceneListenerAoi]) -> Option<SceneListenerState> {
         if aoi.is_empty() {
             return None;
         }
 
         let max_budget = self.max_scene_listener_parcels as i64;
+        let world_parcels = self.encoder.max_index_exclusive() as usize;
         let mut budget: i64 = 0;
         let mut parcels_by_realm: HashMap<String, std::collections::HashSet<i32>> =
             HashMap::with_capacity(aoi.len());
@@ -583,7 +589,8 @@ impl PulseServer {
                 }
             }
 
-            let mut parcels = std::collections::HashSet::with_capacity(realm_area as usize);
+            let mut parcels =
+                std::collections::HashSet::with_capacity((realm_area as usize).min(world_parcels));
             for r in &realm_aoi.parcel_rects {
                 self.cell_mapper.add_covering_cells(
                     &mut cell_keys,
@@ -592,6 +599,9 @@ impl PulseServer {
                     r.max_x,
                     r.max_z,
                 );
+                if parcels.len() >= world_parcels {
+                    continue;
+                }
                 for z in r.min_z..=r.max_z {
                     for x in r.min_x..=r.max_x {
                         parcels.insert(self.encoder.encode(x, z));

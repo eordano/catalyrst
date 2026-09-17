@@ -13,6 +13,9 @@ let
     corsFallback
     protectedStorage
     contentReadLocations
+    builderCatalog
+    builderItems
+    builderLocations
     ;
 
   gatewaySans = [
@@ -148,6 +151,7 @@ let
     "/realm-provider-ea" = gwStrip 5137 "/realm-provider-ea";
     "/auth-api" = gwStrip 5137 "/auth-api";
   }
+  // builderLocations
   // lib.optionalAttrs cfg.subServices.profileImages {
     "/profile-images" = gwStrip 5161 "/profile-images";
   };
@@ -177,7 +181,11 @@ let
                 rewrite ^/(v\d+)/assets/(.*)$ /$1/$2 break;
               '';
             }
-            // lib.optionalAttrs (sub == "auth-api") {
+            // lib.optionalAttrs (sub == "builder-api") {
+            "= /v1/assetPacks" = builderCatalog;
+            "/builder-items/" = builderItems;
+          }
+          // lib.optionalAttrs (sub == "auth-api") {
               extraConfig = ''
                 if ($request_method = OPTIONS) {
                   ${secHeaders}
@@ -190,6 +198,10 @@ let
                 }
               '';
             };
+          }
+          // lib.optionalAttrs (sub == "builder-api") {
+            "= /v1/assetPacks" = builderCatalog;
+            "/builder-items/" = builderItems;
           }
           // lib.optionalAttrs (sub == "auth-api") {
             "= /health" = {

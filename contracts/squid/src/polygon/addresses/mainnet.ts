@@ -19,7 +19,7 @@ export const Rarity = "0x17113b44fdd661a156cc01b5031e3acf72c32eb3";
 export const CollectionManager = "0x9d32aac179153a991e832550d9f96441ea27763a";
 export const OffChainMarketplace = "0x540fb08edb56aae562864b390542c97f562825ba";
 export const OffChainMarketplaceV2 = "0xa40b1d129b8906888720686f3a01921ddf37716f";
-export const OffChainMarketplaceV3 = Null;
+export const OffChainMarketplaceV3 = "0xe38ef22abe871513555cba89adfe45ab4f548ada";
 export const MANA = "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4";
 
 export const CreditsManager = [

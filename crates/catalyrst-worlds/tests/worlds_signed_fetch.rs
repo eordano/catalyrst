@@ -287,6 +287,48 @@ async fn a_stale_handshake_is_refused_before_the_gate_runs() {
     assert!(matches!(err, AuthChainError::Expired { .. }), "{err:?}");
 }
 
+/// Upstream's `Number(raw || '0')` reads the header that is not there the same way it
+/// reads an empty one, so an absent `x-identity-timestamp` answers the expiration
+/// window rather than a presence error of our own.
+#[tokio::test]
+async fn an_absent_timestamp_header_expires_like_an_empty_one() {
+    let wallet = Wallet::from_hex(EXPLORER_KEY).unwrap();
+    let metadata = explorer_metadata(KERNEL_SCENE_SIGNER);
+    let payload = build_payload_v6(METHOD, COMMS_PATH, "0", &metadata);
+    let mut headers = headers_for(&wallet, &payload, "0", &metadata);
+    headers.remove("x-identity-timestamp");
+    let err = verify(&headers, COMMS_PATH, EXPLORER_METADATA_KEYS)
+        .await
+        .expect_err("a request with no timestamp must not be served");
+    assert!(
+        matches!(err, AuthChainError::Expired { signed_at: 0, .. }),
+        "an absent timestamp produced {err:?}"
+    );
+}
+
+/// Upstream reads the timestamp header as `Number(raw || '0')`
+/// (core-libs/libs/crypto-middleware/src/verify.ts `verifyTimestamp`), so an empty
+/// one is timestamp zero and answers the expiration window's 401, never the
+/// malformed-timestamp 400. Both halves of this crate answer the same way: the
+/// world-storage surface pins the mirror of this case.
+#[tokio::test]
+async fn an_empty_timestamp_header_expires_instead_of_reading_as_malformed() {
+    let wallet = Wallet::from_hex(EXPLORER_KEY).unwrap();
+    let metadata = explorer_metadata(KERNEL_SCENE_SIGNER);
+    let payload = build_payload_v6(METHOD, COMMS_PATH, "", &metadata);
+    let err = verify(
+        &headers_for(&wallet, &payload, "", &metadata),
+        COMMS_PATH,
+        EXPLORER_METADATA_KEYS,
+    )
+    .await
+    .expect_err("an empty timestamp must not be served");
+    assert!(
+        matches!(err, AuthChainError::Expired { signed_at: 0, .. }),
+        "an empty timestamp produced {err:?}"
+    );
+}
+
 /// creator-hub still signs the folded payload when it sets a world password or
 /// an allow list, and everything it sends carries uppercase. The secret reaches
 /// the handler exactly as delivered: nothing is folded on the way through.

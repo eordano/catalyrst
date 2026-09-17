@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { RPC_INVALID_PARAMS, RPC_METHOD_NOT_SUPPORTED } from "./auth-request-params";
 import {
+  isRequestExpired,
   parseRecoverResponse,
   recoverAuthRequest,
   type LoadResult,
@@ -214,6 +215,25 @@ describe("recoverAuthRequest", () => {
       now: () => Date.parse(FUTURE) + 1,
     });
     expect(await recoverAuthRequest(ID, d)).toEqual({ kind: "expired" });
+  });
+});
+
+describe("isRequestExpired", () => {
+  it("holds a request open until the instant it expires", () => {
+    const at = Date.parse(FUTURE);
+    expect(isRequestExpired(FUTURE, at - 1)).toBe(false);
+    expect(isRequestExpired(FUTURE, at)).toBe(true);
+    expect(isRequestExpired(FUTURE, at + 1)).toBe(true);
+  });
+
+  it("reads an expiration it cannot parse as no deadline at all", () => {
+    expect(isRequestExpired("whenever", Date.now())).toBe(false);
+    expect(isRequestExpired("", Date.now())).toBe(false);
+  });
+
+  it("answers for a past expiration without being told the time", () => {
+    expect(isRequestExpired(PAST)).toBe(true);
+    expect(isRequestExpired(FUTURE)).toBe(false);
   });
 });
 

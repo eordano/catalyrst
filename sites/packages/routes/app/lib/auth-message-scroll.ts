@@ -1,4 +1,4 @@
-import type { AllowedMethod, UnverifiableReason } from "./auth-request-params";
+import type { UnverifiableReason } from "./auth-request-params";
 
 export type ScrollMetrics = {
   scrollHeight: number;
@@ -6,7 +6,7 @@ export type ScrollMetrics = {
   clientHeight: number;
 };
 
-const SCROLL_END_TOLERANCE_PX = 1;
+const SCROLL_END_TOLERANCE_PX = 2;
 
 export function isScrolledToEnd(metrics: ScrollMetrics): boolean {
   return (
@@ -14,11 +14,8 @@ export function isScrolledToEnd(metrics: ScrollMetrics): boolean {
   );
 }
 
-export function gatesOnMessageReading(
-  method: AllowedMethod,
-  unverifiable: UnverifiableReason | null,
-): boolean {
-  return method === "personal_sign" && unverifiable === "unverified_message";
+export function gatesOnPayloadReading(unverifiable: UnverifiableReason | null): boolean {
+  return unverifiable !== null;
 }
 
 export function acknowledgmentBlocked(gatesOnReading: boolean, readToEnd: boolean): boolean {

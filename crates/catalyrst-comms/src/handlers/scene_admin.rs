@@ -10,6 +10,7 @@ use crate::auth_chain::verify_signed_fetch;
 use crate::http::{auth_error, ApiError};
 use crate::ports::extra_addresses;
 use crate::ports::scene_admin::SceneAdminRow;
+use crate::room_metadata_sync::{self, RoomContext};
 use crate::AppState;
 
 const SCENE_SIGNER: &str = "decentraland-kernel-scene";
@@ -131,11 +132,13 @@ pub async fn add_admin(
             "signer is not an owner or admin of this scene",
         ));
     }
+    let ctx = RoomContext::from_metadata(&sf.metadata, &body.place_id);
+    let rooms = room_metadata_sync::resolve_rooms(&state, &ctx).await?;
     state
         .scene_admin
         .add(&body.place_id, &body.admin, sf.signer.as_str())
         .await?;
-    crate::room_metadata_sync::add_admin(&state, &body.place_id, &body.admin).await;
+    room_metadata_sync::add_admin(&state, &rooms, &body.admin).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -158,8 +161,10 @@ pub async fn remove_admin(
             "signer is not an owner or admin of this scene",
         ));
     }
+    let ctx = RoomContext::from_metadata(&sf.metadata, &place_id);
+    let rooms = room_metadata_sync::resolve_rooms(&state, &ctx).await?;
     state.scene_admin.remove(&place_id, &admin).await?;
-    crate::room_metadata_sync::remove_admin(&state, &place_id, &admin).await;
+    room_metadata_sync::remove_admin(&state, &rooms, &admin).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

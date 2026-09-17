@@ -22,10 +22,21 @@ import * as CreditsManagerABI from "./abi/CreditsManager";
 import * as SpokeABI from "../abi/Spoke";
 import { getBlockRange } from "../config";
 import { getAddresses } from "../common/utils/addresses";
+import { Null } from "../common/utils/constants";
 import { loadCollections } from "./utils/loaders";
 import { startBlockByNetwork } from "./addresses/startBlocks";
 
 const addresses = getAddresses(Network.MATIC);
+const offChainMarketplaceAddresses = [
+  addresses.OffChainMarketplace,
+  addresses.OffChainMarketplaceV2,
+  addresses.OffChainMarketplaceV3,
+].filter((address) => address !== Null);
+if (offChainMarketplaceAddresses.length === 0) {
+  throw new Error(
+    "No off-chain marketplace address is configured for this network; the fee subscription would match every contract"
+  );
+}
 const chainId = process.env.POLYGON_CHAIN_ID || ChainId.MATIC_MAINNET;
 
 const PORTAL_DATASET = `polygon-${
@@ -184,7 +195,7 @@ export const dataSource = new DataSourceBuilder()
   })
   .addLog({
     where: {
-      address: [addresses.OffChainMarketplace],
+      address: offChainMarketplaceAddresses,
       topic0: [
         OffChainMarketplace.events.FeeCollectorUpdated.topic,
         OffChainMarketplace.events.FeeRateUpdated.topic,

@@ -26,6 +26,14 @@ pub struct Config {
     pub mana_usd_fallback_rate: f64,
     pub mana_oracle_max_staleness_secs: i64,
     pub mana_rate_startup_timeout_ms: u64,
+
+    /// Whether THIS process runs the item-neighbours rebuild. Off by default: the job is a
+    /// multi-minute scan of every paid acquisition, and only one deployment needs to own it --
+    /// every replica running it on the same schedule would have them all contend for one
+    /// advisory lock and discard the loser's work.
+    pub suggestions_neighbours_job_enabled: bool,
+    /// Suggestion computations in flight at once, past which the rail sheds.
+    pub suggestions_max_concurrent: usize,
 }
 
 impl Config {
@@ -46,6 +54,15 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             trades_pagination: env_bool("CATALYRST_MARKET_TRADES_PAGINATION", true),
+
+            suggestions_neighbours_job_enabled: env_bool(
+                "CATALYRST_MARKET_SUGGESTIONS_NEIGHBOURS_JOB_ENABLED",
+                false,
+            ),
+            suggestions_max_concurrent: get_u64(
+                "CATALYRST_MARKET_SUGGESTIONS_MAX_CONCURRENT",
+                crate::ports::suggestions::SUGGESTIONS_MAX_CONCURRENT as u64,
+            )? as usize,
             trades_sync_upstream_url: optional_endpoint("TRADES_SYNC_UPSTREAM_URL"),
             trades_sync_interval_secs: match env::var("TRADES_SYNC_INTERVAL_SECS") {
                 Ok(v) => v

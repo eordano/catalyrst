@@ -54,6 +54,7 @@ fn test_state(authoritative_server_address: Option<String>) -> AppState {
         moderator_addresses: Vec::new(),
         gatekeeper_auth_token: None,
         fed_peer_id: "test-peer".into(),
+        world_permissions: Default::default(),
     })
 }
 

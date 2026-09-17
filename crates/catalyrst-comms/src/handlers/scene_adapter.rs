@@ -10,7 +10,8 @@ use crate::extract::{device_identifier, get_request_ip};
 use crate::handlers::responses::SceneAdapterResponse;
 use crate::http::{auth_error, forbidden, unauthorized, ApiError};
 use crate::livekit::{
-    build_adapter_url, join_grants, scene_room_name, world_scene_room_name, AccessToken,
+    build_adapter_url, is_world_realm_name, join_grants, scene_room_name, world_scene_room_name,
+    AccessToken,
 };
 use crate::ports::extra_addresses::has_world_access_permission;
 use crate::ports::player_connection::UpsertPlayerConnection;
@@ -26,11 +27,9 @@ pub struct SceneAdapterRequest {
 }
 
 pub fn place_from_metadata(meta: &Value) -> Option<String> {
-    let realm_name = meta_str(meta, "realmName")
-        .or_else(|| meta.get("realm").and_then(|r| meta_str(r, "serverName")));
-    if let Some(realm) = &realm_name {
-        if realm.ends_with(".eth") {
-            return Some(realm.clone());
+    if let Some(realm) = realm_name_from_metadata(meta) {
+        if is_world_realm_name(&realm) {
+            return Some(realm);
         }
     }
     meta_str(meta, "sceneId")
@@ -109,21 +108,23 @@ pub async fn fetch_world_scene_id_by_pointer(
 }
 
 pub fn adapter_room_name(realm_name: &str, scene_id: &str) -> String {
-    if realm_name.ends_with(".eth") {
+    if is_world_realm_name(realm_name) {
         world_scene_room_name(realm_name, scene_id)
     } else {
         scene_room_name(realm_name, scene_id)
     }
 }
 
+pub fn realm_name_from_metadata(metadata: &Value) -> Option<String> {
+    meta_str(metadata, "realmName").or_else(|| {
+        metadata
+            .get("realm")
+            .and_then(|r| meta_str(r, "serverName"))
+    })
+}
+
 pub fn realm_name_from(metadata: &Value, body: &SceneAdapterRequest) -> Option<String> {
-    meta_str(metadata, "realmName")
-        .or_else(|| {
-            metadata
-                .get("realm")
-                .and_then(|r| meta_str(r, "serverName"))
-        })
-        .or_else(|| body.realm_name.clone())
+    realm_name_from_metadata(metadata).or_else(|| body.realm_name.clone())
 }
 
 pub fn scene_id_from(metadata: &Value, body: &SceneAdapterRequest) -> Option<String> {
@@ -135,7 +136,7 @@ async fn resolve_world_scene_id(
     realm_name: &str,
     scene_id: &str,
 ) -> Result<String, ApiError> {
-    if !realm_name.ends_with(".eth") || !scene_id.ends_with(".eth") {
+    if !is_world_realm_name(realm_name) || !is_world_realm_name(scene_id) {
         return Ok(scene_id.to_string());
     }
     match fetch_world_scene_id(state, realm_name).await {
@@ -168,7 +169,7 @@ pub async fn get_scene_adapter(
     })?;
     let scene_id = scene_id.as_str();
     let realm_name = realm_name.as_str();
-    let is_world = realm_name.ends_with(".eth");
+    let is_world = is_world_realm_name(realm_name);
 
     let resolved_scene_id = resolve_world_scene_id(&state, realm_name, scene_id).await?;
 
@@ -187,13 +188,11 @@ pub async fn get_scene_adapter(
     }
 
     let (user_banned, scene_banned) = tokio::try_join!(
-        state
-            .user_bans
-            .is_banned_for_connection(&identity, device_id.as_deref()),
+        crate::access_gate::is_connection_banned(&state, &identity, device_id.as_deref()),
         state.scene_bans.is_banned(&resolved_scene_id, &identity),
     )?;
     if user_banned {
-        return Err(forbidden("Access denied, platform-banned user"));
+        return Err(forbidden(crate::access_gate::PLATFORM_BANNED_MSG));
     }
     if scene_banned {
         return Err(forbidden("User is banned from this scene"));

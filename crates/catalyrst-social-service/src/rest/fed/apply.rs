@@ -208,7 +208,7 @@ pub async fn apply_role(
     .await?;
 
     if let Some((role,)) = current {
-        if role == "banned" {
+        if matches!(role.as_str(), "banned" | "none") {
             sqlx::query(
                 "DELETE FROM community_members WHERE community_id = $1 AND member_address = $2",
             )

@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-market"
-version = "0.24.1"
+version = "0.26.0"
 edition = "2021"
 description = "Rust port of decentraland/marketplace-server REST API -- reads from squid_marketplace schema"
 
@@ -22,6 +22,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["uuid"] }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
 tracing = { workspace = true }
 tower = { workspace = true }
 chrono = { workspace = true }

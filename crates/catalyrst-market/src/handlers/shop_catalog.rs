@@ -8,9 +8,9 @@ use serde::Serialize;
 use crate::http::params::Params;
 use crate::http::response::{ApiError, DataTotal};
 use crate::ports::shop_catalog::{
-    parse_legacy_filters, parse_shop_filters, parse_trending_filters, parse_unified_filters,
-    parse_unified_group_by, ImportableListing, LegacyListing, ShopListing, TopCreator,
-    TrendingItem, UnifiedGroupBy, UnifiedItem,
+    parse_legacy_filters, parse_related_filters, parse_shop_filters, parse_trending_filters,
+    parse_unified_filters, parse_unified_group_by, ImportableListing, LegacyListing, ShopListing,
+    TopCreator, TrendingItem, UnifiedGroupBy, UnifiedItem,
 };
 use crate::AppState;
 
@@ -103,9 +103,10 @@ pub async fn get_related_catalog(
     let data = match (contract_address, item_id) {
         (Some(contract_address), Some(item_id)) if is_numeric_item_id(&item_id) => {
             let rate = state.mana_usd_rate.get_rate();
+            let rail = parse_related_filters(&pairs);
             state
                 .shop_catalog
-                .get_related_items(&contract_address, &item_id, first, rate)
+                .get_related_items(&contract_address, &item_id, first, &rail, rate)
                 .await?
         }
         _ => Vec::new(),

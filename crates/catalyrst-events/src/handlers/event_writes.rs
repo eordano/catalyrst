@@ -15,7 +15,23 @@ use crate::schemas::EventRecord;
 use crate::AppState;
 
 const MAX_RECURRENT_PAST_ITERATIONS: i64 = 50_000;
+const MAX_EVENT_DURATION_MS: i64 = 1000 * 60 * 60 * 24;
 const ADMIN_SIGNER: &str = "admin";
+const PAST_FINISH_AT_MESSAGE: &str = "The event end date is already in the past";
+const PAST_RECURRENT_UNTIL_MESSAGE: &str = "The recurrence end date (Until) must be in the future";
+const DATE_FIELDS: [&str; 11] = [
+    "start_at",
+    "duration",
+    "recurrent",
+    "recurrent_frequency",
+    "recurrent_interval",
+    "recurrent_count",
+    "recurrent_until",
+    "recurrent_setpos",
+    "recurrent_monthday",
+    "recurrent_weekday_mask",
+    "recurrent_month_mask",
+];
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -206,20 +222,54 @@ fn jump_in_url(world: bool, server: Option<&str>, x: i32, y: i32) -> String {
     }
 }
 
+fn max_duration_message() -> String {
+    format!(
+        "Maximum allowed duration {}Hrs",
+        MAX_EVENT_DURATION_MS / 3_600_000
+    )
+}
+
+fn finish_at_of(start_at: DateTime<Utc>, duration_ms: i64) -> Option<DateTime<Utc>> {
+    Duration::try_milliseconds(duration_ms.max(0)).and_then(|d| start_at.checked_add_signed(d))
+}
+
+// A count-bounded series whose occurrences are all past, and a selector that
+// empties a still-bounded series, are accepted here and rejected upstream:
+// detecting either needs the occurrence expansion (futureRecurrentDates /
+// calculateRecurrentProperties) that catalyrst-events still owes.
+fn series_may_have_future_dates(
+    recurrent: bool,
+    frequency: Option<&str>,
+    count: Option<i64>,
+    until: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> bool {
+    normalized_series(recurrent, frequency, count, until) && until.is_none_or(|u| u > now)
+}
+
+fn normalized_series(
+    recurrent: bool,
+    frequency: Option<&str>,
+    count: Option<i64>,
+    until: Option<DateTime<Utc>>,
+) -> bool {
+    recurrent && frequency.is_some_and(|f| !f.is_empty()) && (count.is_some() || until.is_some())
+}
+
 fn compute_next(
     start_at: DateTime<Utc>,
     duration_ms: i64,
     recurrent_dates: &[DateTime<Utc>],
-) -> (DateTime<Utc>, DateTime<Utc>) {
-    let span = Duration::milliseconds(duration_ms.max(0));
+) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    let span = Duration::try_milliseconds(duration_ms.max(0))?;
     let now = Utc::now();
     let next = recurrent_dates
         .iter()
         .copied()
-        .filter(|d| *d + span > now)
+        .filter(|d| d.checked_add_signed(span).is_some_and(|f| f > now))
         .min()
         .unwrap_or(start_at);
-    (next, next + span)
+    Some((next, next.checked_add_signed(span)?))
 }
 
 fn to_dates(values: &[DateTime<Utc>]) -> Value {
@@ -266,6 +316,26 @@ fn validate_create(body: &CreateEventBody) -> Result<DateTime<Utc>, ApiError> {
     if !world && !is_inside_world_limits(body.x, body.y) {
         return Err(ApiError::bad_request("coordinates outside world limits"));
     }
+    let now = Utc::now();
+    let recurrent = body.recurrent.unwrap_or(false);
+    let frequency = body.recurrent_frequency.as_deref();
+    let count = body.recurrent_count;
+    let until = body.recurrent_until.as_deref().and_then(parse_rfc3339);
+    if !series_may_have_future_dates(recurrent, frequency, count, until, now)
+        && finish_at_of(start_at, body.duration).is_some_and(|finish_at| finish_at <= now)
+    {
+        return Err(ApiError::bad_request(PAST_FINISH_AT_MESSAGE));
+    }
+    if normalized_series(recurrent, frequency, count, until) {
+        if let Some(until) = until {
+            if until <= now {
+                return Err(ApiError::bad_request(PAST_RECURRENT_UNTIL_MESSAGE));
+            }
+        }
+    }
+    if body.duration > MAX_EVENT_DURATION_MS {
+        return Err(ApiError::bad_request(max_duration_message()));
+    }
     Ok(start_at)
 }
 
@@ -275,11 +345,13 @@ fn build_create_raw(
     start_at: DateTime<Utc>,
     place_id: Option<&str>,
     world: bool,
-) -> Value {
+) -> Result<Value, ApiError> {
     let now = Utc::now();
     let recurrent_dates = vec![start_at];
-    let (next_start, next_finish) = compute_next(start_at, body.duration, &recurrent_dates);
-    let finish_at = start_at + Duration::milliseconds(body.duration.max(0));
+    let (next_start, next_finish) = compute_next(start_at, body.duration, &recurrent_dates)
+        .ok_or_else(|| ApiError::bad_request(max_duration_message()))?;
+    let finish_at = finish_at_of(start_at, body.duration)
+        .ok_or_else(|| ApiError::bad_request(max_duration_message()))?;
     let url = body
         .url
         .clone()
@@ -362,7 +434,7 @@ fn build_create_raw(
     if let Some(obj) = attendance.as_object() {
         merged.extend(obj.clone());
     }
-    Value::Object(merged)
+    Ok(Value::Object(merged))
 }
 
 fn generate_id(seed: &str) -> String {
@@ -411,7 +483,7 @@ pub async fn create_event(
         .map_err(|e| ApiError::bad_request(format!("invalid event body: {e}")))?;
     let start_at = validate_create(&body)?;
     let id = generate_id(&body.name);
-    let raw = build_create(&state.places, &body, &signer, start_at).await;
+    let raw = build_create(&state.places, &body, &signer, start_at).await?;
     let record = state.events.write_event(&id, &raw, &signer).await?;
     Ok(Json(ApiOk::new(record)))
 }
@@ -421,7 +493,7 @@ async fn build_create(
     body: &CreateEventBody,
     signer: &str,
     start_at: DateTime<Utc>,
-) -> Value {
+) -> Result<Value, ApiError> {
     let (place_id, world) = places
         .resolve_location(
             body.world.unwrap_or(false),
@@ -511,7 +583,17 @@ fn featured_item_changed(raw: &Map<String, Value>, body: &UpdateEventBody) -> bo
     next != current
 }
 
-fn apply_owner_edit(raw: &mut Map<String, Value>, body: &UpdateEventBody) -> Result<(), ApiError> {
+fn date_key_present(body: &Bytes) -> bool {
+    serde_json::from_slice::<Map<String, Value>>(body)
+        .map(|m| DATE_FIELDS.iter().any(|k| m.contains_key(*k)))
+        .unwrap_or(false)
+}
+
+fn apply_owner_edit(
+    raw: &mut Map<String, Value>,
+    body: &UpdateEventBody,
+    date_key_present: bool,
+) -> Result<(), ApiError> {
     if let Some(name) = &body.name {
         if name.chars().count() > 150 {
             return Err(ApiError::bad_request("name must be at most 150 characters"));
@@ -550,7 +632,13 @@ fn apply_owner_edit(raw: &mut Map<String, Value>, body: &UpdateEventBody) -> Res
     set_opt_i64(raw, "recurrent_month_mask", body.recurrent_month_mask);
     set_opt_i64(raw, "recurrent_interval", body.recurrent_interval);
     set_opt_i64(raw, "recurrent_count", body.recurrent_count);
-    set_opt_i64(raw, "duration", body.duration);
+    if let Some(duration) = body.duration {
+        let stored = raw.get("duration").and_then(|v| v.as_i64()).unwrap_or(0);
+        if duration > stored.max(MAX_EVENT_DURATION_MS) {
+            return Err(ApiError::bad_request(max_duration_message()));
+        }
+        raw.insert("duration".into(), json!(duration));
+    }
     if let Some(url) = &body.url {
         let url = validate_event_url(url).map_err(ApiError::bad_request)?;
         raw.insert("url".into(), json!(url));
@@ -590,8 +678,9 @@ fn apply_owner_edit(raw: &mut Map<String, Value>, body: &UpdateEventBody) -> Res
         raw.insert("start_at".into(), json!(parsed.to_rfc3339()));
     }
 
-    if recurrence_touched(body) {
+    if recurrence_touched(body) || date_key_present {
         recompute_occurrences(raw)?;
+        reject_past_dates(raw)?;
     }
 
     let x = raw.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
@@ -617,14 +706,47 @@ fn recompute_occurrences(raw: &mut Map<String, Value>) -> Result<(), ApiError> {
     }
     if let Some(start) = start_at {
         let dates = vec![start];
-        let (next_start, next_finish) = compute_next(start, duration, &dates);
+        let (next_start, next_finish) = compute_next(start, duration, &dates)
+            .ok_or_else(|| ApiError::bad_request(max_duration_message()))?;
+        let finish_at = finish_at_of(start, duration)
+            .ok_or_else(|| ApiError::bad_request(max_duration_message()))?;
         raw.insert("recurrent_dates".into(), to_dates(&dates));
         raw.insert("next_start_at".into(), json!(next_start.to_rfc3339()));
         raw.insert("next_finish_at".into(), json!(next_finish.to_rfc3339()));
-        raw.insert(
-            "finish_at".into(),
-            json!((start + Duration::milliseconds(duration.max(0))).to_rfc3339()),
-        );
+        raw.insert("finish_at".into(), json!(finish_at.to_rfc3339()));
+    }
+    Ok(())
+}
+
+fn reject_past_dates(raw: &Map<String, Value>) -> Result<(), ApiError> {
+    let now = Utc::now();
+    let recurrent = raw
+        .get("recurrent")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let frequency = raw.get("recurrent_frequency").and_then(|v| v.as_str());
+    let count = raw.get("recurrent_count").and_then(|v| v.as_i64());
+    let until = raw
+        .get("recurrent_until")
+        .and_then(|v| v.as_str())
+        .and_then(parse_rfc3339);
+    if !series_may_have_future_dates(recurrent, frequency, count, until, now) {
+        let finish_at = raw
+            .get("finish_at")
+            .and_then(|v| v.as_str())
+            .and_then(parse_rfc3339);
+        if let Some(finish_at) = finish_at {
+            if finish_at <= now {
+                return Err(ApiError::bad_request(PAST_FINISH_AT_MESSAGE));
+            }
+        }
+    }
+    if normalized_series(recurrent, frequency, count, until) {
+        if let Some(until) = until {
+            if until <= now {
+                return Err(ApiError::bad_request(PAST_RECURRENT_UNTIL_MESSAGE));
+            }
+        }
     }
     Ok(())
 }
@@ -810,6 +932,7 @@ pub async fn patch_event(
         .await?
         .as_str()
         .to_lowercase();
+    let dates_present = date_key_present(&body);
     let body: UpdateEventBody = serde_json::from_slice(&body)
         .map_err(|e| ApiError::bad_request(format!("invalid patch body: {e}")))?;
 
@@ -834,7 +957,7 @@ pub async fn patch_event(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let featured_item_changed = featured_item_changed(&raw, &body);
-    apply_owner_edit(&mut raw, &body)?;
+    apply_owner_edit(&mut raw, &body, dates_present)?;
     if location_touched(&body) {
         resolve_location(&state.places, &mut raw).await;
     }

@@ -279,6 +279,15 @@ impl MapComponent {
     async fn build(&self) -> anyhow::Result<MapData> {
         let sql = format!(
             r#"
+            -- Parcel coordinates are correlated with category. Without isolating the
+            -- small estate set, PostgreSQL estimates very few parcels and repeats
+            -- the estate primary-key lookup for every one of the 92k parcels.
+            WITH estates AS MATERIALIZED (
+                SELECT id, name, owner_address, updated_at,
+                       search_order_price, search_order_expires_at
+                FROM {schema}.nft
+                WHERE category = 'estate'
+            )
             SELECT
                 p.search_parcel_x::int4              AS x,
                 p.search_parcel_y::int4              AS y,
@@ -296,9 +305,8 @@ impl MapComponent {
                 e.search_order_price::text           AS estate_order_price,
                 e.search_order_expires_at::int8      AS estate_order_expires_at
             FROM {schema}.nft p
-            LEFT JOIN {schema}.nft e
+            LEFT JOIN estates e
                    ON e.id = p.search_parcel_estate_id
-                  AND e.category = 'estate'
             WHERE p.category = 'parcel'
               AND p.search_parcel_x IS NOT NULL
               AND p.search_parcel_y IS NOT NULL

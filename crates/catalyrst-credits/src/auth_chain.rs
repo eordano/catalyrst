@@ -1,3 +1,12 @@
+//! No kernel-scene `metadataValidator` here, unlike the gatsby-based services
+//! (places, events) and the crypto-middleware ones (marketplace-server,
+//! builder-server, notifications-workers): credits-server has no public mirror to
+//! derive a posture from, and nothing in this crate authorizes on
+//! `x-identity-metadata` - every handler takes the address from the recovered
+//! signature alone. Wire `reject_if_signer(&["decentraland-kernel-scene"])` into
+//! `require_signer` the day a credits-server source appears carrying one, or the
+//! day a handler starts reading a metadata field.
+
 use axum::http::HeaderMap;
 
 use catalyrst_crypto::signed_fetch;

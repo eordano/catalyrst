@@ -51,6 +51,8 @@ export type EthereumInMemoryState = {
       | erc721abi.OwnershipTransferredEventArgs
       | erc721abi.AddWearableEventArgs
       | OffChainMarketplaceABI.TradedEventArgs
+      | OffChainMarketplaceABI.FeeRateUpdatedEventArgs
+      | OffChainMarketplaceABI.FeeCollectorUpdatedEventArgs
       | estateRegistryABI.CreateEstateEventArgs
       | estateRegistryABI.UpdateEventArgs
       | estateRegistryABI.AddLandEventArgs

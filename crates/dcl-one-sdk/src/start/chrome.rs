@@ -73,9 +73,10 @@ pub(crate) fn short_account(addr: &str) -> String {
     }
 }
 
-const SECTIONS: [(&str, &str, &str); 4] = [
+const SECTIONS: [(&str, &str, &str); 5] = [
     ("preview", "/", "Preview"),
     ("scene", "/scene", "Scene"),
+    ("storage", "/storage", "Storage"),
     ("target", "/target", "Target"),
     ("deploy", "/deploy", "Deploy"),
 ];
@@ -124,7 +125,11 @@ fn pgnav(prefix: &str, nav: &Nav) -> String {
     if !nav.host.is_empty() {
         out.push_str(&format!(
             r#"<span class="jn2__host"><span class="bar__dot"></span>{}</span>"#,
-            esc(nav.host)
+            esc(&nav
+                .host
+                .strip_prefix("127.0.0.1:")
+                .map(|port| format!("localhost:{port}"))
+                .unwrap_or_else(|| nav.host.to_string()))
         ));
     }
     out

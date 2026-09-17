@@ -87,6 +87,9 @@ pub async fn get_private_voice_chat_room_credentials(
     room_id: &str,
     user_addresses: &[String],
 ) -> Result<BTreeMap<String, serde_json::Value>, crate::http::ApiError> {
+    let participants: Vec<&str> = user_addresses.iter().map(String::as_str).collect();
+    crate::access_gate::ensure_no_active_platform_ban(state, &participants).await?;
+
     let room_name = private_voice_chat_room_name(room_id);
 
     let mut out: BTreeMap<String, serde_json::Value> = BTreeMap::new();

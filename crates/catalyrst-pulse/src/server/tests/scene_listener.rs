@@ -767,3 +767,67 @@ async fn scene_listener_default_budget_matches_upstream() {
         .await,
     );
 }
+
+#[tokio::test]
+async fn scene_listener_realm_expansion_stops_once_it_covers_the_world() {
+    let world = PulseServer::new().encoder.max_index_exclusive() as usize;
+    let opts = ParcelEncoderOptions::default();
+    let whole = || {
+        rect(
+            opts.min_parcel_x - opts.padding,
+            opts.min_parcel_z - opts.padding,
+            opts.max_parcel_x + opts.padding,
+            opts.max_parcel_z + opts.padding,
+        )
+    };
+    let split = (opts.min_parcel_x - opts.padding + opts.max_parcel_x + opts.padding) / 2;
+    let left = || {
+        rect(
+            opts.min_parcel_x - opts.padding,
+            opts.min_parcel_z - opts.padding,
+            split,
+            opts.max_parcel_z + opts.padding,
+        )
+    };
+    let right = || {
+        rect(
+            split + 1,
+            opts.min_parcel_z - opts.padding,
+            opts.max_parcel_x + opts.padding,
+            opts.max_parcel_z + opts.padding,
+        )
+    };
+    let rects = || vec![left(), right(), whole(), rect(0, 0, 0, 0)];
+    let priced = SCENE_LISTENER_REALM_BUDGET_COST + world * 2 + 1;
+
+    let whole_cells = match handshake_case(
+        SCENE_LISTENER_REALM_BUDGET_COST + world,
+        vec![aoi("a", vec![whole()])],
+    )
+    .await
+    {
+        Action::AuthenticatedListener { listener, .. } => {
+            assert_eq!(listener.parcel_count(), world);
+            listener.cell_count()
+        }
+        other => panic!("expected AuthenticatedListener, got {other:?}"),
+    };
+
+    match handshake_case(priced, vec![aoi("a", rects())]).await {
+        Action::AuthenticatedListener { listener, .. } => {
+            assert_eq!(
+                listener.parcel_count(),
+                world,
+                "the halves union to the world, and the rects behind them add nothing"
+            );
+            assert_eq!(
+                listener.cell_count(),
+                whole_cells,
+                "a world-covering union still yields the whole world's cell cover"
+            );
+        }
+        other => panic!("expected AuthenticatedListener, got {other:?}"),
+    }
+
+    expect_handshake_reject(handshake_case(priced - 1, vec![aoi("a", rects())]).await);
+}

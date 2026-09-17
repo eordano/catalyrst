@@ -496,9 +496,12 @@ async fn fed_unban_member(
     }
 }
 
+const MAX_COMMUNITY_IDS: usize = 50;
+
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MemberCommunitiesByIdsBody {
-    #[serde(rename = "communityIds", default)]
+    #[serde(rename = "communityIds")]
     community_ids: Vec<String>,
 }
 
@@ -506,10 +509,16 @@ pub struct MemberCommunitiesByIdsBody {
     post,
     path = "/v1/members/{address}/communities",
     tag = "members",
+    summary = "Get member communities by IDs",
+    description = "Filters a batch of community IDs down to the ones the given address is a member of. \
+A community is returned only when it is active and the address holds a membership row; listing and privacy \
+are not considered, so a listed community the address never joined is not returned. Communities the address \
+is banned from are never returned. Each entry carries the role the address holds (owner, moderator or member).",
     params(("address" = String, Path)),
     request_body(content = serde_json::Value, description = "{ communityIds }"),
     responses(
         (status = 200, body = serde_json::Value),
+        (status = 400, body = catalyrst_types::ApiErrorBody),
         (status = 401, body = catalyrst_types::ApiErrorBody),
         (status = 500, body = catalyrst_types::ApiErrorBody)
     )
@@ -518,7 +527,7 @@ pub async fn member_communities_by_ids(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(address): Path<String>,
-    body: Option<Json<MemberCommunitiesByIdsBody>>,
+    body: Bytes,
 ) -> (StatusCode, Json<serde_json::Value>) {
     let bearer = headers
         .get("authorization")
@@ -533,24 +542,64 @@ pub async fn member_communities_by_ids(
         _ => return err_json(StatusCode::UNAUTHORIZED, "admin bearer token required"),
     }
 
-    let community_ids = body.map(|Json(b)| b.community_ids).unwrap_or_default();
-    let uuids: Vec<Uuid> = community_ids
-        .iter()
-        .filter_map(|s| Uuid::parse_str(s).ok())
-        .collect();
+    if body.is_empty() {
+        return err_json(StatusCode::BAD_REQUEST, "communityIds is required");
+    }
+    let b: MemberCommunitiesByIdsBody = match serde_json::from_slice(&body) {
+        Ok(b) => b,
+        Err(e) => {
+            return err_json(
+                StatusCode::BAD_REQUEST,
+                format!("invalid MemberCommunitiesByIds body: {}", e),
+            )
+        }
+    };
+    if b.community_ids.is_empty() {
+        return err_json(
+            StatusCode::BAD_REQUEST,
+            "communityIds must contain at least 1 item",
+        );
+    }
+    if b.community_ids.len() > MAX_COMMUNITY_IDS {
+        return err_json(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "communityIds must contain at most {} items",
+                MAX_COMMUNITY_IDS
+            ),
+        );
+    }
+    let mut uuids = Vec::with_capacity(b.community_ids.len());
+    for s in &b.community_ids {
+        if s.len() != 36 {
+            return err_json(
+                StatusCode::BAD_REQUEST,
+                format!("invalid community id: {}", s),
+            );
+        }
+        match Uuid::parse_str(s) {
+            Ok(u) => uuids.push(u),
+            Err(_) => {
+                return err_json(
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid community id: {}", s),
+                )
+            }
+        }
+    }
 
-    let visible = match state
+    let memberships = match state
         .communities
-        .visible_communities_by_ids(&uuids, &address)
+        .member_communities_by_ids(&uuids, &address)
         .await
     {
         Ok(v) => v,
         Err(e) => return map_apply_err(e),
     };
 
-    let communities: Vec<serde_json::Value> = visible
+    let communities: Vec<serde_json::Value> = memberships
         .into_iter()
-        .map(|id| json!({ "id": id.to_string() }))
+        .map(|(id, role)| json!({ "id": id.to_string(), "role": role }))
         .collect();
 
     (

@@ -133,6 +133,7 @@ async fn deploy(
             &auth_chain(),
             DeploymentContext::Synced,
             None,
+            None,
         )
         .await
         .unwrap();

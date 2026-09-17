@@ -46,6 +46,29 @@ let
     '';
   };
 
+  # Built by catalyrst-builder catalog-build; absent catalogs return 404.
+  builderCatalog = {
+    alias = "${cfg.stateDir}/builder-catalog.json";
+    extraConfig = ''
+      default_type application/json;
+      ${secHeaders}
+      add_header Access-Control-Allow-Origin "*" always;
+      add_header Cache-Control "public, max-age=3600";
+    '';
+  };
+  builderItems = {
+    alias = "${cfg.stateDir}/builder-items/";
+    extraConfig = ''
+      ${secHeaders}
+      add_header Access-Control-Allow-Origin "*" always;
+      add_header Cache-Control "public, max-age=31536000, immutable";
+    '';
+  };
+  builderLocations = {
+    "= /builder-api/v1/assetPacks" = builderCatalog;
+    "/builder-items/" = builderItems;
+  };
+
   contentReadLocations = lib.optionalAttrs cfg.edge.contentReadLimit.enable (
     lib.genAttrs [ "/content/" "/lambdas/" ] (_: {
       proxyPass = "http://127.0.0.1:5141";
@@ -64,5 +87,8 @@ in
     corsFallback
     protectedStorage
     contentReadLocations
+    builderCatalog
+    builderItems
+    builderLocations
     ;
 }

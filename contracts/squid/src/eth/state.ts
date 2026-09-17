@@ -8,6 +8,8 @@ import { Contract as ERC721BidContract } from "../abi/ERC721Bid";
 import { Context } from "./processor";
 import { BlockData } from "./processor";
 import { startBlockByNetwork } from "./data/contracts/start-blocks";
+import { createFeeCache } from "../common/utils/feeCache";
+import { Contract as OffChainMarketplaceContract } from "../abi/DecentralandMarketplaceEthereum";
 
 export const getBatchInMemoryState: () => EthereumInMemoryState = () => ({
   transfers: new Map(),
@@ -51,6 +53,47 @@ export const addEventToStateIdsBasedOnCategory = (
   } else {
     tokenIds.set(nftAddress, [...(tokenIds.get(nftAddress) || []), assetId]);
   }
+};
+
+export type OffChainMarketplaceContractData = { feeRate: bigint | undefined };
+
+const offChainMarketplaceFeeCache =
+  createFeeCache<OffChainMarketplaceContractData>(
+    () => ({ feeRate: undefined }),
+    (base, patch) => ({ feeRate: patch.feeRate ?? base.feeRate })
+  );
+
+export const beginOffChainMarketplaceFeeBatch = (fromBlock: number) =>
+  offChainMarketplaceFeeCache.begin(fromBlock);
+
+export const endOffChainMarketplaceFeeBatch = (toBlock: number) =>
+  offChainMarketplaceFeeCache.end(toBlock);
+
+export const resetOffChainMarketplaceContractData = () =>
+  offChainMarketplaceFeeCache.reset();
+
+export const setOffChainMarketplaceFeeRate = (
+  marketplaceAddress: string,
+  value: bigint
+) => offChainMarketplaceFeeCache.write(marketplaceAddress, { feeRate: value });
+
+export const getOffChainMarketplaceFeeRate = async (
+  ctx: Context,
+  block: BlockData,
+  marketplaceAddress: string
+): Promise<bigint> => {
+  const cached = offChainMarketplaceFeeCache.view(marketplaceAddress).feeRate;
+  if (cached !== undefined) {
+    return cached;
+  }
+  const contract = new OffChainMarketplaceContract(
+    ctx,
+    { ...block.header, height: block.header.height - 1 },
+    marketplaceAddress
+  );
+  const feeRate = await contract.feeRate();
+  setOffChainMarketplaceFeeRate(marketplaceAddress, feeRate);
+  return feeRate;
 };
 
 export let marketplaceOwnerCutPerMillion: bigint | null = null;

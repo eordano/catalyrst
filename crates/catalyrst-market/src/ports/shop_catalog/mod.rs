@@ -13,10 +13,11 @@ pub use types::{
     parse_legacy_filters, parse_shop_filters, ImportableListing, LegacyCatalogFilters,
     LegacyListing, ShopCatalogFilters, ShopListing, ShopSortBy, TopCreator, SHOP_DEFAULT_PAGE_SIZE,
     SHOP_MAX_PAGE_SIZE, SHOP_MIN_PAGE_SIZE, SHOP_SORT_VALUES, TRENDING_DEFAULT_DAYS,
+    TRENDING_MAX_LIMIT,
 };
 pub use unified::{
-    build_unified_items_sql, build_unified_listings_sql, parse_trending_filters,
-    parse_unified_filters, parse_unified_group_by, ShopListingType, TrendingItem, TrendingRequest,
-    UnifiedCatalogFilters, UnifiedGroupBy, UnifiedItem, UnifiedListing, UnifiedSource,
-    SHOP_LISTING_TYPE_VALUES, UNIFIED_GROUP_BY_VALUES,
+    build_unified_items_sql, build_unified_listings_sql, parse_related_filters,
+    parse_trending_filters, parse_unified_filters, parse_unified_group_by, RelatedItemsFilters,
+    ShopListingType, TrendingItem, TrendingRequest, UnifiedCatalogFilters, UnifiedGroupBy,
+    UnifiedItem, UnifiedListing, UnifiedSource, SHOP_LISTING_TYPE_VALUES, UNIFIED_GROUP_BY_VALUES,
 };

@@ -13,9 +13,11 @@ lives here so `src/vendor/README.md` can name them from a single place:
   `build_service_descriptor()` transpiles its rpc service descriptor beside it.
 * `patch_ecs7_tsconfig()` - `@dcl/sdk/types/tsconfig.ecs7.json` loses the two
   options TypeScript 7 removes and moves to `moduleResolution: bundler`.
-* `patch_ecs_network_delete_length()` - the one overlay on upstream `@dcl/*`
-  JS: #1595's `DeleteEntityNetwork.write` length fix, applied to both
-  `@dcl/ecs` builds before the chunks are bundled; `check_chunk_netdelete()`
+* `patch_sdk_peer_trust()` - the one overlay on upstream `@dcl/*` JS: the
+  auth-server line's client trusts CRDT, state and room events only from the
+  authoritative server; gated on `globalThis.__dclOneAuthoritative` so a
+  scene without the scene.json flag keeps mainline's peer trust. Applied to
+  the install tree before the chunks are bundled; `check_chunk_peer_trust()`
   proves the chunk carries it.
 
 The two built products - the prebuilt chunks and the declaration rollup - are
@@ -406,128 +408,141 @@ def patch_ecs7_tsconfig(files: dict[str, bytes]) -> None:
 
     files[ECS7_TSCONFIG] = out.encode('utf-8')
 
-NETDELETE_REL = ('node_modules/@dcl/ecs/{build}/serialization/crdt/network/'
-                 'deleteEntityNetwork.js')
-NETDELETE_WRITE = {
-    'dist-cjs': (
-        b'buf.writeUint32(types_1.CRDT_MESSAGE_HEADER_LENGTH + 4);',
-        b'buf.writeUint32(types_1.CRDT_MESSAGE_HEADER_LENGTH + '
-        b'DeleteEntityNetwork.MESSAGE_HEADER_LENGTH);',
+PEER_TRUST_GLOBAL = '__dclOneAuthoritative'
+PEER_TRUST_EDITS = {
+    'node_modules/@dcl/sdk/network/message-bus-sync.js': (
+        (
+            "export const AUTH_SERVER_PEER_ID = 'authoritative-server';\n",
+            "export const AUTH_SERVER_PEER_ID = 'authoritative-server';\n"
+            "// dcl-one-sdk overlay (scripts/blob_overlays.py, patch_sdk_peer_trust): a\n"
+            "// scene without scene.json authoritativeMultiplayer has no server to trust,\n"
+            "// so it trusts its peers, as @dcl/sdk 7.29.0's transport does. The split\n"
+            "// loader sets the global from the flag.\n"
+            "const fromAuthority = (sender) => sender === AUTH_SERVER_PEER_ID"
+            " || !globalThis.__dclOneAuthoritative;\n",
+        ),
+        (
+            "        if (isServerAtom.getOrNull() || sender !== AUTH_SERVER_PEER_ID)\n"
+            "            return;\n",
+            "        if (isServerAtom.getOrNull() || !fromAuthority(sender))\n"
+            "            return;\n",
+        ),
+        (
+            "        else if (sender === AUTH_SERVER_PEER_ID) {\n"
+            "            // Process network messages from server and convert to regular messages\n",
+            "        else if (fromAuthority(sender)) {\n"
+            "            // Process network messages from server and convert to regular messages\n",
+        ),
     ),
-    'dist': (
-        b'buf.writeUint32(CRDT_MESSAGE_HEADER_LENGTH + 4);',
-        b'buf.writeUint32(CRDT_MESSAGE_HEADER_LENGTH + '
-        b'DeleteEntityNetwork.MESSAGE_HEADER_LENGTH);',
+    'node_modules/@dcl/sdk/network/events/implementation.js': (
+        (
+            "                        else if (sender === AUTH_SERVER_PEER_ID) {\n"
+            "                            // Client only processes events from authoritative server\n"
+            "                            cb(payload);\n"
+            "                        }\n",
+            "                        else if (sender === AUTH_SERVER_PEER_ID) {\n"
+            "                            // Client only processes events from authoritative server\n"
+            "                            cb(payload);\n"
+            "                        }\n"
+            "                        else if (!globalThis.__dclOneAuthoritative) {\n"
+            "                            // dcl-one-sdk overlay: no server to trust, so peers are\n"
+            "                            // (see fromAuthority in ../message-bus-sync.js)\n"
+            "                            cb(payload, { from: sender });\n"
+            "                        }\n",
+        ),
     ),
 }
-NETDELETE_SHIPPED = 'REMOVE this overlay: upstream #1595 has shipped in this @dcl/ecs. '\
-    'Delete NETDELETE_*, patch_ecs_network_delete_length(), check_chunk_netdelete() '\
-    'and the table row + paragraph naming them in src/vendor/README.md.'
 
-def netdelete_fixed(build: str, data: bytes, where: str, already_ok: bool) -> bytes:
-    buggy, fixed = NETDELETE_WRITE[build]
-    if data.count(buggy) == 1:
-        return data.replace(buggy, fixed)
-    if fixed in data:
-        if already_ok:
-            return data
-        raise SystemExit(f'{where}: {NETDELETE_SHIPPED}')
-    raise SystemExit(
-        f'{where}: DeleteEntityNetwork.write carries the buggy length write '
-        f'{data.count(buggy)} times and the fixed one never, so upstream changed '
-        'its shape. Re-derive the overlay against `git show 5ae3ef7c` in '
-        'js-sdk-toolchain, or drop it if the declared length is already the 16 '
-        'the body needs.')
+def patch_sdk_peer_trust(work: str, reuse_install: bool) -> None:
+    """Let a scene without an authoritative server keep trusting its peers.
 
-def patch_ecs_network_delete_length(work: str, files: dict[str, bytes],
-                                    reuse_install: bool) -> None:
-    """Make `DeleteEntityNetwork.write` declare the length it writes.
+    The auth-server line (`@dcl/sdk` dist-tag `auth-server`,
+    7.29.1-34986384248.commit-bb45080) is where `isServer`, `registerMessages`
+    and `@dcl/sdk/server` live, and it is server-only: a client's sync
+    transport applies CRDT, state responses and room events ONLY from the
+    sender named `AUTH_SERVER_PEER_ID` ('authoritative-server'). Mainline
+    7.29.0 has no such sender check - every peer's CRDT is applied - and every
+    serverless-multiplayer scene ever written (`syncEntity` with no server)
+    depends on that. Shipping upstream's build verbatim would make those
+    scenes stop syncing, silently, the moment they were rebuilt.
 
-    Upstream 7.27.0 frames a network entity delete as `CRDT_MESSAGE_HEADER_LENGTH
-    + 4` (12) and then writes an eight-byte body, entity + network id: the
-    record claims to be four bytes shorter than it is. `@dcl/ecs` reads its own
-    stream field by field and never notices. Our engine does not: the bevy
-    fork's CRDT reader (bevy-explorer/crates/dcl/src/interface/mod.rs,
-    `take_reader_exact`) frames strictly and discards the rest of the tick's
-    batch from the first record that does not, so every Serverless-Multiplayer
-    entity deletion a 7.x scene sends loses the tick against it. Upstream fixed
-    it on 2026-09-03 (js-sdk-toolchain 5ae3ef7c, #1595) with the one-line
-    `+ MESSAGE_HEADER_LENGTH`; that commit is not in any release yet, and this
-    is that line, applied to the compiled output.
+    So the check is gated: `globalThis.__dclOneAuthoritative`, which the split
+    loader sets from scene.json's `authoritativeMultiplayer` flag. Flagged
+    scenes run upstream's server-only semantics untouched; unflagged scenes
+    fall back to 7.29.0's peer trust in exactly three places - the CRDT
+    handler, the RES_CRDT_STATE handler and the room's CUSTOM_EVENT handler.
+    `CRDT_AUTHORITATIVE` (server corrections) stays server-only: nothing but
+    a server sends one. The wire format is untouched either way, so a flagged
+    client and upstream's hosted server still agree byte for byte.
 
-    Two copies have to change, because two consumers read two builds:
+    Applied to the INSTALL TREE before `build_chunks()` bundles `@dcl/sdk`
+    (the blob ships no `@dcl/sdk` JS of its own - the runtime lives in
+    `prebuilt/core.js`); `check_chunk_peer_trust()` proves the chunk carries
+    it. Every edit is exact-substring and must match exactly once, so an
+    upstream reshuffle fails the build here instead of shipping a chunk that
+    quietly lost the fallback. A reused install tree already carries the
+    edits and is accepted as such under `--reuse-install`.
 
-      * the INSTALL TREE, both `dist/` (ESM, what `build_chunks()` resolves
-        through `main`, so `prebuilt/core.js` carries the fix inside the scene
-        runtime) and `dist-cjs/` (so `--reuse-install` sees the same tree a
-        fresh run produces);
-      * the collected `files` dict, whose `dist-cjs` entry is what the blob
-        ships for the node-side crdt dumper.
-
-    The rewrite is exact-substring and must find its target exactly once, or
-    the build fails: a release that carries upstream's fix has the fixed line
-    already, and the failure then says to delete this overlay rather than let
-    it idle. A reused install tree is the one place the fixed line is expected
-    (this ran on the previous pass), so `--reuse-install` accepts it.
-    `check_chunk_netdelete()` proves the chunk built from the patched tree.
+    Removal condition: an upstream release whose client accepts peer CRDT
+    without a server, or a decision that unflagged scenes need a server too
+    (then delete this, `check_chunk_peer_trust()`, the loader's global and
+    the README paragraph naming them).
     """
-    for build in ('dist', 'dist-cjs'):
-        path = os.path.join(work, NETDELETE_REL.format(build=build))
+    for rel, edits in PEER_TRUST_EDITS.items():
+        path = os.path.join(work, rel)
         if not os.path.isfile(path):
             raise SystemExit(f'{path} does not exist - the install tree has no '
-                             f'@dcl/ecs {build} build to patch')
+                             'auth-server @dcl/sdk to overlay')
         with open(path, 'rb') as fh:
             data = fh.read()
-        out = netdelete_fixed(build, data, path, already_ok=reuse_install)
+        out = data
+        for before, after in edits:
+            b, a = before.encode(), after.encode()
+            # already-applied first: two of the edits keep their `before` text
+            # (they insert after it), so a reused tree still matches it once
+            if a in out:
+                if reuse_install:
+                    continue
+                raise SystemExit(
+                    f'{path} already carries the peer-trust overlay on a fresh '
+                    'install; pass --reuse-install for a reused --work tree')
+            if out.count(b) == 1:
+                out = out.replace(b, a)
+            else:
+                raise SystemExit(
+                    f'{path}: the peer-trust overlay expected exactly one copy of\n'
+                    f'{before}\nbut found {out.count(b)}; upstream changed the '
+                    'shape of this handler. Re-derive PEER_TRUST_EDITS against '
+                    'the mainline diff, or drop the overlay if clients now accept '
+                    'peer CRDT without a server.')
         if out != data:
             with open(path, 'wb') as fh:
                 fh.write(out)
-            log(f'    install tree: @dcl/ecs/{build} DeleteEntityNetwork.write '
-                'declares 8 + 8, not 8 + 4 (upstream #1595)')
+            log(f'    install tree: {rel} gated on {PEER_TRUST_GLOBAL} (peer trust '
+                'without an authoritative server)')
         else:
-            log(f'    install tree: @dcl/ecs/{build} DeleteEntityNetwork.write '
-                'already patched (reused install)')
-    rel = NETDELETE_REL.format(build='dist-cjs')
-    if rel not in files:
-        raise SystemExit(f'{rel} is not among the collected files; the overlay '
-                         'has nothing to ship')
-    files[rel] = netdelete_fixed('dist-cjs', files[rel], rel, already_ok=reuse_install)
-    log(f'    shipped: {rel} declares 8 + 8')
+            log(f'    install tree: {rel} already gated (reused install)')
 
-NETDELETE_CHUNK_BUGGY = re.compile(
-    rb'writeUint32\(12\),[\w$]+\.writeUint32\([\w$]+\.DELETE_ENTITY_NETWORK\)')
-NETDELETE_CHUNK_FIXED = re.compile(
-    rb'writeUint32\((?:16|8\+[\w$]+\.MESSAGE_HEADER_LENGTH)\),'
-    rb'[\w$]+\.writeUint32\([\w$]+\.DELETE_ENTITY_NETWORK\)')
-
-def check_chunk_netdelete(files: dict[str, bytes]) -> None:
-    """Fail the build if the scene runtime still frames a network delete short.
+def check_chunk_peer_trust(files: dict[str, bytes]) -> None:
+    """Fail the build if the scene runtime lost the peer-trust gate.
 
     Same class of silent failure as `check_chunk_pbmin()`: the tree patch works
     by file overwrite, so a pipeline that reinstalls or bundles before
-    `patch_ecs_network_delete_length()` runs ships the 12-byte header again with
-    no error and a chunk that differs by a handful of bytes. The shipped
-    `dist-cjs` entry is checked here too, so the two copies cannot disagree.
+    `patch_sdk_peer_trust()` runs ships upstream's server-only client with no
+    error. The gate survives minification as the global's property name:
+    once per gated handler, so at least the two in message-bus-sync.js (three
+    when rolldown inlines `fromAuthority` at both call sites).
     """
     core = files.get(CORE_CHUNK)
     if core is None:
         raise SystemExit(f'{CORE_CHUNK} missing from the blob')
-    if NETDELETE_CHUNK_BUGGY.search(core):
+    marker = PEER_TRUST_GLOBAL.encode()
+    hits = core.count(marker)
+    if hits < 2:
         raise SystemExit(
-            f'{CORE_CHUNK} still declares a network entity delete as 12 bytes - '
-            'patch_ecs_network_delete_length() must run against the tree '
-            'build_chunks() resolves, and before it.')
-    hit = NETDELETE_CHUNK_FIXED.search(core)
-    if not hit:
-        raise SystemExit(
-            f'{CORE_CHUNK} carries no DeleteEntityNetwork.write in a shape this '
-            'check knows; re-derive NETDELETE_CHUNK_FIXED from the chunk.')
-    smart = files.get(SMART_CHUNK, b'')
-    if NETDELETE_CHUNK_BUGGY.search(smart):
-        raise SystemExit(f'{SMART_CHUNK} bundles its own, unpatched @dcl/ecs')
-    rel = NETDELETE_REL.format(build='dist-cjs')
-    buggy, fixed = NETDELETE_WRITE['dist-cjs']
-    if buggy in files[rel] or fixed not in files[rel]:
-        raise SystemExit(f'{rel} does not carry the fixed length write')
-    log(f'  chunk framing check: {CORE_CHUNK} frames a network entity delete as '
-        f'{hit.group(0).split(b",")[0].decode()}')
+            f'{CORE_CHUNK} names {PEER_TRUST_GLOBAL} {hits} times, so the sync '
+            'transport is upstream\'s server-only build - patch_sdk_peer_trust() '
+            'must run against the tree build_chunks() resolves, and before it.')
+    if marker in files.get(SMART_CHUNK, b''):
+        raise SystemExit(f'{SMART_CHUNK} bundles its own copy of @dcl/sdk/network')
+    log(f'  peer-trust check: {CORE_CHUNK} gates {hits} handlers on {PEER_TRUST_GLOBAL}')

@@ -83,7 +83,24 @@ async fn fetch_snapshot(client: &reqwest::Client, base: &str) -> anyhow::Result<
         .error_for_status()?
         .json()
         .await?;
-    Ok(map_snapshot(&resp))
+    let row = map_snapshot(&resp);
+    validate_snapshot(&row)?;
+    Ok(row)
+}
+
+// Never replace a valid quote with a partial provider response, or mark a
+// timestamp-less quote as fresh via the snapshot insertion time.
+fn validate_snapshot(row: &SnapshotRow) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        row.mana_usd
+            .is_some_and(|price| price.is_finite() && price > 0.0),
+        "CoinGecko response missing a positive MANA/USD quote"
+    );
+    anyhow::ensure!(
+        row.source_updated_at.is_some(),
+        "CoinGecko response missing MANA quote timestamp"
+    );
+    Ok(())
 }
 
 async fn insert_snapshot(pool: &PgPool, row: &SnapshotRow) -> Result<i64, sqlx::Error> {
@@ -201,6 +218,24 @@ mod tests {
             row.source_updated_at,
             Some(Utc.timestamp_opt(1_700_000_000, 0).single().unwrap())
         );
+    }
+
+    #[test]
+    fn rejects_partial_or_invalid_quotes_before_persisting() {
+        for payload in [
+            serde_json::json!({}),
+            serde_json::json!({"decentraland": {"usd": 0.42}}),
+            serde_json::json!({"decentraland": {"usd": 0.0, "last_updated_at": 1_700_000_000}}),
+            serde_json::json!({"decentraland": {"usd": -0.1, "last_updated_at": 1_700_000_000}}),
+        ] {
+            let response = serde_json::from_value(payload).unwrap();
+            assert!(validate_snapshot(&map_snapshot(&response)).is_err());
+        }
+        let response = serde_json::from_value(serde_json::json!({
+            "decentraland": {"usd": 0.42, "last_updated_at": 1_700_000_000}
+        }))
+        .unwrap();
+        assert!(validate_snapshot(&map_snapshot(&response)).is_ok());
     }
 
     #[test]

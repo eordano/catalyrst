@@ -1,12 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::{stream, StreamExt};
 use parking_lot::Mutex;
 use serde_json::Value;
 use sqlx::PgPool;
+use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
 use catalyrst_crypto::{Eip1654Validator, RpcEip1654Validator, ValidationCache};
@@ -21,6 +23,90 @@ use catalyrst_validator::types::{
 use crate::state::{DeployFailure, Deployer};
 
 const DECENTRALAND_ADDRESS: &str = "0x1337e0507eb4ab47e08a179573ed4533d9e22a7b";
+
+struct HashedUpload {
+    v0: String,
+    v1: String,
+    bytes: Bytes,
+}
+
+static UPLOAD_HASH_JOBS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(4)));
+
+async fn bounded_upload_hash<T: Send + 'static>(
+    limit: Arc<Semaphore>,
+    hash: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    let permit = limit
+        .acquire_owned()
+        .await
+        .map_err(|_| "Upload hashing capacity is unavailable.".to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        hash()
+    })
+    .await
+    .map_err(|e| format!("upload hashing failed: {e}"))
+}
+
+async fn hash_uploads(files: Vec<Bytes>) -> Result<Vec<HashedUpload>, String> {
+    bounded_upload_hash(Arc::clone(&UPLOAD_HASH_JOBS), move || {
+        files
+            .into_iter()
+            .map(|bytes| HashedUpload {
+                v0: catalyrst_hashing::hash_bytes(&bytes),
+                v1: catalyrst_hashing::hash_bytes_v1(&bytes),
+                bytes,
+            })
+            .collect()
+    })
+    .await
+}
+
+fn deployment_files(
+    entity: &VEntity,
+    entity_bytes: &Bytes,
+    uploads: &[HashedUpload],
+) -> HashMap<String, Bytes> {
+    let by_hash: HashMap<&str, &Bytes> = uploads
+        .iter()
+        .flat_map(|upload| {
+            [
+                (upload.v0.as_str(), &upload.bytes),
+                (upload.v1.as_str(), &upload.bytes),
+            ]
+        })
+        .collect();
+    let mut files = HashMap::from([(entity.id.clone(), entity_bytes.clone())]);
+    for content in &entity.content {
+        if let Some(bytes) = by_hash.get(content.hash.as_str()) {
+            files.insert(content.hash.clone(), (*bytes).clone());
+        }
+    }
+    files
+}
+
+async fn store_deployment_files(
+    storage: &ContentStorage,
+    files: HashMap<String, Bytes>,
+) -> Result<(), String> {
+    let mut writes = stream::iter(files.into_iter().map(|(hash, bytes)| async move {
+        storage
+            .store(&hash, bytes)
+            .await
+            .map_err(|e| format!("failed to store deployment file {hash}: {e}"))
+    }))
+    .buffer_unordered(8);
+    let mut first_error = None;
+    while let Some(result) = writes.next().await {
+        if let Err(error) = result {
+            first_error.get_or_insert(error);
+        }
+    }
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
 
 #[cfg(test)]
 fn happened_before_cmp(a_ts: i64, a_id: &str, b_ts: i64, b_id: &str) -> std::cmp::Ordering {
@@ -345,16 +431,13 @@ impl Deployer for WriteDeployer {
         auth_chain: Value,
         context: &str,
     ) -> Result<i64, DeployFailure> {
-        let mut by_v0: HashMap<String, Bytes> = HashMap::new();
-        let mut by_v1: HashMap<String, Bytes> = HashMap::new();
-        for f in &files {
-            by_v0.insert(catalyrst_hashing::hash_bytes(f), f.clone());
-            by_v1.insert(catalyrst_hashing::hash_bytes_v1(f), f.clone());
-        }
-        let entity_bytes = by_v1
-            .get(entity_id)
-            .or_else(|| by_v0.get(entity_id))
-            .cloned()
+        let uploads = hash_uploads(files)
+            .await
+            .map_err(|e| DeployFailure::Unavailable(vec![e]))?;
+        let entity_bytes = uploads
+            .iter()
+            .find(|upload| upload.v1 == entity_id || upload.v0 == entity_id)
+            .map(|upload| upload.bytes.clone())
             .ok_or_else(|| {
                 vec!["The entity file was not part of the uploaded files.".to_string()]
             })?;
@@ -416,19 +499,17 @@ impl Deployer for WriteDeployer {
             .chain(std::iter::once(entity.id.as_str()))
             .collect();
         let mut vfiles: HashMap<String, Vec<u8>> = HashMap::new();
-        for f in &files {
-            let v1 = catalyrst_hashing::hash_bytes_v1(f);
-            let v0 = catalyrst_hashing::hash_bytes(f);
-            let key = if declared.contains(v1.as_str()) {
-                v1
-            } else if declared.contains(v0.as_str()) {
-                v0
+        for upload in &uploads {
+            let key = if declared.contains(upload.v1.as_str()) {
+                &upload.v1
+            } else if declared.contains(upload.v0.as_str()) {
+                &upload.v0
             } else {
-                v1
+                &upload.v1
             };
 
-            if let Some(prev) = vfiles.insert(key.clone(), f.to_vec()) {
-                if prev != *f {
+            if let Some(prev) = vfiles.insert(key.clone(), upload.bytes.to_vec()) {
+                if prev != upload.bytes {
                     return Err(vec![format!(
                         "two different uploaded files map to the same content hash {key}"
                     )]
@@ -476,7 +557,7 @@ impl Deployer for WriteDeployer {
         }
 
         let creation_ts = self
-            .persist(&entity, &entity_bytes, &files, &audit_info, context)
+            .persist(&entity, &entity_bytes, &uploads, &audit_info, context)
             .await
             .map_err(|e| DeployFailure::Unavailable(vec![e]))?;
 
@@ -489,28 +570,15 @@ impl WriteDeployer {
         &self,
         entity: &VEntity,
         entity_bytes: &Bytes,
-        files: &[Bytes],
+        uploads: &[HashedUpload],
         audit_info: &DeploymentAuditInfo,
         context: &str,
     ) -> Result<i64, String> {
-        self.storage
-            .store(&entity.id, entity_bytes.clone())
-            .await
-            .map_err(|e| format!("failed to store entity file: {e}"))?;
-        let mut by_v0: HashMap<String, &Bytes> = HashMap::new();
-        let mut by_v1: HashMap<String, &Bytes> = HashMap::new();
-        for f in files {
-            by_v0.insert(catalyrst_hashing::hash_bytes(f), f);
-            by_v1.insert(catalyrst_hashing::hash_bytes_v1(f), f);
-        }
-        for cm in &entity.content {
-            if let Some(bytes) = by_v1.get(&cm.hash).or_else(|| by_v0.get(&cm.hash)) {
-                self.storage
-                    .store(&cm.hash, (*bytes).clone())
-                    .await
-                    .map_err(|e| format!("failed to store content file {}: {e}", cm.hash))?;
-            }
-        }
+        store_deployment_files(
+            &self.storage,
+            deployment_files(entity, entity_bytes, uploads),
+        )
+        .await?;
 
         let deployer_address = audit_info
             .auth_chain
@@ -739,6 +807,123 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
 
     const STORED_HASH: &str = "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenosa7776";
+
+    #[tokio::test]
+    async fn upload_hash_capacity_survives_request_cancellation() {
+        let limit = Arc::new(Semaphore::new(1));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+        let task_limit = Arc::clone(&limit);
+        let request = tokio::spawn(async move {
+            bounded_upload_hash(task_limit, move || {
+                started_tx.send(()).unwrap();
+                finish_rx.recv().unwrap();
+            })
+            .await
+        });
+        started_rx.await.unwrap();
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        assert_eq!(limit.available_permits(), 0);
+        let waiting_limit = Arc::clone(&limit);
+        let mut waiting =
+            tokio::spawn(async move { bounded_upload_hash(waiting_limit, || 42).await });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut waiting)
+                .await
+                .is_err()
+        );
+        finish_tx.send(()).unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), waiting)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            42
+        );
+        assert_eq!(limit.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn deployment_files_reuse_both_cid_versions_and_deduplicate_references() {
+        let entity_bytes = Bytes::from_static(b"entity");
+        let first = Bytes::from_static(b"first content");
+        let second = Bytes::from(vec![42; 300_000]);
+        let unreferenced = Bytes::from_static(b"unreferenced");
+        let uploads = hash_uploads(vec![
+            entity_bytes.clone(),
+            first.clone(),
+            second.clone(),
+            unreferenced,
+        ])
+        .await
+        .unwrap();
+        let missing = catalyrst_hashing::hash_bytes_v1(b"already stored");
+        let entity: VEntity = serde_json::from_value(serde_json::json!({
+            "id": uploads[0].v1,
+            "version": "v3",
+            "type": "scene",
+            "pointers": ["0,0"],
+            "timestamp": 1,
+            "content": [
+                {"file": "first", "hash": uploads[1].v0},
+                {"file": "alias", "hash": uploads[1].v0},
+                {"file": "second", "hash": uploads[2].v1},
+                {"file": "existing", "hash": missing}
+            ]
+        }))
+        .unwrap();
+        let files = deployment_files(&entity, &entity_bytes, &uploads);
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[&entity.id], entity_bytes);
+        assert_eq!(files[&uploads[1].v0], first);
+        assert_eq!(files[&uploads[2].v1], second);
+        assert!(!files.contains_key(&missing));
+        assert!(!files.contains_key(&uploads[3].v1));
+    }
+
+    #[tokio::test]
+    async fn deployment_storage_drains_writes_and_preserves_atomic_files_on_failure() {
+        let (calls, tmp) = external_calls_over_temp_storage("parallel-write").await;
+        let failed_hash = catalyrst_hashing::hash_bytes_v1(b"failed file");
+        let failed_path = calls
+            .storage
+            .root()
+            .join(catalyrst_storage::hex_prefix(&failed_hash))
+            .join(&failed_hash);
+        tokio::fs::create_dir_all(&failed_path).await.unwrap();
+        let mut files = HashMap::from([(failed_hash, Bytes::from_static(b"failed file"))]);
+        let expected: Vec<_> = (0..24)
+            .map(|index| {
+                let bytes = Bytes::from(format!("stored content {index}"));
+                (catalyrst_hashing::hash_bytes_v1(&bytes), bytes)
+            })
+            .collect();
+        files.extend(expected.iter().cloned());
+        let error = store_deployment_files(&calls.storage, files)
+            .await
+            .unwrap_err();
+        assert!(error.contains("failed to store deployment file"));
+        assert!(tokio::fs::metadata(&failed_path).await.unwrap().is_dir());
+        for (hash, bytes) in expected {
+            assert_eq!(calls.storage.retrieve(&hash).await.unwrap(), Some(bytes));
+        }
+        let shard = failed_path.parent().unwrap();
+        for _ in 0..100 {
+            let mut entries = tokio::fs::read_dir(shard).await.unwrap();
+            let mut staged = false;
+            while let Some(entry) = entries.next_entry().await.unwrap() {
+                staged |= entry.file_name().to_string_lossy().ends_with(".tmp");
+            }
+            if !staged {
+                tokio::fs::remove_dir_all(tmp).await.unwrap();
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("failed concurrent store leaked a staging file");
+    }
 
     struct NoEip1654;
 

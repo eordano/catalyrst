@@ -175,7 +175,7 @@ pub async fn get_lists(
     headers: HeaderMap,
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Json<ListsEnvelope>, ApiError> {
-    auth_chain::require_canonical_metadata(&headers)?;
+    auth_chain::require_not_scene_signer(&headers)?;
     let user_address = auth_chain::require_signer(&headers, "get", "/v1/lists")
         .await
         .map_err(auth_chain_error_to_api)?

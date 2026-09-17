@@ -97,6 +97,7 @@ fn lazy_state(catalyst_url: &str, world_content_url: &str, livekit_api_url: &str
         moderator_addresses: Vec::new(),
         gatekeeper_auth_token: None,
         fed_peer_id: "test-peer".into(),
+        world_permissions: Default::default(),
     })
 }
 

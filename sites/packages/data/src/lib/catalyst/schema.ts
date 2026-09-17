@@ -87,8 +87,14 @@ export function reportSchemaDrift(kind: string, issues: readonly unknown[]): voi
   }
 }
 
+// Older peers omit this additive moderation field. Keep the generated current
+// contract strict, while accepting their otherwise valid public place records.
+const CompatiblePlaceRowSchema = PlaceRowSchema.extend({
+  exclude_from_ranking: PlaceRowSchema.shape.exclude_from_ranking.default(false),
+});
+
 export function parsePlace(raw: unknown): Place | null {
-  const r = PlaceRowSchema.safeParse(raw);
+  const r = CompatiblePlaceRowSchema.safeParse(raw);
   if (r.success) return normalizePlace(r.data);
   reportSchemaDrift("Place", r.error.issues);
   return null;

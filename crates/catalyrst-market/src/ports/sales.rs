@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use sqlx::Row;
 
@@ -344,4 +344,316 @@ pub fn parse_filters(pairs: &[(String, String)]) -> Result<SaleFilters, InvalidP
         max_price: p.get_string("maxPrice", None),
         network,
     })
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SalesSummaryFilters {
+    pub seller: String,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
+pub struct SalesSummaryCollection {
+    pub contract_address: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub sold: i64,
+    pub earned_wei: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
+pub struct SalesSummaryItem {
+    pub contract_address: String,
+    pub item_id: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub sold_lifetime: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
+pub struct SalesSummaryRoyalties {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub resales: i64,
+    pub volume_wei: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, export_to = "market/", rename_all = "camelCase")
+)]
+pub struct SalesSummary {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub total: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub mints: i64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub resales: i64,
+    pub earned_wei: String,
+    pub by_collection: Vec<SalesSummaryCollection>,
+    pub by_item: Vec<SalesSummaryItem>,
+    pub royalties: SalesSummaryRoyalties,
+}
+
+/// The window is compared against the stored seconds rather than multiplying every row, so the
+/// sale timestamp index still answers the scan.
+fn summary_window(f: &SalesSummaryFilters) -> String {
+    let mut window = String::new();
+    if f.from.is_some() {
+        window.push_str(" AND timestamp >= $2::numeric / 1000");
+    }
+    if f.to.is_some() {
+        let param = if f.from.is_some() { "$3" } else { "$2" };
+        window.push_str(&format!(" AND timestamp <= {param}::numeric / 1000"));
+    }
+    window
+}
+
+pub fn sales_summary_sql(f: &SalesSummaryFilters) -> String {
+    let window = summary_window(f);
+    format!(
+        r#"
+WITH seller_sales AS (
+  SELECT type, price, timestamp, search_contract_address, search_item_id
+  FROM {schema}.sale WHERE seller = $1
+), window_sales AS (
+  SELECT * FROM seller_sales WHERE TRUE{window}
+), collections AS (
+  SELECT search_contract_address, COUNT(*) AS sold, SUM(price)::text AS earned
+  FROM window_sales GROUP BY search_contract_address
+), items AS (
+  SELECT search_contract_address, search_item_id, COUNT(*) AS sold
+  FROM seller_sales
+  WHERE type = 'mint' AND search_item_id IS NOT NULL
+  GROUP BY search_contract_address, search_item_id
+), royalties AS (
+  SELECT COUNT(*) AS resales, COALESCE(SUM(price), 0)::text AS volume
+  FROM {schema}.sale s
+  WHERE s.type IN ('order', 'bid')
+    AND EXISTS (
+      SELECT 1 FROM {schema}.item i
+      WHERE i.id = s.item_id AND LOWER(i.creator) = $1
+    ){window}
+)
+SELECT json_build_object(
+  'total', COUNT(*),
+  'mints', COUNT(*) FILTER (WHERE type = 'mint'),
+  'resales', COUNT(*) FILTER (WHERE type IN ('order', 'bid')),
+  'earnedWei', COALESCE(SUM(price), 0)::text,
+  'byCollection', (SELECT COALESCE(json_agg(json_build_object(
+    'contractAddress', search_contract_address, 'sold', sold, 'earnedWei', earned
+  ) ORDER BY search_contract_address), '[]'::json) FROM collections),
+  'byItem', (SELECT COALESCE(json_agg(json_build_object(
+    'contractAddress', search_contract_address, 'itemId', search_item_id::text, 'soldLifetime', sold
+  ) ORDER BY search_contract_address, search_item_id), '[]'::json) FROM items),
+  'royalties', (SELECT json_build_object('resales', resales, 'volumeWei', volume) FROM royalties)
+) AS summary FROM window_sales
+"#,
+        schema = MARKETPLACE_SQUID_SCHEMA,
+        window = window,
+    )
+}
+
+impl SalesComponent {
+    pub async fn get_summary(&self, f: &SalesSummaryFilters) -> Result<SalesSummary, ApiError> {
+        let mut q =
+            sqlx::query(sqlx::AssertSqlSafe(sales_summary_sql(f))).bind(f.seller.to_lowercase());
+        for bound in [f.from, f.to].into_iter().flatten() {
+            q = q.bind(bound);
+        }
+        let row = q.fetch_one(&self.pool).await?;
+        let summary: serde_json::Value = row.try_get("summary")?;
+        serde_json::from_value(summary)
+            .map_err(|e| ApiError::internal(format!("sales summary shape: {e}")))
+    }
+}
+
+pub fn parse_summary_filters(pairs: &[(String, String)]) -> Result<SalesSummaryFilters, ApiError> {
+    let p = Params::new(pairs);
+    let seller = p
+        .get_address("seller", true, None)
+        .ok_or_else(|| ApiError::bad_request("A valid seller address is required"))?;
+
+    let mut bounds: [Option<i64>; 2] = [None, None];
+    for (slot, key) in ["from", "to"].iter().enumerate() {
+        if let Some(raw) = p.get_string(key, None) {
+            let parsed = raw
+                .parse::<i64>()
+                .ok()
+                .filter(|v| *v >= 0 && *v <= MAX_SAFE_INTEGER)
+                .filter(|_| raw.chars().all(|c| c.is_ascii_digit()) && !raw.is_empty());
+            bounds[slot] = Some(parsed.ok_or_else(|| {
+                ApiError::bad_request(format!("{key} must be an epoch timestamp in milliseconds"))
+            })?);
+        }
+    }
+    if let (Some(from), Some(to)) = (bounds[0], bounds[1]) {
+        if from > to {
+            return Err(ApiError::bad_request(
+                "from must be less than or equal to to",
+            ));
+        }
+    }
+
+    Ok(SalesSummaryFilters {
+        seller,
+        from: bounds[0],
+        to: bounds[1],
+    })
+}
+
+const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+
+    fn pairs(raw: &[(&str, &str)]) -> Vec<(String, String)> {
+        raw.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn message(pairs: &[(String, String)]) -> String {
+        match parse_summary_filters(pairs) {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("expected a rejection"),
+        }
+    }
+
+    #[test]
+    fn a_summary_needs_a_seller_that_is_really_an_address() {
+        assert_eq!(message(&pairs(&[])), "A valid seller address is required");
+        assert_eq!(
+            message(&pairs(&[("seller", "vitalik.eth")])),
+            "A valid seller address is required"
+        );
+        let filters = parse_summary_filters(&pairs(&[(
+            "seller",
+            "0xABCDEF0123456789012345678901234567890123",
+        )]))
+        .unwrap();
+        assert_eq!(filters.seller, "0xabcdef0123456789012345678901234567890123");
+        assert_eq!((filters.from, filters.to), (None, None));
+    }
+
+    #[test]
+    fn a_bound_that_is_not_an_epoch_millisecond_names_itself() {
+        for (key, value) in [
+            ("from", "yesterday"),
+            ("to", "-1"),
+            ("from", "1.5"),
+            ("to", "9007199254740992"),
+            ("from", ""),
+        ] {
+            assert_eq!(
+                message(&pairs(&[
+                    ("seller", "0x1111111111111111111111111111111111111111"),
+                    (key, value)
+                ])),
+                format!("{key} must be an epoch timestamp in milliseconds"),
+                "{key}={value}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_inverted_window_is_refused_rather_than_answered_empty() {
+        assert_eq!(
+            message(&pairs(&[
+                ("seller", "0x1111111111111111111111111111111111111111"),
+                ("from", "200"),
+                ("to", "100"),
+            ])),
+            "from must be less than or equal to to"
+        );
+        let equal = parse_summary_filters(&pairs(&[
+            ("seller", "0x1111111111111111111111111111111111111111"),
+            ("from", "100"),
+            ("to", "100"),
+        ]))
+        .unwrap();
+        assert_eq!((equal.from, equal.to), (Some(100), Some(100)));
+    }
+
+    #[test]
+    fn each_bound_binds_the_placeholder_that_follows_the_seller() {
+        let only_to = sales_summary_sql(&SalesSummaryFilters {
+            seller: "0x1".into(),
+            from: None,
+            to: Some(2),
+        });
+        assert!(
+            only_to.contains("timestamp <= $2::numeric / 1000"),
+            "{only_to}"
+        );
+        assert!(!only_to.contains("timestamp >="), "{only_to}");
+
+        let both = sales_summary_sql(&SalesSummaryFilters {
+            seller: "0x1".into(),
+            from: Some(1),
+            to: Some(2),
+        });
+        assert!(both.contains("timestamp >= $2::numeric / 1000"), "{both}");
+        assert!(both.contains("timestamp <= $3::numeric / 1000"), "{both}");
+        assert_eq!(
+            both.matches("timestamp >= $2::numeric / 1000").count(),
+            2,
+            "the window bounds the seller's sales and the royalties leg alike"
+        );
+    }
+
+    #[test]
+    fn the_window_never_multiplies_the_indexed_timestamp() {
+        let sql = sales_summary_sql(&SalesSummaryFilters {
+            seller: "0x1".into(),
+            from: Some(1),
+            to: Some(2),
+        });
+        assert!(
+            !sql.contains("timestamp * 1000"),
+            "multiplying the column would discard the sale timestamp index: {sql}"
+        );
+    }
+
+    #[test]
+    fn the_royalties_leg_matches_a_creator_in_any_case() {
+        let sql = sales_summary_sql(&SalesSummaryFilters {
+            seller: "0x1".into(),
+            ..Default::default()
+        });
+        assert!(sql.contains("LOWER(i.creator) = $1"), "{sql}");
+        assert!(sql.contains("s.type IN ('order', 'bid')"), "{sql}");
+    }
+
+    #[test]
+    fn the_item_leg_counts_lifetime_mints_and_the_collection_leg_the_window() {
+        let sql = sales_summary_sql(&SalesSummaryFilters {
+            seller: "0x1".into(),
+            ..Default::default()
+        });
+        let items = sql.split("), items AS (").nth(1).unwrap();
+        assert!(items.contains("FROM seller_sales"), "{items}");
+        let collections = sql.split("), collections AS (").nth(1).unwrap();
+        assert!(collections.contains("FROM window_sales"), "{collections}");
+    }
 }

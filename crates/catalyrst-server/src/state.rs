@@ -45,6 +45,10 @@ pub struct FileInfo {
 
 #[async_trait]
 pub trait Database: Send + Sync {
+    async fn deployment_committed(&self, _entity_id: &str) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
     async fn active_entities_by_pointers(
         &self,
         pointers: &[String],

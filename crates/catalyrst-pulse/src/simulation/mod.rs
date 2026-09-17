@@ -815,6 +815,11 @@ impl PeerSimulation {
                     entry.tier,
                     PacketMode::Reliable,
                 );
+                crate::metrics::resync_seq_gap(
+                    crate::metrics::RESYNC_OUTCOME_DELTA,
+                    latest.seq,
+                    last_known_seq,
+                );
             }
             _ => {
                 view.last_sent_seq = latest.seq;
@@ -827,6 +832,11 @@ impl PeerSimulation {
                         ))),
                     },
                     PacketMode::Reliable,
+                );
+                crate::metrics::resync_seq_gap(
+                    crate::metrics::RESYNC_OUTCOME_FULL,
+                    latest.seq,
+                    last_known_seq,
                 );
             }
         }

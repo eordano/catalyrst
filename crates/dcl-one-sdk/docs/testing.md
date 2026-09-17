@@ -43,11 +43,27 @@ the failure mode it exists to stop.
 | `DCL1_TUNNEL_PUBLIC_URL` | `tunnel_live` — drives a tunnel origin that is actually deployed | the public base URL of a running preview tunnel, e.g. `https://t.example.com/abc123` |
 | `DCL1_TUNNEL_LOCAL_URL` | optional, same test | the local preview the tunnel fronts, when it is not the default |
 | `DCL1_TUNNEL_TOUCH_FILE` | optional, same test | a file inside the served scene, touched to prove live reload crosses the tunnel |
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | `livekit_live` — starts a `--livekit-url` preview and has the SFU itself validate the tokens it mints | a running LiveKit server, as the `lk` CLI is configured for it (`livekit-server --dev` is `ws://127.0.0.1:7880`, `devkey`, `secret`) |
+| `LIVEKIT_HTTP_URL` | optional, same test | where that server answers `/rtc/validate`, when it is not the `LIVEKIT_URL` host over http(s) |
+
+`livekit_embedded` needs no variable and is not ignored. One test starts a
+bare preview (`--skip-build --no-watch --no-asset-bundles --no-mcp`), the
+other runs the user's path flag for flag — `init`, then `start` in that
+directory with no arguments, so the build, watcher, asset-bundle sidecar, MCP
+and port choice are all defaults — and both have the livekit-server the binary
+itself embeds validate the tokens, then check that server dies with the
+preview. On a build that embeds none and finds none on PATH (a `cargo build`
+on macOS) they go through the same gate: they fail naming the missing server
+unless `ALLOW_SKIPPED_INTEGRATION=1` lets them skip.
 
 `data_layer_ui` and its driver `scripts/creator-hub-ui-drive.sh` are **not in
 the published tree**: `dcl-one-sdk-standalone-assemble.sh` excludes `scripts/`
-(bar `pin-abgen.sh` and `golden-runtime.mjs`) and `tests/data_layer_ui.rs`, as
-dev harnesses reaching for private tooling. Both live in the upstream source
+(bar the pin scripts, `golden-runtime.mjs` and the `*.test.mjs` files that
+`tests/loader_utf8.rs`, `tests/loader_mp.rs` and `tests/host_storage.rs` shell
+out to — its `KEEP_RE`) and `tests/data_layer_ui.rs`, as dev harnesses reaching
+for private tooling. A new Rust test that runs a script under `scripts/` needs
+that script added to `KEEP_RE`, or the published tree's `cargo test` fails
+wherever node exists. Both live in the upstream source
 checkout only, where the test also needs a chromium on the machine.
 
 **`node` is not on this list on purpose.** `golden`'s runtime tier needs it and

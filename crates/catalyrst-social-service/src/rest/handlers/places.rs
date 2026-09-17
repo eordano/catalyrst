@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::rest::auth_chain::try_extract_signer;
 use crate::rest::handlers::error::CommError;
+use crate::rest::handlers::require_membership_of_a_private_community;
 use crate::rest::http::{get_pagination_params, Paginated};
 use crate::rest::AppState;
 
@@ -16,6 +17,7 @@ use crate::rest::AppState;
     responses(
         (status = 200, body = serde_json::Value),
         (status = 400, body = catalyrst_types::ApiErrorBody),
+        (status = 401, body = catalyrst_types::ApiErrorBody),
         (status = 404, body = catalyrst_types::ApiErrorBody),
         (status = 500, body = catalyrst_types::ApiErrorBody)
     )
@@ -41,6 +43,14 @@ pub async fn get_places(
             id_str
         )));
     }
+    require_membership_of_a_private_community(&state, id, signer.as_ref(), |addr| {
+        format!(
+            "The user {} doesn't have permission to get places from community {}",
+            addr, id
+        )
+    })
+    .await?;
+
     let pagination = get_pagination_params(&pairs);
     let (places, total) = state.places.list(id, &pagination).await?;
     let paginated = Paginated::new(places, total, &pagination);

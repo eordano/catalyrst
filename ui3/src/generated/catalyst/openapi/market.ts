@@ -36,6 +36,13 @@ export interface paths {
   "/v1/admin/moderation/flags": {
     get: operations["list_flags"];
   };
+  "/v1/coupons": {
+    get: operations["get_coupons"];
+    post: operations["add_coupon"];
+  };
+  "/v1/coupons/{id}": {
+    get: operations["get_coupon"];
+  };
   "/v1/federation/bid": {
     post: operations["place_bid"];
   };
@@ -73,12 +80,79 @@ export interface paths {
     post: operations["pick_unpick_in_bulk"];
     delete: operations["unpick_everywhere"];
   };
+  "/v1/picks/stats": {
+    /**
+     * Upstream `getPickStatsHandler` (picks-handlers.ts:51-92) is the one picks route registered
+     * without any `wellKnownComponents` wrapper (favorites/routes.ts:66): the bulk read is
+     * unsigned and `checkingUserAddress` arrives as a plain query string. Upstream lower-cases it
+     * before testing it against its address regex, so a `0X`-prefixed address is accepted.
+     * @description `power` is parsed only so its malformed-value 400 fires exactly where upstream's does; it is
+     * not applied. Upstream counts a pick only when the picker's `favorites.voting.power` clears it
+     * (picks component.ts:36-42) and we have no `favorites.voting` table -- thread the value into
+     * `get_picks_stats` once that table lands.
+     */
+    get: operations["get_picks_stats"];
+  };
 }
 
 export type webhooks = Record<string, never>;
 
 export interface components {
   schemas: {
+    Coupon: {
+      /** Format: int64 */
+      chainId: number;
+      checks: unknown;
+      collections: string[];
+      couponAddress: string;
+      couponManager: string;
+      /** Format: int64 */
+      createdAt: number;
+      /** Format: int64 */
+      discount: number;
+      /** Format: int64 */
+      discountType: number;
+      id: string;
+      marketplace?: null | components["schemas"]["CouponMarketplace"];
+      network: string;
+      root: string;
+      signature: string;
+      signer: string;
+      state?: null | components["schemas"]["CouponState"];
+      status: components["schemas"]["CouponStatus"];
+    };
+    CouponEnvelope: {
+      data: components["schemas"]["Coupon"];
+      ok: boolean;
+    };
+    /**
+     * @description The off-chain marketplace version a manager is wired into: the only one that redeems coupons
+     * signed against it. Spelled as decentraland-transactions `ContractName`, which is what the
+     * wire value of `Coupon.marketplace` is.
+     * @enum {string}
+     */
+    CouponMarketplace: "OffChainMarketplaceV3" | "OffChainMarketplaceV2";
+    CouponsEnvelope: {
+      data: components["schemas"]["Coupon"][];
+      ok: boolean;
+    };
+    /** @description Consumed uses, cancellation and index revocation as last read from the CouponManager. */
+    CouponState: {
+      cancelled: boolean;
+      /** Format: int64 */
+      checkedAt: number;
+      revoked: boolean;
+      /** Format: int64 */
+      uses: number;
+    };
+    /**
+     * @description `revoked` covers the signature indexes moving past the ones the coupon was signed with. A
+     * creator who wants every sale to stop calls `increaseSignerSignatureIndex()` -- one
+     * argumentless call, against rebuilding each coupon's calldata for `cancelSignature` -- and
+     * the contract then refuses all of them.
+     * @enum {string}
+     */
+    CouponStatus: "scheduled" | "active" | "ended" | "cancelled" | "exhausted" | "revoked";
     FavoriteList: {
       /** Format: int64 */
       createdAt: number;
@@ -173,6 +247,16 @@ export interface components {
       results: components["schemas"]["ListPickItem"][];
       /** Format: int64 */
       total: number;
+    };
+    PicksStatsEnvelope: {
+      data: components["schemas"]["PickStats"][];
+      ok: boolean;
+    };
+    PickStats: {
+      /** Format: int64 */
+      count: number;
+      itemId: string;
+      pickedByUser?: boolean | null;
     };
     /**
      * @description The two documented 404 shapes of `POST /v1/picks/{item_id}`. Untagged, so
@@ -527,6 +611,90 @@ export interface operations {
       };
     };
   };
+  get_coupons: {
+    parameters: {
+      query: {
+        signer: string;
+        limit?: number;
+        offset?: number;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["CouponsEnvelope"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+      500: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+    };
+  };
+  add_coupon: {
+    requestBody: {
+      content: {
+        "application/json": unknown;
+      };
+    };
+    responses: {
+      201: {
+        content: {
+          "application/json": components["schemas"]["CouponEnvelope"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+      409: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+      500: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+    };
+  };
+  get_coupon: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["CouponEnvelope"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+      500: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+    };
+  };
   place_bid: {
     requestBody: {
       content: {
@@ -859,6 +1027,45 @@ export interface operations {
         };
       };
       401: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+      500: {
+        content: {
+          "application/json": components["schemas"]["MarketErrorBody"];
+        };
+      };
+    };
+  };
+  /**
+   * Upstream `getPickStatsHandler` (picks-handlers.ts:51-92) is the one picks route registered
+   * without any `wellKnownComponents` wrapper (favorites/routes.ts:66): the bulk read is
+   * unsigned and `checkingUserAddress` arrives as a plain query string. Upstream lower-cases it
+   * before testing it against its address regex, so a `0X`-prefixed address is accepted.
+   * @description `power` is parsed only so its malformed-value 400 fires exactly where upstream's does; it is
+   * not applied. Upstream counts a pick only when the picker's `favorites.voting.power` clears it
+   * (picks component.ts:36-42) and we have no `favorites.voting` table -- thread the value into
+   * `get_picks_stats` once that table lands.
+   */
+  get_picks_stats: {
+    parameters: {
+      query: {
+        /** @description Repeated once per item to read. */
+        itemId: string[];
+        /** @description Unsigned address whose own pick is reported as pickedByUser. */
+        checkingUserAddress?: string;
+        /** @description Minimum voting power; accepted, not applied. */
+        power?: number;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["PicksStatsEnvelope"];
+        };
+      };
+      400: {
         content: {
           "application/json": components["schemas"]["MarketErrorBody"];
         };

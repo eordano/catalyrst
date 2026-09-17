@@ -430,6 +430,14 @@ mod admin_gate_precedence {
             catalog: CatalogComponent::new(pool.clone()),
             collections: CollectionsComponent::new(pool.clone()),
             contracts: ContractsComponent::new(pool.clone()),
+            coupons: crate::ports::coupons::CouponsComponent::new(
+                pool.clone(),
+                pool.clone(),
+                std::sync::Arc::new(crate::ports::coupons::RpcCouponChainReader::new(
+                    reqwest::Client::new(),
+                    Default::default(),
+                )),
+            ),
             items: ItemsComponent::new(pool.clone()),
             lists: ListsComponent::new(pool.clone()).with_write(pool.clone()),
             mana_usd_rate: ManaUsdRateComponent::new("http://127.0.0.1:9".into(), 0.02, 86400),
@@ -441,6 +449,7 @@ mod admin_gate_precedence {
             sales: SalesComponent::new(pool.clone()),
             shop_catalog: ShopCatalogComponent::new(pool.clone()),
             stats: StatsComponent::new(pool.clone()),
+            suggestions: crate::ports::suggestions::SuggestionsComponent::new(pool.clone(), 1),
             trades: TradesComponent::new(pool.clone(), false),
             trendings: TrendingsComponent::new(pool.clone()),
             user_assets: UserAssetsComponent::new(pool.clone(), false),

@@ -47,18 +47,36 @@ RPC_RUNTIME = frozenset({
     'dist/transports/WebSocket.js',
 })
 
+# The ECMAScript standard libraries only: `lib.es5`, every `lib.es20xx.*` and
+# `lib.esnext.*` piece, and the two `lib.decorators*`. Every scene's tsconfig
+# extends `@dcl/sdk/types/tsconfig.ecs7.json`, whose `lib: ["ES2020"]` makes a
+# traced `tsc` open exactly 45 of these and never `lib.dom*` (2.5 MB, the
+# browser DOM), `lib.webworker*` (0.9 MB), `lib.scripthost`, `lib.es6`/`lib.d.ts`
+# (aliases that pull the DOM in) or any `*.full.d.ts` (ES + DOM bundles). A scene
+# that sets `lib` to a later ES year still resolves it here; one that names the
+# DOM has to `npm install`, exactly as it must for any other package the blob
+# prunes.
+TS_LIB_RE = re.compile(
+    r'^lib/lib\.(?:es5|es20\d\d|esnext|decorators)(?:\.(?!full\b)[a-z0-9.]+)?\.d\.ts$')
+
 FILE_ALLOWLIST = {
     'protobufjs': lambda rel: rel in PROTOBUFJS_SHIP_NOTHING,
     'typescript': lambda rel: rel in ('package.json', 'LICENSE.txt')
     or rel in ('lib/tsc.js', 'lib/_tsc.js')
-    or (rel.startswith('lib/lib.') and rel.endswith('.d.ts')),
+    or bool(TS_LIB_RE.match(rel)),
     '@dcl/sdk': lambda rel: rel in ('package.json', 'LICENSE')
     or (rel.startswith('types/') and rel.endswith('.json')),
     '@dcl/js-runtime': lambda rel: rel in ('package.json', 'LICENSE'),
     '@dcl/ecs': lambda rel: rel in ('package.json', 'LICENSE')
     or (rel.startswith('dist-cjs/')
         and not rel.endswith(DECLARATION_SUFFIXES + DROP_SUFFIXES)),
-    'long': lambda rel: not rel.endswith(DECLARATION_SUFFIXES + DROP_SUFFIXES),
+    # node resolves `require('long')` through the manifest's `exports.require`
+    # to `umd/index.js`; the ESM `index.js` beside it is reached by nothing in
+    # the blob (the chunk bundles its own copy from the install tree).
+    # `umd/package.json` is the `{"type": "commonjs"}` that keeps node from
+    # loading the umd file as ESM under the manifest's `"type": "module"` -
+    # without it require('long') returns an empty namespace
+    'long': lambda rel: rel in ('package.json', 'LICENSE', 'umd/index.js', 'umd/package.json'),
     '@dcl/rpc': lambda rel: rel in RPC_RUNTIME,
     'mitt': lambda rel: rel in ('package.json', 'LICENSE', 'dist/mitt.js'),
 }

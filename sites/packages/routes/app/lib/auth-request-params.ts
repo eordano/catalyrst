@@ -25,6 +25,7 @@ export function isRetiredSignInMethod(method: string): boolean {
 }
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/i;
+const IDENTITY_AUTH_ADDRESS_RE = /^(?:0x)?[0-9a-fA-F]{40}$/i;
 const HEX_BYTES_RE = /^0[xX]([0-9a-fA-F]{2})*$/;
 
 export function decodeHexMessage(value: string): string | null {
@@ -52,7 +53,7 @@ function isEphemeralText(value: string): boolean {
   if (addressLine === undefined || expirationLine === undefined) return false;
   const address = addressLine.slice(EPHEMERAL_ADDRESS_OFFSET);
   const expiration = Date.parse(expirationLine.slice(EXPIRATION_OFFSET));
-  return ADDRESS_RE.test(address) && !Number.isNaN(expiration);
+  return IDENTITY_AUTH_ADDRESS_RE.test(address) && !Number.isNaN(expiration);
 }
 
 export function isEphemeralMessage(value: unknown): boolean {
@@ -112,6 +113,9 @@ const EIP712_DOMAIN_FIELD_TYPES: ReadonlyMap<string, string> = new Map([
 
 const META_TRANSACTION_PRIMARY_TYPE = "MetaTransaction";
 
+// Wire into signatureParamsProblem only alongside a Decentraland contract registry: upstream refuses
+// a deviating MetaTransaction only once the verifying contract is known to be Decentraland's, and
+// serves every other one raw behind the acknowledgment, which is what this page does for all of them.
 export function metaTransactionDomainProblem(typedData: unknown): string | null {
   if (!isRecord(typedData) || typedData.primaryType !== META_TRANSACTION_PRIMARY_TYPE) return null;
   const { types, domain, message } = typedData;

@@ -6,10 +6,22 @@ use sqlx::Row;
 
 use crate::sanitize::{sanitize_image_url, sanitize_place_description, ContentOrigin};
 
-use super::query::EXCLUDE_FROM_RANKING_SQL;
+use super::query::{
+    raw_float8_sql, raw_int_sql, raw_timestamptz_sql, EXCLUDE_FROM_RANKING_SQL, IS_PRIVATE_SQL,
+    SHOW_IN_PLACES_SQL, SINGLE_PLAYER_SQL, USER_DISLIKE_SQL, USER_FAVORITE_SQL, USER_LIKE_SQL,
+};
 
 pub(super) fn place_columns() -> &'static str {
     static SQL: LazyLock<String> = LazyLock::new(|| {
+        let disabled_at = raw_timestamptz_sql("disabled_at");
+        let created_at = raw_timestamptz_sql("created_at");
+        let updated_at = raw_timestamptz_sql("updated_at");
+        let ranking = raw_float8_sql("ranking");
+        let skybox_time = raw_float8_sql("skybox_time");
+        let user_count = raw_int_sql("user_count");
+        let user_visits = raw_int_sql("user_visits");
+        let like_rate = raw_float8_sql("like_rate");
+        let like_score = raw_float8_sql("like_score");
         format!(
             r#"
     id, title, description, raw->>'image' AS image,
@@ -21,14 +33,14 @@ pub(super) fn place_columns() -> &'static str {
     raw->>'contact_email' AS contact_email,
     content_rating,
     disabled,
-    NULLIF(raw->>'disabled_at','')::timestamptz AS disabled_at,
+    {disabled_at} AS disabled_at,
     raw->>'disabled_reason' AS disabled_reason,
-    NULLIF(raw->>'created_at','')::timestamptz AS created_at,
-    NULLIF(raw->>'updated_at','')::timestamptz AS updated_at,
+    {created_at} AS created_at,
+    {updated_at} AS updated_at,
     favorites, likes, dislikes, categories,
     highlighted,
     raw->>'highlighted_image' AS highlighted_image,
-    NULLIF(raw->>'ranking','')::float8 AS ranking,
+    {ranking} AS ranking,
     {EXCLUDE_FROM_RANKING_SQL} AS exclude_from_ranking,
     raw->>'sdk' AS sdk,
     deployed_at,
@@ -36,17 +48,17 @@ pub(super) fn place_columns() -> &'static str {
     world_name,
     raw->>'world_id' AS world_id,
     raw->>'deployment_id' AS deployment_id,
-    COALESCE((raw->>'is_private')::bool, false) AS is_private,
-    COALESCE((raw->>'show_in_places')::bool, true) AS show_in_places,
-    COALESCE((raw->>'single_player')::bool, false) AS single_player,
-    NULLIF(raw->>'skybox_time','')::float8 AS skybox_time,
-    COALESCE((raw->>'user_favorite')::bool, false) AS user_favorite,
-    COALESCE((raw->>'user_like')::bool, false) AS user_like,
-    COALESCE((raw->>'user_dislike')::bool, false) AS user_dislike,
-    NULLIF(raw->>'user_count','')::int AS user_count,
-    COALESCE(NULLIF(raw->>'user_visits','')::int, 0) AS user_visits,
-    NULLIF(raw->>'like_rate','')::float8 AS like_rate,
-    NULLIF(raw->>'like_score','')::float8 AS like_score
+    {IS_PRIVATE_SQL} AS is_private,
+    {SHOW_IN_PLACES_SQL} AS show_in_places,
+    {SINGLE_PLAYER_SQL} AS single_player,
+    {skybox_time} AS skybox_time,
+    {USER_FAVORITE_SQL} AS user_favorite,
+    {USER_LIKE_SQL} AS user_like,
+    {USER_DISLIKE_SQL} AS user_dislike,
+    {user_count} AS user_count,
+    COALESCE({user_visits}, 0) AS user_visits,
+    {like_rate} AS like_rate,
+    {like_score} AS like_score
 "#
         )
     });
@@ -273,12 +285,19 @@ impl PlaceOrderBy {
         }
     }
     pub(super) fn column(self) -> &'static str {
+        static UPDATED_AT: LazyLock<String> = LazyLock::new(|| raw_timestamptz_sql("updated_at"));
+        static CREATED_AT: LazyLock<String> = LazyLock::new(|| raw_timestamptz_sql("created_at"));
+        static USER_VISITS: LazyLock<String> =
+            LazyLock::new(|| format!("COALESCE({}, 0)", raw_int_sql("user_visits")));
+        static MOST_ACTIVE: LazyLock<String> =
+            LazyLock::new(|| format!("COALESCE({}, 0)", raw_int_sql("user_count")));
+        static LIKE_SCORE: LazyLock<String> = LazyLock::new(|| raw_float8_sql("like_score"));
         match self {
-            Self::LikeScore => "NULLIF(raw->>'like_score','')::float8",
-            Self::UpdatedAt => "NULLIF(raw->>'updated_at','')::timestamptz",
-            Self::CreatedAt => "NULLIF(raw->>'created_at','')::timestamptz",
-            Self::UserVisits => "COALESCE(NULLIF(raw->>'user_visits','')::int, 0)",
-            Self::MostActive => "COALESCE(NULLIF(raw->>'user_count','')::int, 0)",
+            Self::LikeScore => &LIKE_SCORE,
+            Self::UpdatedAt => &UPDATED_AT,
+            Self::CreatedAt => &CREATED_AT,
+            Self::UserVisits => &USER_VISITS,
+            Self::MostActive => &MOST_ACTIVE,
         }
     }
 }

@@ -1,6 +1,6 @@
 use super::types::{
     top_creators_clamp_days, top_creators_clamp_first, top_creators_min_sales,
-    LegacyCatalogFilters, ShopCatalogFilters, ShopSortBy, SHOP_DEFAULT_PAGE_SIZE,
+    LegacyCatalogFilters, ShopCatalogFilters, ShopListingType, ShopSortBy, SHOP_DEFAULT_PAGE_SIZE,
     SHOP_MAX_PAGE_SIZE, SHOP_MIN_PAGE_SIZE, TOP_CREATORS_MIN_ITEMS,
 };
 use crate::logic::sql_filters::where_from;
@@ -270,12 +270,109 @@ pub(super) fn gender_expr() -> &'static str {
 pub(super) const SHOP_NAME_EXPR: &str = "COALESCE(nft.name, w_p.name, e_p.name)";
 pub(super) const LEGACY_NAME_EXPR: &str = "COALESCE(w_p.name, e_p.name)";
 
+/// The legacy (MANA) feed's ordering. It carries no coupon join, so a `discount` sort has
+/// nothing to order by and falls back to newest, as upstream's does.
 pub(super) fn order_by(sort_by: Option<ShopSortBy>, name_expr: &str) -> String {
     match sort_by {
         Some(ShopSortBy::Cheapest) => "ORDER BY mv.amount_received ASC".to_string(),
         Some(ShopSortBy::MostExpensive) => "ORDER BY mv.amount_received DESC".to_string(),
         Some(ShopSortBy::Name) => format!("ORDER BY {name_expr} ASC"),
-        Some(ShopSortBy::Newest) | None => "ORDER BY mv.created_at DESC".to_string(),
+        Some(ShopSortBy::Newest) | Some(ShopSortBy::Discount) | None => {
+            "ORDER BY mv.created_at DESC".to_string()
+        }
+    }
+}
+
+/// The best live creator coupon for the listing aliased `mv`, exposed as `cp`: the creator's own
+/// coupon covering the listed collection, inside its window, neither cancelled nor revoked and
+/// with uses left as of the last on-chain read. Biggest discount wins, ties go to the one ending
+/// soonest. Primaries only -- the coupon contract refuses anything but collection items, so a
+/// resale never carries one.
+///
+/// Scoped by CHAIN, not only by network: `network_for_chain` collapses Polygon (137) and Amoy
+/// (80002) to the same `MATIC`, so a testnet coupon would otherwise discount a mainnet listing
+/// in a database carrying both. The coupon a buyer is handed must be redeemable against the
+/// CouponManager on the listing's own chain.
+pub(super) fn coupon_join() -> &'static str {
+    "LEFT JOIN LATERAL (\n\
+       SELECT c.id, c.signer, c.coupon_manager, c.coupon_address, c.checks, c.discount_type,\n\
+              c.discount_ppm, c.root, c.collections, c.signature, c.expires_at,\n\
+              COALESCE(cs.uses, 0) AS used\n\
+       FROM marketplace.coupons c\n\
+       LEFT JOIN marketplace.coupon_state cs ON cs.coupon_id = c.id\n\
+       WHERE mv.type = 'public_item_order'\n\
+         AND c.signer = LOWER(mv.signer)\n\
+         AND c.network = mv.network\n\
+         AND c.chain_id = mv.chain_id\n\
+         AND c.effective_since <= now() AND c.expires_at > now()\n\
+         AND LOWER(mv.sent_contract_address) = ANY(c.collections)\n\
+         AND COALESCE(cs.cancelled, false) = false\n\
+         AND COALESCE(cs.revoked, false) = false\n\
+         AND COALESCE(cs.uses, 0) < (c.checks->>'uses')::numeric\n\
+       ORDER BY c.discount_ppm DESC, c.expires_at ASC\n\
+       LIMIT 1\n\
+     ) cp ON true"
+}
+
+/// What the buyer pays once `cp` applies: the coupon contract subtracts floor(price * ppm / 1e6).
+pub(super) const SALE_WEI_EXPR: &str =
+    "(mv.amount_received::numeric - FLOOR(mv.amount_received::numeric * cp.discount_ppm / 1000000))";
+
+/// The price a listing is filtered and sorted by: the sale price while a coupon applies, else the
+/// list price. A discounted listing must land in the slider range of what the buyer actually pays.
+pub(super) fn effective_wei_expr() -> String {
+    format!("COALESCE({SALE_WEI_EXPR}, mv.amount_received::numeric)")
+}
+
+/// The coupon as one jsonb the row mapper turns into the buy-side payload. Same columns, same
+/// order and same types as [`null_coupon_columns`], so a UNION of the two lines up.
+pub(super) fn coupon_columns() -> &'static str {
+    "cp.id::text AS coupon_id,\n\
+     cp.discount_ppm AS coupon_discount_ppm,\n\
+     EXTRACT(EPOCH FROM cp.expires_at)::bigint AS sale_ends_at,\n\
+     CASE WHEN cp.id IS NOT NULL THEN LEAST(\n\
+       (cp.checks->>'uses')::numeric - cp.used,\n\
+       COALESCE(mv.available::numeric, (cp.checks->>'uses')::numeric - cp.used)\n\
+     )::bigint END AS sale_units_left,\n\
+     CASE WHEN cp.id IS NOT NULL THEN jsonb_build_object(\n\
+       'id', cp.id, 'signer', cp.signer, 'couponManager', cp.coupon_manager,\n\
+       'couponAddress', cp.coupon_address, 'checks', cp.checks,\n\
+       'discountType', cp.discount_type, 'discount', cp.discount_ppm, 'root', cp.root,\n\
+       'collections', to_jsonb(cp.collections), 'signature', cp.signature, 'used', cp.used\n\
+     ) END AS coupon"
+}
+
+pub(super) fn null_coupon_columns() -> &'static str {
+    "NULL::text AS coupon_id,\n\
+     NULL::integer AS coupon_discount_ppm,\n\
+     NULL::bigint AS sale_ends_at,\n\
+     NULL::bigint AS sale_units_left,\n\
+     NULL::jsonb AS coupon"
+}
+
+/// The shop feed's ordering. Prices sort by what the buyer PAYS, and the coupon join adds the
+/// deals sort the legacy feed cannot answer.
+pub(super) fn shop_order_by(sort_by: Option<ShopSortBy>) -> String {
+    match sort_by {
+        Some(ShopSortBy::Cheapest) => format!("ORDER BY {} ASC", effective_wei_expr()),
+        Some(ShopSortBy::MostExpensive) => format!("ORDER BY {} DESC", effective_wei_expr()),
+        Some(ShopSortBy::Discount) => SHOP_DISCOUNT_ORDER.to_string(),
+        other => order_by(other, SHOP_NAME_EXPR),
+    }
+}
+
+pub(super) const SHOP_DISCOUNT_ORDER: &str =
+    "ORDER BY cp.discount_ppm DESC NULLS LAST, cp.expires_at ASC NULLS LAST, mv.created_at DESC";
+
+/// A branch that cannot carry a coupon has nothing on sale, so `discounted=true` must empty it
+/// rather than fall through to unfiltered; `discounted=false` is a no-op there, everything in it
+/// already qualifies.
+pub(super) fn discounted_predicate(discounted: Option<bool>, with_coupons: bool) -> Option<String> {
+    match (discounted, with_coupons) {
+        (Some(true), true) => Some(" cp.id IS NOT NULL ".to_string()),
+        (Some(true), false) => Some(" FALSE ".to_string()),
+        (Some(false), true) => Some(" cp.id IS NULL ".to_string()),
+        _ => None,
     }
 }
 
@@ -358,13 +455,25 @@ pub fn build_shop_listings_sql(filters: &ShopCatalogFilters) -> (String, Vec<Bin
                 .to_string(),
         );
     }
+    match filters.listing_type {
+        Some(ShopListingType::Primary) => {
+            wheres.push(" mv.type = 'public_item_order' ".to_string())
+        }
+        Some(ShopListingType::Secondary) => {
+            wheres.push(" mv.type <> 'public_item_order' ".to_string())
+        }
+        None => {}
+    }
+    if let Some(predicate) = discounted_predicate(filters.discounted, true) {
+        wheres.push(predicate);
+    }
     if let Some(min_wei) = filters.min_price_credits.and_then(credits_to_wei) {
         let p = emit(Bind::Text(min_wei.to_string()), &mut binds, &mut next_idx);
-        wheres.push(format!(" mv.amount_received >= {p}::numeric "));
+        wheres.push(format!(" {} >= {p}::numeric ", effective_wei_expr()));
     }
     if let Some(max_wei) = filters.max_price_credits.and_then(credits_to_wei) {
         let p = emit(Bind::Text(max_wei.to_string()), &mut binds, &mut next_idx);
-        wheres.push(format!(" mv.amount_received <= {p}::numeric "));
+        wheres.push(format!(" {} <= {p}::numeric ", effective_wei_expr()));
     }
     if let Some(search) = filters.search.as_deref().filter(|s| !s.is_empty()) {
         let matched = shop_search_where(SHOP_NAME_EXPR, search, &mut binds, &mut next_idx);
@@ -401,20 +510,26 @@ pub fn build_shop_listings_sql(filters: &ShopCatalogFilters) -> (String, Vec<Bin
            mv.assets->'sent'->>'owner' AS seller,\n\
            mv.assets->'sent'->>'issued_id' AS issued_id,\n\
            mv.amount_received::text AS price,\n\
+           CASE WHEN cp.id IS NOT NULL THEN {sale_wei}::text END AS sale_price,\n\
            mv.available::text AS available,\n\
            mv.network AS network,\n\
            EXTRACT(EPOCH FROM mv.created_at)::bigint * 1000 AS created_at,\n\
            COUNT(*) OVER() AS total,\n\
-           {gender}\n\
+           {gender},\n\
+           {coupon_columns}\n\
          {joins}\n\
+         {coupon_join}\n\
          {where_clause}\n\
          {order}\n\
          LIMIT {limit_p} OFFSET {offset_p}",
         name_expr = SHOP_NAME_EXPR,
+        sale_wei = SALE_WEI_EXPR,
         gender = gender_expr(),
+        coupon_columns = coupon_columns(),
         joins = metadata_joins(),
+        coupon_join = coupon_join(),
         where_clause = where_from(&wheres),
-        order = order_by(filters.sort_by, SHOP_NAME_EXPR),
+        order = shop_order_by(filters.sort_by),
     );
 
     (sql, binds)

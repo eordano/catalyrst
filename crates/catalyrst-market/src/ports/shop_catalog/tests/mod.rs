@@ -2,7 +2,7 @@ use super::component::{network_and_chain, top_level_category};
 use super::sql::{
     build_importable_listings_sql, build_legacy_listings_sql, build_shop_listings_sql,
     build_top_creators_sql, credits_to_wei, escape_like, to_credits, Bind, ASSET_TYPE_ERC20,
-    ASSET_TYPE_USD_PEGGED_MANA, USD_WEI_PER_CREDIT,
+    ASSET_TYPE_USD_PEGGED_MANA, SHOP_DISCOUNT_ORDER, USD_WEI_PER_CREDIT,
 };
 use super::types::{
     parse_shop_filters, LegacyCatalogFilters, ShopCatalogFilters, ShopSortBy,
@@ -10,11 +10,11 @@ use super::types::{
     TOP_CREATORS_MIN_LIMIT, TOP_CREATORS_MIN_SALES_PER_WINDOW, TOP_CREATORS_MIN_WINDOW_SALES_FLOOR,
 };
 use super::unified::{
-    build_reference_item_sql, build_related_items_sql, build_trending_items_sql,
-    build_unified_items_sql, build_unified_listings_sql, parse_trending_filters,
-    parse_unified_filters, parse_unified_group_by, unified_min_price_bound_wei, ReferenceItem,
-    ShopListingType, UnifiedCatalogFilters, UnifiedGroupBy, UnifiedSource, RELATED_DEFAULT_LIMIT,
-    RELATED_MAX_LIMIT,
+    build_items_by_ids_sql, build_reference_item_sql, build_related_items_sql,
+    build_trending_items_sql, build_unified_items_sql, build_unified_listings_sql,
+    parse_related_filters, parse_trending_filters, parse_unified_filters, parse_unified_group_by,
+    unified_min_price_bound_wei, ReferenceItem, RelatedItemsFilters, ShopListingType,
+    UnifiedCatalogFilters, UnifiedGroupBy, UnifiedSource, RELATED_DEFAULT_LIMIT, RELATED_MAX_LIMIT,
 };
 use crate::dcl_schemas::Network;
 
@@ -73,6 +73,11 @@ fn shop_sql_targets_open_credit_buyable_listings() {
     assert_eq!(bind_ints(&binds), vec![ASSET_TYPE_USD_PEGGED_MANA, 48, 0]);
 }
 
+/// Upstream a0580d9: a discounted listing must sort and filter by what the buyer PAYS.
+const EFFECTIVE: &str =
+    "COALESCE((mv.amount_received::numeric - FLOOR(mv.amount_received::numeric \
+                         * cp.discount_ppm / 1000000)), mv.amount_received::numeric)";
+
 #[test]
 fn shop_price_bounds_bind_whole_credit_wei() {
     let filters = ShopCatalogFilters {
@@ -81,8 +86,8 @@ fn shop_price_bounds_bind_whole_credit_wei() {
         ..Default::default()
     };
     let (sql, binds) = build_shop_listings_sql(&filters);
-    assert!(sql.contains("mv.amount_received >= $"), "{sql}");
-    assert!(sql.contains("mv.amount_received <= $"), "{sql}");
+    assert!(sql.contains(&format!("{EFFECTIVE} >= $")), "{sql}");
+    assert!(sql.contains(&format!("{EFFECTIVE} <= $")), "{sql}");
     let texts = bind_texts(&binds);
     assert!(texts.contains(&(3 * USD_WEI_PER_CREDIT).to_string()));
     assert!(texts.contains(&(10 * USD_WEI_PER_CREDIT).to_string()));
@@ -105,25 +110,29 @@ fn shop_sort_uses_fixed_expressions_only() {
     for (sort, expected) in [
         (
             Some(ShopSortBy::Cheapest),
-            "ORDER BY mv.amount_received ASC",
+            format!("ORDER BY {EFFECTIVE} ASC"),
         ),
         (
             Some(ShopSortBy::MostExpensive),
-            "ORDER BY mv.amount_received DESC",
+            format!("ORDER BY {EFFECTIVE} DESC"),
         ),
         (
             Some(ShopSortBy::Name),
-            "ORDER BY COALESCE(nft.name, w_p.name, e_p.name) ASC",
+            "ORDER BY COALESCE(nft.name, w_p.name, e_p.name) ASC".to_string(),
         ),
-        (Some(ShopSortBy::Newest), "ORDER BY mv.created_at DESC"),
-        (None, "ORDER BY mv.created_at DESC"),
+        (Some(ShopSortBy::Discount), SHOP_DISCOUNT_ORDER.to_string()),
+        (
+            Some(ShopSortBy::Newest),
+            "ORDER BY mv.created_at DESC".to_string(),
+        ),
+        (None, "ORDER BY mv.created_at DESC".to_string()),
     ] {
         let filters = ShopCatalogFilters {
             sort_by: sort,
             ..Default::default()
         };
         let (sql, _) = build_shop_listings_sql(&filters);
-        assert!(sql.contains(expected), "{sort:?}: {sql}");
+        assert!(sql.contains(&expected), "{sort:?}: {sql}");
     }
 }
 
@@ -373,10 +382,7 @@ fn unified_defaults_to_both_sources_merged_with_union_all() {
     assert!(sql.contains("'legacy' AS source"), "{sql}");
     assert_eq!(occurrences(&sql, "'trade' AS acquisition"), 2, "{sql}");
     assert_eq!(occurrences(&sql, "'store' AS acquisition"), 1, "{sql}");
-    assert!(
-        sql.contains("mv.amount_received::numeric AS usd_wei"),
-        "{sql}"
-    );
+    assert!(sql.contains(&format!("{EFFECTIVE} AS usd_wei")), "{sql}");
     assert!(
         sql.contains("(mv.amount_received::numeric * $1::numeric) AS usd_wei"),
         "{sql}"
@@ -840,19 +846,143 @@ fn parse_unified_filters_validates_source() {
 fn parse_unified_filters_validates_listing_type() {
     let primary = vec![("listingType".to_string(), "primary".to_string())];
     assert_eq!(
-        parse_unified_filters(&primary).listing_type,
+        parse_unified_filters(&primary).base.listing_type,
         Some(ShopListingType::Primary)
     );
 
     let secondary = vec![("listingType".to_string(), "secondary".to_string())];
     assert_eq!(
-        parse_unified_filters(&secondary).listing_type,
+        parse_unified_filters(&secondary).base.listing_type,
         Some(ShopListingType::Secondary)
     );
 
     let bad = vec![("listingType".to_string(), "bogus".to_string())];
-    assert_eq!(parse_unified_filters(&bad).listing_type, None);
-    assert_eq!(parse_unified_filters(&[]).listing_type, None);
+    assert_eq!(parse_unified_filters(&bad).base.listing_type, None);
+    assert_eq!(parse_unified_filters(&[]).base.listing_type, None);
+}
+
+/// /v3/catalog/shop is NATIVE-only, which is NOT primary-only: the native branch carries
+/// resales, and those are durable signed orders no flag cancels.
+#[test]
+fn shop_feed_filters_by_listing_type() {
+    const PRIMARY: &str = "AND mv.type = 'public_item_order'";
+    const SECONDARY: &str = "AND mv.type <> 'public_item_order'";
+
+    let (baseline_sql, _) = build_shop_listings_sql(&ShopCatalogFilters::default());
+    let baseline = occurrences(&baseline_sql, PRIMARY);
+    assert!(!baseline_sql.contains(SECONDARY), "{baseline_sql}");
+
+    let primary = ShopCatalogFilters {
+        listing_type: Some(ShopListingType::Primary),
+        ..Default::default()
+    };
+    let (sql, _) = build_shop_listings_sql(&primary);
+    assert_eq!(occurrences(&sql, PRIMARY), baseline + 1, "{sql}");
+
+    let secondary = ShopCatalogFilters {
+        listing_type: Some(ShopListingType::Secondary),
+        ..Default::default()
+    };
+    let (sql, _) = build_shop_listings_sql(&secondary);
+    assert!(sql.contains(SECONDARY), "{sql}");
+}
+
+/// An unrecognized value DROPS the filter rather than being rejected, as upstream's
+/// `getValue` fallback does -- a typo returns both kinds, not a 400.
+#[test]
+fn parse_shop_filters_reads_listing_type_and_drops_a_typo() {
+    let primary = vec![("listingType".to_string(), "primary".to_string())];
+    assert_eq!(
+        parse_shop_filters(&primary).listing_type,
+        Some(ShopListingType::Primary)
+    );
+
+    let secondary = vec![("listingType".to_string(), "secondary".to_string())];
+    assert_eq!(
+        parse_shop_filters(&secondary).listing_type,
+        Some(ShopListingType::Secondary)
+    );
+
+    let bad = vec![("listingType".to_string(), "primaryy".to_string())];
+    assert_eq!(parse_shop_filters(&bad).listing_type, None);
+    assert_eq!(parse_shop_filters(&[]).listing_type, None);
+}
+
+/// The trending rail reads the same narrowed set the unified grid does.
+#[test]
+fn parse_trending_filters_reads_listing_type() {
+    let primary = vec![("listingType".to_string(), "primary".to_string())];
+    assert_eq!(
+        parse_trending_filters(&primary).filters.base.listing_type,
+        Some(ShopListingType::Primary)
+    );
+    assert_eq!(parse_trending_filters(&[]).filters.base.listing_type, None);
+}
+
+/// Resale LISTING lives in the classic Marketplace, so a copy put up for sale is a
+/// `public_nft_order` priced in MANA -- precisely the combination the legacy branch pinned
+/// out with its own `mv.type = 'public_item_order'`. Counted, not matched: the predicate also
+/// appears in the query's own joins, so `contains` would pass with the branch still shut.
+#[test]
+fn opting_in_to_classic_resales_opens_the_legacy_branch_only() {
+    const PRIMARY: &str = "AND mv.type = 'public_item_order'";
+
+    let (baseline_sql, _) = build_unified_listings_sql(&UnifiedCatalogFilters::default(), 0.5);
+    let baseline = occurrences(&baseline_sql, PRIMARY);
+
+    let opted_in = UnifiedCatalogFilters {
+        include_legacy_secondary: true,
+        ..Default::default()
+    };
+    let (sql, _) = build_unified_listings_sql(&opted_in, 0.5);
+    assert_eq!(occurrences(&sql, PRIMARY), baseline - 1, "{sql}");
+
+    let native_only = UnifiedCatalogFilters {
+        source: Some(UnifiedSource::Native),
+        include_legacy_secondary: true,
+        ..Default::default()
+    };
+    let (native_sql, _) = build_unified_listings_sql(&native_only, 0.5);
+    let (native_baseline_sql, _) = build_unified_listings_sql(
+        &UnifiedCatalogFilters {
+            source: Some(UnifiedSource::Native),
+            ..Default::default()
+        },
+        0.5,
+    );
+    assert_eq!(
+        occurrences(&native_sql, PRIMARY),
+        occurrences(&native_baseline_sql, PRIMARY),
+        "{native_sql}"
+    );
+}
+
+/// Only an explicit `true` may change today's response: an absent key, a `false` and a typo
+/// all keep the pre-existing feed. A presence-based read would let `=false` ENABLE it.
+#[test]
+fn include_legacy_secondary_is_an_explicit_true_opt_in() {
+    for (value, expected) in [
+        ("true", true),
+        ("false", false),
+        ("TRUE", false),
+        ("1", false),
+        ("", false),
+    ] {
+        let pairs = vec![("includeLegacySecondary".to_string(), value.to_string())];
+        assert_eq!(
+            parse_unified_filters(&pairs).include_legacy_secondary,
+            expected,
+            "includeLegacySecondary={value:?}"
+        );
+        assert_eq!(
+            parse_trending_filters(&pairs)
+                .filters
+                .include_legacy_secondary,
+            expected,
+            "includeLegacySecondary={value:?}"
+        );
+    }
+    assert!(!parse_unified_filters(&[]).include_legacy_secondary);
 }
 
 fn occurrences(haystack: &str, needle: &str) -> usize {
@@ -971,14 +1101,20 @@ fn unified_listing_type_filter_lands_in_every_union_branch() {
     assert!(!baseline_sql.contains(SECONDARY), "{baseline_sql}");
 
     let primary = UnifiedCatalogFilters {
-        listing_type: Some(ShopListingType::Primary),
+        base: ShopCatalogFilters {
+            listing_type: Some(ShopListingType::Primary),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let (sql, _) = build_unified_listings_sql(&primary, 0.5);
     assert_eq!(occurrences(&sql, PRIMARY), baseline + 3, "{sql}");
 
     let secondary = UnifiedCatalogFilters {
-        listing_type: Some(ShopListingType::Secondary),
+        base: ShopCatalogFilters {
+            listing_type: Some(ShopListingType::Secondary),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let (sql, _) = build_unified_listings_sql(&secondary, 0.5);
@@ -993,7 +1129,10 @@ fn unified_listing_type_filter_applies_to_the_grouped_item_feed() {
     let baseline = occurrences(&baseline_sql, PRIMARY);
 
     let primary = UnifiedCatalogFilters {
-        listing_type: Some(ShopListingType::Primary),
+        base: ShopCatalogFilters {
+            listing_type: Some(ShopListingType::Primary),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let (sql, _) = build_unified_items_sql(&primary, 0.5);
@@ -1141,6 +1280,8 @@ fn unified_items_break_price_ties_towards_the_signed_trade() {
 }
 
 mod approval;
+mod collections;
+mod coupons;
 mod emotes;
 mod rails;
 mod search;

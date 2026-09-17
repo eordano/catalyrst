@@ -9,6 +9,8 @@ use serde_json::Value;
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 
+use crate::catalog::parse_mirror_timestamp;
+
 /// Upstream clamps `limit` to 100 (places getWorldListQuery).
 const PAGE: i64 = 100;
 /// A cycle aborts after this many consecutive failed pages so an unreachable
@@ -26,7 +28,7 @@ const UPSERT: &str = r#"
          categories, likes, dislikes, favorites, deployed_at, disabled, highlighted,
          raw, fetched_at)
     VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12, $13, $14, now())
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now())
     ON CONFLICT (id) DO UPDATE SET
         base_position   = EXCLUDED.base_position,
         title           = EXCLUDED.title,
@@ -286,7 +288,7 @@ pub async fn upsert_world(pool: &PgPool, world: &Value) -> Result<bool> {
         .bind(w.likes.unwrap_or(0))
         .bind(w.dislikes.unwrap_or(0))
         .bind(w.favorites.unwrap_or(0))
-        .bind(w.deployed_at.as_deref())
+        .bind(parse_mirror_timestamp(w.deployed_at.as_deref()))
         .bind(w.disabled.unwrap_or(false))
         .bind(w.highlighted.unwrap_or(false))
         .bind(&raw)
@@ -404,6 +406,28 @@ mod tests {
         assert_eq!(w.likes, None);
         assert_eq!(w.categories, None);
         assert_eq!(w.title, None);
+    }
+
+    #[test]
+    fn an_unparseable_deployed_at_drops_the_field_instead_of_failing_the_page() {
+        let (w, _) = extract_fields(&json!({
+            "id": "a.dcl.eth",
+            "world_name": "a.dcl.eth",
+            "deployed_at": "not-a-date"
+        }))
+        .expect("the row is still servable");
+        assert_eq!(w.deployed_at.as_deref(), Some("not-a-date"));
+        assert_eq!(
+            parse_mirror_timestamp(w.deployed_at.as_deref()),
+            None,
+            "one unusable timestamp must not abort the whole mirror page"
+        );
+        assert_eq!(
+            parse_mirror_timestamp(Some("2024-08-08T11:50:58.807Z"))
+                .map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+                .as_deref(),
+            Some("2024-08-08T11:50:58.807Z")
+        );
     }
 
     #[test]

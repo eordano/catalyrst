@@ -49,3 +49,7 @@ export function normalizeTimestamp(timestamp: bigint): Date {
     return new Date();
   }
 }
+
+export function stripNul(value: string): string {
+  return value.replace(/\u0000/g, "");
+}

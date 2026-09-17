@@ -10,6 +10,7 @@ use bytes::Bytes;
 use catalyrst_commons::cache::TtlMap;
 use sqlx::PgPool;
 
+use crate::auth_chain::AUTH_CHAIN_HEADER_PREFIX;
 use crate::ports::catalog_cache::DIRTY_CHANNEL;
 
 const DEFAULT_TTL_SECS: u64 = 30;
@@ -83,6 +84,73 @@ impl ResponseCache {
         EXACT.contains(&path) || PREFIXES.iter().any(|p| path.starts_with(p))
     }
 
+    /// A credentialed request can carry per-caller fields in its body (`/v1/catalog`'s
+    /// `picks[].pickedByUser`), and the key is path+query only -- so a credentialed response
+    /// must never enter or be served from this shared store. Any header that identifies a
+    /// caller counts, not just the signed-fetch chain. Keep this guard on any new caller.
+    fn carries_credentials(headers: &HeaderMap) -> bool {
+        headers.keys().any(|k| {
+            let name = k.as_str();
+            name.starts_with(AUTH_CHAIN_HEADER_PREFIX)
+                || name == "authorization"
+                || name == "proxy-authorization"
+                || name == "cookie"
+        })
+    }
+
+    /// Only the headers that describe the body itself are replayed. A stored `set-cookie`,
+    /// `date` or per-request trace header would be handed to every later caller of the same
+    /// path, which is how a shared cache leaks one caller's session into another's response.
+    fn cacheable_headers(headers: &HeaderMap) -> HeaderMap {
+        const KEEP: &[&str] = &[
+            "content-type",
+            "content-encoding",
+            "content-language",
+            "cache-control",
+            "etag",
+            "last-modified",
+            "vary",
+        ];
+        let mut out = HeaderMap::new();
+        for name in KEEP {
+            for value in headers.get_all(*name) {
+                if let Ok(header) = axum::http::HeaderName::try_from(*name) {
+                    out.append(header, value.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// A response that names itself `private` or `no-store`, or whose `Vary` makes the answer
+    /// depend on a request header the key does not carry, is not the same answer for the next
+    /// caller. The key is path+query only, so such a response never enters the shared store.
+    fn is_shareable(headers: &HeaderMap) -> bool {
+        for value in headers.get_all(axum::http::header::CACHE_CONTROL) {
+            let Ok(text) = value.to_str() else {
+                return false;
+            };
+            for directive in text.split(',') {
+                let token = directive.split('=').next().unwrap_or(directive).trim();
+                if token.eq_ignore_ascii_case("no-store") || token.eq_ignore_ascii_case("private") {
+                    return false;
+                }
+            }
+        }
+        for value in headers.get_all(axum::http::header::VARY) {
+            let Ok(text) = value.to_str() else {
+                return false;
+            };
+            for name in text.split(',') {
+                let name = name.trim();
+                if !name.is_empty() && !name.eq_ignore_ascii_case("accept-encoding") {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     fn lookup(&self, key: &str) -> Option<(StatusCode, HeaderMap, Bytes)> {
         let e = self.entries.get_fresh(&key.to_string())?;
         Some((e.status, e.headers, e.body))
@@ -114,6 +182,7 @@ pub async fn middleware(
     if !cache.enabled
         || req.method() != Method::GET
         || !ResponseCache::cacheable_path(req.uri().path())
+        || ResponseCache::carries_credentials(req.headers())
     {
         return next.run(req).await;
     }
@@ -136,7 +205,10 @@ pub async fn middleware(
     if status != StatusCode::OK {
         return resp;
     }
-    let headers = resp.headers().clone();
+    if !ResponseCache::is_shareable(resp.headers()) {
+        return resp;
+    }
+    let headers = ResponseCache::cacheable_headers(resp.headers());
     let (parts, body) = resp.into_parts();
     match to_bytes(body, MAX_BODY_BYTES).await {
         Ok(bytes) => {
@@ -180,6 +252,79 @@ mod tests {
         assert!(!ResponseCache::cacheable_path("/v1/lists"));
         assert!(!ResponseCache::cacheable_path("/v1/activity"));
         assert!(!ResponseCache::cacheable_path("/v1/picks/0xdead-1"));
+        assert!(
+            !ResponseCache::cacheable_path("/v1/picks/stats"),
+            "the bulk pick stats vary with checkingUserAddress"
+        );
+    }
+
+    fn headers_with(name: &'static str, value: &'static str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::HeaderName::from_static(name),
+            axum::http::HeaderValue::from_static(value),
+        );
+        headers
+    }
+
+    #[test]
+    fn a_signed_request_bypasses_the_shared_store() {
+        assert!(
+            ResponseCache::carries_credentials(&headers_with("x-identity-auth-chain-0", "{}")),
+            "a signed /v1/catalog embeds that signer's pickedByUser flags"
+        );
+        assert!(!ResponseCache::carries_credentials(&headers_with(
+            "x-anonymous-id",
+            "abc"
+        )));
+        assert!(!ResponseCache::carries_credentials(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn any_credential_header_bypasses_the_shared_store() {
+        for name in ["authorization", "proxy-authorization", "cookie"] {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                axum::http::HeaderName::try_from(name).unwrap(),
+                axum::http::HeaderValue::from_static("secret"),
+            );
+            assert!(
+                ResponseCache::carries_credentials(&headers),
+                "{name} identifies a caller, so its response is not shareable"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stored_response_replays_only_headers_that_describe_its_body() {
+        let mut upstream = HeaderMap::new();
+        upstream.insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("application/json"),
+        );
+        upstream.insert(
+            axum::http::header::VARY,
+            axum::http::HeaderValue::from_static("origin"),
+        );
+        upstream.append(
+            axum::http::header::SET_COOKIE,
+            axum::http::HeaderValue::from_static("session=abc"),
+        );
+        upstream.insert(
+            axum::http::HeaderName::from_static("x-request-id"),
+            axum::http::HeaderValue::from_static("req-1"),
+        );
+        let kept = ResponseCache::cacheable_headers(&upstream);
+        assert_eq!(
+            kept.get(axum::http::header::CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+        assert_eq!(kept.get(axum::http::header::VARY).unwrap(), "origin");
+        assert!(
+            kept.get(axum::http::header::SET_COOKIE).is_none(),
+            "a replayed Set-Cookie hands one caller's session to the next"
+        );
+        assert!(kept.get("x-request-id").is_none());
     }
 
     #[test]
@@ -204,5 +349,80 @@ mod tests {
     fn ttl_zero_disables() {
         let c = ResponseCache::new(0);
         assert!(!c.enabled);
+    }
+
+    async fn handler_hits_for(response_headers: &[(&'static str, &'static str)]) -> usize {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tower::ServiceExt;
+
+        let hits = Arc::new(AtomicUsize::new(0));
+        let handler_hits = hits.clone();
+        let emitted = response_headers.to_vec();
+        let app = axum::Router::new()
+            .route(
+                "/v1/nfts",
+                axum::routing::get(move || {
+                    let hits = handler_hits.clone();
+                    let emitted = emitted.clone();
+                    async move {
+                        hits.fetch_add(1, Ordering::SeqCst);
+                        let mut resp = Response::new(Body::from("{}"));
+                        for (name, value) in emitted {
+                            resp.headers_mut().append(
+                                axum::http::HeaderName::from_static(name),
+                                axum::http::HeaderValue::from_static(value),
+                            );
+                        }
+                        resp
+                    }
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Arc::new(ResponseCache::new(60)),
+                middleware,
+            ));
+
+        for _ in 0..2 {
+            let req = Request::builder()
+                .uri("/v1/nfts?first=24")
+                .body(Body::empty())
+                .unwrap();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+        hits.load(Ordering::SeqCst)
+    }
+
+    #[tokio::test]
+    async fn a_response_that_calls_itself_private_is_not_served_to_a_second_caller() {
+        assert_eq!(
+            handler_hits_for(&[]).await,
+            1,
+            "an unmarked response is the same answer for everyone, so the second caller is served \
+             the stored one"
+        );
+        assert_eq!(
+            handler_hits_for(&[("cache-control", "private, max-age=30")]).await,
+            2
+        );
+        assert_eq!(handler_hits_for(&[("cache-control", "no-store")]).await, 2);
+    }
+
+    #[tokio::test]
+    async fn a_response_that_varies_by_a_request_header_is_not_served_to_a_second_caller() {
+        assert_eq!(
+            handler_hits_for(&[("vary", "Authorization")]).await,
+            2,
+            "the key is path+query only, so a Vary the key does not carry cannot be honoured"
+        );
+        assert_eq!(
+            handler_hits_for(&[("vary", "Origin, Accept-Encoding")]).await,
+            2
+        );
+        assert_eq!(
+            handler_hits_for(&[("vary", "Accept-Encoding")]).await,
+            1,
+            "content coding is already negotiated per stored body"
+        );
     }
 }

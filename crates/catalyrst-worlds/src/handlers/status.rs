@@ -59,13 +59,37 @@ pub struct StatusResponse {
 /// fragment, so a credentialed signaling URL never reaches the public status.
 fn livekit_status_url(ws_url: &str) -> String {
     let (scheme, rest) = match ws_url.split_once("://") {
-        Some((scheme, rest)) if scheme.eq_ignore_ascii_case("ws") => ("http", rest),
-        Some((_, rest)) => ("https", rest),
-        None => ("https", ws_url),
+        Some((scheme, rest)) => (scheme.to_ascii_lowercase(), rest),
+        None => ("wss".to_string(), ws_url),
     };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     let host = authority.rsplit('@').next().unwrap_or(authority);
-    format!("{scheme}://{host}/")
+    let status_scheme = if scheme == "ws" { "http" } else { "https" };
+    format!("{status_scheme}://{}/", url_host(&scheme, host))
+}
+
+/// What `URL.host` serializes for a special scheme: the hostname lowercased and the
+/// scheme's default port dropped. A scheme with no default port carries an opaque
+/// host, which the parser leaves exactly as delivered.
+fn url_host(scheme: &str, authority: &str) -> String {
+    let default_port: u16 = match scheme {
+        "ws" | "http" => 80,
+        "wss" | "https" => 443,
+        _ => return authority.to_string(),
+    };
+    let after_ipv6 = authority.rfind(']').map(|end| end + 1).unwrap_or(0);
+    let Some(colon) = authority[after_ipv6..].rfind(':').map(|i| after_ipv6 + i) else {
+        return authority.to_ascii_lowercase();
+    };
+    let (host, port) = (&authority[..colon], &authority[colon + 1..]);
+    if port.is_empty() {
+        return host.to_ascii_lowercase();
+    }
+    match port.parse::<u16>() {
+        Ok(port) if port == default_port => host.to_ascii_lowercase(),
+        Ok(port) => format!("{}:{port}", host.to_ascii_lowercase()),
+        Err(_) => authority.to_ascii_lowercase(),
+    }
 }
 
 #[utoipa::path(
@@ -177,6 +201,36 @@ mod tests {
             livekit_status_url("WSS://lk.example.com"),
             "https://lk.example.com/"
         );
+    }
+
+    /// `URL.host` lowercases the hostname and drops the scheme's default port, so two
+    /// spellings of the same signaling endpoint publish one status URL.
+    #[test]
+    fn the_host_is_serialized_the_way_url_host_serializes_it() {
+        assert_eq!(
+            livekit_status_url("wss://EXAMPLE.com:443"),
+            "https://example.com/"
+        );
+        assert_eq!(livekit_status_url("ws://Host:80"), "http://host/");
+        assert_eq!(livekit_status_url("wss://host:7880"), "https://host:7880/");
+        assert_eq!(
+            livekit_status_url("https://LK.Example.com"),
+            "https://lk.example.com/"
+        );
+        assert_eq!(
+            livekit_status_url("LK.Example.com:443"),
+            "https://lk.example.com/"
+        );
+    }
+
+    #[test]
+    fn an_ipv6_literal_keeps_its_brackets_and_its_non_default_port() {
+        assert_eq!(
+            livekit_status_url("wss://[::1]:7880"),
+            "https://[::1]:7880/"
+        );
+        assert_eq!(livekit_status_url("wss://[::1]:443"), "https://[::1]/");
+        assert_eq!(livekit_status_url("ws://[::1]"), "http://[::1]/");
     }
 
     #[test]

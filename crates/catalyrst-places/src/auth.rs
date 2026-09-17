@@ -27,6 +27,22 @@ pub fn auth_chain_claimed_address(headers: &HeaderMap) -> Option<String> {
     }
 }
 
+pub const AUTH_CHAIN_SIGNER_MISMATCH: &str = "auth-chain signer != envelope signer";
+
+/// The envelope's own signer is the only identity a signed write is ever attributed to, so a
+/// header identity claiming any other address is refused before the message is read.
+pub fn require_auth_chain_matches_signer(
+    headers: &HeaderMap,
+    signer: &str,
+) -> Result<(), ApiError> {
+    match auth_chain_claimed_address(headers) {
+        Some(addr) if !addr.eq_ignore_ascii_case(signer) => {
+            Err(ApiError::unauthorized(AUTH_CHAIN_SIGNER_MISMATCH))
+        }
+        _ => Ok(()),
+    }
+}
+
 pub async fn auth_address_optional(
     headers: &HeaderMap,
     method: &str,
@@ -163,6 +179,7 @@ impl FromRequestParts<AppState> for RequireAdmin {
 #[cfg(test)]
 mod auth_address_tests {
     use super::*;
+    use crate::fed::messages::{PlaceFavorite, PlaceFavoriteAction};
     use axum::http::HeaderValue;
 
     fn headers_with_signer(payload: &str) -> HeaderMap {
@@ -182,6 +199,73 @@ mod auth_address_tests {
             auth_chain_claimed_address(&headers),
             Some("0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266".to_string())
         );
+    }
+
+    fn signed_favorite(wallet: &catalyrst_crypto::Wallet) -> catalyrst_fed::Signed<PlaceFavorite> {
+        let mut signed = catalyrst_fed::Signed {
+            domain: catalyrst_fed::sig::domains::places(),
+            message: PlaceFavorite {
+                place_id: "123e4567-e89b-12d3-a456-426614174000".to_string(),
+                action: PlaceFavoriteAction::Add,
+                signed_at: 1_700_000_000,
+            },
+            nonce: [7u8; 16],
+            signed_at: 1_700_000_000,
+            signature: String::new(),
+        };
+        signed.signature = wallet.sign_message(&signed.hash()).unwrap();
+        signed
+    }
+
+    #[test]
+    fn a_header_identity_that_did_not_sign_the_envelope_is_refused() {
+        let signing = catalyrst_crypto::Wallet::from_hex(
+            "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+        )
+        .unwrap();
+        let other = catalyrst_crypto::Wallet::from_hex(
+            "0x0123456789012345678901234567890123456789012345678901234567890123",
+        )
+        .unwrap();
+        let signed = signed_favorite(&signing);
+        let envelope_signer = signed.signer().unwrap();
+        assert_eq!(envelope_signer, signing.address());
+        assert_ne!(other.address(), signing.address());
+
+        let err = require_auth_chain_matches_signer(
+            &headers_with_signer(&other.address()),
+            &envelope_signer,
+        )
+        .unwrap_err();
+        match err {
+            ApiError::Common(catalyrst_types::ApiError::Http {
+                status, message, ..
+            }) => {
+                assert_eq!(status, 401);
+                assert_eq!(message, AUTH_CHAIN_SIGNER_MISMATCH);
+            }
+            other => panic!("expected a 401, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_envelope_signer_passes_its_own_header_in_any_casing() {
+        let signing = catalyrst_crypto::Wallet::from_hex(
+            "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+        )
+        .unwrap();
+        let envelope_signer = signed_favorite(&signing).signer().unwrap();
+        let upper = format!("0x{}", envelope_signer[2..].to_uppercase());
+        assert!(
+            require_auth_chain_matches_signer(&headers_with_signer(&upper), &envelope_signer)
+                .is_ok()
+        );
+        assert!(require_auth_chain_matches_signer(&HeaderMap::new(), &envelope_signer).is_ok());
+        assert!(require_auth_chain_matches_signer(
+            &headers_with_signer("not-an-address"),
+            &envelope_signer
+        )
+        .is_ok());
     }
 
     #[test]

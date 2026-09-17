@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM failed_deployments WHERE entity_id = $1 AND retry_count <= $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6928e03c5115c974d091a4af604b1c7f2b2c06fb55b7d5fd6cbce7745e7e41ea"
+}

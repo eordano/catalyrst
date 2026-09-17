@@ -5,8 +5,8 @@ use serde::Deserialize;
 use crate::handlers::responses::{SceneParticipantsData, SceneParticipantsResponse};
 use crate::http::ApiError;
 use crate::livekit::{
-    address_from_identity, list_room_participant_identities, scene_room_name, world_room_name,
-    world_scene_room_name,
+    address_from_identity, is_world_realm_name, list_room_participant_identities, scene_room_name,
+    world_room_name, world_scene_room_name,
 };
 use crate::AppState;
 
@@ -15,10 +15,6 @@ pub struct ParticipantsQuery {
     pub pointer: Option<String>,
     pub realm_name: Option<String>,
     pub room: Option<String>,
-}
-
-fn is_world_name(name: &str) -> bool {
-    name.ends_with(".eth")
 }
 
 async fn resolve_scene_id(state: &AppState, pointer: &str) -> Option<String> {
@@ -61,7 +57,7 @@ pub async fn list_participants(
 
     let realm = realm_name.as_deref().unwrap_or("main");
 
-    let room_name = if is_world_name(realm) {
+    let room_name = if is_world_realm_name(realm) {
         match pointer {
             Some(p) => {
                 match super::scene_adapter::fetch_world_scene_id_by_pointer(&state, realm, p).await

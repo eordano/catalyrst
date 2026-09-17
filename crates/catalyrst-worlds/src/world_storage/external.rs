@@ -17,8 +17,8 @@ pub struct ExternalClient {
     places_url: String,
     worlds_content_server_url: String,
     lambdas_url: String,
-    place_id_cache: Cache<String, String>,
-    world_permission_cache: Cache<String, bool>,
+    place_id_cache: Cache<(String, String), String>,
+    world_permission_cache: Cache<(String, String, String), bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,7 +129,7 @@ impl ExternalClient {
         world_name: &str,
         parcel: &str,
     ) -> Result<String, ApiError> {
-        let cache_key = format!("{}:{}", world_name, parcel);
+        let cache_key = (world_name.to_string(), parcel.to_string());
         if let Some(hit) = self.place_id_cache.get(&cache_key).await {
             return Ok(hit);
         }
@@ -177,20 +177,26 @@ impl ExternalClient {
         Ok(place_id)
     }
 
+    /// Every field of the key stays a field: joined into one string, a world name or
+    /// parcel carrying the separator would answer with the decision cached for another
+    /// caller, and both are request-controlled. `address` is folded here as well as at
+    /// the call site so a caller that forgets cannot split the entry in two, and because
+    /// the owner and allow-list comparisons below read it as already folded.
     pub async fn has_world_permission(
         &self,
         world_name: &str,
         address: &str,
         parcel: &str,
     ) -> Result<bool, ApiError> {
-        let cache_key = format!("{}:{}:{}", world_name, address, parcel);
+        let address = address.to_ascii_lowercase();
+        let cache_key = (world_name.to_string(), address.clone(), parcel.to_string());
         if let Some(hit) = self.world_permission_cache.get(&cache_key).await {
             return Ok(hit);
         }
         let has = if is_world(world_name) {
-            self.check_world_permission(world_name, address).await?
+            self.check_world_permission(world_name, &address).await?
         } else {
-            self.check_genesis_city_permission(address, parcel).await?
+            self.check_genesis_city_permission(&address, parcel).await?
         };
         self.world_permission_cache.insert(cache_key, has).await;
         Ok(has)
@@ -292,7 +298,17 @@ fn urlencoding(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_shared_realm, is_world, GENESIS_CITY_REALM};
+    use super::{is_shared_realm, is_world, ExternalClient, GENESIS_CITY_REALM};
+
+    fn client() -> ExternalClient {
+        ExternalClient::new(
+            "http://places.invalid".to_string(),
+            "http://worlds.invalid".to_string(),
+            "http://lambdas.invalid".to_string(),
+            60,
+            60,
+        )
+    }
 
     #[test]
     fn shared_realm_is_anything_but_a_dcl_world_case_insensitively() {
@@ -302,5 +318,76 @@ mod tests {
         assert!(!is_shared_realm("Foo.DCL.eth"));
         assert!(is_world("foo.dcl.eth"));
         assert!(!is_world("main"));
+    }
+
+    #[tokio::test]
+    async fn a_permission_decision_never_answers_for_another_world_or_parcel() {
+        let client = client();
+        client
+            .world_permission_cache
+            .insert(
+                (
+                    "foo:0xabc".to_string(),
+                    "0xabc".to_string(),
+                    "1,1".to_string(),
+                ),
+                true,
+            )
+            .await;
+
+        assert!(
+            client
+                .world_permission_cache
+                .get(&(
+                    "foo".to_string(),
+                    "0xabc".to_string(),
+                    "0xabc:1,1".to_string()
+                ))
+                .await
+                .is_none(),
+            "a world name carrying the old separator must not answer for another parcel"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_place_id_never_answers_for_another_world_or_parcel() {
+        let client = client();
+        client
+            .place_id_cache
+            .insert(
+                ("foo:1,1".to_string(), "2,2".to_string()),
+                "place-a".to_string(),
+            )
+            .await;
+
+        assert!(
+            client
+                .place_id_cache
+                .get(&("foo".to_string(), "1,1:2,2".to_string()))
+                .await
+                .is_none(),
+            "a world name carrying the old separator must not answer for another parcel"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_recased_address_reads_the_same_permission_entry() {
+        let client = client();
+        client
+            .world_permission_cache
+            .insert(
+                (
+                    "foo.dcl.eth".to_string(),
+                    "0xabc".to_string(),
+                    "1,1".to_string(),
+                ),
+                true,
+            )
+            .await;
+
+        assert!(client
+            .has_world_permission("foo.dcl.eth", "0xABC", "1,1")
+            .await
+            .expect("the cached decision answers without reaching the permissions API"));
     }
 }

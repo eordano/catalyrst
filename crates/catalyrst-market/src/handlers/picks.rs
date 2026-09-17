@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -11,7 +11,10 @@ use crate::auth_chain::{
     self, AuthChainError, AuthChainErrorExt, AUTH_METADATA_HEADER, AUTH_TIMESTAMP_HEADER,
     FIVE_MINUTES,
 };
+use crate::http::pagination::get_number_parameter;
+use crate::http::params::is_address;
 use crate::http::response::ApiError;
+use crate::ports::catalog::PickStats;
 use crate::ports::lists::is_uuid;
 use crate::AppState;
 
@@ -29,7 +32,7 @@ async fn authenticate(
     method: &str,
     fallback_path: &str,
 ) -> Result<String, ApiError> {
-    auth_chain::require_canonical_metadata(headers)?;
+    auth_chain::require_not_scene_signer(headers)?;
 
     let chain = auth_chain::extract_auth_chain(headers).map_err(auth_chain_error_to_api)?;
 
@@ -82,6 +85,13 @@ pub struct PickUnpickEnvelope {
     pub data: PickUnpickResult,
 }
 
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "market/"))]
+pub struct PicksStatsEnvelope {
+    pub ok: bool,
+    pub data: Vec<PickStats>,
+}
+
 fn validate_list_ids(ids: &[String]) -> Result<(), ApiError> {
     if ids.iter().any(|id| !is_uuid(id)) {
         return Err(ApiError::bad_request("list ids must be UUIDs"));
@@ -110,6 +120,9 @@ impl From<ApiError> for PicksError {
 
 pub(crate) const LISTS_NOT_FOUND_MESSAGE: &str = "Some lists were not found.";
 pub(crate) const ITEM_NOT_FOUND_MESSAGE: &str = "The item trying to get saved doesn't exist.";
+pub(crate) const CHECKING_USER_ADDRESS_MESSAGE: &str =
+    "The checking user address parameter must be an Ethereum Address.";
+pub(crate) const NO_ITEM_IDS_MESSAGE: &str = "The request must include at least one item id.";
 
 /// `data` payload of the lists-not-found 404: the offending list ids.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -281,6 +294,67 @@ pub async fn unpick_everywhere(
     }))
 }
 
+/// Upstream `getPickStatsHandler` (picks-handlers.ts:51-92) is the one picks route registered
+/// without any `wellKnownComponents` wrapper (favorites/routes.ts:66): the bulk read is
+/// unsigned and `checkingUserAddress` arrives as a plain query string. Upstream lower-cases it
+/// before testing it against its address regex, so a `0X`-prefixed address is accepted.
+///
+/// `power` is parsed only so its malformed-value 400 fires exactly where upstream's does; it is
+/// not applied. Upstream counts a pick only when the picker's `favorites.voting.power` clears it
+/// (picks component.ts:36-42) and we have no `favorites.voting` table -- thread the value into
+/// `get_picks_stats` once that table lands.
+#[utoipa::path(
+    get,
+    path = "/v1/picks/stats",
+    tag = "market",
+    params(
+        ("itemId" = Vec<String>, Query, description = "Repeated once per item to read."),
+        ("checkingUserAddress" = Option<String>, Query,
+         description = "Unsigned address whose own pick is reported as pickedByUser."),
+        ("power" = Option<i64>, Query, description = "Minimum voting power; accepted, not applied.")
+    ),
+    responses(
+        (status = 200, body = PicksStatsEnvelope),
+        (status = 400, body = crate::http::response::MarketErrorBody),
+        (status = 500, body = crate::http::response::MarketErrorBody)
+    )
+)]
+pub async fn get_picks_stats(
+    State(state): State<AppState>,
+    Query(pairs): Query<Vec<(String, String)>>,
+) -> Result<Json<PicksStatsEnvelope>, ApiError> {
+    let _power = get_number_parameter("power", &pairs)?;
+
+    let item_ids: Vec<String> = pairs
+        .iter()
+        .filter(|(k, _)| k == "itemId")
+        .map(|(_, v)| v.clone())
+        .collect();
+
+    let user_address = pairs
+        .iter()
+        .find(|(k, _)| k == "checkingUserAddress")
+        .map(|(_, v)| v.to_lowercase())
+        .filter(|v| !v.is_empty());
+
+    if let Some(address) = &user_address {
+        if !is_address(address) {
+            return Err(ApiError::bad_request(CHECKING_USER_ADDRESS_MESSAGE));
+        }
+    }
+
+    if item_ids.is_empty() {
+        return Err(ApiError::bad_request(NO_ITEM_IDS_MESSAGE));
+    }
+
+    let data = state
+        .lists
+        .get_picks_stats(&item_ids, user_address.as_deref())
+        .await?;
+
+    Ok(Json(PicksStatsEnvelope { ok: true, data }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,6 +440,57 @@ mod tests {
             .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v, json!({ "ok": false, "message": "nope" }));
+    }
+
+    /// Upstream `fromDBPickStatsToPickStats` (adapters/picks/picks.ts:19-30) only sets
+    /// `pickedByUser` when the row carried one, so the key is absent for an unsigned read.
+    #[test]
+    fn picks_stats_envelope_serializes_camel_case() {
+        let env = PicksStatsEnvelope {
+            ok: true,
+            data: vec![
+                PickStats {
+                    count: 3,
+                    item_id: "0xf1483f042614105cb943d3dd67157256cd003028-15".to_string(),
+                    picked_by_user: Some(true),
+                },
+                PickStats {
+                    count: 0,
+                    item_id: "0xf1483f042614105cb943d3dd67157256cd003028-16".to_string(),
+                    picked_by_user: None,
+                },
+            ],
+        };
+        assert_eq!(
+            serde_json::to_value(&env).unwrap(),
+            json!({
+                "ok": true,
+                "data": [
+                    {
+                        "itemId": "0xf1483f042614105cb943d3dd67157256cd003028-15",
+                        "count": 3,
+                        "pickedByUser": true,
+                    },
+                    {
+                        "itemId": "0xf1483f042614105cb943d3dd67157256cd003028-16",
+                        "count": 0,
+                    },
+                ],
+            })
+        );
+    }
+
+    /// picks-handlers.ts:64-82: the two 400 bodies of the bulk stats read, verbatim.
+    #[test]
+    fn picks_stats_400_messages_match_upstream() {
+        assert_eq!(
+            CHECKING_USER_ADDRESS_MESSAGE,
+            "The checking user address parameter must be an Ethereum Address."
+        );
+        assert_eq!(
+            NO_ITEM_IDS_MESSAGE,
+            "The request must include at least one item id."
+        );
     }
 
     #[test]

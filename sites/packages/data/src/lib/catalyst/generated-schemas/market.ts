@@ -10,6 +10,7 @@ import type { CatalogItem } from "@ui/generated/catalyst/market/CatalogItem";
 import type { Collection } from "@ui/generated/catalyst/market/Collection";
 import type { Contract } from "@ui/generated/catalyst/market/Contract";
 import type { CreditCatalogItem } from "@ui/generated/catalyst/market/CreditCatalogItem";
+import type { DataOnly } from "@ui/generated/catalyst/market/DataOnly";
 import type { DataTotal } from "@ui/generated/catalyst/market/DataTotal";
 import type { DataTotalString } from "@ui/generated/catalyst/market/DataTotalString";
 import type { EmoteData } from "@ui/generated/catalyst/market/EmoteData";
@@ -43,6 +44,7 @@ import type { ParcelEstate } from "@ui/generated/catalyst/market/ParcelEstate";
 import type { PicksCount } from "@ui/generated/catalyst/market/PicksCount";
 import type { PicksEnvelope } from "@ui/generated/catalyst/market/PicksEnvelope";
 import type { PicksPage } from "@ui/generated/catalyst/market/PicksPage";
+import type { PicksStatsEnvelope } from "@ui/generated/catalyst/market/PicksStatsEnvelope";
 import type { PickStats } from "@ui/generated/catalyst/market/PickStats";
 import type { PickUnpickEnvelope } from "@ui/generated/catalyst/market/PickUnpickEnvelope";
 import type { PickUnpickResult } from "@ui/generated/catalyst/market/PickUnpickResult";
@@ -53,7 +55,18 @@ import type { RelatedResponseBody } from "@ui/generated/catalyst/market/RelatedR
 import type { RentalListing } from "@ui/generated/catalyst/market/RentalListing";
 import type { RentalListingPeriod } from "@ui/generated/catalyst/market/RentalListingPeriod";
 import type { Sale } from "@ui/generated/catalyst/market/Sale";
+import type { SalesSummary } from "@ui/generated/catalyst/market/SalesSummary";
+import type { SalesSummaryCollection } from "@ui/generated/catalyst/market/SalesSummaryCollection";
+import type { SalesSummaryItem } from "@ui/generated/catalyst/market/SalesSummaryItem";
+import type { SalesSummaryRoyalties } from "@ui/generated/catalyst/market/SalesSummaryRoyalties";
+import type { ShopCoupon } from "@ui/generated/catalyst/market/ShopCoupon";
+import type { ShopCouponRow } from "@ui/generated/catalyst/market/ShopCouponRow";
 import type { ShopListing } from "@ui/generated/catalyst/market/ShopListing";
+import type { ShopSaleFields } from "@ui/generated/catalyst/market/ShopSaleFields";
+import type { SuggestedItem } from "@ui/generated/catalyst/market/SuggestedItem";
+import type { SuggestionReason } from "@ui/generated/catalyst/market/SuggestionReason";
+import type { SuggestionReasonKind } from "@ui/generated/catalyst/market/SuggestionReasonKind";
+import type { SuggestionsResponse } from "@ui/generated/catalyst/market/SuggestionsResponse";
 import type { TopCreator } from "@ui/generated/catalyst/market/TopCreator";
 import type { TopCreatorsResponseBody } from "@ui/generated/catalyst/market/TopCreatorsResponseBody";
 import type { TrendingItem } from "@ui/generated/catalyst/market/TrendingItem";
@@ -225,6 +238,11 @@ export const CreditCatalogItemSchema = z.object({
   tradeExpiresAt: z.number().optional(),
   tradeContractAddress: z.string().nullable(),
 });
+
+export const DataOnlySchema = <T extends z.ZodType>(t: T) =>
+  z.object({
+    data: t,
+  });
 
 export const DataTotalSchema = <T extends z.ZodType>(t: T) =>
   z.object({
@@ -551,6 +569,11 @@ export const PicksEnvelopeSchema = z.object({
   data: PicksPageSchema,
 });
 
+export const PicksStatsEnvelopeSchema = z.object({
+  ok: z.boolean(),
+  data: z.array(PickStatsSchema),
+});
+
 export const ProfileEmoteSchema = z.object({
   urn: z.string(),
   id: z.string(),
@@ -584,6 +607,35 @@ export const ProfileWearableSchema = z.object({
   unlockAt: z.number().optional(),
 });
 
+export const ShopCouponSchema = z.object({
+  proof: z.array(z.string()),
+  id: z.string(),
+  signer: z.string(),
+  couponManager: z.string(),
+  couponAddress: z.string(),
+  checks: z.object({
+    uses: z.number(),
+    expiration: z.number(),
+    effective: z.number(),
+    salt: z.string(),
+    contractSignatureIndex: z.number(),
+    signerSignatureIndex: z.number(),
+    allowedRoot: z.string(),
+    externalChecks: z.array(z.object({
+      contractAddress: z.string(),
+      selector: z.string(),
+      value: z.string(),
+      required: z.boolean(),
+    })),
+  }),
+  discountType: z.number(),
+  discount: z.number(),
+  root: z.string(),
+  collections: z.array(z.string()),
+  signature: z.string(),
+  used: z.number(),
+});
+
 export const UnifiedItemSchema = z.object({
   source: z.enum(["native", "legacy"]),
   acquisition: z.enum(["trade", "store"]),
@@ -609,6 +661,10 @@ export const UnifiedItemSchema = z.object({
   network: NetworkSchema,
   chainId: z.number(),
   createdAt: z.number(),
+  compareAtCredits: z.number().nullable(),
+  saleEndsAt: z.number().nullable(),
+  saleUnitsLeft: z.number().nullable(),
+  coupon: ShopCouponSchema.nullable(),
 });
 
 export const RelatedResponseBodySchema = z.object({
@@ -628,6 +684,61 @@ export const SaleSchema = z.object({
   tokenId: z.string().nullable(),
   txHash: z.string(),
   type: z.string(),
+});
+
+export const SalesSummaryCollectionSchema = z.object({
+  contractAddress: z.string(),
+  sold: z.number(),
+  earnedWei: z.string(),
+});
+
+export const SalesSummaryItemSchema = z.object({
+  contractAddress: z.string(),
+  itemId: z.string(),
+  soldLifetime: z.number(),
+});
+
+export const SalesSummaryRoyaltiesSchema = z.object({
+  resales: z.number(),
+  volumeWei: z.string(),
+});
+
+export const SalesSummarySchema = z.object({
+  total: z.number(),
+  mints: z.number(),
+  resales: z.number(),
+  earnedWei: z.string(),
+  byCollection: z.array(SalesSummaryCollectionSchema),
+  byItem: z.array(SalesSummaryItemSchema),
+  royalties: SalesSummaryRoyaltiesSchema,
+});
+
+export const ShopCouponRowSchema = z.object({
+  id: z.string(),
+  signer: z.string(),
+  couponManager: z.string(),
+  couponAddress: z.string(),
+  checks: z.object({
+    uses: z.number(),
+    expiration: z.number(),
+    effective: z.number(),
+    salt: z.string(),
+    contractSignatureIndex: z.number(),
+    signerSignatureIndex: z.number(),
+    allowedRoot: z.string(),
+    externalChecks: z.array(z.object({
+      contractAddress: z.string(),
+      selector: z.string(),
+      value: z.string(),
+      required: z.boolean(),
+    })),
+  }),
+  discountType: z.number(),
+  discount: z.number(),
+  root: z.string(),
+  collections: z.array(z.string()),
+  signature: z.string(),
+  used: z.number(),
 });
 
 export const ShopListingSchema = z.object({
@@ -650,6 +761,64 @@ export const ShopListingSchema = z.object({
   network: NetworkSchema,
   chainId: z.number(),
   createdAt: z.number(),
+  compareAtCredits: z.number().nullable(),
+  saleEndsAt: z.number().nullable(),
+  saleUnitsLeft: z.number().nullable(),
+  coupon: ShopCouponSchema.nullable(),
+});
+
+export const ShopSaleFieldsSchema = z.object({
+  compareAtCredits: z.number().nullable(),
+  saleEndsAt: z.number().nullable(),
+  saleUnitsLeft: z.number().nullable(),
+  coupon: ShopCouponSchema.nullable(),
+});
+
+export const SuggestionReasonKindSchema = z.enum(["co_owned", "creator_affinity", "favorite_similar", "equipped_similar", "seed_similar", "trending"]);
+
+export const SuggestionReasonSchema = z.object({
+  kind: SuggestionReasonKindSchema,
+  itemId: z.string().optional(),
+  creator: z.string().optional(),
+});
+
+export const SuggestedItemSchema = z.object({
+  reason: SuggestionReasonSchema,
+  score: z.number(),
+  source: z.enum(["native", "legacy"]),
+  acquisition: z.enum(["trade", "store"]),
+  tradeId: z.string().nullable(),
+  listingType: z.string(),
+  contractAddress: z.string(),
+  itemId: z.string().nullable(),
+  tokenId: z.string().nullable(),
+  name: z.string(),
+  thumbnail: z.string(),
+  rarity: z.string(),
+  category: z.string(),
+  wearableCategory: z.string().nullable(),
+  emoteLoop: z.boolean().nullable(),
+  gender: z.enum(["male", "female", "unisex"]).nullable(),
+  creator: z.string(),
+  seller: z.string().nullable(),
+  issuedId: z.string().nullable(),
+  priceCredits: z.number(),
+  manaWei: z.string().nullable(),
+  listingCount: z.number(),
+  available: z.number(),
+  network: NetworkSchema,
+  chainId: z.number(),
+  createdAt: z.number(),
+  compareAtCredits: z.number().nullable(),
+  saleEndsAt: z.number().nullable(),
+  saleUnitsLeft: z.number().nullable(),
+  coupon: ShopCouponSchema.nullable(),
+});
+
+export const SuggestionsResponseSchema = z.object({
+  data: z.array(SuggestedItemSchema),
+  personalized: z.boolean(),
+  algorithm: z.string(),
 });
 
 export const TopCreatorSchema = z.object({
@@ -691,6 +860,10 @@ export const TrendingItemSchema = z.object({
   network: NetworkSchema,
   chainId: z.number(),
   createdAt: z.number(),
+  compareAtCredits: z.number().nullable(),
+  saleEndsAt: z.number().nullable(),
+  saleUnitsLeft: z.number().nullable(),
+  coupon: ShopCouponSchema.nullable(),
 });
 
 export const TrendingResponseBodySchema = z.object({
@@ -721,6 +894,10 @@ export const UnifiedListingSchema = z.object({
   network: NetworkSchema,
   chainId: z.number(),
   createdAt: z.number(),
+  compareAtCredits: z.number().nullable(),
+  saleEndsAt: z.number().nullable(),
+  saleUnitsLeft: z.number().nullable(),
+  coupon: ShopCouponSchema.nullable(),
 });
 
 export const UrnTokenSchema = z.object({
@@ -749,6 +926,7 @@ export type _AssertCatalogItem = Assert<Mutual<CatalogItem, z.infer<typeof Catal
 export type _AssertCollection = Assert<Mutual<Collection, z.infer<typeof CollectionSchema>>>;
 export type _AssertContract = Assert<Mutual<Contract, z.infer<typeof ContractSchema>>>;
 export type _AssertCreditCatalogItem = Assert<Mutual<CreditCatalogItem, z.infer<typeof CreditCatalogItemSchema>>>;
+export type _AssertDataOnly = Assert<Mutual<DataOnly<unknown>, z.infer<ReturnType<typeof DataOnlySchema<z.ZodUnknown>>>>>;
 export type _AssertDataTotal = Assert<Mutual<DataTotal<unknown>, z.infer<ReturnType<typeof DataTotalSchema<z.ZodUnknown>>>>>;
 export type _AssertDataTotalString = Assert<Mutual<DataTotalString<unknown>, z.infer<ReturnType<typeof DataTotalStringSchema<z.ZodUnknown>>>>>;
 export type _AssertEmoteData = Assert<Mutual<EmoteData, z.infer<typeof EmoteDataSchema>>>;
@@ -782,6 +960,7 @@ export type _AssertParcelEstate = Assert<Mutual<ParcelEstate, z.infer<typeof Par
 export type _AssertPicksCount = Assert<Mutual<PicksCount, z.infer<typeof PicksCountSchema>>>;
 export type _AssertPicksEnvelope = Assert<Mutual<PicksEnvelope, z.infer<typeof PicksEnvelopeSchema>>>;
 export type _AssertPicksPage = Assert<Mutual<PicksPage, z.infer<typeof PicksPageSchema>>>;
+export type _AssertPicksStatsEnvelope = Assert<Mutual<PicksStatsEnvelope, z.infer<typeof PicksStatsEnvelopeSchema>>>;
 export type _AssertPickStats = Assert<Mutual<PickStats, z.infer<typeof PickStatsSchema>>>;
 export type _AssertPickUnpickEnvelope = Assert<Mutual<PickUnpickEnvelope, z.infer<typeof PickUnpickEnvelopeSchema>>>;
 export type _AssertPickUnpickResult = Assert<Mutual<PickUnpickResult, z.infer<typeof PickUnpickResultSchema>>>;
@@ -792,7 +971,18 @@ export type _AssertRelatedResponseBody = Assert<Mutual<RelatedResponseBody, z.in
 export type _AssertRentalListing = Assert<Mutual<RentalListing, z.infer<typeof RentalListingSchema>>>;
 export type _AssertRentalListingPeriod = Assert<Mutual<RentalListingPeriod, z.infer<typeof RentalListingPeriodSchema>>>;
 export type _AssertSale = Assert<Mutual<Sale, z.infer<typeof SaleSchema>>>;
+export type _AssertSalesSummary = Assert<Mutual<SalesSummary, z.infer<typeof SalesSummarySchema>>>;
+export type _AssertSalesSummaryCollection = Assert<Mutual<SalesSummaryCollection, z.infer<typeof SalesSummaryCollectionSchema>>>;
+export type _AssertSalesSummaryItem = Assert<Mutual<SalesSummaryItem, z.infer<typeof SalesSummaryItemSchema>>>;
+export type _AssertSalesSummaryRoyalties = Assert<Mutual<SalesSummaryRoyalties, z.infer<typeof SalesSummaryRoyaltiesSchema>>>;
+export type _AssertShopCoupon = Assert<Mutual<ShopCoupon, z.infer<typeof ShopCouponSchema>>>;
+export type _AssertShopCouponRow = Assert<Mutual<ShopCouponRow, z.infer<typeof ShopCouponRowSchema>>>;
 export type _AssertShopListing = Assert<Mutual<ShopListing, z.infer<typeof ShopListingSchema>>>;
+export type _AssertShopSaleFields = Assert<Mutual<ShopSaleFields, z.infer<typeof ShopSaleFieldsSchema>>>;
+export type _AssertSuggestedItem = Assert<Mutual<SuggestedItem, z.infer<typeof SuggestedItemSchema>>>;
+export type _AssertSuggestionReason = Assert<Mutual<SuggestionReason, z.infer<typeof SuggestionReasonSchema>>>;
+export type _AssertSuggestionReasonKind = Assert<Mutual<SuggestionReasonKind, z.infer<typeof SuggestionReasonKindSchema>>>;
+export type _AssertSuggestionsResponse = Assert<Mutual<SuggestionsResponse, z.infer<typeof SuggestionsResponseSchema>>>;
 export type _AssertTopCreator = Assert<Mutual<TopCreator, z.infer<typeof TopCreatorSchema>>>;
 export type _AssertTopCreatorsResponseBody = Assert<Mutual<TopCreatorsResponseBody, z.infer<typeof TopCreatorsResponseBodySchema>>>;
 export type _AssertTrendingItem = Assert<Mutual<TrendingItem, z.infer<typeof TrendingItemSchema>>>;

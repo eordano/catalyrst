@@ -161,3 +161,91 @@ async fn a_page_carries_the_same_rows_whatever_the_limit_is() {
 
     scratch.drop().await;
 }
+
+async fn seed_content_place(pool: &PgPool, id: &str, deployed_at: &str, updated_at: Option<&str>) {
+    let mut raw = serde_json::json!({
+        "id": id,
+        "base_position": "0,0",
+        "positions": ["0,0"],
+        "categories": [],
+        "disabled": false,
+        "world": false,
+        "deployed_at": deployed_at,
+        "source": "content",
+    });
+    if let Some(u) = updated_at {
+        raw["updated_at"] = serde_json::json!(u);
+    }
+    sqlx::query(
+        "INSERT INTO place (id, base_position, deployed_at, raw) \
+         VALUES ($1, '0,0', $2::timestamptz, $3)",
+    )
+    .bind(id)
+    .bind(deployed_at)
+    .bind(raw)
+    .execute(pool)
+    .await
+    .expect("seed content place");
+}
+
+#[tokio::test]
+async fn a_content_derived_feed_still_ends_newest_deployed_first() {
+    let Some(scratch) = setup("cg_places_destorder_tail").await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    create_place_table(&pool).await;
+
+    seed_content_place(
+        &pool,
+        "aaaaaaaa-0000-5000-8000-000000000001",
+        "2026-01-01T00:00:00Z",
+        None,
+    )
+    .await;
+    seed_content_place(
+        &pool,
+        "bbbbbbbb-0000-5000-8000-000000000002",
+        "2026-02-01T00:00:00Z",
+        None,
+    )
+    .await;
+    seed_content_place(
+        &pool,
+        "cccccccc-0000-5000-8000-000000000003",
+        "2026-03-01T00:00:00Z",
+        None,
+    )
+    .await;
+    seed_content_place(
+        &pool,
+        "dddddddd-0000-5000-8000-000000000004",
+        "2025-01-01T00:00:00Z",
+        Some("2026-04-01T00:00:00Z"),
+    )
+    .await;
+
+    let places = PlacesComponent::new(pool.clone());
+    let rows = places
+        .find_list(&PlaceListFilters {
+            limit: 100,
+            order_desc: true,
+            destinations_mode: true,
+            ..Default::default()
+        })
+        .await
+        .expect("destinations list");
+    let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![
+            "dddddddd-0000-5000-8000-000000000004",
+            "cccccccc-0000-5000-8000-000000000003",
+            "bbbbbbbb-0000-5000-8000-000000000002",
+            "aaaaaaaa-0000-5000-8000-000000000001",
+        ],
+        "a raw with no updated_at must fall back to the deployment time, not to the identifier"
+    );
+
+    scratch.drop().await;
+}

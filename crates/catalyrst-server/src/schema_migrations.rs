@@ -29,6 +29,10 @@ const CONTENT_MIGRATIONS: &[(&str, &str)] = &[
         "0005_active_pointers_entity_type",
         include_str!("../migrations/0005_active_pointers_entity_type.sql"),
     ),
+    (
+        "0006_failed_deployments_retry_backoff",
+        include_str!("../migrations/0006_failed_deployments_retry_backoff.sql"),
+    ),
 ];
 
 pub async fn apply_content_migrations(pool: &PgPool) -> Result<(), sqlx::Error> {

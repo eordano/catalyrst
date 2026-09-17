@@ -81,10 +81,23 @@ impl ContentStorage for EmptyStorage {
     }
 }
 
-struct StubDatabase;
+#[derive(Default)]
+struct StubDatabase {
+    refresh_fails: bool,
+}
 
 #[async_trait]
 impl Database for StubDatabase {
+    async fn deployment_committed(&self, _entity_id: &str) -> Result<(), DatabaseError> {
+        if self.refresh_fails {
+            Err(DatabaseError::QueryFailed(
+                "injected cache refresh failure".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     async fn active_entities_by_pointers(
         &self,
         _pointers: &[String],
@@ -230,11 +243,29 @@ impl AcceptingUsers for StubAccepting {
 }
 
 pub(crate) fn app_state_with_storage(storage: Arc<dyn ContentStorage>) -> Arc<AppState> {
-    app_state_with(storage, Arc::new(StubDatabase), Arc::new(StubDeployer))
+    app_state_with(
+        storage,
+        Arc::new(StubDatabase::default()),
+        Arc::new(StubDeployer),
+    )
 }
 
 pub(crate) fn app_state_with_deployer(deployer: Arc<dyn Deployer>) -> Arc<AppState> {
-    app_state_with(Arc::new(EmptyStorage), Arc::new(StubDatabase), deployer)
+    app_state_with(
+        Arc::new(EmptyStorage),
+        Arc::new(StubDatabase::default()),
+        deployer,
+    )
+}
+
+pub(crate) fn app_state_with_refresh_failure() -> Arc<AppState> {
+    app_state_with(
+        Arc::new(EmptyStorage),
+        Arc::new(StubDatabase {
+            refresh_fails: true,
+        }),
+        Arc::new(OkDeployer),
+    )
 }
 
 pub(crate) fn app_state_with_database(database: Arc<dyn Database>) -> Arc<AppState> {

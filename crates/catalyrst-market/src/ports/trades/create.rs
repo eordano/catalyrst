@@ -26,18 +26,86 @@ pub struct ExternalCheckInput {
 
 #[derive(Debug, Deserialize)]
 pub struct TradeChecksInput {
+    #[serde(deserialize_with = "integral_u64")]
     pub uses: u64,
+    #[serde(deserialize_with = "integral_i64")]
     pub expiration: i64,
+    #[serde(deserialize_with = "integral_i64")]
     pub effective: i64,
     pub salt: String,
-    #[serde(rename = "contractSignatureIndex")]
+    #[serde(rename = "contractSignatureIndex", deserialize_with = "integral_u64")]
     pub contract_signature_index: u64,
-    #[serde(rename = "signerSignatureIndex")]
+    #[serde(rename = "signerSignatureIndex", deserialize_with = "integral_u64")]
     pub signer_signature_index: u64,
     #[serde(rename = "allowedRoot")]
     pub allowed_root: String,
+    #[serde(rename = "allowedProof", default)]
+    pub allowed_proof: Option<Vec<String>>,
     #[serde(rename = "externalChecks", default)]
     pub external_checks: Option<Vec<ExternalCheckInput>>,
+}
+
+/// Upstream validates these with ajv's `type: 'number'`, which does not care how a number was
+/// spelled: `137` and `137.0` are one chain id, and a wallet that serialises through a float
+/// must not be told its trade is malformed. A fractional value is still refused.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum JsonNumber {
+    Unsigned(u64),
+    Signed(i64),
+    Float(f64),
+}
+
+impl JsonNumber {
+    fn integral<E: serde::de::Error>(value: f64) -> Result<f64, E> {
+        if value.is_finite() && value.fract() == 0.0 {
+            Ok(value)
+        } else {
+            Err(E::custom(format!("{value} is not an integer")))
+        }
+    }
+
+    fn into_i64<E: serde::de::Error>(self) -> Result<i64, E> {
+        match self {
+            JsonNumber::Unsigned(v) => {
+                i64::try_from(v).map_err(|_| E::custom(format!("{v} does not fit in an i64")))
+            }
+            JsonNumber::Signed(v) => Ok(v),
+            JsonNumber::Float(v) => {
+                let v = Self::integral(v)?;
+                if v >= -(2f64.powi(63)) && v < 2f64.powi(63) {
+                    Ok(v as i64)
+                } else {
+                    Err(E::custom(format!("{v} does not fit in an i64")))
+                }
+            }
+        }
+    }
+
+    fn into_u64<E: serde::de::Error>(self) -> Result<u64, E> {
+        match self {
+            JsonNumber::Unsigned(v) => Ok(v),
+            JsonNumber::Signed(v) => {
+                u64::try_from(v).map_err(|_| E::custom(format!("{v} is negative")))
+            }
+            JsonNumber::Float(v) => {
+                let v = Self::integral(v)?;
+                if (0.0..2f64.powi(64)).contains(&v) {
+                    Ok(v as u64)
+                } else {
+                    Err(E::custom(format!("{v} does not fit in a u64")))
+                }
+            }
+        }
+    }
+}
+
+fn integral_i64<'de, D: serde::Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+    JsonNumber::deserialize(d)?.into_i64()
+}
+
+fn integral_u64<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+    JsonNumber::deserialize(d)?.into_u64()
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,7 +169,7 @@ pub struct TradeCreation {
     #[serde(rename = "type")]
     pub trade_type: String,
     pub network: String,
-    #[serde(rename = "chainId")]
+    #[serde(rename = "chainId", deserialize_with = "integral_i64")]
     pub chain_id: i64,
     pub checks: TradeChecksInput,
     pub sent: Vec<TradeAssetInput>,
@@ -295,7 +363,7 @@ pub async fn create_trade(
 
     let expires_at = ms_to_utc(trade.checks.expiration)?;
     let effective_since = ms_to_utc(trade.checks.effective)?;
-    let checks = serde_json::to_value(RawChecks::from(&trade.checks)).map_err(|e| {
+    let checks = checks_json(&trade.checks).map_err(|e| {
         TradeCreationError::InvalidStructure(format!("checks are not serialisable: {e}"))
     })?;
 
@@ -411,6 +479,14 @@ fn hashed_signature(signature: &str) -> String {
     format!("0x{:x}", keccak256(signature.as_bytes()))
 }
 
+/// The canonical camelCase JSON the `checks` column holds. Shared with the coupons port so a
+/// stored trade's checks and a stored coupon's checks can never spell the same field two ways.
+pub(crate) fn checks_json(
+    checks: &TradeChecksInput,
+) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::to_value(RawChecks::from(checks))
+}
+
 #[derive(serde::Serialize)]
 struct RawChecks<'a> {
     uses: u64,
@@ -423,6 +499,8 @@ struct RawChecks<'a> {
     signer_signature_index: u64,
     #[serde(rename = "allowedRoot")]
     allowed_root: &'a str,
+    #[serde(rename = "allowedProof", skip_serializing_if = "Option::is_none")]
+    allowed_proof: Option<&'a [String]>,
     #[serde(rename = "externalChecks")]
     external_checks: Vec<RawExternalCheck<'a>>,
 }
@@ -446,6 +524,7 @@ impl<'a> From<&'a TradeChecksInput> for RawChecks<'a> {
             contract_signature_index: checks.contract_signature_index,
             signer_signature_index: checks.signer_signature_index,
             allowed_root: &checks.allowed_root,
+            allowed_proof: checks.allowed_proof.as_deref(),
             external_checks: checks
                 .external_checks
                 .iter()

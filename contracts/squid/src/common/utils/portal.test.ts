@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import { portalSource, publicPortalDataset } from "./portal";
 
@@ -7,7 +7,18 @@ const KEYS = ["SQD_PORTAL_API_KEY", "SQD_PORTAL_URL"] as const;
 const saved: Record<string, string | undefined> = {};
 for (const k of KEYS) saved[k] = process.env[k];
 
+const realConsoleError = console.error;
+let errors: unknown[][] = [];
+
+beforeEach(() => {
+  errors = [];
+  console.error = (...args: unknown[]) => {
+    errors.push(args);
+  };
+});
+
 afterEach(() => {
+  console.error = realConsoleError;
   for (const k of KEYS) {
     if (saved[k] === undefined) delete process.env[k];
     else process.env[k] = saved[k];
@@ -40,6 +51,41 @@ describe("portalSource", () => {
       url: "https://moved.portal.example/datasets/polygon-mainnet",
       http: { retryAttempts: Infinity, headers: { "x-api-key": "k-123" } },
     });
+  });
+
+  it("warns on the key-less path without changing what it returns", () => {
+    delete process.env.SQD_PORTAL_API_KEY;
+    delete process.env.SQD_PORTAL_URL;
+    assert.deepStrictEqual(portalSource("polygon-mainnet"), {
+      url: "https://portal.sqd.dev/datasets/polygon-mainnet",
+      http: { retryAttempts: Infinity },
+    });
+    assert.strictEqual(errors.length, 1);
+    assert.match(String(errors[0][0]), /SQD_PORTAL_API_KEY is not set/);
+  });
+
+  it("stays quiet when the key is wired", () => {
+    process.env.SQD_PORTAL_API_KEY = "k-123";
+    delete process.env.SQD_PORTAL_URL;
+    portalSource("polygon-mainnet");
+    assert.deepStrictEqual(errors, []);
+  });
+
+  it("names the 256 KiB query cap only for a polygon dataset", () => {
+    delete process.env.SQD_PORTAL_API_KEY;
+    portalSource("polygon-amoy-testnet");
+    assert.strictEqual(errors.length, 1);
+    assert.match(String(errors[0][0]), /256 KiB query cap/);
+  });
+
+  it("warns without the polygon consequence for an ethereum dataset", () => {
+    delete process.env.SQD_PORTAL_API_KEY;
+    portalSource("ethereum-mainnet");
+    assert.strictEqual(errors.length, 1);
+    const message = String(errors[0][0]);
+    assert.match(message, /SQD_PORTAL_API_KEY is not set/);
+    assert.match(message, /ethereum-mainnet/);
+    assert.doesNotMatch(message, /Polygon|256 KiB/);
   });
 
   it("ignores SQD_PORTAL_URL when no key is set (stays public)", () => {

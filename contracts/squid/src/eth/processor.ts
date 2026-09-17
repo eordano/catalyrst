@@ -7,6 +7,7 @@ import { RpcClient } from "@subsquid/rpc-client";
 import { createLogger, Logger } from "@subsquid/logger";
 import { Store } from "@subsquid/typeorm-store";
 import { getAddresses } from "../common/utils/addresses";
+import { Null } from "../common/utils/constants";
 import { getBlockRange } from "../config";
 import * as landRegistryAbi from "../abi/LANDRegistry";
 import * as estateRegistryAbi from "../abi/EstateRegistry";
@@ -20,6 +21,16 @@ import * as OffChainMarketplaceV3 from "../abi/DecentralandMarketplaceEthereumV3
 import * as SpokeABI from "../abi/Spoke";
 
 const addresses = getAddresses(Network.ETHEREUM);
+const offChainMarketplaceAddresses = [
+  addresses.OffChainMarketplace,
+  addresses.OffChainMarketplaceV2,
+  addresses.OffChainMarketplaceV3,
+].filter((address) => address !== Null);
+if (offChainMarketplaceAddresses.length === 0) {
+  throw new Error(
+    "No off-chain marketplace address is configured for this network; the fee subscription would match every contract"
+  );
+}
 const chainId = process.env.ETHEREUM_CHAIN_ID || ChainId.ETHEREUM_MAINNET;
 
 const PORTAL_DATASET = `ethereum-${
@@ -159,6 +170,12 @@ export const dataSource = new DataSourceBuilder()
       topic0: [OffChainMarketplaceV3.events.Traded.topic],
     },
     include: { transaction: true },
+  })
+  .addLog({
+    where: {
+      address: offChainMarketplaceAddresses,
+      topic0: [OffChainMarketplace.events.FeeRateUpdated.topic],
+    },
   })
   .addLog({
     where: {

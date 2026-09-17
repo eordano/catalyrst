@@ -359,6 +359,13 @@ fn v1_two_pass_shape() {
         sql.contains("WITH nfts_with_orders AS MATERIALIZED"),
         "aggregate must be a shared CTE"
     );
+    assert!(
+        sql.contains("orders.expires_at_normalized > NOW()")
+            && sql.contains("orders.expires_at BETWEEN 1000000000 AND 9999999999")
+            && sql.contains("orders.expires_at BETWEEN 1000000000000 AND 9999999999999")
+            && !sql.contains("LENGTH(orders.expires_at::text)"),
+        "catalog expiry filter must use the indexed normalized timestamp"
+    );
     assert!(sql.contains("ranked AS"), "ranking pass missing");
     assert!(
         sql.contains("JOIN ranked ON ranked.ranked_id = items.id"),

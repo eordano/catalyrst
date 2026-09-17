@@ -546,8 +546,9 @@ pub(super) fn push_nfts_with_orders_v1_body(b: &mut Builder, f: &CatalogFilters)
                 MAX(orders.created_at) AS max_order_created_at
             FROM {schema}.\"order\" AS orders
             WHERE orders.status = 'open' AND orders.item_id IS NOT NULL AND orders.expires_at < {ts}
-                AND ((LENGTH(orders.expires_at::text) = 13 AND TO_TIMESTAMP(orders.expires_at / 1000.0) > NOW())
-                  OR (LENGTH(orders.expires_at::text) = 10 AND TO_TIMESTAMP(orders.expires_at) > NOW()))",
+                AND ((orders.expires_at BETWEEN 1000000000 AND 9999999999)
+                  OR (orders.expires_at BETWEEN 1000000000000 AND 9999999999999))
+                AND orders.expires_at_normalized > NOW()",
         schema = MARKETPLACE_SQUID_SCHEMA,
         ts = MAX_ORDER_TIMESTAMP,
     ));

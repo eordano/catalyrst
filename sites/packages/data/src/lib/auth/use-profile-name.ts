@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { catalystBase } from "../catalyst/client";
 import { fetchProfile } from "../catalyst/overlay/profile";
+import { isProfileOfAddress, profileDisplayName } from "./profile-label";
 
 export type ProfileIdentity = {
   name: string;
@@ -28,8 +29,8 @@ export function useProfileIdentity(
     void (async () => {
       try {
         const avatar = await fetchProfile(address);
-        if (cancelled || !avatar) return;
-        const name = avatar.name?.trim() ?? "";
+        if (cancelled || !avatar || !isProfileOfAddress(avatar, address)) return;
+        const name = profileDisplayName(avatar);
         const avatarUrl = toFaceUrl(avatar.avatar?.snapshots?.face256);
         setIdentity((prev) => {
           const next = {
