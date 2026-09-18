@@ -21,7 +21,18 @@ type LinkComponentProps = {
   children?: ReactNode;
 };
 
+export type CollectionProvider = {
+  value: string;
+  options: { id: string; name: string }[];
+  loading: boolean;
+  error?: string;
+  onChange(value: string): void;
+  onRetry(): void;
+};
+
 type CreateCollectionViewProps = {
+  live?: boolean;
+  provider?: CollectionProvider;
   view?: string;
   step?: string;
   name?: string;
@@ -55,6 +66,8 @@ function formatSize(bytes: number): string {
 }
 
 export default function CreateCollectionView({
+  live = false,
+  provider,
   view = "naming",
   step = "name",
   name = "",
@@ -88,6 +101,8 @@ export default function CreateCollectionView({
     const t = n.trim();
     return t.length >= 1 && t.length <= nameMax;
   };
+
+  const canContinue = isValidName(nameDraft) && (type !== "linked" || !live || !!provider?.value);
 
   const QuietLink = ({ to, children }: { to: string; children: ReactNode }) =>
     LinkComponent ? (
@@ -132,9 +147,21 @@ export default function CreateCollectionView({
           <section className="cwc-create-collection__panel" aria-label="Name your collection">
             {type === "linked" && (
               <p className="cwc-create-collection__typenote">
-                Third-party (linked) collection &#x2014; registered by a Third Party
-                Provider, no per-item publication fee.
+                Linked collections use your provider's item slots.
               </p>
+            )}
+            {type === "linked" && live && provider && (
+              <>
+                <label className="cwc-create-collection__label" htmlFor="cc-provider">Provider</label>
+                <select id="cc-provider" className="cwc-create-collection__input cwc-create-collection__provider" value={provider.value}
+                  disabled={provider.loading || !provider.options.length} onChange={event => provider.onChange(event.target.value)}>
+                  <option value="">{provider.loading ? "Loading providers\u2026" : "Choose a provider"}</option>
+                  {provider.options.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
+                </select>
+                {provider.error ? <p className="cwc-create-collection__error" role="alert">{provider.error}{" "}
+                  <button type="button" className="cwc-create-collection__quietlink" onClick={provider.onRetry}>Retry</button></p>
+                  : !provider.loading && !provider.options.length ? <p className="cwc-create-collection__typenote">This wallet does not manage a linked wearable provider. Switch to a manager wallet or create a standard collection.</p> : null}
+              </>
             )}
             <label className="cwc-create-collection__label" htmlFor="cc-name">
               Collection name
@@ -149,7 +176,7 @@ export default function CreateCollectionView({
               onChange={(e) => setNameDraft(e.target.value)}
               onBlur={() => setNameTouched(true)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && isValidName(nameDraft)) onSubmitName?.(nameDraft);
+                if (e.key === "Enter" && canContinue) onSubmitName?.(nameDraft);
               }}
               aria-invalid={nameTouched && !isValidName(nameDraft)}
             />
@@ -161,7 +188,7 @@ export default function CreateCollectionView({
             <div className="cwc-create-collection__controls">
               <Button
                 variant="primary"
-                disabled={!isValidName(nameDraft)}
+                disabled={!canContinue}
                 onClick={() => onSubmitName?.(nameDraft)}
               >
                 Continue
@@ -282,6 +309,7 @@ export default function CreateCollectionView({
             <h2 className="cwc-create-collection__subtitle">{name}</h2>
             <p className="cwc-create-collection__typebadge">
               {type === "linked" ? "Linked Wearables" : "Standard Collection"}
+              {type === "linked" && provider?.value && ` \u00b7 ${provider.options.find(option => option.id === provider.value)?.name ?? ""}`}
             </p>
             <ul className="cwc-create-collection__itemlist">
               {items.map((it) => (
@@ -294,7 +322,7 @@ export default function CreateCollectionView({
                 </li>
               ))}
             </ul>
-            <div className="cwc-create-collection__cost">
+            {!live && <div className="cwc-create-collection__cost">
               <span>Estimated publish cost</span>
               <strong>
                 {cost.toLocaleString()} MANA
@@ -304,13 +332,14 @@ export default function CreateCollectionView({
                 {items.length} item(s) &#xD7; {feePerItem} MANA / item &#x2014; quote
                 is simulated (read on-chain at publish time).
               </small>
-            </div>
+            </div>}
+            {live && <p className="cwc-create-collection__note">Save your draft, then review each item before publishing.</p>}
             <div className="cwc-create-collection__controls">
               <Button variant="secondary" onClick={() => onBack?.()}>
                 Back
               </Button>
               <Button variant="primary" onClick={() => onSubmit?.()}>
-                Sign & submit
+                {live ? "Save collection" : "Sign & submit"}
               </Button>
             </div>
           </section>
@@ -322,21 +351,20 @@ export default function CreateCollectionView({
               <Spinner size={36} aria-hidden />
             </div>
             <p className="cwc-create-collection__progress">
-              Signing & submitting the collection contract&#x2026;
+              {live ? "Saving your collection and item files\u2026" : "Signing & submitting the collection contract\u2026"}
             </p>
             <small className="cwc-create-collection__note">
-              On-chain mint is SIMULATED &#x2014; no wallet/signer is invoked.
+              {live ? "Publishing is a separate step with a wallet transaction." : "On-chain mint is SIMULATED \u2014 no wallet/signer is invoked."}
             </small>
           </section>
         )}
 
         {view === "done" && (
           <section className="cwc-create-collection__panel cwc-create-collection__panel--done" aria-label="Created">
-            <h2 className="cwc-create-collection__subtitle">Collection created (simulated)</h2>
+            <h2 className="cwc-create-collection__subtitle">{live ? "Collection saved" : "Collection created (simulated)"}</h2>
             <p className="cwc-create-collection__done">
               "{name}" was submitted with {items.length} item
-              {items.length === 1 ? "" : "s"}. The on-chain mint is simulated
-              and your items are kept locally in this browser.
+              {items.length === 1 ? "" : "s"}. {live ? "Your draft and files are saved in Builder." : "The on-chain mint is simulated and your items are kept locally in this browser."}
             </p>
             <a
               className="cwc-create-collection__btn cwc-create-collection__btn--primary"

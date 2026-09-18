@@ -1,4 +1,4 @@
-import type { AuthLink } from "./identity";
+import type { AuthLink } from "./identity.js";
 
 export const AUTH_CHAIN_HEADER_PREFIX = "x-identity-auth-chain-";
 export const AUTH_TIMESTAMP_HEADER = "x-identity-timestamp";
@@ -13,7 +13,7 @@ export function buildRequestPayload(
   return `${method}:${path}:${timestamp}:${metadataStr}`.toLowerCase();
 }
 
-export type SignedAuthChain = {
+type SignedAuthChain = {
   headers: Record<string, string>;
   authChain: AuthLink[];
   payload: string;

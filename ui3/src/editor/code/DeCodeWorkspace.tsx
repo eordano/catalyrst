@@ -1,7 +1,8 @@
 import type { IStandaloneCodeEditor } from "monaco-editor";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { loadMonaco, modelFor, languageFor } from "./monaco-host";
 import type { DeWorkspaceCode } from "../types";
+import { folderProject } from "../folder-project";
 import "./decode.css";
 
 type Monaco = typeof import("monaco-editor");
@@ -39,7 +40,7 @@ async function readDirTree(
   if (depth > MAX_DEPTH) return [];
   const out: FileTreeNode[] = [];
   for await (const entry of dir.values()) {
-    if (SKIP_DIRS.has(entry.name)) continue;
+    if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
     if (budget.n >= MAX_FILES) break;
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.kind === "directory") {
@@ -78,19 +79,6 @@ function virtualTree(files: { path: string; text: string }[]): FileTreeNode[] {
   };
   sortRec(root);
   return root;
-}
-
-async function fileHandleFor(
-  dir: FileSystemDirectoryHandle,
-  path: string,
-  create = false,
-): Promise<FileSystemFileHandle> {
-  const segs = path.split("/");
-  let cur: FileSystemDirectoryHandle = dir;
-  for (let i = 0; i < segs.length - 1; i++) {
-    cur = await cur.getDirectoryHandle(segs[i]!, { create });
-  }
-  return cur.getFileHandle(segs[segs.length - 1]!, { create });
 }
 
 interface TreeNodeProps {
@@ -142,21 +130,28 @@ export interface DeCodeWorkspaceProps {
 }
 
 export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWorkspaceProps) {
-  const { typesUrl = null, virtualFiles = [], getDir = null, hydrate = null, persist = null } = code;
+  const { typesUrl = null, virtualFiles = [], getDir = null, hydrate = null, persist = null, project: sharedProject = null } = code;
+  const project = useMemo(() => sharedProject?.createFileSession?.() ?? sharedProject, [sharedProject]);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const dirRef = useRef<FileSystemDirectoryHandle | null>(null);
+  const folderSessionRef = useRef<NonNullable<DeWorkspaceCode["project"]> | null>(null);
+  const [folderNamespace] = useState(() => crypto.randomUUID());
   const virtualsRef = useRef<Map<string, string>>(store ?? new Map());
   const [status, setStatus] = useState<string | null>("Loading editor\u{2026}");
   const [tree, setTree] = useState<FileTreeNode[]>([]);
-  const [source, setSource] = useState<"disk" | "virtual">("virtual");
+  const [source, setSource] = useState<"disk" | "virtual" | "sdk">("virtual");
+  const loadingFile = useRef(false);
+  const projectNamespace = project ? Array.from(new TextEncoder().encode(project.id), (byte) => byte.toString(16).padStart(2, "0")).join("") : null;
+  const modelPath = (path: string) => projectNamespace ? `sdk/${projectNamespace}/${path}` : folderSessionRef.current ? `folder/${folderNamespace}/${path}` : path;
   const [openPath, setOpenPath] = useState<string | null>(null);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [typesLoaded, setTypesLoaded] = useState(0);
   const openPathRef = useRef<string | null>(null);
+  const openSequence = useRef(0);
   openPathRef.current = openPath;
 
   useEffect(() => {
@@ -179,8 +174,19 @@ export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWor
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveCurrent());
         editor.onDidChangeModelContent(() => {
           const p = openPathRef.current;
-          if (p) setDirty((d) => (d.has(p) ? d : new Set(d).add(p)));
+          if (p && !loadingFile.current) setDirty((d) => (d.has(p) ? d : new Set(d).add(p)));
         });
+
+        if (project) {
+          const paths = await project.list();
+          if (dead) return;
+          setSource("sdk");
+          setTree(virtualTree(paths.map((path) => ({ path, text: "" }))));
+          setStatus(null);
+          const first = paths.includes("src/index.ts") ? "src/index.ts" : paths[0];
+          if (first) await openFile(first);
+          return;
+        }
 
         let dir: FileSystemDirectoryHandle | null = null;
         try {
@@ -190,6 +196,7 @@ export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWor
         }
         if (dir) {
           dirRef.current = dir;
+          folderSessionRef.current = folderProject(dir);
           setSource("disk");
           setTree(await readDirTree(dir));
         } else {
@@ -221,6 +228,7 @@ export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWor
     })();
     return () => {
       dead = true;
+      openSequence.current++;
       try {
         editorRef.current?.dispose();
       } catch {
@@ -229,45 +237,74 @@ export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWor
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function openFile(path: string) {
+  async function openFile(path: string, reload = false) {
+    const fileProject = project ?? folderSessionRef.current;
     const monaco = monacoRef.current;
     const editor = editorRef.current;
     if (!monaco || !editor) return;
+    const sequence = ++openSequence.current;
+    const previousModel = monaco.editor.getModel(monaco.Uri.parse(`file:///${modelPath(path)}`));
+    if (fileProject && dirty.has(path) && previousModel && !reload) {
+      loadingFile.current = true;
+      editor.setModel(previousModel);
+      loadingFile.current = false;
+      setOpenPath(path);
+      setStatus(null);
+      return;
+    }
+    const previousPath = openPathRef.current;
+    const activeModel = previousPath ? monaco.editor.getModel(monaco.Uri.parse(`file:///${modelPath(previousPath)}`)) : null;
+    if (project || dirRef.current) {
+      loadingFile.current = true;
+      editor.setModel(null);
+      setOpenPath(null);
+      setStatus(`Opening ${path}\u2026`);
+    }
+    const failed = (error: unknown) => {
+      if (sequence !== openSequence.current) return;
+      editor.setModel(activeModel);
+      loadingFile.current = false;
+      setOpenPath(previousPath);
+      setStatus(`Open failed: ${error instanceof Error ? error.message : String(error)}`);
+    };
     let text: string | null | undefined = null;
-    if (dirRef.current) {
-      try {
-        const fh = await fileHandleFor(dirRef.current, path);
-        text = await (await fh.getFile()).text();
-      } catch {
+    if (fileProject) {
+      try { text = await fileProject.read(path); }
+      catch (error) {
+        failed(error);
         return;
       }
     } else {
       text = virtualsRef.current.get(path);
       if (text === undefined) return;
     }
-    const model = modelFor(monaco, path, text);
+    if (sequence !== openSequence.current) return;
+    loadingFile.current = true;
+    const model = modelFor(monaco, modelPath(path), text);
+    if (project && model.getValue() !== text) model.setValue(text);
     editor.setModel(model);
+    loadingFile.current = false;
     setOpenPath(path);
+    setDirty((previous) => { const next = new Set(previous); next.delete(path); return next; });
+    setStatus(null);
   }
 
   async function saveCurrent(): Promise<void> {
+    const fileProject = project ?? folderSessionRef.current;
     const p = openPathRef.current;
     const monaco = monacoRef.current;
     if (!p || !monaco) return;
-    const uri = monaco.Uri.parse(`file:///${p}`);
+    const uri = monaco.Uri.parse(`file:///${modelPath(p)}`);
     const model = monaco.editor.getModel(uri);
     if (!model) return;
     const text = model.getValue();
-    if (dirRef.current) {
-      try {
-        const fh = await fileHandleFor(dirRef.current, p, true);
-        const w = await fh.createWritable();
-        await w.write(text);
-        await w.close();
-      } catch (e) {
-        setStatus(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+    if (fileProject) {
+      try { await fileProject.write(p, text); }
+      catch (error) {
+        setStatus(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
+      setStatus(project ? "Saved to project. The SDK rebuilds the preview when watching is enabled." : "Saved to project folder.");
     } else {
       virtualsRef.current.set(p, text);
       if (typeof persist === "function") {
@@ -281,7 +318,7 @@ export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWor
     }
     setDirty((d) => {
       const nd = new Set(d);
-      nd.delete(p);
+      if (model.getValue() === text) nd.delete(p);
       return nd;
     });
   }
@@ -289,9 +326,17 @@ export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWor
   async function createFile(rawPath: string): Promise<void> {
     const path = rawPath.trim().replace(/^\/+/, "").replace(/\/+$/, "");
     if (!path) return;
-    if (dirRef.current) {
+    if (project) {
       try {
-        await fileHandleFor(dirRef.current, path, true);
+        await project.write(path, starterFor(path));
+        setTree(virtualTree((await project.list()).map((path) => ({ path, text: "" }))));
+      } catch (error) {
+        setStatus(`Create failed: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+    } else if (dirRef.current) {
+      try {
+        await folderSessionRef.current!.write(path, starterFor(path));
         setTree(await readDirTree(dirRef.current));
       } catch (e) {
         setStatus(`Create failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -312,7 +357,7 @@ export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWor
     setCreating(false);
     setNewName("");
     await openFile(path);
-    if (!dirRef.current) setDirty((d) => new Set(d).add(path));
+    if (!dirRef.current && !project) setDirty((d) => new Set(d).add(path));
   }
 
   function startCreate(): void {
@@ -337,7 +382,7 @@ export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWor
         <div className="decode-side-head">
           <span className="decode-title">Files</span>
           <span className={`decode-src decode-src-${source}`}>
-            {source === "disk"
+            {source === "sdk" ? "SDK project" : source === "disk"
               ? "project folder"
               : persist
                 ? "draft (this browser)"
@@ -401,12 +446,15 @@ export default function DeCodeWorkspace({ code = {}, store, onClose }: DeCodeWor
           <button type="button" className="decode-btn" onClick={saveCurrent} disabled={!openPath}>
             Save{source === "virtual" ? (persist ? " (draft)" : " (memory)") : ""}
           </button>
+          {project && <button type="button" className="decode-btn" disabled={!openPath} onClick={() => {
+            if (openPath && (!dirty.has(openPath) || window.confirm("Discard unsaved code edits and reload this file from the project?"))) void openFile(openPath, true);
+          }}>Reload file</button>}
           <button type="button" className="decode-btn" onClick={requestClose}>
             Close
           </button>
         </div>
         <div className="decode-editor" ref={hostRef} />
-        {status ? <div className="decode-status">{status}</div> : null}
+        {status ? <div className="decode-status" role={status.includes("failed:") ? "alert" : "status"}>{status}</div> : null}
       </div>
     </div>
   );

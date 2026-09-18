@@ -70,7 +70,8 @@ const DEFAULT_ECONOMY_BASE_URL: &str = "http://127.0.0.1:5155";
 const DEFAULT_MARKETPLACE_MARKUP_BPS: i64 = 2500;
 const DEFAULT_MANA_PRICE_MAX_STALENESS_SECS: i64 = 300;
 pub const DEFAULT_CHECKOUT_FULFILLMENT_MODE: &str = "secondary";
-const DEFAULT_CHECKOUT_WORKER_INTERVAL_SECS: u64 = 5;
+/// Only authorization expiry is time-bound (10 min TTL); checkout writes kick the worker.
+const DEFAULT_CHECKOUT_WORKER_INTERVAL_SECS: u64 = 30;
 const DEFAULT_CHECKOUT_MAX_ATTEMPTS: i32 = 5;
 const DEFAULT_ESCROW_LOCK_DAYS: i32 = 15;
 

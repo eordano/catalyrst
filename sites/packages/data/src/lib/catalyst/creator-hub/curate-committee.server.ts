@@ -7,7 +7,7 @@ import {
   type CommitteeRow,
 } from "./curate-committee";
 
-export type CommitteeData = {
+type CommitteeData = {
   committee: { you: CommitteeMember; members: CommitteeMember[] };
   allRows: CommitteeRow[];
   isCommittee: boolean;

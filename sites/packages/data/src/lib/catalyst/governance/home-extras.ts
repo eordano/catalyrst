@@ -33,7 +33,7 @@ function hueFrom(seed: string): number {
   return Math.abs(h);
 }
 
-export function escapeHtml(s: string): string {
+function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -42,7 +42,7 @@ export function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-export function relTimeFromEpoch(ts: number, now = Date.now()): string {
+function relTimeFromEpoch(ts: number, now = Date.now()): string {
   const diff = Math.max(0, Math.floor(now / 1000) - ts);
   if (diff < 3600) return `${Math.max(1, Math.floor(diff / 60))} min ago`;
   if (diff < 86_400) return `${Math.floor(diff / 3600)} hr ago`;

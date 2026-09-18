@@ -1,0 +1,12 @@
+.panel-boundary { min-block-size: 200px; pointer-events: auto; }
+.panel-boundary--standalone {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+}
+.panel-boundary__actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; padding: 0 24px 24px; }

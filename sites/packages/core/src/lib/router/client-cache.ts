@@ -1,7 +1,7 @@
 const DEFAULT_MAX_ENTRIES = 24;
 const DEFAULT_TTL_MS = 60_000;
 
-export type SearchCache<T> = {
+type SearchCache<T> = {
   key(request: Request): string;
   get(key: string): T | undefined;
   set(key: string, value: T): void;

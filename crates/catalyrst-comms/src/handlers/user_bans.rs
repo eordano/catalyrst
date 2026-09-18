@@ -105,26 +105,14 @@ pub async fn post_user_ban(
     let content_type = headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok());
     let body: BanPlayerBody = validate_body(content_type, &body_bytes)?;
 
-    let banned_device_id = match state
-        .player_connection
-        .get_device_id(&address.to_lowercase())
-        .await
-    {
-        Ok(device_id) => device_id,
-        Err(e) => {
-            tracing::warn!(error = %e, address = %address, "failed to load connection info for ban device snapshot");
-            None
-        }
-    };
-
     let ban = state
         .user_bans
-        .create_ban(CreateBan {
+        .create_ban_with_recorded_device(CreateBan {
             banned_address: address,
             banned_by,
             reason: body.reason,
             custom_message: body.custom_message,
-            banned_device_id,
+            banned_device_id: None,
             duration_ms: body.duration,
         })
         .await

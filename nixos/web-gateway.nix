@@ -13,9 +13,7 @@ let
     corsFallback
     protectedStorage
     contentReadLocations
-    builderCatalog
     builderItems
-    builderLocations
     ;
 
   gatewaySans = [
@@ -121,6 +119,7 @@ let
 
     "/camera-reel-service" = gwStrip 5144 "/camera-reel-service";
     "/builder-api" = gwStrip 5144 "/builder-api";
+    "/builder-items/" = builderItems;
 
     "/social-api" = gwStrip 5145 "/social-api";
     "/comms-gatekeeper" = gwStrip 5145 "/comms-gatekeeper";
@@ -151,7 +150,6 @@ let
     "/realm-provider-ea" = gwStrip 5137 "/realm-provider-ea";
     "/auth-api" = gwStrip 5137 "/auth-api";
   }
-  // builderLocations
   // lib.optionalAttrs cfg.subServices.profileImages {
     "/profile-images" = gwStrip 5161 "/profile-images";
   };
@@ -181,11 +179,7 @@ let
                 rewrite ^/(v\d+)/assets/(.*)$ /$1/$2 break;
               '';
             }
-            // lib.optionalAttrs (sub == "builder-api") {
-            "= /v1/assetPacks" = builderCatalog;
-            "/builder-items/" = builderItems;
-          }
-          // lib.optionalAttrs (sub == "auth-api") {
+            // lib.optionalAttrs (sub == "auth-api") {
               extraConfig = ''
                 if ($request_method = OPTIONS) {
                   ${secHeaders}
@@ -200,7 +194,6 @@ let
             };
           }
           // lib.optionalAttrs (sub == "builder-api") {
-            "= /v1/assetPacks" = builderCatalog;
             "/builder-items/" = builderItems;
           }
           // lib.optionalAttrs (sub == "auth-api") {

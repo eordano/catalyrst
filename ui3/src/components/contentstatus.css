@@ -1,0 +1,16 @@
+.content-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-block-size: 160px;
+  padding: 24px;
+  color: var(--text);
+  font-family: var(--font-sans);
+  text-align: center;
+}
+.content-status p { margin: 0; max-inline-size: 40ch; }
+@media (prefers-reduced-motion: reduce) {
+  .content-status .spinner svg { animation: none; }
+}

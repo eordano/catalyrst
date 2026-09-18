@@ -26,10 +26,13 @@ pub(super) fn wearables_data_sql(grants_present: bool) -> String {
     } else {
         ""
     };
+    let leased_items = if grants_present {
+        " + (SELECT COUNT(DISTINCT urn) FROM combined WHERE is_leased)"
+    } else {
+        ""
+    };
     format!(
-        "SELECT id, contract_address, token_id, network, created_at, updated_at, \
-                   urn, owner, image, item_id, category, rarity, name, item_type, \
-                   description, transferred_at, price, is_leased FROM ( \
+        "WITH combined AS ( \
                 SELECT \
                   nft.id AS id, \
                   nft.contract_address AS contract_address, \
@@ -55,7 +58,13 @@ pub(super) fn wearables_data_sql(grants_present: bool) -> String {
                 LEFT JOIN squid_marketplace.item item ON nft.item_id = item.id \
                 WHERE owner_address = $1 \
                   AND nft.item_type IN ('wearable_v1', 'wearable_v2', 'smart_wearable_v1'){grants_leg} \
-            ) combined \
+            ) \
+            SELECT id, contract_address, token_id, network, created_at, updated_at, \
+                   urn, owner, image, item_id, category, rarity, name, item_type, \
+                   description, transferred_at, price, is_leased, \
+                   COUNT(*) OVER() AS total, \
+                   (SELECT COUNT(DISTINCT item_id) FROM combined WHERE NOT is_leased){leased_items} AS total_items \
+            FROM combined \
             ORDER BY created_at DESC \
             LIMIT $2 OFFSET $3"
     )
@@ -105,7 +114,7 @@ pub(super) fn wearables_urn_token_data_sql(grants_present: bool) -> String {
         ""
     };
     format!(
-        "SELECT urn, token_id FROM ( \
+        "SELECT urn, token_id, COUNT(*) OVER() AS total FROM ( \
                 SELECT nft.urn AS urn, nft.token_id::text AS token_id, \
                        nft.created_at::numeric AS created_at \
                 FROM squid_marketplace.nft nft \
@@ -145,10 +154,13 @@ pub(super) fn emotes_data_sql(grants_present: bool) -> String {
     } else {
         ""
     };
+    let leased_items = if grants_present {
+        " + (SELECT COUNT(DISTINCT urn) FROM combined WHERE is_leased)"
+    } else {
+        ""
+    };
     format!(
-        "SELECT id, contract_address, token_id, network, created_at, updated_at, \
-                   urn, owner, image, item_id, category, rarity, name, item_type, \
-                   description, transferred_at, price, is_leased FROM ( \
+        "WITH combined AS ( \
                 SELECT \
                   nft.id AS id, \
                   nft.contract_address AS contract_address, \
@@ -173,7 +185,13 @@ pub(super) fn emotes_data_sql(grants_present: bool) -> String {
                 LEFT JOIN squid_marketplace.item item ON nft.item_id = item.id \
                 WHERE owner_address = $1 \
                   AND nft.item_type = 'emote_v1'{grants_leg} \
-            ) combined \
+            ) \
+            SELECT id, contract_address, token_id, network, created_at, updated_at, \
+                   urn, owner, image, item_id, category, rarity, name, item_type, \
+                   description, transferred_at, price, is_leased, \
+                   COUNT(*) OVER() AS total, \
+                   (SELECT COUNT(DISTINCT item_id) FROM combined WHERE NOT is_leased){leased_items} AS total_items \
+            FROM combined \
             ORDER BY created_at DESC \
             LIMIT $2 OFFSET $3"
     )
@@ -221,7 +239,7 @@ pub(super) fn emotes_urn_token_data_sql(grants_present: bool) -> String {
         ""
     };
     format!(
-        "SELECT urn, token_id FROM ( \
+        "SELECT urn, token_id, COUNT(*) OVER() AS total FROM ( \
                 SELECT nft.urn AS urn, nft.token_id::text AS token_id, \
                        nft.created_at::numeric AS created_at \
                 FROM squid_marketplace.nft nft \
@@ -241,7 +259,7 @@ pub(super) fn grouped_wearables_data_sql(
     limit_idx: usize,
     offset_idx: usize,
 ) -> String {
-    let (grouped_grants_cte, grouped_grants_union) = if grants_present {
+    let (grouped_grants_cte, grouped_grants_union, grouped_grants_urns) = if grants_present {
         (
             ", grouped_grants AS ( \
                 SELECT ug.urn, NULL::varchar AS category, NULL::text AS rarity, \
@@ -266,9 +284,10 @@ pub(super) fn grouped_wearables_data_sql(
                 GROUP BY ug.urn \
             )",
             " UNION ALL SELECT * FROM grouped_grants",
+            " UNION SELECT urn FROM grouped_grants",
         )
     } else {
-        ("", "")
+        ("", "", "")
     };
     format!(
         "WITH grouped_wearables AS ( \
@@ -297,7 +316,9 @@ pub(super) fn grouped_wearables_data_sql(
                 LEFT JOIN squid_marketplace.item item ON nft.item_id = item.id \
                 WHERE owner_address = $1 {inner_where} \
                 GROUP BY nft.urn, wearable.category, wearable.rarity, wearable.name, metadata.item_type \
-            ){grouped_grants_cte} SELECT * FROM ( \
+            ){grouped_grants_cte} SELECT *, (SELECT COUNT(*) FROM ( \
+                SELECT DISTINCT urn FROM grouped_wearables{grouped_grants_urns} \
+            ) d) AS total FROM ( \
                 SELECT * FROM grouped_wearables{grouped_grants_union} \
             ) gw {outer_where} {order} LIMIT ${limit_idx} OFFSET ${offset_idx}"
     )
@@ -334,7 +355,7 @@ pub(super) fn grouped_emotes_data_sql(
     limit_idx: usize,
     offset_idx: usize,
 ) -> String {
-    let (grouped_grants_cte, grouped_grants_union) = if grants_present {
+    let (grouped_grants_cte, grouped_grants_union, grouped_grants_urns) = if grants_present {
         (
             ", grouped_grants AS ( \
                 SELECT ug.urn, NULL::varchar AS category, NULL::text AS rarity, \
@@ -359,9 +380,10 @@ pub(super) fn grouped_emotes_data_sql(
                 GROUP BY ug.urn \
             )",
             " UNION ALL SELECT * FROM grouped_grants",
+            " UNION SELECT urn FROM grouped_grants",
         )
     } else {
-        ("", "")
+        ("", "", "")
     };
     format!(
         "WITH grouped_emotes AS ( \
@@ -390,7 +412,9 @@ pub(super) fn grouped_emotes_data_sql(
                 WHERE owner_address = $1 \
                   AND nft.item_type = 'emote_v1' {inner_where} \
                 GROUP BY nft.urn, emote.category, emote.rarity, emote.name \
-            ){grouped_grants_cte} SELECT * FROM ( \
+            ){grouped_grants_cte} SELECT *, (SELECT COUNT(*) FROM ( \
+                SELECT DISTINCT urn FROM grouped_emotes{grouped_grants_urns} \
+            ) d) AS total FROM ( \
                 SELECT * FROM grouped_emotes{grouped_grants_union} \
             ) ge {outer_where} {order} LIMIT ${limit_idx} OFFSET ${offset_idx}"
     )
@@ -472,6 +496,87 @@ mod grants_gating_tests {
         assert!(grouped_emotes_data_sql(true, "", "", "", 2, 3).contains("grouped_grants"));
         assert!(grouped_wearables_count_sql(true, "", "").contains("marketplace.usage_grants"));
         assert!(grouped_emotes_count_sql(true, "").contains("marketplace.usage_grants"));
+    }
+
+    #[test]
+    fn page_queries_carry_the_window_total() {
+        let paged = [
+            ("wearables_data", wearables_data_sql(false)),
+            ("wearables_data_grants", wearables_data_sql(true)),
+            ("emotes_data", emotes_data_sql(false)),
+            ("emotes_data_grants", emotes_data_sql(true)),
+            (
+                "wearables_urn_token_data",
+                wearables_urn_token_data_sql(false),
+            ),
+            (
+                "wearables_urn_token_data_grants",
+                wearables_urn_token_data_sql(true),
+            ),
+            ("emotes_urn_token_data", emotes_urn_token_data_sql(false)),
+            (
+                "emotes_urn_token_data_grants",
+                emotes_urn_token_data_sql(true),
+            ),
+        ];
+        for (name, sql) in &paged {
+            assert!(
+                sql.contains("COUNT(*) OVER() AS total"),
+                "{name} must fold the page total into the page query: {sql}"
+            );
+            assert!(sql.contains("LIMIT $2 OFFSET $3"), "{name}: {sql}");
+        }
+        for (name, sql) in &paged[..4] {
+            assert!(
+                sql.contains("(SELECT COUNT(DISTINCT item_id) FROM combined WHERE NOT is_leased)"),
+                "{name}: {sql}"
+            );
+            assert_eq!(
+                sql.contains("(SELECT COUNT(DISTINCT urn) FROM combined WHERE is_leased)"),
+                name.ends_with("_grants"),
+                "{name} counts leased urns only when the grants leg is present: {sql}"
+            );
+            assert!(sql.contains("AS total_items"), "{name}: {sql}");
+        }
+
+        for (name, present, sql) in [
+            (
+                "grouped_wearables",
+                false,
+                grouped_wearables_data_sql(false, "", "", "", 2, 3),
+            ),
+            (
+                "grouped_wearables",
+                true,
+                grouped_wearables_data_sql(true, "", "", "", 2, 3),
+            ),
+            (
+                "grouped_emotes",
+                false,
+                grouped_emotes_data_sql(false, "", "", "", 2, 3),
+            ),
+            (
+                "grouped_emotes",
+                true,
+                grouped_emotes_data_sql(true, "", "", "", 2, 3),
+            ),
+        ] {
+            assert!(
+                sql.contains(&format!("SELECT DISTINCT urn FROM {name}")),
+                "{name} total counts distinct urns before the outer name filter: {sql}"
+            );
+            assert!(sql.contains(") d) AS total FROM ("), "{name}: {sql}");
+            assert_eq!(
+                sql.contains(" UNION SELECT urn FROM grouped_grants"),
+                present,
+                "{name} grants_present={present}: {sql}"
+            );
+            assert_eq!(
+                sql.contains(" UNION ALL SELECT * FROM grouped_grants"),
+                present,
+                "{name} grants_present={present}: {sql}"
+            );
+        }
     }
 
     #[test]

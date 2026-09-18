@@ -10,14 +10,14 @@ import {
 } from "../generated-schemas/market";
 import { warnInvalid } from "../warn";
 
-export type OwnedName = {
+type OwnedName = {
   name: string;
   contractAddress: string;
   tokenId: string;
   price: string | null;
 };
 
-export function parseOwnedName(raw: unknown): OwnedName | null {
+function parseOwnedName(raw: unknown): OwnedName | null {
   const r = ProfileNameSchema.safeParse(raw);
   if (!r.success) {
     warnInvalid("OwnedName", r.error.issues);
@@ -34,7 +34,7 @@ export function parseOwnedName(raw: unknown): OwnedName | null {
 
 const NamesEnvelopeSchema = AssetsHttpResponseSchema(z.unknown());
 
-export type OwnedNamesPage = {
+type OwnedNamesPage = {
   elements: OwnedName[];
   total: number;
 };
@@ -45,14 +45,14 @@ export const NAME_ECONOMICS = {
   network: "ETHEREUM" as const,
   chainId: 1,
   registrarContractAddress: "0x2a187453064356c898cae034eaed119e1663acb8",
-  creditCompatible: true,
+  creditCompatible: false,
   maxNameSize: 15,
   minNameSize: 2,
 } as const;
 
 export const NAME_REGEX = /^[a-zA-Z0-9]{2,15}$/;
 
-export function normalizeAddress(addr: string | null | undefined): string {
+function normalizeAddress(addr: string | null | undefined): string {
   return (addr ?? "").trim().toLowerCase();
 }
 
@@ -78,7 +78,7 @@ export async function fetchOwnedNames(
   return { elements, total: parsed.data.data.total };
 }
 
-export type NameClassification =
+type NameClassification =
   | { kind: "idle" }
   | { kind: "invalid"; message: string; warn?: boolean }
   | { kind: "taken" }
@@ -146,7 +146,7 @@ export function ensAvailability(
   return { kind: "taken", name: minted };
 }
 
-export async function ensNameTokenId(name: string): Promise<string> {
+async function ensNameTokenId(name: string): Promise<string> {
   const { keccak256, toBytes } = await import("viem");
   return BigInt(keccak256(toBytes(name.trim().toLowerCase()))).toString();
 }

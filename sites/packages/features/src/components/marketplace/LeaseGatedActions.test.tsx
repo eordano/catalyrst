@@ -23,36 +23,32 @@ describe("escrow-lease return-window logic (Phase 5/7 gate)", () => {
 });
 
 describe("LeaseGatedActions (Phase 7 \u{2014} disable Sell/Transfer/List in the UI)", () => {
-  it("renders Sell/Transfer/List as disabled buttons (no live links) while in the return window", () => {
-    const html = renderToString(
+  it("renders Sell/Transfer/List as disabled buttons (no live links) inside the return window, and live <a> actions for a non-leased or unlocked item", () => {
+    const locked = renderToString(
       <LeaseGatedActions item={{ status: "leased", unlockAt: IN_WINDOW }} now={NOW} />,
     );
-    expect(html).toContain('data-locked="true"');
-    expect(html).not.toContain("<a ");
-    expect((html.match(/disabled=""/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    expect(html).toMatch(/Sell/);
-    expect(html).toMatch(/Transfer/);
-    expect(html).toMatch(/return window/i);
-  });
+    expect(locked).toContain('data-locked="true"');
+    expect(locked).not.toContain("<a ");
+    expect((locked.match(/disabled=""/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(locked).toMatch(/Sell/);
+    expect(locked).toMatch(/Transfer/);
+    expect(locked).toMatch(/return window/i);
 
-  it("leaves the action live (enabled <a>) for a non-leased item", () => {
-    const html = renderToString(
+    const live = renderToString(
       <LeaseGatedActions
         item={{ status: null, unlockAt: null }}
         actions={[{ key: "sell", label: "Sell", href: "/marketplace/sell" }]}
         now={NOW}
       />,
     );
-    expect(html).toContain('data-locked="false"');
-    expect(html).toContain("<a ");
-    expect(html).not.toContain('disabled=""');
-  });
+    expect(live).toContain('data-locked="false"');
+    expect(live).toContain("<a ");
+    expect(live).not.toContain('disabled=""');
 
-  it("re-enables once the window has passed (unlock in the past)", () => {
-    const html = renderToString(
+    const unlocked = renderToString(
       <LeaseGatedActions item={{ status: "leased", unlockAt: UNLOCKED }} now={NOW} />,
     );
-    expect(html).toContain('data-locked="false"');
-    expect(html).not.toContain('disabled=""');
+    expect(unlocked).toContain('data-locked="false"');
+    expect(unlocked).not.toContain('disabled=""');
   });
 });

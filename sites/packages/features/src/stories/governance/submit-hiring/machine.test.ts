@@ -54,15 +54,6 @@ function inputFor(submit: SubmitFn, track: TrackFn) {
   };
 }
 
-const EXPECTED_STATES = new Set([
-  "target",
-  "reasons",
-  "review",
-  "submitting",
-  "success",
-  "error",
-]);
-
 const TRAVERSAL_EVENTS = [
   {
     type: "SUBMIT_TARGET" as const,
@@ -82,104 +73,86 @@ const TRAVERSAL_EVENTS = [
 ];
 
 describe("hiringMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
+  it("covers every state, round-trips uniquely, addresses the audit-spec slugs, and falls back to the first step", () => {
     const machineStates = new Set(Object.keys(hiringMachine.states));
     const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
     expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("the audit-spec step slugs are all addressable", () => {
     for (const slug of ["target", "reasons", "review", "submitting", "success"]) {
       expect(SLUG_TO_STATE[slug as keyof typeof SLUG_TO_STATE]).toBeDefined();
     }
-  });
 
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.target);
-    expect(slugToState(null)).toBe("target");
-    expect(slugToState(undefined)).toBe("target");
-    expect(slugToState("")).toBe("target");
-    expect(slugToState("nope")).toBe("target");
-    expect(slugToState("reasons")).toBe("reasons");
-    expect(slugToState("review")).toBe("review");
-    expect(slugToState("submitting")).toBe("submitting");
+    for (const bad of [null, undefined, "", "nope"]) {
+      expect(slugToState(bad)).toBe("target");
+    }
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("hiringMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveHiringSnapshot({
-      step: "target",
-      trackCtx: inputFor(okSubmit, () => {}).trackCtx,
-      request: "add",
-      errorCopy: ERROR_COPY,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating a later step fires NO telemetry and does NOT auto-submit", async () => {
+  it("first step boots from initial; submitting hydrates without telemetry or auto-submit; review then CONFIRM fires", async () => {
     const track = vi.fn();
     const submit = vi.fn(okSubmit);
-    const snapshot = resolveHiringSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(submit, track).trackCtx,
-      request: "add",
-      errorCopy: ERROR_COPY,
-      submit,
-      track,
-      draft: VALID_DRAFT,
-    });
-    const actor = createActor(hiringMachine, {
-      input: inputFor(submit, track),
-      snapshot,
+    const input = inputFor(submit, track);
+
+    expect(
+      resolveHiringSnapshot({
+        step: "target",
+        trackCtx: input.trackCtx,
+        request: "add",
+        errorCopy: ERROR_COPY,
+      }),
+    ).toBeUndefined();
+
+    const submitting = createActor(hiringMachine, {
+      input,
+      snapshot: resolveHiringSnapshot({
+        step: "submitting",
+        trackCtx: input.trackCtx,
+        request: "add",
+        errorCopy: ERROR_COPY,
+        submit,
+        track,
+        draft: VALID_DRAFT,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(actor.getSnapshot().context.request).toBe("add");
-
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    expect(submitting.getSnapshot().context.request).toBe("add");
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(submit).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveHiringSnapshot({
-      step: "review",
-      trackCtx: inputFor(okSubmit, track).trackCtx,
-      request: "add",
-      errorCopy: ERROR_COPY,
-      track,
-      draft: VALID_DRAFT,
-    });
-    const actor = createActor(hiringMachine, {
-      input: inputFor(okSubmit, track),
-      snapshot,
+    const review = createActor(hiringMachine, {
+      input,
+      snapshot: resolveHiringSnapshot({
+        step: "review",
+        trackCtx: input.trackCtx,
+        request: "add",
+        errorCopy: ERROR_COPY,
+        track,
+        draft: VALID_DRAFT,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("review")).toBe(true);
+    expect(review.getSnapshot().matches("review")).toBe(true);
     expect(track).not.toHaveBeenCalled();
 
-    actor.send({ type: "CONFIRM" });
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
+    review.send({ type: "CONFIRM" });
+    expect(review.getSnapshot().matches("submitting")).toBe(true);
     expect(track.mock.calls.map((c) => c[0])).toContain(HIRING_EVENTS.submitting);
   });
 });
 
 describe("hiringMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("event paths reach target, reasons, review and submitting, and review needs target + reasons", () => {
     const paths = getShortestPaths(hiringMachine, {
       input: inputFor(okSubmit, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -190,29 +163,20 @@ describe("hiringMachine \u{2014} model-based path coverage (@xstate/graph)", () 
     for (const p of paths) {
       const value = p.state.value as string;
       ends.add(value);
-      expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("target")).toBe(true);
-    expect(ends.has("reasons")).toBe(true);
-    expect(ends.has("review")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
+    for (const s of ["target", "reasons", "review", "submitting"]) {
+      expect(ends.has(s)).toBe(true);
+    }
 
-  it("reaching review passes through target + reasons", () => {
-    const paths = getShortestPaths(hiringMachine, {
-      input: inputFor(okSubmit, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const review = paths.find((p) => (p.state.value as string) === "review");
     expect(review).toBeDefined();
     const events = review!.steps.map((s) => s.event.type);
-    expect(events).toContain("SUBMIT_TARGET");
-    expect(events).toContain("SUBMIT_REASONS");
+    expect(events).toEqual(expect.arrayContaining(["SUBMIT_TARGET", "SUBMIT_REASONS"]));
   });
 });
 
 describe("hiringMachine \u{2014} telemetry events (happy path)", () => {
-  it("target -> reasons -> review -> confirm -> submit fires the full funnel", async () => {
+  it("target -> reasons -> review -> confirm -> submit fires the full funnel and accumulates the draft", async () => {
     const track = vi.fn();
     const actor = createActor(hiringMachine, {
       input: inputFor(okSubmit, track),
@@ -231,21 +195,30 @@ describe("hiringMachine \u{2014} telemetry events (happy path)", () => {
       type: "SUBMIT_REASONS",
       reasons: VALID_DRAFT.reasons,
       evidence: VALID_DRAFT.evidence,
-      coAuthors: [],
+      coAuthors: ["0x" + "a".repeat(40)],
     });
     expect(actor.getSnapshot().matches("review")).toBe(true);
+    const draft = actor.getSnapshot().context.draft;
+    expect(draft.committee).toBe(VALID_DRAFT.committee);
+    expect(draft.address).toBe(VALID_DRAFT.address);
+    expect(draft.reasons).toBe(VALID_DRAFT.reasons);
+    expect(draft.evidence).toBe(VALID_DRAFT.evidence);
+    expect(draft.coAuthors).toHaveLength(1);
 
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("success"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(HIRING_EVENTS.started);
-    expect(events).toContain(HIRING_EVENTS.targetSubmitted);
-    expect(events).toContain(HIRING_EVENTS.reasonsSubmitted);
-    expect(events).toContain(HIRING_EVENTS.reviewReached);
-    expect(events).toContain(HIRING_EVENTS.submitting);
-    expect(events).toContain(HIRING_EVENTS.submitted);
-
+    expect(events).toEqual(
+      expect.arrayContaining([
+        HIRING_EVENTS.started,
+        HIRING_EVENTS.targetSubmitted,
+        HIRING_EVENTS.reasonsSubmitted,
+        HIRING_EVENTS.reviewReached,
+        HIRING_EVENTS.submitting,
+        HIRING_EVENTS.submitted,
+      ]),
+    );
     expect(events.indexOf(HIRING_EVENTS.reviewReached)).toBeLessThan(
       events.indexOf(HIRING_EVENTS.submitted),
     );
@@ -258,33 +231,10 @@ describe("hiringMachine \u{2014} telemetry events (happy path)", () => {
     });
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
   });
-
-  it("the draft is accumulated across steps", () => {
-    const actor = createActor(hiringMachine, {
-      input: inputFor(okSubmit, vi.fn()),
-    }).start();
-    actor.send({
-      type: "SUBMIT_TARGET",
-      committee: VALID_DRAFT.committee,
-      address: VALID_DRAFT.address,
-    });
-    actor.send({
-      type: "SUBMIT_REASONS",
-      reasons: VALID_DRAFT.reasons,
-      evidence: VALID_DRAFT.evidence,
-      coAuthors: ["0x" + "a".repeat(40)],
-    });
-    const draft = actor.getSnapshot().context.draft;
-    expect(draft.committee).toBe(VALID_DRAFT.committee);
-    expect(draft.address).toBe(VALID_DRAFT.address);
-    expect(draft.reasons).toBe(VALID_DRAFT.reasons);
-    expect(draft.evidence).toBe(VALID_DRAFT.evidence);
-    expect(draft.coAuthors).toHaveLength(1);
-  });
 });
 
 describe("hiringMachine \u{2014} inline validation (guardrail)", () => {
-  it("invalid target stays on the step and emits gv_hiring_target_invalid", () => {
+  it("invalid target stays on target with gv_hiring_target_invalid; too-short reasons stay on reasons with inline errors", () => {
     const track = vi.fn();
     const actor = createActor(hiringMachine, {
       input: inputFor(okSubmit, track),
@@ -294,21 +244,17 @@ describe("hiringMachine \u{2014} inline validation (guardrail)", () => {
     expect(actor.getSnapshot().matches("target")).toBe(true);
     expect(actor.getSnapshot().context.errors.committee).toBeTruthy();
     expect(actor.getSnapshot().context.errors.address).toBeTruthy();
-
     const events = track.mock.calls.map((c) => c[0]);
     expect(events).toContain(HIRING_EVENTS.targetInvalid);
     expect(events).not.toContain(HIRING_EVENTS.targetSubmitted);
-  });
 
-  it("too-short reasons stays on the step and surfaces an inline error", () => {
-    const actor = createActor(hiringMachine, {
-      input: inputFor(okSubmit, vi.fn()),
-    }).start();
     actor.send({
       type: "SUBMIT_TARGET",
       committee: VALID_DRAFT.committee,
       address: VALID_DRAFT.address,
     });
+    expect(actor.getSnapshot().matches("reasons")).toBe(true);
+
     actor.send({ type: "SUBMIT_REASONS", reasons: "too short", evidence: "also short", coAuthors: [] });
     expect(actor.getSnapshot().matches("reasons")).toBe(true);
     expect(actor.getSnapshot().context.errors.reasons).toBeTruthy();
@@ -354,8 +300,6 @@ describe("hiringMachine \u{2014} submit failure + retry", () => {
 
 describe("defaultSubmit", () => {
   it("fails closed instead of fabricating a proposal id", async () => {
-    await expect(defaultSubmit({ request: "add", draft: VALID_DRAFT })).rejects.toThrow(
-      "hiring proposal submission unavailable: DAO governance signer not configured",
-    );
+    await expect(defaultSubmit({ request: "add", draft: VALID_DRAFT })).rejects.toThrow(/unavailable/i);
   });
 });

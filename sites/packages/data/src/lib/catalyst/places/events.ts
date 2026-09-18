@@ -10,14 +10,12 @@ import {
   EventCategoryRecordSchema,
   EventRecordSchema,
 } from "../generated-schemas/events";
-import type { ApiOk as RsApiOk } from "@ui/generated/catalyst/events/ApiOk";
-import type { EventAttendeeRecord as RsEventAttendee } from "@ui/generated/catalyst/events/EventAttendeeRecord";
-import type { EventListData as RsEventListData } from "@ui/generated/catalyst/events/EventListData";
-import type { EventRecord as RsEvent } from "@ui/generated/catalyst/events/EventRecord";
-import type { EventCategoryRecord as RsEventCategory } from "@ui/generated/catalyst/events/EventCategoryRecord";
 import { warnInvalid } from "../warn";
-
-export type EventRecord = z.infer<typeof EventRecordSchema>;
+import type { EventAttendeeRecord as RsEventAttendee } from "@ui/generated/catalyst/events/EventAttendeeRecord";
+import type { ApiOk as RsApiOk } from "@ui/generated/catalyst/events/ApiOk";
+import type { EventCategoryRecord as RsEventCategory } from "@ui/generated/catalyst/events/EventCategoryRecord";
+import type { EventRecord as RsEvent } from "@ui/generated/catalyst/events/EventRecord";
+import type { EventListData as RsEventListData } from "@ui/generated/catalyst/events/EventListData";
 
 export type Event = {
   id: string;
@@ -54,14 +52,14 @@ export type EventCategory = {
 
 export type EventAttendee = z.infer<typeof EventAttendeeRecordSchema>;
 
-export function parseEvent(raw: unknown): Event {
+function parseEvent(raw: unknown): Event {
   const r = EventRecordSchema.safeParse(raw);
   if (r.success) return r.data;
   warnInvalid("Event", r.error.issues);
   throw new CatalystError("event payload failed validation", "events");
 }
 
-export function parseEvents(raw: unknown[]): Event[] {
+function parseEvents(raw: unknown[]): Event[] {
   const out: Event[] = [];
   for (const row of raw ?? []) {
     const r = EventRecordSchema.safeParse(row);
@@ -80,7 +78,7 @@ function toEventCategory(c: z.infer<typeof EventCategoryRecordSchema>): EventCat
   };
 }
 
-export type FetchEventsParams = {
+type FetchEventsParams = {
   list?: "live" | "active" | "highlight" | "trending";
   search?: string;
   category?: string;
@@ -101,15 +99,19 @@ const AttendeeListEnvelope = okDataTotalOf(z.array(EventAttendeeRecordSchema));
 export type _DriftEventListEnvelope = Assert<
   AssignableTo<RsApiOk<RsEventListData>, z.input<typeof EventListEnvelope>>
 >;
+
 export type _DriftEventDetailEnvelope = Assert<
   AssignableTo<RsApiOk<RsEvent>, z.input<typeof EventDetailEnvelope>>
 >;
+
 export type _DriftCategoryListEnvelope = Assert<
   AssignableTo<RsApiOk<RsEventCategory[]>, z.input<typeof CategoryListEnvelope>>
 >;
+
 export type _DriftAttendeeListEnvelope = Assert<
   AssignableTo<RsApiOk<RsEventAttendee[]>, z.input<typeof AttendeeListEnvelope>>
 >;
+
 export async function fetchEvents(
   params: FetchEventsParams = {},
   opts: GetOptions = {},
@@ -175,6 +177,7 @@ export async function fetchEventCategories(
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
 
 export async function fetchAttendees(
@@ -194,11 +197,6 @@ export async function fetchAttendees(
   return { attendees, count: env.data.total ?? attendees.length };
 }
 
-export function isAttending(attendees: EventAttendee[], address: string): boolean {
-  const a = address.toLowerCase();
-  return attendees.some((x) => x.user.toLowerCase() === a);
-}
-
 function hueFor(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
@@ -216,7 +214,7 @@ export type LiveNowCard = {
   jumpUrl?: string;
 };
 
-export type UpcomingCard = {
+type UpcomingCard = {
   id: string;
   name: string;
   creator: string;

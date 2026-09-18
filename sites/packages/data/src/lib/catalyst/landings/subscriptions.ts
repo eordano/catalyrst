@@ -11,12 +11,12 @@ import type {
 } from "@features/stories/landings/event-subscriptions/machine";
 import { warnInvalid } from "../warn";
 
-export const ChannelSchema = z.object({
+const ChannelSchema = z.object({
   email: z.boolean().nullish().transform((v) => v ?? null),
   in_app: z.boolean().nullish().transform((v) => v ?? null),
 });
 
-export const SubscriptionDetailsSchema = z.object({
+const SubscriptionDetailsSchema = z.object({
   ignore_all_email: z.boolean().nullish().transform((v) => v ?? null),
   ignore_all_in_app: z.boolean().nullish().transform((v) => v ?? null),
   message_type: z
@@ -25,22 +25,21 @@ export const SubscriptionDetailsSchema = z.object({
     .transform((v) => v ?? null),
 });
 
-export const SubscriptionSchema = z.object({
+const SubscriptionSchema = z.object({
   address: z.string().nullish().transform((v) => v ?? null),
   email: z.string().nullish().transform((v) => v ?? null),
   details: SubscriptionDetailsSchema,
 });
-export type Subscription = z.infer<typeof SubscriptionSchema>;
 
-export const GroupSchema = z.object({
+const GroupSchema = z.object({
   key: z.string(),
   label: z.string(),
   flag: z.string().optional(),
   types: z.array(z.string()),
 });
-export type Group = z.infer<typeof GroupSchema>;
+type Group = z.infer<typeof GroupSchema>;
 
-export const SubscriptionViewSchema = z.object({
+z.object({
   address: z.string(),
   email: z.string(),
   emailConfirmed: z.boolean(),
@@ -48,9 +47,8 @@ export const SubscriptionViewSchema = z.object({
   details: SubscriptionDetailsSchema,
   groups: z.array(GroupSchema),
 });
-export type SubscriptionView = z.infer<typeof SubscriptionViewSchema>;
 
-export const ProfileSettingsSchema = z
+const ProfileSettingsSchema = z
   .object({
     email: z.string().nullish().transform((v) => v ?? null),
     email_verified: z.boolean().nullish().transform((v) => v ?? false),
@@ -59,7 +57,7 @@ export const ProfileSettingsSchema = z
     subscriptions: z.array(z.unknown()).nullish().transform((v) => v ?? null),
   })
   .passthrough();
-export type ProfileSettings = z.infer<typeof ProfileSettingsSchema>;
+type ProfileSettings = z.infer<typeof ProfileSettingsSchema>;
 
 export async function fetchProfileSettings(
   opts: GetOptions = {},
@@ -80,7 +78,7 @@ export async function fetchProfileSettings(
   }
 }
 
-export type SubscriptionSettingsView = {
+type SubscriptionSettingsView = {
   email: string;
   emailConfirmed: boolean;
   subscribed: boolean;
@@ -176,13 +174,14 @@ export const NOTIFICATION_GROUPS: Group[] = [
 
 type WriteChannel = { email: boolean; in_app: boolean };
 
-export const UNREADABLE_SETTINGS_MESSAGE =
+const UNREADABLE_SETTINGS_MESSAGE =
   "We couldn't read your current notification settings, so nothing was changed. Try again in a moment.";
 
 export function buildSubscriptionCommit(
-  identity: AuthIdentity | null,
+  identitySource: AuthIdentity | null | (() => AuthIdentity | null),
 ): CommitFn {
   return async ({ kind, enabledTypes, signal }): Promise<CommitResult> => {
+    const identity = typeof identitySource === "function" ? identitySource() : identitySource;
     if (!identity) throw new Error("Sign in to manage email notifications.");
 
     const current = await signedGetJSON<unknown>("/subscription", {
@@ -208,9 +207,10 @@ export function buildSubscriptionCommit(
 
     const subscribing = kind === "subscribe";
     if (subscribing) {
-      for (const type of enabledTypes) {
+      const enabled = new Set(enabledTypes);
+      for (const type of NOTIFICATION_GROUPS.flatMap((group) => group.types)) {
         const chan = messageType[type] ?? { email: false, in_app: false };
-        messageType[type] = { email: true, in_app: chan.in_app };
+        messageType[type] = { email: enabled.has(type), in_app: chan.in_app };
       }
     }
 

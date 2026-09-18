@@ -13,7 +13,7 @@ use catalyrst_social_service::rest::fed::apply;
 use catalyrst_social_service::rest::fed::authority::FederatedCommunityWriteAuthority;
 use catalyrst_social_service::rest::fed::ids::{community_id_hex, community_uuid_from_hex};
 use catalyrst_social_service::rest::fed::messages::{
-    CommunityBan, CommunityCreate, CommunityJoin, CommunityPost, CommunityRole,
+    CommunityBan, CommunityCreate, CommunityJoin, CommunityPlacesAdd, CommunityPost, CommunityRole,
 };
 use catalyrst_social_service::rest::fed::replay::Replay;
 use catalyrst_social_service::rest::ports::communities::CommunitiesComponent;
@@ -768,4 +768,88 @@ async fn membership_rows(pool: &PgPool, community_id: uuid::Uuid, member_address
     .fetch_one(pool)
     .await
     .expect("membership row count")
+}
+
+#[tokio::test]
+async fn places_add_writes_every_place_and_its_log_row_in_one_statement() {
+    let Some(scratch) = setup().await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    let domain = domains::communities();
+    let creator = mk_wallet(41);
+
+    let create = sign(
+        &creator,
+        CommunityCreate {
+            name: "Places".into(),
+            description: "".into(),
+            private: false,
+            unlisted: false,
+            flags: vec![],
+        },
+        domain.clone(),
+        rand_nonce(),
+        now(),
+    )
+    .await;
+    let applied = apply::apply_create(&pool, &create, &addr(&creator))
+        .await
+        .unwrap();
+    let uuid = community_uuid_from_hex(&applied.community_id);
+
+    let add = sign(
+        &creator,
+        CommunityPlacesAdd {
+            community_id: applied.community_id.clone(),
+            place_ids: vec!["place-a".into(), "place-b".into(), "place-c".into()],
+        },
+        domain.clone(),
+        rand_nonce(),
+        now(),
+    )
+    .await;
+    let sig_hash = apply::apply_places_add(&pool, &add, &addr(&creator))
+        .await
+        .unwrap();
+    apply::apply_places_add(&pool, &add, &addr(&creator))
+        .await
+        .expect("re-applying the same envelope is idempotent");
+
+    let places: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, added_by FROM community_places WHERE community_id = $1 ORDER BY id",
+    )
+    .bind(uuid)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let signer = addr(&creator).to_ascii_lowercase();
+    assert_eq!(
+        places,
+        vec![
+            ("place-a".to_string(), signer.clone()),
+            ("place-b".to_string(), signer.clone()),
+            ("place-c".to_string(), signer.clone()),
+        ]
+    );
+    let log: Vec<(String, String)> = sqlx::query_as(
+        "SELECT signature_hash, place_id FROM community_places_log \
+         WHERE community_id = $1 AND action = 'add' ORDER BY signature_hash",
+    )
+    .bind(&applied.community_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        log,
+        (0..3)
+            .map(|i| (
+                format!("{sig_hash}-add-{i}"),
+                format!("place-{}", char::from(b'a' + i as u8))
+            ))
+            .collect::<Vec<_>>(),
+        "one log row per place, hashed by index as before"
+    );
+
+    scratch.drop().await;
 }

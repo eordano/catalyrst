@@ -49,6 +49,26 @@ pub async fn apply_content_migrations(pool: &PgPool) -> Result<(), sqlx::Error> 
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, sqlx::FromRow)]
+pub struct DeploymentSchema {
+    pub local_entities: bool,
+    pub pointer_entity_type: bool,
+}
+
+impl DeploymentSchema {
+    pub async fn detect(pool: &sqlx::PgPool) -> Result<Self, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT to_regclass('local_entities') IS NOT NULL AS local_entities,
+                    EXISTS (SELECT 1 FROM information_schema.columns
+                            WHERE table_schema = current_schema()
+                              AND table_name = 'active_pointers'
+                              AND column_name = 'entity_type') AS pointer_entity_type",
+        )
+        .fetch_one(pool)
+        .await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::CONTENT_MIGRATIONS;

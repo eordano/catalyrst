@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useRevalidator, useSearchParams } from "react-router";
 
 import WearablesHomeView from "@ui/creatorhub/pages/WearablesHomeView";
@@ -6,15 +6,17 @@ import WearablesHomeView from "@ui/creatorhub/pages/WearablesHomeView";
 import { useAuth } from "@data/lib/auth/index";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import {
   readView,
   toCollectionCard,
   type CollectionCardVM,
 } from "@data/lib/catalyst/builder/collections";
+import { listCollectionDrafts, type CollectionDraftSummary } from "@data/lib/catalyst/builder/collection-drafts";
+import { listItemDrafts, type ItemDraftSummary } from "@data/lib/catalyst/builder/drafts";
 import { loadCollections } from "@data/lib/catalyst/builder/collections.server";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
@@ -40,19 +42,22 @@ export async function loader({ request }: Route.LoaderArgs) {
     readWallet(request) ||
     "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap, data } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    async () => {
+      let collections: CollectionCardVM[] = [];
+      let error = false;
+      if (address) {
+        const res = await loadCollections(address, request.signal);
+        error = res.error;
+        collections = res.collections.map(toCollectionCard);
+      }
+      return { collections, error };
+    },
   );
-
-  let collections: CollectionCardVM[] = [];
-  let error = false;
-  if (address) {
-    const res = await loadCollections(address, request.signal);
-    error = res.error;
-    collections = res.collections.map(toCollectionCard);
-  }
+  const { collections, error } = data;
 
   const payload = { sid, view, address, error, collections };
 
@@ -84,8 +89,20 @@ function WearablesHome({
   const [, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const revalidator = useRevalidator();
-  const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { isConnected, address, fetch: authFetch } = useAuth();
+  const [draftState, setDraftState] = useState<{ address: string; rows: ItemDraftSummary[]; collections: CollectionDraftSummary[]; error: boolean } | null>(null);
+  const [draftRetry, setDraftRetry] = useState(0);
+  useEffect(() => {
+    if (!isConnected || !address) { setDraftState(null); return; }
+    const controller = new AbortController();
+    const opts = { fetch: authFetch, signal: controller.signal };
+    Promise.all([listItemDrafts(opts), listCollectionDrafts(opts)])
+      .then(([rows, collections]) => { if (!controller.signal.aborted) setDraftState({ address, rows, collections, error: false }); })
+      .catch(() => { if (!controller.signal.aborted) setDraftState({ address, rows: [], collections: [], error: true }); });
+    return () => controller.abort();
+  }, [isConnected, address, authFetch, draftRetry]);
+  const ownDrafts = isConnected && draftState?.address === address ? draftState : null;
+  const { name } = useChromeAuth();
 
   useEffect(() => {
     if (isConnected && address && loaderAddress === "") {
@@ -149,7 +166,19 @@ function WearablesHome({
       error={error}
       retrying={retrying}
       rescoping={rescoping}
-      collections={collections}
+      collections={[
+        ...(ownDrafts?.collections ?? []).map(collection => ({
+          id: collection.id, name: collection.name, type: collection.third_party_id ? "third_party" as const : "collection" as const,
+          status: collection.is_approved ? "synced" as const : collection.is_published ? "under_review" as const : "unsynced" as const,
+          count: collection.item_count ?? ownDrafts!.rows.filter(item => item.collection_id === collection.id).length, thumbs: [],
+        })),
+        ...collections.filter(collection => !ownDrafts?.collections.some(draft => draft.id === collection.id)),
+      ]}
+      drafts={ownDrafts?.rows.filter(item => item.type === "wearable" && !item.collection_id) ?? []}
+      draftsError={ownDrafts?.error ?? false}
+      draftsLoading={isConnected && !!address && !ownDrafts}
+      onRetryDrafts={() => { setDraftState(null); setDraftRetry(value => value + 1); }}
+      onOpenDraft={id => navigate(`/create/wearables/item-editor?item=${encodeURIComponent(id)}&step=model`)}
       view={view}
       onSignIn={onSignIn}
       onSelectView={selectView}

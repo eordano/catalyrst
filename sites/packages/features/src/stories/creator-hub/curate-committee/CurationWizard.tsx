@@ -23,7 +23,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type CurationWizardProps = {
+type CurationWizardProps = {
   rows: BdCommitteeRow[];
   totalCount: number;
   committee: { you: CommitteeMember; members: CommitteeMember[] };

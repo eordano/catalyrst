@@ -1,5 +1,8 @@
 import { useState } from "react";
 
+import Button from "@ui/atoms/Button";
+import "@ui/admin/admin.css";
+
 import {
   isAddress,
   loadBanStatus,
@@ -8,7 +11,7 @@ import {
   type PublicUserBan,
 } from "@data/lib/catalyst/admin/user-bans";
 
-export type BanStatusLookupProps = {
+type BanStatusLookupProps = {
   initialAddress?: string;
   onLookup: (args: { address: string; isBanned: boolean; ban: PublicUserBan | null }) => void;
   onAct?: (args: { address: string; isBanned: boolean }) => void;
@@ -28,6 +31,7 @@ export default function BanStatusLookup({
 
   const valid = isAddress(address);
   const invalidFormat = address.trim().length > 0 && !valid;
+  const errorClass = invalidFormat ? " is-error" : "";
 
   async function doLookup() {
     if (!valid || loading) return;
@@ -48,14 +52,14 @@ export default function BanStatusLookup({
   }
 
   return (
-    <div className="au-field" role="search" aria-label="Look up ban status">
-      <label className="au-field__label" htmlFor="op-lookup">
+    <div className={"adm-field" + errorClass} role="search" aria-label="Look up ban status">
+      <label className="adm-field__label" htmlFor="op-lookup">
         Look up an address
       </label>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div className="adm-actions adm-actions--start">
         <input
           id="op-lookup"
-          className={"au-field__input" + (invalidFormat ? " is-error" : "")}
+          className="adm-input"
           placeholder={"0x\u{2026}"}
           value={address}
           onChange={(e) => setAddress(e.target.value)}
@@ -63,42 +67,38 @@ export default function BanStatusLookup({
             if (e.key === "Enter") doLookup();
           }}
           aria-label="Wallet address"
-          style={{ flex: 1 }}
         />
-        <button
-          type="button"
-          className="au-btn au-btn--primary"
-          onClick={doLookup}
-          disabled={!valid || loading}
-        >
+        <Button onClick={doLookup} disabled={!valid || loading}>
           {loading ? "Looking up\u{2026}" : "Look up"}
-        </button>
+        </Button>
       </div>
-      <span className={"au-field__help" + (invalidFormat ? " is-error" : "")}>
+      <span className={"adm-field__help" + errorClass}>
         {invalidFormat ? "Enter a valid Ethereum address" : " "}
       </span>
 
       {error && (
-        <div className="au-alert au-alert--error" role="alert" style={{ marginTop: 8 }}>
-          <span className="au-alert__msg">{error}</span>
+        <div className="adm-notice" data-tone="bad" role="alert">
+          <p>{error}</p>
         </div>
       )}
 
       {result && !error && (
-        <div className="au-alert" role="status" aria-live="polite" style={{ marginTop: 8 }}>
-          <span className="au-alert__msg">
+        <div className="adm-notice" role="status" aria-live="polite">
+          <p>
             {shortAddress(result.address)} is{" "}
             <strong>{result.isBanned ? "BANNED" : "not banned"}</strong>
             {result.ban ? ` \u{2014} ${result.ban.reason}` : ""}
-          </span>
+          </p>
           {onAct && (
-            <button
-              type="button"
-              className="au-btn au-btn--secondary"
-              onClick={() => onAct({ address: result.address, isBanned: result.isBanned })}
-            >
-              Act on this user
-            </button>
+            <div className="adm-actions adm-actions--start">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onAct({ address: result.address, isBanned: result.isBanned })}
+              >
+                Act on this user
+              </Button>
+            </div>
           )}
         </div>
       )}

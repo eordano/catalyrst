@@ -267,27 +267,11 @@ html.still *, html.still *::before, html.still *::after {
   }
 }
 
-.u-modal-overlay {
-  position: fixed; inset: 0; z-index: var(--z-modal);
-  background: var(--scrim);
-  display: flex; padding: 20px; overflow: auto;
-  animation: u-fade-in 0.3s linear;
-}
-
 .ep__backdrop {
   position: fixed; inset: 0; z-index: var(--z-panel);
   background: rgba(0, 0, 0, .502);
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
-}
-
-.u-behind { pointer-events: none; }
-.u-behind .ep__backdrop { filter: brightness(0.62) saturate(0.85); animation: none; }
-
-.u-jumpin-card {
-  display: flex; height: 608px; width: 100%; max-width: 1448px;
-  overflow: hidden; border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
 .u-spinner {
   width: var(--sp-size, 28px); height: var(--sp-size, 28px); flex: 0 0 auto;

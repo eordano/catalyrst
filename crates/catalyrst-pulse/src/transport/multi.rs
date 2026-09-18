@@ -73,6 +73,22 @@ impl Transports {
         }
     }
 
+    pub async fn send_application(&mut self, peer: u32, packet: Packet) -> std::io::Result<()> {
+        if self.owns_wt(peer) {
+            self.wt
+                .as_ref()
+                .expect("owns WebTransport peer")
+                .send_application(peer, packet)
+        } else if peer < self.enet_capacity {
+            self.enet.send_application(peer as u16, packet).await
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "application peer unavailable",
+            ))
+        }
+    }
+
     /// WebTransport sends dispatch immediately over their mpsc channel; only ENet batches.
     pub fn flush(&mut self) {
         self.enet.flush();

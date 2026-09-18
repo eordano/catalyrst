@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package decentraland.pulse;
+
+// Published by Pulse to NATS on `peer.{address}.cluster_change` whenever a peer's post-debounce
+// cluster assignment changes. Pulse is the sole author of cluster membership.
+//
+// A "cluster" is Pulse's own grouping of co-located peers, derived by union-find over occupied
+// area-of-interest grid cells. It is deliberately a different concept from archipelago's "island":
+// clusters have no size cap, are realm-partitioned, and carry no transport connection details.
+// Comms Gatekeeper subscribes here, mints the LiveKit connection string (the ban check is
+// authority-local to gatekeeper), and re-emits the legacy
+// decentraland.kernel.comms.v3.IslandChangedMessage on `engine.peer.{address}.island_changed`,
+// so the WebSocket Connector and clients stay untouched.
+message PeerClusterChange {
+  // Cluster the peer now belongs to. Stable across passes for an unchanged crowd.
+  string cluster_id = 1;
+
+  // The peer's realm. Clusters never span realms, so this qualifies cluster_id and keeps the
+  // event self-contained -- consumers never have to join against the topology feed.
+  string realm = 2;
+
+  // Session that owns this assignment: the lower-cased ephemeral address of the auth chain the
+  // peer authenticated with (the wallet itself for a chain without a delegation). Two devices of
+  // one wallet carry different values; one device's reconnects carry the same one.
+  string session = 3;
+
+  // Set only on the first publish of a new session for a wallet that still had a retained
+  // assignment under another session: that other session, and the cluster it was last published
+  // into. Empty on every other event, including a same-session reconnect.
+  string displaced_session = 4;
+  string displaced_cluster_id = 5;
+}
+
+// Read-only reply to peer.{wallet}.cluster_lookup, whose payload is the exact session address.
+// Only a Pulse instance holding that live wallet/session in a fresh completed pass replies.
+// This is not a cluster-change event: it carries no takeover side effects or room credential.
+message PeerClusterSnapshot {
+  string wallet = 1;
+  string session = 2;
+  string cluster_id = 3;
+  string realm = 4;
+  // Diagnostic/order scope within one source incarnation only, never across restarts or servers.
+  uint64 pass = 5;
+  string source_incarnation = 6;
+}

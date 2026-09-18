@@ -8,65 +8,36 @@ const TABS = [
   { id: "timeline", label: "Timeline", href: "/app/timeline" },
 ] as const;
 
-test("plain-<a> default: tabs render as real anchors when onNavigate is omitted", () => {
-  render(<ChromeShell tabs={TABS} active="overview" tabsLabel="sections" />);
+test("tabs are real anchors; without onNavigate or on a modified click the browser keeps the navigation", () => {
+  const plain = render(<ChromeShell tabs={TABS} active="overview" tabsLabel="sections" />);
   const tab = screen.getByRole("link", { name: "Timeline" });
-  expect(tab.tagName).toBe("A");
   expect(tab).toHaveAttribute("href", "/app/timeline");
-});
+  plain.unmount();
 
-test("router-owned front: a plain left-click on a tab calls onNavigate and stays client-side", async () => {
-  const user = userEvent.setup();
   const onNavigate = vi.fn();
-  render(
-    <ChromeShell
-      tabs={TABS}
-      active="overview"
-      tabsLabel="sections"
-      onNavigate={onNavigate}
-    />,
-  );
-  const tab = screen.getByRole("link", { name: "Timeline" });
-  await user.click(tab);
-  expect(onNavigate).toHaveBeenCalledWith("/app/timeline");
-});
-
-test("a modified click (new-tab intent) is left alone even with onNavigate wired", async () => {
-  const onNavigate = vi.fn();
-  render(
-    <ChromeShell
-      tabs={TABS}
-      active="overview"
-      tabsLabel="sections"
-      onNavigate={onNavigate}
-    />,
-  );
-  const tab = screen.getByRole("link", { name: "Timeline" });
-  const evt = new MouseEvent("click", {
-    bubbles: true,
-    cancelable: true,
-    button: 0,
-    metaKey: true,
-  });
-  tab.dispatchEvent(evt);
+  render(<ChromeShell tabs={TABS} active="overview" tabsLabel="sections" onNavigate={onNavigate} />);
+  const evt = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, metaKey: true });
+  screen.getByRole("link", { name: "Timeline" }).dispatchEvent(evt);
   expect(onNavigate).not.toHaveBeenCalled();
   expect(evt.defaultPrevented).toBe(false);
 });
 
-test("a button tab (no href) still calls onTab and never onNavigate", async () => {
+test("a plain left-click on a tab calls onNavigate, while a button tab calls onTab and never onNavigate", async () => {
   const user = userEvent.setup();
-  const onTab = vi.fn();
   const onNavigate = vi.fn();
+  const onTab = vi.fn();
   render(
     <ChromeShell
-      tabs={[{ id: "console", label: "Console" }]}
-      active="console"
+      tabs={[...TABS, { id: "console", label: "Console" }]}
+      active="overview"
       tabsLabel="sections"
       onTab={onTab}
       onNavigate={onNavigate}
     />,
   );
+  await user.click(screen.getByRole("link", { name: "Timeline" }));
+  expect(onNavigate).toHaveBeenCalledWith("/app/timeline");
   await user.click(screen.getByRole("button", { name: "Console" }));
   expect(onTab).toHaveBeenCalledWith("console");
-  expect(onNavigate).not.toHaveBeenCalled();
+  expect(onNavigate).toHaveBeenCalledTimes(1);
 });

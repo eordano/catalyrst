@@ -41,10 +41,16 @@ impl ContractsComponent {
 
     pub async fn is_valid_address(&self, address: &str) -> Result<bool, ApiError> {
         let addr = address.to_lowercase();
+        // Whitelist first (a cache hit costs nothing); the collection lookup still
+        // admits on its own, so an unreachable whitelist never refuses a collection.
+        let whitelisted = self.is_whitelisted(&addr).await;
+        if matches!(whitelisted, Ok(true)) {
+            return Ok(true);
+        }
         if self.is_collection_address(&addr).await? {
             return Ok(true);
         }
-        self.is_whitelisted(&addr).await
+        whitelisted
     }
 
     pub async fn is_collection_address(&self, address: &str) -> Result<bool, ApiError> {
@@ -62,24 +68,14 @@ impl ContractsComponent {
 
     pub async fn is_whitelisted(&self, address: &str) -> Result<bool, ApiError> {
         let addr = address.to_lowercase();
-        let fresh = self.cache.get(self.ttl).await.filter(|a| !a.is_empty());
-        let addresses = match fresh {
-            Some(addresses) => addresses,
-            None => match self.fetch_whitelist().await {
-                Ok(addresses) => {
-                    self.cache.set(addresses.clone()).await;
-                    addresses
-                }
-                Err(e) => match self.cache.last().await.filter(|a| !a.is_empty()) {
-                    Some(stale) => {
-                        tracing::warn!(error = %e, "addresses.json refresh failed, serving stale cache");
-                        stale
-                    }
-                    None => return Err(e),
-                },
-            },
-        };
-
+        let addresses = self
+            .cache
+            .get_or_refresh(self.ttl, || self.fetch_whitelist())
+            .await?;
+        if addresses.is_empty() {
+            // An empty list is never trusted past this call.
+            self.cache.invalidate().await;
+        }
         Ok(addresses.iter().any(|a| a == &addr))
     }
 

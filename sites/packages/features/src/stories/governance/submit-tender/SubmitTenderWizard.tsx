@@ -25,7 +25,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type SubmitTenderWizardProps = {
+type SubmitTenderWizardProps = {
   trackCtx: TrackContext;
   data: SubmitTenderData;
   pitch: Pitch | null;

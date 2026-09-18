@@ -16,11 +16,11 @@ import {
   type Datum,
 } from "./datum.server";
 
-export type WorldOrigin = "catalyst.example.com" | "upstream" | "both";
+type WorldOrigin = "catalyst.example.com" | "upstream" | "both";
 
-export type UnionedWorld = ManagedWorld & { origin: WorldOrigin };
+type UnionedWorld = ManagedWorld & { origin: WorldOrigin };
 
-export type MyWorldsUnion = {
+type MyWorldsUnion = {
   address: string;
   rows: UnionedWorld[];
   dclOne: Datum<DclName[]>;
@@ -29,7 +29,7 @@ export type MyWorldsUnion = {
   bothFailed: boolean;
 };
 
-export type MyWorldsUnionOptions = {
+type MyWorldsUnionOptions = {
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   wcsBase?: string;

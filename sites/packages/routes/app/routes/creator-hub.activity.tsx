@@ -208,12 +208,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     url.searchParams.get("address")?.trim() || readWallet(request) || "";
   const pointer = url.searchParams.get("pointer")?.trim() || "";
 
-  const { sid, assignment, wrap } = await storyLoader(request, STORY, FALLBACK);
-
-  const index = await loadActivityIndex({ address, signal: request.signal });
-  const scene = pointer
-    ? await loadSceneActivity(pointer, { signal: request.signal })
-    : null;
+  const [{ sid, wrap }, index, scene] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    loadActivityIndex({ address, signal: request.signal }),
+    pointer ? loadSceneActivity(pointer, { signal: request.signal }) : null,
+  ]);
 
   const payload = {
     sid,

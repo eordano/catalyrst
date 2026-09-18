@@ -361,38 +361,39 @@ function HostBanner() {
 
 function AllExperiences({ days, dayLabels }: { days: WoDayEvent[][]; dayLabels: string[] }) {
   const [start, setStart] = useState(0);
-  const visibleCount = days.length;
+  const visibleCount = Math.min(7, days.length);
+  const offset = Math.min(start, Math.max(0, days.length - visibleCount));
+  const visibleDays = days.slice(offset, offset + visibleCount);
   if (!days.some((d) => d.length > 0)) return null;
   const labelFor = (i: number) => dayLabels[i] || `+${i}d`;
   return (
     <section className="wo-all" aria-label="All Hangouts">
       <h2 className="wo-all__title">All Hangouts</h2>
       <nav className="wo-all__nav" aria-label="All Hangouts dates">
-        <button
+        {offset > 0 && <button
           type="button"
           className="wo-all__navbtn wo-all__navbtn--left"
           aria-label="Navigate to previous dates"
-          disabled={start === 0}
-          onClick={() => setStart((s) => Math.max(0, s - 1))}
+          onClick={() => setStart((s) => Math.max(0, s - visibleCount))}
         >
           <ChevronLeft />
-        </button>
-        {days.map((_, i) => (
+        </button>}
+        {visibleDays.map((_, i) => (
           <span key={i} className={"wo-all__date" + (i === 0 && start === 0 ? " is-today" : "")}>
-            {labelFor(i)}
+            {labelFor(offset + i)}
           </span>
         ))}
-        <button
+        {offset + visibleCount < days.length && <button
           type="button"
           className="wo-all__navbtn wo-all__navbtn--right"
           aria-label="Navigate to next dates"
-          onClick={() => setStart((s) => s + 1)}
+          onClick={() => setStart(Math.min(days.length - visibleCount, offset + visibleCount))}
         >
           <ChevronRight />
-        </button>
+        </button>}
       </nav>
       <div className="wo-all__cols" style={{ gridTemplateColumns: `repeat(${visibleCount}, 1fr)` }}>
-        {days.map((events, i) => (
+        {visibleDays.map((events, i) => (
           <DayColumn key={i} events={events} />
         ))}
       </div>

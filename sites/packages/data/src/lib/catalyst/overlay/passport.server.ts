@@ -13,16 +13,16 @@ import {
   type GalleryImage,
 } from "./passport";
 
-export type PassportEquippedItem = {
+type PassportEquippedItem = {
   name: string;
   rarity: string;
   category: string;
   cat: string;
 };
-export type PassportLink = { title: string; url: string };
-export type PassportInfoField = { key: string; label: string; value: string; icon: string };
+type PassportLink = { title: string; url: string };
+type PassportInfoField = { key: string; label: string; value: string; icon: string };
 
-export type PassportProfile = {
+type PassportProfile = {
   address: string;
   name: string;
   tag: string;
@@ -34,7 +34,7 @@ export type PassportProfile = {
   equipped: PassportEquippedItem[];
 };
 
-export type PassportBadgeMedallion = {
+type PassportBadgeMedallion = {
   id: string;
   name: string;
   category: string;
@@ -43,7 +43,7 @@ export type PassportBadgeMedallion = {
   tint: string;
   shape: string;
 };
-export type PassportBadgeCard = {
+type PassportBadgeCard = {
   id: string;
   name: string;
   tier: string;
@@ -51,20 +51,20 @@ export type PassportBadgeCard = {
   isNew: boolean;
   completedAt: string | null;
 };
-export type PassportBadgeSection = {
+type PassportBadgeSection = {
   id: string;
   label: string;
   badges: PassportBadgeCard[];
 };
-export type PassportBadges = {
+type PassportBadges = {
   categories: string[] | null;
   earned: PassportBadgeMedallion[];
   sections: PassportBadgeSection[];
   unavailable: string | null;
 };
 
-export type PassportPhotoPerson = { name: string; tag: string; wearables: string[] };
-export type PassportPhoto = {
+type PassportPhotoPerson = { name: string; tag: string; wearables: string[] };
+type PassportPhoto = {
   id: string;
   url: string;
   thumbnailUrl: string;

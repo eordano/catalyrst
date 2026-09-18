@@ -41,8 +41,6 @@ export type Outfit = {
 
 export type LoadoutEntry = { slot: number; urn: string; name?: string | null };
 
-export type ColorCat = "skin" | "hair" | "eyes";
-
 export type SlotDef = { id: string; label: string };
 
 export const SLOTS: SlotDef[] = [
@@ -66,7 +64,7 @@ export const SLOTS: SlotDef[] = [
   { id: "skin", label: "Skin" },
 ];
 
-export const ICON_ID: Record<string, string> = {
+const ICON_ID: Record<string, string> = {
   body_shape: "body",
   facial_hair: "facial",
   upper_body: "upper",

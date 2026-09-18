@@ -1,3 +1,6 @@
+import { publicThumbnail } from "../../data/thumbnail";
+import FreshnessNotice from "../../components/FreshnessNotice";
+import { useWorldEntry } from "../WorldEntry";
 import type { QueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react";
@@ -13,51 +16,29 @@ import { fetchPlaces } from "../../data/catalyst/placesSchema";
 import type { PlaceView } from "../../data/catalyst/places";
 import { sendBridge, getDeployIdentity } from "../../overlay/bridge";
 import { qk, STALE } from "../../data/queryKeys";
-import { RecentPlacesSchema } from "../../data/persisted-schemas";
-import { check } from "../../validate";
+import { PLAY_PLACES_PARAMS } from "../../data/screens/play";
+import { playScreenEnabled, playSection } from "../../data/screens/play-client";
+import { getRecent, pushRecent } from "../../data/recentPlaces";
+import { prefetchImages } from "../../data/prefetchImages";
 
-const LIST_PARAMS = { limit: 60 };
+const LIST_PARAMS = PLAY_PLACES_PARAMS;
 const PARCEL_SIZE = 16;
-const RECENT_KEY = "dcl.recentPlaces";
 
 const CONTENTS_STYLE: CSSProperties = { display: "contents" };
 
-function getRecent(): PlaceView[] {
-  if (typeof localStorage === "undefined") return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  const recents = check(RecentPlacesSchema, parsed, "persisted/recent-places");
-  return recents.map((p) => ({ ...p, image: p.image }));
-}
-
-function pushRecent(p: PlaceView): void {
-  if (typeof localStorage === "undefined") return;
-  const cur = getRecent().filter((x) => x.id !== p.id);
-  cur.unshift(p);
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(cur.slice(0, 24)));
-  } catch {
-  }
-}
-
-export function prefetch(queryClient: QueryClient) {
-  try {
-    queryClient.prefetchQuery({
+export function prefetch(queryClient: QueryClient, address?: string | null) {
+  return queryClient.fetchQuery({
       queryKey: qk.places(LIST_PARAMS),
-      queryFn: ({ signal }) => fetchPlaces(LIST_PARAMS, { signal }),
+      queryFn: ({ signal }) => playScreenEnabled(queryClient)
+        ? playSection(queryClient, address === undefined ? getDeployIdentity()?.signerAddress : address, "places", signal)
+        : fetchPlaces(LIST_PARAMS, { signal }),
       staleTime: STALE.places,
-    });
-  } catch {
-  }
+  }).then(places => prefetchImages(places.map(place => publicThumbnail(place.image)))).catch(() => {});
 }
 
 export default function PlacesPanel() {
   const navigate = useNavigate();
+  const entry = useWorldEntry();
   const { jumping, stalled, beginJump, cancelJump, confirmJump } = useJump(() => navigate("/"));
   const [section, setSection] = useState("explore");
   const [sort, setSort] = useState("most_active");
@@ -107,6 +88,12 @@ export default function PlacesPanel() {
     setSelected(null);
     if (!place) return;
     pushRecent(place);
+    if (entry?.pending) {
+      if (place.world && place.worldName) entry.enter({ kind: "world", realm: place.worldName });
+      else if (!place.world && Number.isFinite(Number(place.x)) && Number.isFinite(Number(place.y)))
+        entry.enter({ kind: "parcel", x: Number(place.x), y: Number(place.y) });
+      return;
+    }
     let jumped = false;
     if (place.world) {
       if (place.worldName) {
@@ -125,8 +112,8 @@ export default function PlacesPanel() {
       }
     }
     if (!jumped) return;
-    beginJump(place.title || place.name || "destination");
-  }, [selected, beginJump]);
+    beginJump(place.title || place.name || "destination", place.world ? undefined : `${place.x},${place.y}`);
+  }, [selected, beginJump, entry]);
 
   const requestJumpIn = useCallback(() => {
     if (selected?.world && selected.worldName) {
@@ -142,9 +129,10 @@ export default function PlacesPanel() {
     setConfirmWorld(null);
     setSelected(null);
     if (place) pushRecent(place);
+    if (entry?.pending) { entry.enter({ kind: "world", realm: confirmWorld.realm }); return; }
     sendBridge("ChangeRealm", { realm: confirmWorld.realm });
     beginJump(confirmWorld.title || confirmWorld.realm);
-  }, [confirmWorld, selected, beginJump]);
+  }, [confirmWorld, selected, beginJump, entry]);
 
   return (
     <div
@@ -162,9 +150,10 @@ export default function PlacesPanel() {
         }
       }}
     >
+      <FreshnessNotice failed={q.refreshFailed} onRetry={() => void q.refetch()} />
       <Places
         places={cards}
-        loading={section === "recent" ? false : q.isLoading}
+        loading={section === "recent" ? false : q.isPending}
         error={section === "recent" ? false : q.isError}
         section={section}
         onSectionChange={setSection}

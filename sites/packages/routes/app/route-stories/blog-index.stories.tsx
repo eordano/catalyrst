@@ -2,9 +2,11 @@ import BlogIndexRoute from "../routes/blog._index";
 import { blogPostCards } from "@core/lib/content/blog";
 import { routeStory } from "./lib";
 
+const shop = { shopArm: "base", shopVariant: "base", shopExperimentKey: "lp_blog_shop_entry", railItems: null };
+
 function blogStubLoader({ request }: { request: Request }) {
   const category = new URL(request.url).searchParams.get("category") ?? "";
-  return { sid: "story-sid", posts: blogPostCards(category), category };
+  return { ...shop, sid: "story-sid", posts: blogPostCards(category), category };
 }
 
 export default {
@@ -16,7 +18,7 @@ export const AllPosts = {
   render: routeStory({
     Component: BlogIndexRoute,
     path: "/blog",
-    loaderData: { sid: "story-sid", posts: blogPostCards(), category: "" },
+    loaderData: { ...shop, sid: "story-sid", posts: blogPostCards(), category: "" },
     loader: blogStubLoader,
   }),
 };
@@ -26,7 +28,7 @@ export const CategoryAnnouncements = {
     Component: BlogIndexRoute,
     path: "/blog",
     url: "/blog?category=announcements",
-    loaderData: { sid: "story-sid", posts: blogPostCards("announcements"), category: "announcements" },
+    loaderData: { ...shop, sid: "story-sid", posts: blogPostCards("announcements"), category: "announcements" },
     loader: blogStubLoader,
   }),
 };
@@ -36,7 +38,7 @@ export const EmptyCategory = {
     Component: BlogIndexRoute,
     path: "/blog",
     url: "/blog?category=tutorials",
-    loaderData: { sid: "story-sid", posts: blogPostCards("tutorials"), category: "tutorials" },
+    loaderData: { ...shop, sid: "story-sid", posts: blogPostCards("tutorials"), category: "tutorials" },
     loader: blogStubLoader,
   }),
 };

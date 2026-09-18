@@ -89,7 +89,7 @@ pub struct CommentItem {
     pub text: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(
     feature = "ts",
     derive(ts_rs::TS),
@@ -100,7 +100,7 @@ pub struct EngagementPayload {
     pub weekly: Vec<WeeklyBucket>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(
     feature = "ts",
     derive(ts_rs::TS),
@@ -113,7 +113,7 @@ pub struct TopVoterItem {
     pub vp: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(
     feature = "ts",
     derive(ts_rs::TS),
@@ -125,7 +125,7 @@ pub struct WeeklyBucket {
     pub votes: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(
     feature = "ts",
     derive(ts_rs::TS),
@@ -135,7 +135,7 @@ pub struct ActivityPayload {
     pub items: Vec<ActivityFeedItem>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(
     feature = "ts",
     derive(ts_rs::TS),
@@ -206,18 +206,29 @@ pub fn empty_votes_payload(status: ArchiveStatus) -> ProposalVotesPayload {
     }
 }
 
+/// Head and votes ride in one statement: the head columns repeat per vote row and the
+/// LATERAL branch yields a single all-NULL row (has_vote NULL) when there are no votes.
 pub async fn proposal_votes(pool: &PgPool, snapshot_id: &str) -> Result<ProposalVotesPayload> {
-    let head = sqlx::query(
-        "SELECT choices, scores, COALESCE(scores_total, 0) AS scores_total,
-                COALESCE(votes_count, 0) AS votes_count
-         FROM proposals WHERE id = $1",
+    let rows = sqlx::query(
+        "SELECT p.choices, p.scores, COALESCE(p.scores_total, 0) AS scores_total,
+                COALESCE(p.votes_count, 0) AS votes_count,
+                v.has_vote, v.voter, v.choice, COALESCE(v.vp, 0) AS vp, v.created_ts, v.reason
+         FROM proposals p
+         LEFT JOIN LATERAL (
+             SELECT true AS has_vote, voter, choice, vp, created_ts, reason
+             FROM votes WHERE proposal_id = p.id
+             ORDER BY created_ts ASC LIMIT $2
+         ) v ON true
+         WHERE p.id = $1
+         ORDER BY v.created_ts ASC NULLS LAST",
     )
     .bind(snapshot_id)
-    .fetch_optional(pool)
+    .bind(MAX_VOTES_PER_PROPOSAL)
+    .fetch_all(pool)
     .await
-    .context("snapshot proposal head")?;
+    .context("snapshot proposal votes")?;
 
-    let Some(head) = head else {
+    let Some(head) = rows.first() else {
         return Ok(empty_votes_payload(ArchiveStatus::NotIndexed));
     };
     let choices: Vec<String> = head
@@ -234,19 +245,14 @@ pub async fn proposal_votes(pool: &PgPool, snapshot_id: &str) -> Result<Proposal
         .map(i64::from)
         .or_else(|_| head.try_get::<i64, _>("votes_count"))?;
 
-    let rows = sqlx::query(
-        "SELECT voter, choice, COALESCE(vp, 0) AS vp, created_ts, reason
-         FROM votes WHERE proposal_id = $1
-         ORDER BY created_ts ASC LIMIT $2",
-    )
-    .bind(snapshot_id)
-    .bind(MAX_VOTES_PER_PROPOSAL)
-    .fetch_all(pool)
-    .await
-    .context("snapshot votes")?;
-
     let mut all: Vec<ProposalVoteItem> = rows
         .iter()
+        .filter(|r| {
+            r.try_get::<Option<bool>, _>("has_vote")
+                .ok()
+                .flatten()
+                .unwrap_or(false)
+        })
         .map(|r| {
             let choice = r
                 .try_get::<Option<serde_json::Value>, _>("choice")
@@ -343,18 +349,8 @@ pub async fn comments_by_topic(
     topic_id: i64,
     limit: i64,
 ) -> Result<CommentsPayload> {
-    let total: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM posts
-         WHERE topic_id = $1 AND post_number > 1
-           AND hidden = false AND deleted_at IS NULL",
-    )
-    .bind(topic_id)
-    .fetch_one(pool)
-    .await
-    .context("discourse comment count")?;
-
     let rows = sqlx::query(
-        "SELECT username, created_at, raw FROM posts
+        "SELECT username, created_at, raw, count(*) OVER() AS total FROM posts
          WHERE topic_id = $1 AND post_number > 1
            AND hidden = false AND deleted_at IS NULL
          ORDER BY created_at DESC LIMIT $2",
@@ -364,6 +360,10 @@ pub async fn comments_by_topic(
     .fetch_all(pool)
     .await
     .context("discourse comments")?;
+    let total: i64 = rows
+        .first()
+        .and_then(|r| r.try_get::<i64, _>("total").ok())
+        .unwrap_or(0);
 
     let comments = rows
         .iter()
@@ -387,40 +387,42 @@ pub async fn comments_by_topic(
 pub async fn engagement(pool: &PgPool, days: i64, limit: i64) -> Result<EngagementPayload> {
     let cutoff = now_epoch() - days.max(1) * 86_400;
 
-    let voters = sqlx::query(
+    let voters_q = sqlx::query(
         "SELECT lower(voter) AS address, count(*) AS votes, COALESCE(sum(vp), 0) AS vp
          FROM votes WHERE created_ts >= $1
          GROUP BY 1 ORDER BY votes DESC, vp DESC LIMIT $2",
     )
     .bind(cutoff)
     .bind(limit)
-    .fetch_all(pool)
-    .await
-    .context("top voters")?
-    .iter()
-    .map(|r| TopVoterItem {
-        address: r.try_get::<String, _>("address").unwrap_or_default(),
-        votes: r.try_get::<i64, _>("votes").unwrap_or(0),
-        vp: r.try_get::<f64, _>("vp").unwrap_or(0.0),
-    })
-    .collect();
-
-    let weekly = sqlx::query(
+    .fetch_all(pool);
+    let weekly_q = sqlx::query(
         "SELECT to_char(date_trunc('week', to_timestamp(created_ts)), 'YYYY-MM-DD') AS week_start,
                 count(*) AS votes
          FROM votes WHERE created_ts >= $1
          GROUP BY 1 ORDER BY 1",
     )
     .bind(now_epoch() - 8 * 7 * 86_400)
-    .fetch_all(pool)
-    .await
-    .context("weekly votes")?
-    .iter()
-    .map(|r| WeeklyBucket {
-        week_start: r.try_get::<String, _>("week_start").unwrap_or_default(),
-        votes: r.try_get::<i64, _>("votes").unwrap_or(0),
-    })
-    .collect();
+    .fetch_all(pool);
+    let (voters, weekly) =
+        tokio::try_join!(async { voters_q.await.context("top voters") }, async {
+            weekly_q.await.context("weekly votes")
+        })?;
+
+    let voters = voters
+        .iter()
+        .map(|r| TopVoterItem {
+            address: r.try_get::<String, _>("address").unwrap_or_default(),
+            votes: r.try_get::<i64, _>("votes").unwrap_or(0),
+            vp: r.try_get::<f64, _>("vp").unwrap_or(0.0),
+        })
+        .collect();
+    let weekly = weekly
+        .iter()
+        .map(|r| WeeklyBucket {
+            week_start: r.try_get::<String, _>("week_start").unwrap_or_default(),
+            votes: r.try_get::<i64, _>("votes").unwrap_or(0),
+        })
+        .collect();
 
     Ok(EngagementPayload { voters, weekly })
 }

@@ -25,7 +25,7 @@ export function shortAddress(value: string): string {
   return shortAddressCore(value.trim());
 }
 
-export type DurationPreset = { id: string; label: string; ms: number | null };
+type DurationPreset = { id: string; label: string; ms: number | null };
 
 export const DURATION_PRESETS: DurationPreset[] = [
   { id: "permanent", label: "Permanent", ms: null },
@@ -40,15 +40,15 @@ export function durationMsFor(presetId: string | null | undefined): number | nul
   return p ? p.ms : null;
 }
 
-export type BanPlayerBody = {
+type BanPlayerBody = {
   reason: string;
   duration?: number;
   customMessage?: string;
 };
 
-export type WarnPlayerBody = { reason: string };
+type WarnPlayerBody = { reason: string };
 
-export type FieldErrors = Record<string, string>;
+type FieldErrors = Record<string, string>;
 
 export function validateReason(reason: string): FieldErrors {
   const errors: FieldErrors = {};
@@ -56,15 +56,13 @@ export function validateReason(reason: string): FieldErrors {
   return errors;
 }
 
-export { PublicUserBanSchema, UserBanSchema, UserWarningSchema };
-export type WireUserBan = z.infer<typeof UserBanSchema>;
+type WireUserBan = z.infer<typeof UserBanSchema>;
 export type UserBan = WireUserBan & { name: string | null };
-export type WirePublicUserBan = z.infer<typeof PublicUserBanSchema>;
+type WirePublicUserBan = z.infer<typeof PublicUserBanSchema>;
 export type PublicUserBan = WirePublicUserBan & { name: string | null };
-export type UserWarning = z.infer<typeof UserWarningSchema>;
+type UserWarning = z.infer<typeof UserWarningSchema>;
 
-export const BanStatusSchema = WireBanStatusSchema;
-export type BanStatus = { isBanned: boolean; ban: PublicUserBan | null };
+type BanStatus = { isBanned: boolean; ban: PublicUserBan | null };
 
 function withName<T extends object>(row: T, raw: unknown): T & { name: string | null } {
   const name = (raw as { name?: unknown } | null)?.name;
@@ -79,7 +77,7 @@ const BanStatusEnvelope = envelope(z.unknown());
 const WarningsEnvelope = envelope(z.array(z.unknown()));
 const RowEnvelope = envelope(z.unknown());
 
-export function parseBans(rows: unknown[]): UserBan[] {
+function parseBans(rows: unknown[]): UserBan[] {
   const out: UserBan[] = [];
   for (const raw of rows) {
     const r = UserBanSchema.safeParse(raw);
@@ -88,7 +86,7 @@ export function parseBans(rows: unknown[]): UserBan[] {
   return out;
 }
 
-export function parseWarnings(rows: unknown[]): UserWarning[] {
+function parseWarnings(rows: unknown[]): UserWarning[] {
   const out: UserWarning[] = [];
   for (const raw of rows) {
     const r = UserWarningSchema.safeParse(raw);
@@ -97,7 +95,7 @@ export function parseWarnings(rows: unknown[]): UserWarning[] {
   return out;
 }
 
-export function parseBanStatus(raw: unknown): BanStatus {
+function parseBanStatus(raw: unknown): BanStatus {
   const r = WireBanStatusSchema.safeParse(raw);
   if (!r.success) return { isBanned: false, ban: null };
   const rawBan = (raw as { ban?: unknown } | null)?.ban;
@@ -107,19 +105,19 @@ export function parseBanStatus(raw: unknown): BanStatus {
   };
 }
 
-export const COMMS_PREFIX = "/comms";
+const COMMS_PREFIX = "/comms";
 
-export const ALL_BANS_PATH = "/bans";
+const ALL_BANS_PATH = "/bans";
 
-export function userBansPath(address: string): string {
+function userBansPath(address: string): string {
   return `/users/${encodeURIComponent(normalizeAddress(address))}/bans`;
 }
 
-export function userWarningsPath(address: string): string {
+function userWarningsPath(address: string): string {
   return `/users/${encodeURIComponent(normalizeAddress(address))}/warnings`;
 }
 
-export type ModeratedGetOptions = GetOptions & { identity?: AuthIdentity | null };
+type ModeratedGetOptions = GetOptions & { identity?: AuthIdentity | null };
 
 async function commsGet<T>(path: string, opts: ModeratedGetOptions): Promise<T> {
   const { identity, ...rest } = opts;
@@ -157,7 +155,7 @@ export async function loadWarnings(
   return parsed.success ? parseWarnings(parsed.data.data) : null;
 }
 
-export const USER_ACTIONS = ["ban", "unban", "warn"] as const;
+const USER_ACTIONS = ["ban", "unban", "warn"] as const;
 export type UserAction = (typeof USER_ACTIONS)[number];
 
 export type ActionFailureReason = "already_banned" | "no_active_ban";
@@ -186,7 +184,7 @@ export type UserActionResult = {
 
 export const NOT_CONNECTED_MESSAGE = "Connect your wallet to commit this change.";
 
-export type CommitUserActionArgs = {
+type CommitUserActionArgs = {
   identity: AuthIdentity | null | undefined;
   action: UserAction;
   address: string;
@@ -267,14 +265,20 @@ export async function commitUserAction(args: CommitUserActionArgs): Promise<User
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Mutual<A, B> = AssignableTo<A, B> extends true ? AssignableTo<B, A> : false;
+
 type Assert<T extends true> = T;
+
 export type _AssertUserBanIsWirePlusName = Assert<
   Mutual<Omit<UserBan, "name">, WireUserBan>
 >;
+
 export type _AssertPublicUserBanIsWirePlusName = Assert<
   Mutual<Omit<PublicUserBan, "name">, WirePublicUserBan>
 >;
+
 export type _AssertPublicBanHidesDeviceId = Assert<
   "bannedDeviceId" extends keyof NonNullable<BanStatus["ban"]> ? false : true
 >;
+

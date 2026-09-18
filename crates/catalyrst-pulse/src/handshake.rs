@@ -1,8 +1,9 @@
 use catalyrst_crypto::signed_fetch::handshake::{extract_from_object, obj_str};
 use catalyrst_crypto::signed_fetch::to_crypto_chain;
 use catalyrst_crypto::verify::verify_auth_chain;
-use catalyrst_types::{AuthChain, AuthLinkType};
+use catalyrst_types::{AuthChain, AuthLink, AuthLinkType};
 
+use crate::decentraland::common::{AuthChain as ProtoAuthChain, AuthLinkType as ProtoAuthLinkType};
 use crate::decentraland::pulse::HandshakeRequest;
 
 pub const MAX_TIMESTAMP_SKEW_MS: i64 = 60_000;
@@ -30,7 +31,7 @@ impl HandshakeError {
             HandshakeError::StaleTimestamp => {
                 format!("timestamp outside \u{B1}{MAX_TIMESTAMP_SKEW_MS}ms skew window")
             }
-            HandshakeError::InvalidAuthChain(e) => e.clone(),
+            HandshakeError::InvalidAuthChain(_) => "Invalid auth chain".to_string(),
         }
     }
 }
@@ -38,6 +39,11 @@ impl HandshakeError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedHandshake {
     pub user_address: String,
+
+    /// The identity that actually signed this connection: the last delegated ephemeral address,
+    /// or the wallet itself when the chain never delegates. Two devices on one wallet therefore
+    /// carry different sessions, which is what makes a takeover distinguishable from a reconnect.
+    pub session: String,
 
     pub timestamp: String,
 }
@@ -47,6 +53,20 @@ pub use catalyrst_crypto::signed_fetch::build_payload_v6 as build_signed_fetch_p
 fn has_auth_chain_header(obj: &serde_json::Map<String, serde_json::Value>) -> bool {
     obj.keys()
         .any(|k| k.to_lowercase().starts_with(AUTH_CHAIN_HEADER_PREFIX))
+}
+
+/// The final delegate in the chain. Only the last one counts: a chain may delegate more than
+/// once, and every earlier ephemeral is a link in the path to it, not the signer of the payload.
+fn session_address(chain: &AuthChain) -> Option<String> {
+    chain
+        .iter()
+        .rev()
+        .find(|l| l.link_type == AuthLinkType::EcdsaEphemeral)
+        .and_then(|l| {
+            catalyrst_crypto::auth_chain::parse_ephemeral_payload(&l.payload)
+                .ok()
+                .map(|(_, ephemeral, _)| ephemeral.trim().to_lowercase())
+        })
 }
 
 fn signer_address(chain: &AuthChain) -> Option<String> {
@@ -83,7 +103,7 @@ pub fn verify_handshake_bytes(
     let ts_ms: i64 = timestamp
         .parse()
         .map_err(|_| HandshakeError::StaleTimestamp)?;
-    if (now_ms - ts_ms).abs() > MAX_TIMESTAMP_SKEW_MS {
+    if now_ms.abs_diff(ts_ms) > MAX_TIMESTAMP_SKEW_MS as u64 {
         return Err(HandshakeError::StaleTimestamp);
     }
 
@@ -98,9 +118,9 @@ pub fn verify_handshake_bytes(
         .map(|l| l.payload.clone())
         .ok_or(HandshakeError::NoAuthChain)?;
     if final_payload != expected_payload {
-        return Err(HandshakeError::InvalidAuthChain(format!(
-            "Final link rejected by policy: expected connect payload, got '{final_payload}'"
-        )));
+        return Err(HandshakeError::InvalidAuthChain(
+            "Final link rejected by policy: expected connect payload".into(),
+        ));
     }
 
     verify_auth_chain(&chain, &expected_payload, Some(now_ms))
@@ -109,9 +129,66 @@ pub fn verify_handshake_bytes(
     let user_address = signer_address(&chain)
         .ok_or_else(|| HandshakeError::InvalidAuthChain("First link must be SIGNER".into()))?;
 
+    let session = session_address(&chain).unwrap_or_else(|| user_address.clone());
+
     Ok(VerifiedHandshake {
         user_address,
+        session,
         timestamp,
+    })
+}
+
+pub fn decode_v4_auth_chain(auth_chain: &ProtoAuthChain) -> Result<AuthChain, HandshakeError> {
+    auth_chain
+        .links
+        .iter()
+        .map(|link| {
+            let link_type = match ProtoAuthLinkType::try_from(link.r#type) {
+                Ok(ProtoAuthLinkType::Signer) => AuthLinkType::SIGNER,
+                Ok(ProtoAuthLinkType::EcdsaEphemeral) => AuthLinkType::EcdsaEphemeral,
+                Ok(ProtoAuthLinkType::EcdsaSignedEntity) => AuthLinkType::EcdsaSignedEntity,
+                Ok(ProtoAuthLinkType::EcdsaEip1654Ephemeral) => AuthLinkType::EcdsaEip1654Ephemeral,
+                Ok(ProtoAuthLinkType::EcdsaEip1654SignedEntity) => {
+                    AuthLinkType::EcdsaEip1654SignedEntity
+                }
+                Ok(ProtoAuthLinkType::Unknown) | Err(_) => {
+                    return Err(HandshakeError::InvalidAuthChain(
+                        "unknown auth link type".into(),
+                    ));
+                }
+            };
+            Ok(AuthLink {
+                link_type,
+                payload: link.payload.clone(),
+                signature: link.signature.clone(),
+            })
+        })
+        .collect()
+}
+
+pub fn verify_v4_auth_chain(
+    chain: &AuthChain,
+    expected_payload: &str,
+    now_ms: i64,
+) -> Result<VerifiedHandshake, HandshakeError> {
+    let final_payload = chain
+        .last()
+        .map(|link| link.payload.as_str())
+        .ok_or(HandshakeError::NoAuthChain)?;
+    if final_payload != expected_payload {
+        return Err(HandshakeError::InvalidAuthChain(
+            "final link does not match Pulse v4 intent".into(),
+        ));
+    }
+    verify_auth_chain(chain, expected_payload, Some(now_ms))
+        .map_err(|error| HandshakeError::InvalidAuthChain(error.to_string()))?;
+    let user_address = signer_address(chain)
+        .ok_or_else(|| HandshakeError::InvalidAuthChain("first link must be SIGNER".into()))?;
+    let session = session_address(chain).unwrap_or_else(|| user_address.clone());
+    Ok(VerifiedHandshake {
+        user_address,
+        session,
+        timestamp: String::new(),
     })
 }
 
@@ -120,6 +197,42 @@ mod tests {
     use super::*;
     use crate::decentraland::pulse::HandshakeRequest;
     use catalyrst_types::AuthLink;
+
+    #[test]
+    fn public_handshake_errors_never_echo_invalid_chain_details() {
+        const CANARY: &str = "pulse-invalid-chain-private-material-canary";
+        let timestamp = "100000";
+        let metadata = "{}";
+        let expected = build_signed_fetch_payload("connect", "/", timestamp, metadata);
+        let signer = AuthLink {
+            link_type: AuthLinkType::SIGNER,
+            payload: "0x0000000000000000000000000000000000000001".into(),
+            signature: None,
+        };
+        let ephemeral = AuthLink {
+            link_type: AuthLinkType::EcdsaEphemeral,
+            payload: format!(
+                "Decentraland Login\nEphemeral address: 0x0000000000000000000000000000000000000002\nExpiration: {CANARY}"
+            ),
+            signature: Some("0x00".into()),
+        };
+        let signed = AuthLink {
+            link_type: AuthLinkType::EcdsaSignedEntity,
+            payload: expected,
+            signature: Some("0x00".into()),
+        };
+        let body = header_bag_json(
+            &[(0, &signer), (1, &ephemeral), (2, &signed)],
+            timestamp,
+            metadata,
+        );
+        let error = verify_handshake_bytes(body.as_bytes(), 100000).unwrap_err();
+        assert!(
+            matches!(&error, HandshakeError::InvalidAuthChain(detail) if detail.contains(CANARY))
+        );
+        assert!(!error.message().contains(CANARY));
+        assert_eq!(error.message(), "Invalid auth chain");
+    }
 
     fn header_bag_json(links: &[(usize, &AuthLink)], ts: &str, metadata: &str) -> String {
         let mut map = serde_json::Map::new();
@@ -208,6 +321,22 @@ mod tests {
             verify_handshake(&req, 1000 + MAX_TIMESTAMP_SKEW_MS + 1),
             Err(HandshakeError::StaleTimestamp)
         );
+    }
+
+    #[test]
+    fn extreme_timestamps_are_rejected_without_overflow() {
+        let signer = AuthLink {
+            link_type: AuthLinkType::SIGNER,
+            payload: "0xabc".into(),
+            signature: None,
+        };
+        for (timestamp, now) in [(i64::MIN, 1), (i64::MAX, -1), (0, i64::MIN)] {
+            let body = header_bag_json(&[(0, &signer)], &timestamp.to_string(), "{}");
+            assert_eq!(
+                verify_handshake_bytes(body.as_bytes(), now),
+                Err(HandshakeError::StaleTimestamp)
+            );
+        }
     }
 
     #[test]
@@ -317,6 +446,8 @@ mod tests {
         let now_ms: i64 = ts.parse().unwrap();
         let ok = verify_handshake(&req, now_ms).expect("real chain must verify");
         assert_eq!(ok.user_address, root_addr.to_lowercase());
+        assert_eq!(ok.session, eph_addr.to_lowercase());
+        assert_ne!(ok.session, ok.user_address);
         assert_eq!(ok.timestamp, ts);
 
         let bad_metadata = "{\"signer\":\"dcl:other\"}";

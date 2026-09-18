@@ -21,11 +21,7 @@ import {
 } from "../wcs.server";
 import { RealmAboutSchema, WorldAboutSchema, parsePlacesWorlds } from "./activity";
 import { parseNames } from "./manage-worlds";
-import {
-  SOURCE_REGISTRY,
-  isProbeable,
-  type SourceEntry,
-} from "./data-sources";
+import { SOURCE_REGISTRY, type SourceEntry } from "./data-sources";
 import {
   DEFAULT_CADENCE_SECONDS,
   endpointLabel,
@@ -36,7 +32,7 @@ import {
   type Datum,
 } from "./datum.server";
 
-export type ProbeContext = {
+type ProbeContext = {
   address?: string | null;
   world?: string | null;
   pointer?: string | null;
@@ -45,9 +41,9 @@ export type ProbeContext = {
   wcsBase?: string;
 };
 
-export type Probe = (ctx: ProbeContext) => Promise<Datum<unknown>>;
+type Probe = (ctx: ProbeContext) => Promise<Datum<unknown>>;
 
-export type ProbedSource = SourceEntry & { probe?: Probe; result?: Datum<unknown> };
+type ProbedSource = SourceEntry & { probe?: Probe; result?: Datum<unknown> };
 
 const PROBE_TIMEOUT_MS = 4000;
 
@@ -261,4 +257,3 @@ export async function probeSources(
   });
 }
 
-export { isProbeable, SOURCE_REGISTRY };

@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-media"
-version = "0.26.0"
+version = "0.31.0"
 edition = "2021"
 description = "Rust port of decentraland/autotranslate-server (autotranslate-server.decentraland.org): LibreTranslate-compatible POST /translate (single + batch), postgres TTL cache."
 
@@ -23,3 +23,4 @@ catalyrst-envcfg = { workspace = true }
 catalyrst-types = { workspace = true, features = ["sqlx"] }
 async-trait = { workspace = true }
 sha2 = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }

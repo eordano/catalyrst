@@ -142,8 +142,10 @@ pub async fn deploy_entity_streaming(
 
     let mut tasks: tokio::task::JoinSet<Result<(), SyncError>> = tokio::task::JoinSet::new();
 
-    for hash in hashes {
-        if storage.exist(&hash).await? {
+    let refs: Vec<&str> = hashes.iter().map(String::as_str).collect();
+    let present = storage.exist_multiple(&refs).await?;
+    for (hash, exists) in present {
+        if exists {
             continue;
         }
 

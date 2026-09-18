@@ -284,6 +284,47 @@ pub async fn load_standing_from_community_members(
     ))
 }
 
+/// Both wallets' standings from one read of `community_members`; a missing row is "not a
+/// member", exactly as [`load_standing_from_community_members`] reports it.
+pub async fn load_standings_pair_from_community_members(
+    pool: &PgPool,
+    community_id: Uuid,
+    first_wallet: &str,
+    second_wallet: &str,
+) -> Result<(CommunityMembershipStanding, CommunityMembershipStanding), AuthorityNotEstablished> {
+    const SOURCE: CommunityMembershipTierSourceTable =
+        CommunityMembershipTierSourceTable::CommunityMembersTableReadByTheClientPath;
+    let first = first_wallet.to_lowercase();
+    let second = second_wallet.to_lowercase();
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT member_address, role FROM community_members \
+         WHERE community_id = $1 AND member_address IN ($2, $3) \
+           AND EXISTS (SELECT 1 FROM communities c WHERE c.id = $1 AND c.active = true)",
+    )
+    .bind(community_id)
+    .bind(&first)
+    .bind(&second)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| undetermined_because_the_backing_store_was_unavailable(SOURCE, e))?;
+    let role_of = |wallet: &str| {
+        rows.iter()
+            .find(|(address, _)| address == wallet)
+            .map(|(_, role)| role.clone())
+    };
+    let first_role = role_of(&first);
+    let second_role = role_of(&second);
+    Ok((
+        CommunityMembershipStanding::from_row(community_id.to_string(), first, SOURCE, first_role),
+        CommunityMembershipStanding::from_row(
+            community_id.to_string(),
+            second,
+            SOURCE,
+            second_role,
+        ),
+    ))
+}
+
 #[cfg(test)]
 pub(crate) fn standing_for_tests(
     tier_text: &str,

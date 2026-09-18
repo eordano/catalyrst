@@ -50,6 +50,33 @@ pub(crate) fn outfits_cache() -> &'static Cache {
 /// alongside their `deployments_cache.clear()`.
 pub(crate) fn invalidate_outfits_cache() {
     outfits_cache().clear();
+    base_wearables_cache().clear();
+    catalog_cache().clear();
+}
+
+fn base_wearables_cache() -> &'static TtlMap<u8, Arc<Vec<BaseWearable>>> {
+    static C: OnceLock<TtlMap<u8, Arc<Vec<BaseWearable>>>> = OnceLock::new();
+    C.get_or_init(|| TtlMap::bounded("base-wearables", Duration::from_secs(300), 1))
+}
+
+/// Parsed base wearables, memoized until a deployment clears them; an empty answer is not kept.
+pub(crate) async fn cached_base_wearables(state: &AppState) -> Arc<Vec<BaseWearable>> {
+    base_wearables_cache()
+        .get_or_fetch(0, || async {
+            let base = base_wearables::fetch_base_wearables(state).await;
+            if base.is_empty() {
+                Err(())
+            } else {
+                Ok(Arc::new(base))
+            }
+        })
+        .await
+        .unwrap_or_default()
+}
+
+fn catalog_cache() -> &'static Cache {
+    static C: OnceLock<Cache> = OnceLock::new();
+    static_cache(&C, "catalog", 60, 4096)
 }
 
 fn catalog_params_from_query(qs: &str) -> CatalogParams {
@@ -280,6 +307,7 @@ pub struct CatalogParams {
     limit: Option<String>,
 }
 
+#[derive(Debug)]
 struct CatalogFilters {
     collection_ids: Option<Vec<String>>,
     item_ids: Option<Vec<String>>,
@@ -676,32 +704,47 @@ async fn catalog_wearables_with_base(state: &AppState, query: CatalogQuery) -> R
         .as_ref()
         .is_none_or(|l| l.starts_with(BASE_AVATARS_COLLECTION_ID));
 
-    let (off_chain, on_chain_cursor) = if base_collection_allowed && cursor_in_base_range {
-        let base = base_wearables::fetch_base_wearables(state).await;
-        let off_chain = filter_and_extract_base_wearables(
+    let in_base_range = base_collection_allowed && cursor_in_base_range;
+    let on_chain_cursor = if in_base_range {
+        None
+    } else {
+        query.last_id.clone()
+    };
+    let want_on_chain = !only_base_collection && filters.extended.allows(CollectionType::OnChain);
+
+    // The urn leg is fetched at limit+1 concurrently and cut to what the base leg leaves.
+    let base_leg = async {
+        if !in_base_range {
+            return Vec::new();
+        }
+        let base = cached_base_wearables(state).await;
+        filter_and_extract_base_wearables(
             &base,
             filters,
             &query.last_id,
             (limit + 1) as usize,
             &state.content_public_url,
-        );
-        (off_chain, None)
-    } else {
-        (Vec::new(), query.last_id.clone())
+        )
     };
+    let urns_leg = async {
+        match state.squid_pool.as_ref() {
+            Some(pool) if want_on_chain => {
+                fetch_item_urns(pool, "wearable", filters, limit + 1, &on_chain_cursor).await
+            }
+            _ => Vec::new(),
+        }
+    };
+    let (off_chain, mut urns) = tokio::join!(base_leg, urns_leg);
 
     let remaining = limit - off_chain.len() as i64;
     let mut on_chain_defs = Vec::new();
-    if !only_base_collection && filters.extended.allows(CollectionType::OnChain) && remaining >= 0 {
-        if let Some(pool) = state.squid_pool.as_ref() {
-            let urns =
-                fetch_item_urns(pool, "wearable", filters, remaining + 1, &on_chain_cursor).await;
-            let pointers = urns
-                .iter()
-                .map(|u| u.replacen(":mainnet:", ":ethereum:", 1).to_lowercase())
-                .collect();
-            on_chain_defs = definitions_for(state, pointers, extract_wearable_definition).await;
-        }
+    if want_on_chain && remaining >= 0 && state.squid_pool.is_some() {
+        urns.truncate((remaining + 1) as usize);
+        let pointers = urns
+            .iter()
+            .map(|u| u.replacen(":mainnet:", ":ethereum:", 1).to_lowercase())
+            .collect();
+        on_chain_defs = definitions_for(state, pointers, extract_wearable_definition).await;
     }
 
     let (items, next_last_id) = paginate_merged(off_chain, on_chain_defs, limit);
@@ -733,17 +776,31 @@ async fn catalog(
             id_param_name,
         );
     };
-    let urns = fetch_item_urns(
-        pool,
-        item_type_prefix,
-        &query.filters,
+    let key = format!(
+        "{item_type_prefix}|{}|{}|{:?}",
         query.limit,
-        &query.last_id,
-    )
-    .await;
-    let pointers = urns.iter().map(|u| u.to_lowercase()).collect();
-    let definitions = definitions_for(state, pointers, extract).await;
-    let (items, next_last_id) = paginate(definitions, query.limit);
+        query.last_id.as_deref().unwrap_or(""),
+        query.filters
+    );
+    let page = catalog_cache()
+        .get_or_fetch(key, || async {
+            let urns = fetch_item_urns(
+                pool,
+                item_type_prefix,
+                &query.filters,
+                query.limit,
+                &query.last_id,
+            )
+            .await;
+            let pointers = urns.iter().map(|u| u.to_lowercase()).collect();
+            let definitions = definitions_for(state, pointers, &extract).await;
+            let (items, next_last_id) = paginate(definitions, query.limit);
+            Ok::<Value, ()>(json!({ "items": items, "next": next_last_id }))
+        })
+        .await
+        .unwrap_or(Value::Null);
+    let items = page["items"].as_array().cloned().unwrap_or_default();
+    let next_last_id = page["next"].as_str().map(str::to_string);
     catalog_response(
         items_key,
         items,
@@ -869,16 +926,19 @@ pub async fn outfits(State(state): State<Arc<AppState>>, Path(id): Path<String>)
     let cached = outfits_cache()
         .get_or_fetch(key, move || async move {
             let pointer = format!("{address}:outfits");
-            let mut entity = match state.database.find_entity_by_pointer(&pointer).await {
+            let names_leg = async {
+                match state.squid_pool.as_ref() {
+                    Some(pool) => {
+                        super::profile_processing::fetch_owned_ens_names(pool, &address).await
+                    }
+                    None => Vec::new(),
+                }
+            };
+            let (entity, owned_names) =
+                tokio::join!(state.database.find_entity_by_pointer(&pointer), names_leg);
+            let mut entity = match entity {
                 Ok(Some(e)) => e,
                 Ok(None) | Err(_) => return Ok::<Value, ()>(Value::Null),
-            };
-
-            let owned_names = match state.squid_pool.as_ref() {
-                Some(pool) => {
-                    super::profile_processing::fetch_owned_ens_names(pool, &address).await
-                }
-                None => Vec::new(),
             };
 
             if let Some(metadata) = entity.get_mut("metadata").and_then(|m| m.as_object_mut()) {

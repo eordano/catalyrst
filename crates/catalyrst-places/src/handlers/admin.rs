@@ -37,10 +37,9 @@ pub async fn get_reports(
     let entity_id = q.entity_id.as_deref().filter(|s| !s.is_empty());
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let offset = q.offset.unwrap_or(0).max(0);
-    let total = state.places.count_reports(status, entity_id).await?;
-    let rows = state
+    let (rows, total) = state
         .places
-        .list_reports(status, entity_id, limit, offset)
+        .list_reports_page(status, entity_id, limit, offset)
         .await?;
     Ok(Json(ApiDataTotal::ok(rows, total)))
 }

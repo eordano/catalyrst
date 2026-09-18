@@ -1,6 +1,6 @@
 use super::super::domain::{
-    fan_community_voice, require_moderator, require_moderator_protecting_owner,
-    validate_community_voice_participation, validate_community_voice_target_membership,
+    fan_community_voice, fan_community_voice_to, require_moderator, require_moderator_over_member,
+    require_moderator_protecting_owner, validate_community_voice_participation,
 };
 use super::super::helpers::normalize;
 use super::super::helpers::SocialError;
@@ -18,20 +18,23 @@ impl SocialServiceImpl {
     ) -> Result<StartCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        let role = match db.community_role(&request.community_id, &me).await? {
-            Some(r) if r == "owner" || r == "moderator" => r,
-            _ => {
-                return Ok(StartCommunityVoiceChatResponse {
-                    response: Some(
-                        start_community_voice_chat_response::Response::ForbiddenError(
-                            ForbiddenError {
-                                message: Some("requires moderator or owner role".into()),
-                            },
+        let (role, community_name, members) =
+            match db.community_voice_start(&request.community_id, &me).await? {
+                Some((Some(r), name, members)) if r == "owner" || r == "moderator" => {
+                    (r, name, members)
+                }
+                _ => {
+                    return Ok(StartCommunityVoiceChatResponse {
+                        response: Some(
+                            start_community_voice_chat_response::Response::ForbiddenError(
+                                ForbiddenError {
+                                    message: Some("requires moderator or owner role".into()),
+                                },
+                            ),
                         ),
-                    ),
-                })
-            }
-        };
+                    })
+                }
+            };
 
         let conn = context
             .server_context
@@ -40,13 +43,14 @@ impl SocialServiceImpl {
             .await
             .unwrap_or_default();
 
-        fan_community_voice(
+        fan_community_voice_to(
             &context.server_context,
             &request.community_id,
             CommunityVoiceChatStatus::CommunityVoiceChatStarted,
             Some(me.as_str()),
-        )
-        .await;
+            &community_name,
+            &members,
+        );
         Ok(StartCommunityVoiceChatResponse {
             response: Some(start_community_voice_chat_response::Response::Ok(
                 start_community_voice_chat_response::Ok {
@@ -65,9 +69,11 @@ impl SocialServiceImpl {
     ) -> Result<JoinCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        let role = match db.community_role(&request.community_id, &me).await? {
-            Some(r) => r,
-            None => {
+        // Role and live ban status come from one read, and the ban is refused before any
+        // credentials are minted, so nothing has to be evicted afterwards.
+        let (role, banned) = match db.community_membership(&request.community_id, &me).await? {
+            Some((Some(r), banned)) => (r, banned),
+            _ => {
                 return Ok(JoinCommunityVoiceChatResponse {
                     response: Some(
                         join_community_voice_chat_response::Response::ForbiddenError(
@@ -79,33 +85,7 @@ impl SocialServiceImpl {
                 })
             }
         };
-
-        let conn = context
-            .server_context
-            .gatekeeper()
-            .community_voice_credentials(&request.community_id, &me, &role, "join", None)
-            .await
-            .unwrap_or_default();
-
-        if db.is_member_banned(&request.community_id, &me).await? {
-            tracing::warn!(
-                community_id = %request.community_id,
-                address = %me,
-                "banned while joining community voice chat; evicting"
-            );
-            if let Err(e) = context
-                .server_context
-                .gatekeeper()
-                .kick_player(&request.community_id, &me)
-                .await
-            {
-                tracing::error!(
-                    community_id = %request.community_id,
-                    address = %me,
-                    error = %e,
-                    "failed to evict after a racing ban"
-                );
-            }
+        if banned {
             return Ok(JoinCommunityVoiceChatResponse {
                 response: Some(
                     join_community_voice_chat_response::Response::ForbiddenError(ForbiddenError {
@@ -114,6 +94,13 @@ impl SocialServiceImpl {
                 ),
             });
         }
+
+        let conn = context
+            .server_context
+            .gatekeeper()
+            .community_voice_credentials(&request.community_id, &me, &role, "join", None)
+            .await
+            .unwrap_or_default();
 
         Ok(JoinCommunityVoiceChatResponse {
             response: Some(join_community_voice_chat_response::Response::Ok(
@@ -170,25 +157,12 @@ impl SocialServiceImpl {
     ) -> Result<PromoteSpeakerInCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        if let Err(f) = require_moderator_protecting_owner(
+        if let Err(f) = require_moderator_over_member(
             db,
             &request.community_id,
             &me,
             &request.user_address,
             "promote speakers",
-        )
-        .await?
-        {
-            return Ok(PromoteSpeakerInCommunityVoiceChatResponse {
-                response: Some(
-                    promote_speaker_in_community_voice_chat_response::Response::ForbiddenError(f),
-                ),
-            });
-        }
-        if let Err(f) = validate_community_voice_target_membership(
-            db,
-            &request.community_id,
-            &request.user_address,
         )
         .await?
         {
@@ -221,25 +195,12 @@ impl SocialServiceImpl {
     ) -> Result<DemoteSpeakerInCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        if let Err(f) = require_moderator_protecting_owner(
+        if let Err(f) = require_moderator_over_member(
             db,
             &request.community_id,
             &me,
             &request.user_address,
             "demote other speakers",
-        )
-        .await?
-        {
-            return Ok(DemoteSpeakerInCommunityVoiceChatResponse {
-                response: Some(
-                    demote_speaker_in_community_voice_chat_response::Response::ForbiddenError(f),
-                ),
-            });
-        }
-        if let Err(f) = validate_community_voice_target_membership(
-            db,
-            &request.community_id,
-            &request.user_address,
         )
         .await?
         {
@@ -310,27 +271,12 @@ impl SocialServiceImpl {
     ) -> Result<RejectSpeakRequestInCommunityVoiceChatResponse, SocialError> {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
-        if let Err(f) = require_moderator_protecting_owner(
+        if let Err(f) = require_moderator_over_member(
             db,
             &request.community_id,
             &me,
             &request.user_address,
             "reject speak requests",
-        )
-        .await?
-        {
-            return Ok(RejectSpeakRequestInCommunityVoiceChatResponse {
-                response: Some(
-                    reject_speak_request_in_community_voice_chat_response::Response::ForbiddenError(
-                        f,
-                    ),
-                ),
-            });
-        }
-        if let Err(f) = validate_community_voice_target_membership(
-            db,
-            &request.community_id,
-            &request.user_address,
         )
         .await?
         {

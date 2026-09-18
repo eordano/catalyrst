@@ -1,5 +1,7 @@
-use crate::state::AppState;
+use crate::state::{AppState, RpcMemo};
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::time::Duration;
 
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({
@@ -38,30 +40,76 @@ fn id_of(req: &Value) -> Value {
     req.get("id").cloned().unwrap_or(Value::Null)
 }
 
-pub async fn handle_single(state: &AppState, network: &str, req: Value) -> Value {
+struct Forward {
+    id: Value,
+    req: Value,
+    memo: Option<(String, Duration)>,
+}
+
+enum Plan {
+    Ready(Value),
+    Forward(Forward),
+}
+
+fn memo_key(req: &Value, network: &str, method: &str) -> Option<(String, Duration)> {
+    let ttl = RpcMemo::ttl_for(method)?;
+    let no_params = match req.get("params") {
+        None | Some(Value::Null) => true,
+        Some(Value::Array(params)) => params.is_empty(),
+        Some(_) => false,
+    };
+    no_params.then(|| (format!("{}:{method}", network.to_ascii_lowercase()), ttl))
+}
+
+fn plan(state: &AppState, network: &str, upstream: Option<&str>, req: Value) -> Plan {
     let id = id_of(&req);
 
     let method = match req.get("method").and_then(|m| m.as_str()) {
         Some(m) => m,
-        None => return rpc_error(id, -32600, "Invalid Request: missing method"),
+        None => return Plan::Ready(rpc_error(id, -32600, "Invalid Request: missing method")),
     };
 
     if !state.is_method_allowed(method) {
-        return rpc_error(
+        return Plan::Ready(rpc_error(
             id,
             -32601,
             &format!("Method not allowed on read-only relay: {method}"),
-        );
+        ));
     }
 
-    let upstream = match state.upstream_for(network) {
-        Some(u) => u,
-        None => {
-            return rpc_error(id, -32602, &format!("Unsupported network: {network}"));
-        }
-    };
+    if upstream.is_none() {
+        return Plan::Ready(rpc_error(
+            id,
+            -32602,
+            &format!("Unsupported network: {network}"),
+        ));
+    }
 
-    forward(state, &upstream, id, req).await
+    let memo = memo_key(&req, network, method);
+    if let Some((key, _)) = &memo {
+        if let Some(body) = state.memo.get(key) {
+            return Plan::Ready(normalize_response(id, body));
+        }
+    }
+    Plan::Forward(Forward { id, req, memo })
+}
+
+fn remember(state: &AppState, memo: Option<(String, Duration)>, body: &Value) {
+    if let Some((key, ttl)) = memo {
+        state.memo.put(key, ttl, body);
+    }
+}
+
+pub async fn handle_single(state: &AppState, network: &str, req: Value) -> Value {
+    let upstream = state.upstream_for(network);
+    match plan(state, network, upstream.as_deref(), req) {
+        Plan::Ready(body) => body,
+        Plan::Forward(item) => {
+            let body = forward(state, upstream.as_deref().unwrap_or(""), item.id, item.req).await;
+            remember(state, item.memo, &body);
+            body
+        }
+    }
 }
 
 async fn forward(state: &AppState, upstream: &str, id: Value, req: Value) -> Value {
@@ -75,17 +123,102 @@ async fn forward(state: &AppState, upstream: &str, id: Value, req: Value) -> Val
     }
 }
 
+// One upstream batch with ids rewritten to slot indexes; anything the batch
+// does not answer falls back to per-element forwards run concurrently.
+async fn forward_batch(state: &AppState, upstream: &str, items: &[Forward]) -> Vec<Value> {
+    if items.len() == 1 {
+        return vec![forward(state, upstream, items[0].id.clone(), items[0].req.clone()).await];
+    }
+    let wire: Vec<Value> = items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let mut req = item.req.clone();
+            if let Value::Object(map) = &mut req {
+                map.insert("id".into(), json!(i));
+            }
+            req
+        })
+        .collect();
+    let body = match state.http.post(upstream).json(&wire).send().await {
+        Ok(r) => r.json::<Value>().await.ok(),
+        Err(e) => {
+            let msg = format!("Upstream request failed: {e}");
+            return items
+                .iter()
+                .map(|item| rpc_error(item.id.clone(), -32603, &msg))
+                .collect();
+        }
+    };
+    let mut by_slot: HashMap<usize, Value> = HashMap::new();
+    if let Some(Value::Array(elements)) = body {
+        for element in elements {
+            if let Some(slot) = element.get("id").and_then(Value::as_u64) {
+                by_slot.insert(slot as usize, element);
+            }
+        }
+    }
+    let mut out: Vec<Option<Value>> = items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            by_slot
+                .remove(&i)
+                .map(|element| normalize_response(item.id.clone(), element))
+        })
+        .collect();
+    let mut set = tokio::task::JoinSet::new();
+    for (i, item) in items.iter().enumerate() {
+        if out[i].is_some() {
+            continue;
+        }
+        let state = state.clone();
+        let upstream = upstream.to_string();
+        let (id, req) = (item.id.clone(), item.req.clone());
+        set.spawn(async move { (i, forward(&state, &upstream, id, req).await) });
+    }
+    while let Some(joined) = set.join_next().await {
+        if let Ok((i, body)) = joined {
+            out[i] = Some(body);
+        }
+    }
+    out.into_iter()
+        .zip(items)
+        .map(|(body, item)| {
+            body.unwrap_or_else(|| rpc_error(item.id.clone(), -32603, "Upstream relay task failed"))
+        })
+        .collect()
+}
+
 pub async fn handle_payload(state: &AppState, network: &str, payload: Value) -> Value {
     match payload {
         Value::Array(items) => {
             if items.is_empty() {
                 return rpc_error(Value::Null, -32600, "Invalid Request: empty batch");
             }
-            let mut out = Vec::with_capacity(items.len());
-            for item in items {
-                out.push(handle_single(state, network, item).await);
+            let upstream = state.upstream_for(network);
+            let mut out: Vec<Option<Value>> = Vec::with_capacity(items.len());
+            let mut slots: Vec<usize> = Vec::new();
+            let mut forwards: Vec<Forward> = Vec::new();
+            for (slot, item) in items.into_iter().enumerate() {
+                match plan(state, network, upstream.as_deref(), item) {
+                    Plan::Ready(body) => out.push(Some(body)),
+                    Plan::Forward(item) => {
+                        out.push(None);
+                        slots.push(slot);
+                        forwards.push(item);
+                    }
+                }
             }
-            Value::Array(out)
+            if !forwards.is_empty() {
+                let bodies =
+                    forward_batch(state, upstream.as_deref().unwrap_or(""), &forwards).await;
+                for ((slot, item), body) in slots.into_iter().zip(forwards).zip(bodies) {
+                    remember(state, item.memo, &body);
+                    out[slot] = Some(body);
+                }
+            }
+            Value::Array(out.into_iter().flatten().collect())
         }
         single @ Value::Object(_) => handle_single(state, network, single).await,
         other => rpc_error(
@@ -169,6 +302,7 @@ mod tests {
             allowed_methods: RwLock::new(allowed_methods),
             upstreams: RwLock::new(entries.into_iter().collect::<BTreeMap<_, _>>()),
             admin_token: None,
+            memo: Default::default(),
         })
     }
 
@@ -184,5 +318,140 @@ mod tests {
             out["error"]["message"].as_str().unwrap().contains("solana"),
             "error should name the offending network"
         );
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    struct Upstream {
+        posts: Arc<AtomicUsize>,
+        payloads: Arc<Mutex<Vec<Value>>>,
+    }
+
+    fn answer(req: &Value) -> Value {
+        let method = req["method"].as_str().unwrap_or("");
+        let result = match method {
+            "eth_blockNumber" => json!("0x10"),
+            "net_version" => json!("137"),
+            "eth_getBalance" => json!(format!("0xbal{}", req["params"][0].as_str().unwrap_or(""))),
+            _ => json!(null),
+        };
+        json!({ "jsonrpc": "2.0", "id": req["id"], "result": result })
+    }
+
+    async fn mock_upstream(batches: bool) -> (String, Upstream) {
+        use axum::{routing::post, Json, Router};
+        let posts = Arc::new(AtomicUsize::new(0));
+        let payloads = Arc::new(Mutex::new(Vec::new()));
+        let (p, l) = (posts.clone(), payloads.clone());
+        let app = Router::new().route(
+            "/",
+            post(move |Json(payload): Json<Value>| {
+                let (p, l) = (p.clone(), l.clone());
+                async move {
+                    p.fetch_add(1, Ordering::SeqCst);
+                    l.lock().unwrap().push(payload.clone());
+                    let reply = match &payload {
+                        Value::Array(items) if batches => {
+                            Value::Array(items.iter().map(answer).collect())
+                        }
+                        Value::Array(_) => json!({
+                            "jsonrpc": "2.0", "id": null,
+                            "error": { "code": -32600, "message": "batch not supported" }
+                        }),
+                        single => answer(single),
+                    };
+                    Json(reply)
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://{addr}/"), Upstream { posts, payloads })
+    }
+
+    fn batch_payload() -> Value {
+        json!([
+            { "jsonrpc": "2.0", "id": "a", "method": "eth_getBalance", "params": ["0x1", "latest"] },
+            { "jsonrpc": "2.0", "id": 7, "method": "eth_sendRawTransaction", "params": ["0x"] },
+            { "jsonrpc": "2.0", "id": "a", "method": "eth_getBalance", "params": ["0x2", "latest"] },
+            { "jsonrpc": "2.0", "method": "net_version" },
+        ])
+    }
+
+    fn check_batch(out: &Value) {
+        let out = out.as_array().unwrap();
+        assert_eq!(out.len(), 4);
+        assert_eq!(out[0]["id"], json!("a"));
+        assert_eq!(out[0]["result"], json!("0xbal0x1"));
+        assert_eq!(out[1]["id"], json!(7));
+        assert_eq!(out[1]["error"]["code"], json!(-32601));
+        assert_eq!(out[2]["id"], json!("a"));
+        assert_eq!(out[2]["result"], json!("0xbal0x2"));
+        assert_eq!(out[3]["id"], json!(null));
+        assert_eq!(out[3]["result"], json!("137"));
+        for item in out {
+            assert_eq!(item["jsonrpc"], json!("2.0"));
+        }
+    }
+
+    #[tokio::test]
+    async fn batch_is_one_upstream_post_with_ids_echoed() {
+        let (url, upstream) = mock_upstream(true).await;
+        let state = test_state(&[("polygon", &url)]);
+        let out = handle_payload(&state, "polygon", batch_payload()).await;
+        check_batch(&out);
+        assert_eq!(upstream.posts.load(Ordering::SeqCst), 1);
+        let sent = upstream.payloads.lock().unwrap();
+        let wire = sent[0].as_array().unwrap();
+        assert_eq!(
+            wire.len(),
+            3,
+            "the locally rejected element never goes upstream"
+        );
+        assert_eq!(wire[0]["id"], json!(0));
+        assert_eq!(wire[2]["id"], json!(2));
+        assert_eq!(wire[2]["method"], json!("net_version"));
+    }
+
+    #[tokio::test]
+    async fn batch_falls_back_per_element_when_upstream_rejects_batches() {
+        let (url, upstream) = mock_upstream(false).await;
+        let state = test_state(&[("polygon", &url)]);
+        let out = handle_payload(&state, "polygon", batch_payload()).await;
+        check_batch(&out);
+        assert_eq!(upstream.posts.load(Ordering::SeqCst), 4);
+        let sent = upstream.payloads.lock().unwrap();
+        assert!(sent[1..].iter().all(|p| p.is_object()));
+        assert_eq!(
+            sent[1..].iter().filter(|p| p["id"] == json!("a")).count(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn block_number_is_memoized_briefly() {
+        let (url, upstream) = mock_upstream(true).await;
+        let state = test_state(&[("polygon", &url)]);
+        let req = json!({ "jsonrpc": "2.0", "id": 1, "method": "eth_blockNumber", "params": [] });
+        let first = handle_single(&state, "polygon", req.clone()).await;
+        assert_eq!(first["result"], json!("0x10"));
+        let second = handle_single(
+            &state,
+            "POLYGON",
+            json!({ "id": 2, "method": "eth_blockNumber" }),
+        )
+        .await;
+        assert_eq!(second["id"], json!(2));
+        assert_eq!(second["result"], json!("0x10"));
+        assert_eq!(upstream.posts.load(Ordering::SeqCst), 1);
+        let batch = handle_payload(&state, "polygon", json!([req])).await;
+        assert_eq!(batch[0]["result"], json!("0x10"));
+        assert_eq!(upstream.posts.load(Ordering::SeqCst), 1);
+        let with_params =
+            json!({ "id": 3, "method": "eth_getBalance", "params": ["0x1", "latest"] });
+        handle_single(&state, "polygon", with_params).await;
+        assert_eq!(upstream.posts.load(Ordering::SeqCst), 2);
     }
 }

@@ -15,9 +15,9 @@ function toFriendSection(tab: string | undefined): FriendSection {
     : "friends";
 }
 
-export type FriendViewAction = "request" | "accept" | "cancel" | "reject" | "block";
+type FriendViewAction = "request" | "accept" | "cancel" | "reject" | "block";
 
-export type FriendViewCandidate = {
+type FriendViewCandidate = {
   address: string;
   name: string;
   mutualCount?: number;
@@ -89,7 +89,7 @@ function confirmedCopy(action: FriendViewAction): string {
   }
 }
 
-export type FriendRequestViewProps = {
+type FriendRequestViewProps = {
   value: string;
   action: FriendViewAction;
   candidate: FriendViewCandidate;

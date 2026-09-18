@@ -76,5 +76,5 @@ check it is subject to, why it cannot be reached, and disabled controls carrying
 that reason. `operator_scene_admins_viewed` has been dropped from the telemetry
 catalog; the page emits `operator_control_unavailable { control, reason }`.
 
-`ManageAdminsWizard` and its machine are left in place, unrendered, for when the
-edge route exists.
+The wizard and its state machine were removed once nothing rendered them; the
+flow above stays as the intended design for when the edge route exists.

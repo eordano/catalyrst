@@ -1,4 +1,4 @@
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::PgPool;
 
 use crate::util::now_ms;
 
@@ -107,20 +107,21 @@ impl VoiceDb {
         if user_addresses.is_empty() {
             return Ok(());
         }
+        let mut addresses: Vec<&str> = user_addresses.iter().map(String::as_str).collect();
+        addresses.sort_unstable();
+        addresses.dedup();
 
-        for addr in user_addresses {
-            sqlx::query(
-                "INSERT INTO voice_chat_users (address, room_name, status, joined_at, status_updated_at) \
-                 VALUES ($1, $2, $3, now(), now()) \
-                 ON CONFLICT (address, room_name) \
-                 DO UPDATE SET status = $3, joined_at = now(), status_updated_at = now()",
-            )
-            .bind(addr)
-            .bind(room_name)
-            .bind(VoiceChatUserStatus::NotConnected.as_str())
-            .execute(&self.pool)
-            .await?;
-        }
+        sqlx::query(
+            "INSERT INTO voice_chat_users (address, room_name, status, joined_at, status_updated_at) \
+             SELECT a.address, $2, $3, now(), now() FROM unnest($1::text[]) AS a(address) \
+             ON CONFLICT (address, room_name) \
+             DO UPDATE SET status = $3, joined_at = now(), status_updated_at = now()",
+        )
+        .bind(&addresses)
+        .bind(room_name)
+        .bind(VoiceChatUserStatus::NotConnected.as_str())
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -170,24 +171,6 @@ impl VoiceDb {
         .bind(address)
         .bind(room_name)
         .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    async fn update_user_status_tx(
-        tx: &mut Transaction<'_, Postgres>,
-        address: &str,
-        room_name: &str,
-        status: VoiceChatUserStatus,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE voice_chat_users SET status = $1, status_updated_at = now() \
-             WHERE address = $2 AND room_name = $3",
-        )
-        .bind(status.as_str())
-        .bind(address)
-        .bind(room_name)
-        .execute(&mut **tx)
         .await?;
         Ok(())
     }
@@ -242,69 +225,56 @@ impl VoiceDb {
         Ok(row.map(|(r,)| r))
     }
 
-    async fn get_room_user_is_in_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        address: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT room_name FROM voice_chat_users WHERE address = $1 AND ( \
-                status = $2 \
-                OR (status = $3 AND status_updated_at > now() - ($5 || ' milliseconds')::interval) \
-                OR (status = $4 AND joined_at > now() - ($6 || ' milliseconds')::interval) \
-             ) \
-             ORDER BY \
-                CASE status \
-                    WHEN $2 THEN 1 \
-                    WHEN $3 THEN 2 \
-                    WHEN $4 THEN 3 \
-                    ELSE 4 \
-                END, \
-                status_updated_at DESC \
-             LIMIT 1",
-        )
-        .bind(address)
-        .bind(VoiceChatUserStatus::Connected.as_str())
-        .bind(VoiceChatUserStatus::ConnectionInterrupted.as_str())
-        .bind(VoiceChatUserStatus::NotConnected.as_str())
-        .bind(self.cfg.connection_interrupted_ttl_ms.to_string())
-        .bind(self.cfg.initial_connection_ttl_ms.to_string())
-        .fetch_optional(&mut **tx)
-        .await?;
-        Ok(row.map(|(r,)| r))
-    }
-
-    pub async fn join_user_to_room(
+    /// One statement: is `room_name` active (two users, none timed out or gone), and
+    /// if so mark the user connected there and disconnected from any other room
+    /// they were active in. Mirrors `is_private_room_active` + the old join txn.
+    pub async fn join_user_to_active_room(
         &self,
         address: &str,
         room_name: &str,
-    ) -> Result<JoinOutcome, sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-
-        let room_user_is_in = self.get_room_user_is_in_tx(&mut tx, address).await?;
-
-        let Some(old_room) = room_user_is_in else {
-            tx.rollback().await?;
-            return Err(sqlx::Error::Protocol(format!(
-                "User {address} is not in a room"
-            )));
-        };
-
-        if old_room != room_name {
-            Self::update_user_status_tx(
-                &mut tx,
-                address,
-                &old_room,
-                VoiceChatUserStatus::Disconnected,
-            )
-            .await?;
-        }
-
-        Self::update_user_status_tx(&mut tx, address, room_name, VoiceChatUserStatus::Connected)
-            .await?;
-
-        tx.commit().await?;
-        Ok(JoinOutcome { old_room })
+    ) -> Result<PrivateJoin, sqlx::Error> {
+        let row: (bool, Option<String>) = sqlx::query_as(
+            "WITH room AS ( \
+                SELECT count(*) >= 2 AND NOT bool_or( \
+                    status = $6 \
+                    OR (status = $3 AND status_updated_at < now() - ($7 || ' milliseconds')::interval) \
+                    OR (status = $4 AND joined_at < now() - ($8 || ' milliseconds')::interval) \
+                ) AS active \
+                FROM voice_chat_users WHERE room_name = $2 \
+             ), cur AS ( \
+                SELECT room_name FROM voice_chat_users WHERE address = $1 AND ( \
+                    status = $5 \
+                    OR (status = $3 AND status_updated_at > now() - ($7 || ' milliseconds')::interval) \
+                    OR (status = $4 AND joined_at > now() - ($8 || ' milliseconds')::interval) \
+                ) \
+                ORDER BY CASE status WHEN $5 THEN 1 WHEN $3 THEN 2 WHEN $4 THEN 3 ELSE 4 END, \
+                         status_updated_at DESC \
+                LIMIT 1 \
+             ), upd AS ( \
+                UPDATE voice_chat_users v \
+                SET status = CASE WHEN v.room_name = $2 THEN $5::text ELSE $6::text END, \
+                    status_updated_at = now() \
+                FROM cur, room \
+                WHERE room.active AND v.address = $1 AND v.room_name IN (cur.room_name, $2) \
+                RETURNING 1 \
+             ) \
+             SELECT COALESCE((SELECT active FROM room), false), (SELECT room_name FROM cur)",
+        )
+        .bind(address)
+        .bind(room_name)
+        .bind(VoiceChatUserStatus::ConnectionInterrupted.as_str())
+        .bind(VoiceChatUserStatus::NotConnected.as_str())
+        .bind(VoiceChatUserStatus::Connected.as_str())
+        .bind(VoiceChatUserStatus::Disconnected.as_str())
+        .bind(self.cfg.connection_interrupted_ttl_ms.to_string())
+        .bind(self.cfg.initial_connection_ttl_ms.to_string())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(match row {
+            (false, _) => PrivateJoin::Inactive,
+            (true, None) => PrivateJoin::NotInRoom,
+            (true, Some(old_room)) => PrivateJoin::Joined { old_room },
+        })
     }
 
     pub async fn delete_private_voice_chat_user_is_or_was_in(
@@ -312,28 +282,21 @@ impl VoiceDb {
         room_name: &str,
         address: &str,
     ) -> Result<Vec<String>, DeleteRoomError> {
-        let mut tx = self.pool.begin().await.map_err(DeleteRoomError::Db)?;
-
-        let rows: Vec<(String,)> =
-            sqlx::query_as("SELECT address FROM voice_chat_users WHERE room_name = $1")
-                .bind(room_name)
-                .fetch_all(&mut *tx)
-                .await
-                .map_err(DeleteRoomError::Db)?;
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "DELETE FROM voice_chat_users WHERE room_name = $1 \
+               AND EXISTS (SELECT 1 FROM voice_chat_users WHERE room_name = $1 AND address = $2) \
+             RETURNING address",
+        )
+        .bind(room_name)
+        .bind(address)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(DeleteRoomError::Db)?;
 
         let addresses: Vec<String> = rows.into_iter().map(|(a,)| a).collect();
-        if addresses.is_empty() || !addresses.iter().any(|a| a == address) {
-            tx.rollback().await.map_err(DeleteRoomError::Db)?;
+        if addresses.is_empty() {
             return Err(DeleteRoomError::RoomDoesNotExist);
         }
-
-        sqlx::query("DELETE FROM voice_chat_users WHERE room_name = $1")
-            .bind(room_name)
-            .execute(&mut *tx)
-            .await
-            .map_err(DeleteRoomError::Db)?;
-
-        tx.commit().await.map_err(DeleteRoomError::Db)?;
         Ok(addresses)
     }
 
@@ -491,12 +454,15 @@ impl VoiceDb {
         Ok(n)
     }
 
-    pub async fn delete_community_voice_chat(&self, room_name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM community_voice_chat_users WHERE room_name = $1")
-            .bind(room_name)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+    /// Deletes the room's rows and returns how many there were.
+    pub async fn delete_community_voice_chat(&self, room_name: &str) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar(
+            "WITH d AS (DELETE FROM community_voice_chat_users WHERE room_name = $1 RETURNING 1) \
+             SELECT count(*) FROM d",
+        )
+        .bind(room_name)
+        .fetch_one(&self.pool)
+        .await
     }
 
     pub async fn delete_expired_community_voice_chats(&self) -> Result<Vec<String>, sqlx::Error> {
@@ -593,6 +559,28 @@ impl VoiceDb {
         Ok(exists)
     }
 
+    /// Row count per room that still has a connected moderator (the active list
+    /// and its bulk count in one statement).
+    pub async fn get_active_community_voice_chat_participant_counts(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, i64>, sqlx::Error> {
+        let connected = self.is_connected_sql();
+        let prefix = format!("{}-", crate::livekit::COMMUNITY_VOICE_CHAT_ROOM_PREFIX);
+        let query = format!(
+            "SELECT REPLACE(room_name, $1, '') AS community_id, COUNT(*) \
+             FROM community_voice_chat_users \
+             WHERE room_name LIKE $2 \
+             GROUP BY room_name \
+             HAVING COUNT(CASE WHEN is_moderator = true AND ({connected}) THEN 1 END) > 0"
+        );
+        let rows: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
+            .bind(&prefix)
+            .bind(format!("{prefix}%"))
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().collect())
+    }
+
     pub async fn get_bulk_community_voice_chat_participant_count(
         &self,
         community_ids: &[String],
@@ -682,9 +670,11 @@ pub struct ActiveCommunityVoiceChat {
     pub moderator_count: i64,
 }
 
-#[derive(Debug, Clone)]
-pub struct JoinOutcome {
-    pub old_room: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrivateJoin {
+    Inactive,
+    NotInRoom,
+    Joined { old_room: String },
 }
 
 #[derive(Debug)]

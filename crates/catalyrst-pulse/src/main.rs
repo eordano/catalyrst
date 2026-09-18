@@ -1,6 +1,12 @@
+use catalyrst_pulse::cluster::feed::{ClusterFeedPublisher, NoopClusterFeedPublisher};
+use catalyrst_pulse::cluster::{
+    ClusterOptions, ClusterTracker, DEFAULT_CLUSTERS_ENABLED, DEFAULT_DWELL_PASSES,
+    DEFAULT_ID_PREFIX, DEFAULT_PASS_INTERVAL_MS, DEFAULT_SESSION_RETENTION_PASSES,
+};
+use catalyrst_pulse::handshake::MAX_TIMESTAMP_SKEW_MS;
 use catalyrst_pulse::hardening::{
-    DisconnectReason, GameplayRateLimiter, DEFAULT_DISCRETE_BURST, DEFAULT_DISCRETE_RATE_PER_SEC,
-    DEFAULT_INPUT_BURST, DEFAULT_INPUT_MAX_HZ,
+    DisconnectReason, GameplayRateLimiter, HandshakeReplayPolicy, DEFAULT_DISCRETE_BURST,
+    DEFAULT_DISCRETE_RATE_PER_SEC, DEFAULT_INPUT_BURST, DEFAULT_INPUT_MAX_HZ,
 };
 use catalyrst_pulse::interest::{SpatialAreaOfInterest, SpatialAreaOfInterestOptions};
 use catalyrst_pulse::server::{ENET_CAPACITY, WT_CAPACITY};
@@ -8,12 +14,23 @@ use catalyrst_pulse::transport::webtransport::config::{
     DEFAULT_MAX_DATAGRAM_BYTES, DEFAULT_MAX_MESSAGE_BYTES, DEFAULT_SERVICE_TIMEOUT_MS,
 };
 use catalyrst_pulse::transport::webtransport::WtConfig;
+use catalyrst_pulse::v4::{
+    PulseV4Config, DEFAULT_CHALLENGE_TTL_MS as DEFAULT_V4_CHALLENGE_TTL_MS,
+    DEFAULT_MAX_AUTH_CHAIN_BYTES as DEFAULT_V4_MAX_AUTH_CHAIN_BYTES,
+    DEFAULT_MAX_CAPABILITIES as DEFAULT_V4_MAX_CAPABILITIES,
+    DEFAULT_MAX_FRAME_BYTES as DEFAULT_V4_MAX_FRAME_BYTES,
+    DEFAULT_MAX_PENDING as DEFAULT_V4_MAX_PENDING,
+    DEFAULT_MAX_PUBLIC_DETAIL_BYTES as DEFAULT_V4_MAX_PUBLIC_DETAIL_BYTES,
+};
 use catalyrst_pulse::PulseServer;
 use std::env::VarError;
+use std::sync::Arc;
 
 const DEFAULT_BIND: &str = "0.0.0.0:9000";
 const DEFAULT_WT_BIND: &str = "0.0.0.0:7743";
 const DEFAULT_LOG_FILTER: &str = "catalyrst_pulse=info";
+const DEFAULT_REPLAY_STATE_PATH: &str = "data/pulse-replay.tsv";
+
 const BOOL_TRUE: &[&str] = &["1", "true", "yes", "on"];
 const BOOL_FALSE: &[&str] = &["0", "false", "no", "off"];
 
@@ -89,6 +106,96 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "PULSE_WT_MAX_MESSAGE_BYTES",
         "max WebTransport message size in bytes (default 4096)",
     ),
+    (
+        "PULSE_CLUSTERS_ENABLED",
+        "derive peer clusters every pass: 1/true/yes/on or 0/false/no/off, case-insensitive, blank or unset keeps the default, anything else fails startup (default true)",
+    ),
+    (
+        "PULSE_CLUSTERS_PASS_INTERVAL_MS",
+        "milliseconds between clustering passes; not a bound on broker delivery or client convergence (default 1000)",
+    ),
+    (
+        "PULSE_CLUSTERS_DWELL_PASSES",
+        "consecutive passes that must agree on a new assignment before it is published; 1 disables the debounce (default 3)",
+    ),
+    (
+        "PULSE_CLUSTERS_ID_PREFIX",
+        "prefix of every minted cluster id, so two Pulse instances on one broker never mint the same one (default C)",
+    ),
+    (
+        "PULSE_CLUSTERS_SESSION_RETENTION_PASSES",
+        "passes a departed wallet's last published assignment is retained so a new session can name it as displaced; 0 disables the annotation (default 300)",
+    ),
+    (
+        "PULSE_NATS_URL",
+        "broker URL for the cluster feed; blank or unset leaves the tracker in stats-only mode, deriving clusters and reporting metrics while publishing nothing (default unset)",
+    ),
+    (
+        "NATS_URL",
+        "fallback broker URL, read only when PULSE_NATS_URL is blank or unset (default unset)",
+    ),
+    (
+        "PULSE_NATS_SERVER_NAME",
+        "name this server announces on the engine.discovery heartbeat, and the connection name the broker shows on /connz (default pulse)",
+    ),
+    (
+        "COMMIT_HASH",
+        "commit of the deployed build, announced on the engine.discovery heartbeat so consumers can tell two deployments of one version apart (default unknown)",
+    ),
+    (
+        "PULSE_NATS_DISCOVERY_INTERVAL_MS",
+        "milliseconds between engine.discovery heartbeats (default 10000)",
+    ),
+    (
+        "PULSE_NATS_CHANNEL_CAPACITY",
+        "distinct peers that may hold an undelivered assignment at once; past it the longest-admitted is evicted and counted on pulse_nats_dropped_total (default 1024)",
+    ),
+    (
+        "PULSE_REPLAY_STATE_PATH",
+        "durable consumed-handshake journal; startup fails closed if it cannot be opened or parsed (default data/pulse-replay.tsv)",
+    ),
+    (
+        "PULSE_V4_ENABLED",
+        "enables the explicit Pulse v4 challenge handshake; legacy remains available (default false)",
+    ),
+    (
+        "PULSE_LEGACY_HANDSHAKE",
+        "admits the legacy timestamp handshake, whose signed payload names no server and so replays on another replica or deployment inside its freshness window; false requires PULSE_V4_ENABLED (default true)",
+    ),
+    (
+        "PULSE_V4_AUDIENCE",
+        "stable deployment audience required when Pulse v4 is enabled",
+    ),
+    (
+        "PULSE_V4_ISSUER",
+        "replica identifier required when Pulse v4 is enabled",
+    ),
+    (
+        "PULSE_V4_CHALLENGE_TTL_MS",
+        "Pulse v4 challenge lifetime and advertised handshake deadline in milliseconds (default 15000)",
+    ),
+    (
+        "PULSE_V4_MAX_PENDING",
+        "maximum outstanding Pulse v4 challenges for this process (default 8192)",
+    ),
+    (
+        "PULSE_V4_MAX_AUTH_CHAIN_BYTES",
+        "maximum Pulse v4 JSON auth-chain size in bytes; must fit the advertised 4096-byte frame (default 3072)",
+    ),
+    (
+        "PULSE_V4_MAX_CAPABILITIES",
+        "maximum total required and optional Pulse v4 capabilities (default 32)",
+    ),
+    (
+        "PULSE_V4_MAX_PUBLIC_DETAIL_BYTES",
+        "maximum public Pulse v4 error detail size in bytes (default 128)",
+    ),
+    ("PULSE_APPLICATION_RELAY_ENABLED", "enables v4 application relay with a live room authority (default false)"),
+    ("PULSE_APPLICATION_RELAY_LIVEKIT_API_KEY", "trusted LiveKit issuer for application token possession proofs"),
+    ("PULSE_APPLICATION_RELAY_LIVEKIT_SECRET", "trusted LiveKit HS256 signing secret; never transmitted"),
+    ("PULSE_ROOM_AUTHORITY_URL", "exact HTTPS room authority endpoint ending /internal/pulse/room-authority/v1"),
+    ("PULSE_ROOM_AUTHORITY_KEY", "dedicated 32-byte base64url service HMAC key, separate from LiveKit secret"),
+    ("PULSE_ROOM_AUTHORITY_ALLOW_LOOPBACK_HTTP", "allows numeric loopback HTTP authority fixtures only (default false)"),
     ("RUST_LOG", "tracing filter (default catalyrst_pulse=info)"),
 ];
 
@@ -113,6 +220,64 @@ async fn main() -> anyhow::Result<()> {
         "player AoI radii"
     );
     let mut server = PulseServer::new();
+    let mut control_audience = None;
+    if let Some(config) = v4_config_from_env()? {
+        let audience = config.audience.clone();
+        let issuer = config.issuer.clone();
+        control_audience = Some(audience.clone());
+        server
+            .v4
+            .enable(config)
+            .map_err(|error| anyhow::anyhow!(error))?;
+        tracing::info!(%audience, %issuer, "Pulse v4 authentication enabled");
+    }
+    if env_bool("PULSE_APPLICATION_RELAY_ENABLED")? {
+        if !server.v4.is_enabled() {
+            anyhow::bail!("application relay requires PULSE_V4_ENABLED");
+        }
+        let required = |key: &str| -> anyhow::Result<String> {
+            std::env::var(key)
+                .ok()
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("{key} is required for application relay"))
+        };
+        let verifier = catalyrst_pulse::application_relay::auth::ProofVerifier::new(
+            required("PULSE_APPLICATION_RELAY_LIVEKIT_API_KEY")?,
+            required("PULSE_APPLICATION_RELAY_LIVEKIT_SECRET")?.into_bytes(),
+        )
+        .map_err(|error| anyhow::anyhow!(error))?;
+        let authority = catalyrst_pulse::application_relay::http::HttpAuthority::new(
+            &required("PULSE_ROOM_AUTHORITY_URL")?,
+            &required("PULSE_ROOM_AUTHORITY_KEY")?,
+            env_bool("PULSE_ROOM_AUTHORITY_ALLOW_LOOPBACK_HTTP")?,
+        )?;
+        server.application_relay = Some(catalyrst_pulse::application_relay::ApplicationRelay::new(
+            verifier,
+            Arc::new(authority),
+        ));
+        tracing::info!("Pulse application relay configured with live room authority");
+    }
+    server.legacy_handshake = legacy_handshake_from(
+        env_value(
+            "PULSE_LEGACY_HANDSHAKE",
+            std::env::var("PULSE_LEGACY_HANDSHAKE"),
+        )?,
+        server.v4.is_enabled(),
+    )?;
+    if !server.legacy_handshake {
+        tracing::info!("legacy Pulse handshakes are refused");
+    }
+    let replay_state_path = std::env::var("PULSE_REPLAY_STATE_PATH")
+        .unwrap_or_else(|_| DEFAULT_REPLAY_STATE_PATH.to_string());
+    server.replay_policy = HandshakeReplayPolicy::durable(
+        true,
+        MAX_TIMESTAMP_SKEW_MS,
+        ENET_CAPACITY + WT_CAPACITY,
+        &replay_state_path,
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .map_err(|_| anyhow::anyhow!("cannot open the Pulse replay journal"))?;
+    tracing::info!("durable Pulse handshake replay protection enabled");
     server.gameplay_limiter = GameplayRateLimiter::new(
         env_or("PULSE_INPUT_MAX_HZ", DEFAULT_INPUT_MAX_HZ)?,
         env_or("PULSE_INPUT_BURST", DEFAULT_INPUT_BURST)?,
@@ -120,7 +285,48 @@ async fn main() -> anyhow::Result<()> {
         env_or("PULSE_DISCRETE_BURST", DEFAULT_DISCRETE_BURST)?,
     );
     server.aoi = SpatialAreaOfInterest::new(aoi);
+    server.clusters = clusters_from_env(control_audience.as_deref())?;
     server.run_with_webtransport(bind, 50, wt).await
+}
+
+fn legacy_handshake_from(raw: Option<String>, v4_enabled: bool) -> anyhow::Result<bool> {
+    let admitted = parse_bool_or("PULSE_LEGACY_HANDSHAKE", raw, true)?;
+    if !admitted && !v4_enabled {
+        anyhow::bail!("PULSE_LEGACY_HANDSHAKE=false requires PULSE_V4_ENABLED=true");
+    }
+    Ok(admitted)
+}
+
+fn v4_config_from_env() -> anyhow::Result<Option<PulseV4Config>> {
+    if !env_bool("PULSE_V4_ENABLED")? {
+        return Ok(None);
+    }
+    let required = |key: &str| -> anyhow::Result<String> {
+        let value = env_value(key, std::env::var(key))?.unwrap_or_default();
+        let value = value.trim();
+        if value.is_empty() {
+            anyhow::bail!("{key} is required when PULSE_V4_ENABLED is true");
+        }
+        Ok(value.to_string())
+    };
+    let config = PulseV4Config {
+        audience: required("PULSE_V4_AUDIENCE")?,
+        issuer: required("PULSE_V4_ISSUER")?,
+        challenge_ttl_ms: env_or("PULSE_V4_CHALLENGE_TTL_MS", DEFAULT_V4_CHALLENGE_TTL_MS)?,
+        max_pending: env_or("PULSE_V4_MAX_PENDING", DEFAULT_V4_MAX_PENDING)?,
+        max_auth_chain_bytes: env_or(
+            "PULSE_V4_MAX_AUTH_CHAIN_BYTES",
+            DEFAULT_V4_MAX_AUTH_CHAIN_BYTES,
+        )?,
+        max_capabilities: env_or("PULSE_V4_MAX_CAPABILITIES", DEFAULT_V4_MAX_CAPABILITIES)?,
+        max_public_detail_bytes: env_or(
+            "PULSE_V4_MAX_PUBLIC_DETAIL_BYTES",
+            DEFAULT_V4_MAX_PUBLIC_DETAIL_BYTES,
+        )?,
+        max_frame_bytes: DEFAULT_V4_MAX_FRAME_BYTES,
+    };
+    config.validate().map_err(|error| anyhow::anyhow!(error))?;
+    Ok(Some(config))
 }
 
 /// Player AoI radii from the environment, upstream's defaults where unset. A radius that fails to
@@ -168,19 +374,151 @@ fn webtransport_config_from_env() -> anyhow::Result<Option<WtConfig>> {
     }))
 }
 
+/// The cluster tracker, or `None` when clustering is off entirely -- which leaves every cluster
+/// path out of the server loop rather than running a tracker that publishes nothing. Publishing
+/// nothing is the separate, and far more common, stats-only mode: clustering on with no broker URL.
+fn clusters_from_env(control_audience: Option<&str>) -> anyhow::Result<Option<ClusterTracker>> {
+    if !env_bool_or("PULSE_CLUSTERS_ENABLED", DEFAULT_CLUSTERS_ENABLED)? {
+        tracing::info!("peer clustering disabled");
+        return Ok(None);
+    }
+    let pass_interval_ms = env_or("PULSE_CLUSTERS_PASS_INTERVAL_MS", DEFAULT_PASS_INTERVAL_MS)?;
+    if pass_interval_ms == 0 {
+        tracing::info!("peer clustering disabled: PULSE_CLUSTERS_PASS_INTERVAL_MS is not positive");
+        return Ok(None);
+    }
+    let options = ClusterOptions {
+        enabled: true,
+        pass_interval_ms,
+        dwell_passes: env_or("PULSE_CLUSTERS_DWELL_PASSES", DEFAULT_DWELL_PASSES)?,
+        id_prefix: env_or("PULSE_CLUSTERS_ID_PREFIX", DEFAULT_ID_PREFIX.to_string())?,
+        session_retention_passes: env_or(
+            "PULSE_CLUSTERS_SESSION_RETENTION_PASSES",
+            DEFAULT_SESSION_RETENTION_PASSES,
+        )?,
+    };
+    tracing::info!(
+        pass_interval_ms = options.pass_interval_ms,
+        dwell_passes = options.dwell_passes,
+        id_prefix = %options.id_prefix,
+        "peer clustering enabled"
+    );
+    Ok(Some(ClusterTracker::new(
+        options,
+        ENET_CAPACITY + WT_CAPACITY,
+        cluster_feed_from_env(control_audience)?,
+    )))
+}
+
+/// The deployed build's commit, which is what a discovery consumer tells deployments apart by.
+/// Unset or blank advertises `unknown`, which is upstream's fallback -- the crate version is
+/// deliberately not used, because every build of one version shares it.
+#[cfg(feature = "nats")]
+fn commit_hash_from_env() -> String {
+    use catalyrst_pulse::cluster::nats::DEFAULT_COMMIT_HASH;
+
+    match std::env::var("COMMIT_HASH") {
+        Ok(hash) if !hash.trim().is_empty() => hash.trim().to_string(),
+        _ => DEFAULT_COMMIT_HASH.to_string(),
+    }
+}
+
+/// The broker URL, `PULSE_NATS_URL` first and the shared `NATS_URL` after it, so a host that
+/// already exports one broker for its services needs no Pulse-specific copy of it.
+fn nats_url_from_env() -> anyhow::Result<Option<String>> {
+    for key in ["PULSE_NATS_URL", "NATS_URL"] {
+        let value = env_value(key, std::env::var(key))?;
+        match value.as_deref().map(str::trim) {
+            Some(url) if !url.is_empty() => return Ok(Some(url.to_string())),
+            _ => continue,
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(feature = "nats")]
+fn cluster_feed_from_env(
+    control_audience: Option<&str>,
+) -> anyhow::Result<Arc<dyn ClusterFeedPublisher>> {
+    use catalyrst_pulse::cluster::nats::{
+        NatsClusterFeed, NatsFeedOptions, DEFAULT_CHANNEL_CAPACITY, DEFAULT_DISCOVERY_INTERVAL_MS,
+        DEFAULT_SERVER_NAME,
+    };
+
+    let Some(url) = nats_url_from_env()? else {
+        tracing::info!("cluster feed in stats-only mode: no broker URL set");
+        return Ok(Arc::new(NoopClusterFeedPublisher));
+    };
+    let options = NatsFeedOptions {
+        url,
+        server_name: env_or("PULSE_NATS_SERVER_NAME", DEFAULT_SERVER_NAME.to_string())?,
+        commit_hash: commit_hash_from_env(),
+        discovery_interval_ms: env_or(
+            "PULSE_NATS_DISCOVERY_INTERVAL_MS",
+            DEFAULT_DISCOVERY_INTERVAL_MS,
+        )?,
+        capacity: env_or("PULSE_NATS_CHANNEL_CAPACITY", DEFAULT_CHANNEL_CAPACITY)?,
+    };
+    if options.capacity == 0 {
+        tracing::warn!(
+            "PULSE_NATS_CHANNEL_CAPACITY is not positive: each assignment evicts the previous one, \
+             so almost everything is lost -- watch pulse_nats_dropped_total"
+        );
+    }
+    if options.discovery_interval_ms == 0 {
+        tracing::warn!(
+            "PULSE_NATS_DISCOVERY_INTERVAL_MS is not positive: assignments and topology still \
+             publish, the service is not advertised on engine.discovery"
+        );
+    }
+    tracing::info!(server_name = %options.server_name, "cluster feed publishing");
+    let feed = NatsClusterFeed::spawn(options);
+    if let Some(audience) = control_audience {
+        feed.enable_control_positions(audience)
+            .map_err(anyhow::Error::msg)?;
+        tracing::info!(%audience, "control position clustering enabled");
+    }
+    Ok(Arc::new(feed))
+}
+
+/// Built without a broker client: a URL that cannot be honoured fails startup rather than being
+/// ignored, so a deployment never silently runs blind while its operator believes it publishes.
+#[cfg(not(feature = "nats"))]
+fn cluster_feed_from_env(
+    _control_audience: Option<&str>,
+) -> anyhow::Result<Arc<dyn ClusterFeedPublisher>> {
+    if let Some(url) = nats_url_from_env()? {
+        anyhow::bail!("a broker URL is set (`{url}`) but this build has no `nats` feature");
+    }
+    Ok(Arc::new(NoopClusterFeedPublisher))
+}
+
 fn env_bool(key: &str) -> anyhow::Result<bool> {
     parse_bool(key, env_value(key, std::env::var(key))?)
+}
+
+fn env_bool_or(key: &str, default: bool) -> anyhow::Result<bool> {
+    parse_bool_or(key, env_value(key, std::env::var(key))?, default)
 }
 
 /// Unset and blank mean off; the documented spellings match trimmed and case-insensitively;
 /// anything else is a startup error, because reading a typo as "off" would close the browser
 /// front door silently.
 fn parse_bool(key: &str, raw: Option<String>) -> anyhow::Result<bool> {
+    parse_bool_or(key, raw, false)
+}
+
+/// As `parse_bool`, for a setting whose unset state is on: unset and blank both take `default`,
+/// which keeps a blanked-out env template reading as the shipped behaviour rather than silently
+/// turning a feature off.
+fn parse_bool_or(key: &str, raw: Option<String>, default: bool) -> anyhow::Result<bool> {
     let Some(raw) = raw else {
-        return Ok(false);
+        return Ok(default);
     };
     let value = raw.trim().to_ascii_lowercase();
-    if value.is_empty() || BOOL_FALSE.contains(&value.as_str()) {
+    if value.is_empty() {
+        Ok(default)
+    } else if BOOL_FALSE.contains(&value.as_str()) {
         Ok(false)
     } else if BOOL_TRUE.contains(&value.as_str()) {
         Ok(true)
@@ -268,7 +606,7 @@ mod tests {
 
     #[test]
     fn env_docs_defaults_track_the_constants() {
-        let pinned: [(&str, String); 13] = [
+        let pinned: [(&str, String); 26] = [
             ("PULSE_BIND", DEFAULT_BIND.to_string()),
             ("PULSE_METRICS_BIND", DEFAULT_METRICS_BIND.to_string()),
             ("PULSE_INPUT_MAX_HZ", DEFAULT_INPUT_MAX_HZ.to_string()),
@@ -293,8 +631,45 @@ mod tests {
             ("PULSE_AOI_MAX_RADIUS", DEFAULT_AOI_MAX_RADIUS.to_string()),
             ("PULSE_WT_BIND", DEFAULT_WT_BIND.to_string()),
             (
+                "PULSE_CLUSTERS_ENABLED",
+                DEFAULT_CLUSTERS_ENABLED.to_string(),
+            ),
+            (
+                "PULSE_CLUSTERS_PASS_INTERVAL_MS",
+                DEFAULT_PASS_INTERVAL_MS.to_string(),
+            ),
+            (
+                "PULSE_CLUSTERS_DWELL_PASSES",
+                DEFAULT_DWELL_PASSES.to_string(),
+            ),
+            ("PULSE_CLUSTERS_ID_PREFIX", DEFAULT_ID_PREFIX.to_string()),
+            (
+                "PULSE_CLUSTERS_SESSION_RETENTION_PASSES",
+                DEFAULT_SESSION_RETENTION_PASSES.to_string(),
+            ),
+            ("PULSE_NATS_URL", "unset".to_string()),
+            ("NATS_URL", "unset".to_string()),
+            (
                 "PULSE_WT_MAX_DATAGRAM_BYTES",
                 DEFAULT_MAX_DATAGRAM_BYTES.to_string(),
+            ),
+            ("PULSE_V4_ENABLED", false.to_string()),
+            (
+                "PULSE_V4_CHALLENGE_TTL_MS",
+                DEFAULT_V4_CHALLENGE_TTL_MS.to_string(),
+            ),
+            ("PULSE_V4_MAX_PENDING", DEFAULT_V4_MAX_PENDING.to_string()),
+            (
+                "PULSE_V4_MAX_AUTH_CHAIN_BYTES",
+                DEFAULT_V4_MAX_AUTH_CHAIN_BYTES.to_string(),
+            ),
+            (
+                "PULSE_V4_MAX_CAPABILITIES",
+                DEFAULT_V4_MAX_CAPABILITIES.to_string(),
+            ),
+            (
+                "PULSE_V4_MAX_PUBLIC_DETAIL_BYTES",
+                DEFAULT_V4_MAX_PUBLIC_DETAIL_BYTES.to_string(),
             ),
             ("RUST_LOG", DEFAULT_LOG_FILTER.to_string()),
         ];
@@ -308,6 +683,7 @@ mod tests {
         }
         assert!(doc_for("PULSE_WT_MAX_MESSAGE_BYTES")
             .ends_with(&format!("(default {DEFAULT_MAX_MESSAGE_BYTES})")));
+        assert_nats_feed_defaults_are_documented();
         assert!(
             doc_for("PULSE_SCENE_LISTENER_MAX_PARCELS").contains(&format!(
                 "plus {SCENE_LISTENER_REALM_BUDGET_COST} per realm"
@@ -323,6 +699,57 @@ mod tests {
             wt.contains(&BOOL_TRUE.join("/")) && wt.contains(&BOOL_FALSE.join("/")),
             "the accepted boolean spellings are documented: `{wt}`"
         );
+    }
+
+    #[cfg(feature = "nats")]
+    fn assert_nats_feed_defaults_are_documented() {
+        use catalyrst_pulse::cluster::nats::{
+            DEFAULT_CHANNEL_CAPACITY, DEFAULT_COMMIT_HASH, DEFAULT_DISCOVERY_INTERVAL_MS,
+            DEFAULT_SERVER_NAME,
+        };
+        for (key, default) in [
+            ("COMMIT_HASH", DEFAULT_COMMIT_HASH.to_string()),
+            ("PULSE_NATS_SERVER_NAME", DEFAULT_SERVER_NAME.to_string()),
+            (
+                "PULSE_NATS_DISCOVERY_INTERVAL_MS",
+                DEFAULT_DISCOVERY_INTERVAL_MS.to_string(),
+            ),
+            (
+                "PULSE_NATS_CHANNEL_CAPACITY",
+                DEFAULT_CHANNEL_CAPACITY.to_string(),
+            ),
+        ] {
+            let doc = doc_for(key);
+            let suffix = format!("(default {default})");
+            assert!(
+                doc.ends_with(&suffix),
+                "{key}: `{doc}` must end with `{suffix}`"
+            );
+        }
+    }
+
+    /// The keys stay documented without the feature, because the same env template feeds a build
+    /// with it and one without.
+    #[cfg(not(feature = "nats"))]
+    fn assert_nats_feed_defaults_are_documented() {
+        for key in [
+            "COMMIT_HASH",
+            "PULSE_NATS_SERVER_NAME",
+            "PULSE_NATS_DISCOVERY_INTERVAL_MS",
+            "PULSE_NATS_CHANNEL_CAPACITY",
+        ] {
+            let _ = doc_for(key);
+        }
+    }
+
+    #[test]
+    fn refusing_legacy_handshakes_needs_v4_to_admit_anyone() {
+        assert!(legacy_handshake_from(None, false).unwrap());
+        assert!(legacy_handshake_from(Some(String::new()), true).unwrap());
+        assert!(!legacy_handshake_from(Some("false".into()), true).unwrap());
+        assert!(legacy_handshake_from(Some("false".into()), false).is_err());
+        assert!(legacy_handshake_from(Some("maybe".into()), true).is_err());
+        assert!(doc_for("PULSE_LEGACY_HANDSHAKE").ends_with("(default true)"));
     }
 
     #[test]

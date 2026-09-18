@@ -9,7 +9,7 @@ import eventsArt from "./loading-tips/Events.webp";
 import worldsArt from "./loading-tips/Worlds.webp";
 import hangOutArt from "./loading-tips/HangOut.webp";
 
-export type LoadingTip = { title: string; body: string; art: string };
+type LoadingTip = { title: string; body: string; art: string };
 
 export const LOADING_TIPS: LoadingTip[] = [
   {

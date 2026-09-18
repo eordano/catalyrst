@@ -2,9 +2,10 @@ use super::*;
 use crate::decentraland::common::Vector3;
 use crate::interest::{
     ParcelEncoder, ParcelEncoderOptions, SceneListenerCellMapper, SceneListenerState,
-    SpatialAreaOfInterest, SpatialAreaOfInterestOptions, SpatialGrid, SPATIAL_GRID_CELL_SIZE,
+    SpatialAreaOfInterest, SpatialAreaOfInterestOptions, SPATIAL_GRID_CELL_SIZE,
 };
 use crate::messages::spec;
+use crate::realm_grids::RealmSpatialGrids;
 use crate::snapshot::{EmoteState, PeerSnapshotPublisher};
 
 mod resync_metrics;
@@ -16,7 +17,7 @@ fn v3(x: f32, z: f32) -> Vector3 {
 
 struct World {
     board: SnapshotBoard,
-    grid: SpatialGrid,
+    grid: RealmSpatialGrids,
     encoder: ParcelEncoder,
     aoi: SpatialAreaOfInterest,
     identity: IdentityBoard,
@@ -32,7 +33,7 @@ impl World {
     fn sized(cap: usize) -> Self {
         World {
             board: SnapshotBoard::new(cap, 16),
-            grid: SpatialGrid::new(SPATIAL_GRID_CELL_SIZE),
+            grid: RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, cap),
             encoder: ParcelEncoder::new(ParcelEncoderOptions::default()),
             aoi: SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default()),
             identity: IdentityBoard::new(cap),
@@ -102,7 +103,8 @@ impl World {
 
 fn listener_state(aoi: &[(&str, &[i32])]) -> SceneListenerState {
     let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
-    let mapper = SceneListenerCellMapper::new(&SpatialGrid::new(SPATIAL_GRID_CELL_SIZE), &encoder);
+    let mapper =
+        SceneListenerCellMapper::new(&RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, 1), &encoder);
     SceneListenerState::from_parcels(
         aoi.iter()
             .map(|(realm, parcels)| (realm.to_string(), parcels.iter().copied().collect()))
@@ -760,6 +762,96 @@ fn pending_auth_peer_times_out() {
 }
 
 #[test]
+fn baseline_batch_negotiation_is_per_observer_and_sparse_updates_stay_small() {
+    for moving_subjects in [1, 8] {
+        let mut world = World::sized(16);
+        for id in 0..moving_subjects + 4 {
+            world.connect(id, &format!("wallet-{id}"));
+            world.teleport(id, 0, v3(8.0, 8.0), "realm");
+        }
+        world.peers.get_mut(&0).unwrap().features = crate::server::FEATURE_DELTA_BATCH_BASELINE;
+        world.peers.get_mut(&2).unwrap().features = crate::server::FEATURE_DELTA_BATCH;
+        world.peers.get_mut(&3).unwrap().features = crate::server::FEATURE_DELTA_BATCH_DICTIONARY;
+        let mut simulation = PeerSimulation::new(&[50, 100, 200], false);
+        tick(&mut simulation, &mut world, 1);
+        for id in 4..moving_subjects + 4 {
+            world.input(id, 0, v3(9.0, 8.0));
+        }
+        let messages = tick(&mut simulation, &mut world, 2);
+        let selected: Vec<_> = messages
+            .iter()
+            .filter(|message| message.target == 0)
+            .collect();
+        let old: Vec<_> = messages
+            .iter()
+            .filter(|message| message.target == 1)
+            .collect();
+        assert!(!selected.is_empty());
+        assert!(old.iter().all(|message| matches!(
+            message.message.message,
+            Some(server_message::Message::PlayerStateDelta(_))
+        )));
+        assert!(messages
+            .iter()
+            .filter(|message| message.target == 2)
+            .all(|message| matches!(
+                message.message.message,
+                Some(server_message::Message::PlayerStateDeltaBatch(_))
+            )));
+        if moving_subjects == 1 {
+            assert!(selected.iter().all(|message| matches!(
+                message.message.message,
+                Some(server_message::Message::PlayerStateDelta(_))
+            )));
+        } else {
+            assert!(selected.iter().all(|message| matches!(
+                message.message.message,
+                Some(server_message::Message::PlayerStateDeltaBatchBaseline(_))
+            )));
+        }
+        let dictionary: Vec<_> = messages
+            .iter()
+            .filter(|message| message.target == 3)
+            .collect();
+        for message in &selected {
+            if let Some(server_message::Message::PlayerStateDeltaBatchBaseline(batch)) =
+                &message.message.message
+            {
+                assert_ne!(
+                    batch.payload[0] & 128,
+                    0,
+                    "baseline-only observer never receives a dictionary"
+                );
+            }
+        }
+        if moving_subjects > 1 {
+            assert!(dictionary.iter().any(|message| matches!(&message.message.message,
+                Some(server_message::Message::PlayerStateDeltaBatchBaseline(batch)) if batch.payload[0] & 128 == 0)));
+        }
+        assert!(
+            dictionary
+                .iter()
+                .map(|message| message.message.encoded_len())
+                .sum::<usize>()
+                <= selected
+                    .iter()
+                    .map(|message| message.message.encoded_len())
+                    .sum::<usize>()
+        );
+        assert!(
+            selected
+                .iter()
+                .map(|message| message.message.encoded_len())
+                .sum::<usize>()
+                <= old
+                    .iter()
+                    .map(|message| message.message.encoded_len())
+                    .sum::<usize>()
+        );
+    }
+}
+
+#[test]
 fn disconnecting_peer_cleaned_after_grace() {
     let mut w = World::new();
     let mut st = PeerState::new(PeerConnectionState::Disconnecting, 0);
@@ -856,5 +948,34 @@ fn shared_baseline_encodes_once() {
     assert_eq!(
         recipients as u32, M,
         "all M observers must still receive their own delta for the subject"
+    );
+}
+
+#[test]
+fn a_realm_less_observer_is_not_mirrored_to_itself() {
+    let mut w = World::new();
+    w.connect(0, "0xobserver");
+    w.board.publish(
+        0,
+        crate::snapshot::PeerSnapshot {
+            global_position: v3(8.0, 8.0),
+            ..Default::default()
+        },
+    );
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    sim.self_mirror_enabled = true;
+
+    let out = tick(&mut sim, &mut w, 1);
+    assert!(
+        out.iter().all(|m| m.target != 0),
+        "a peer with no realm is in no grid, so it is not its own subject either"
+    );
+
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-a");
+    let out = tick(&mut sim, &mut w, 2);
+    assert!(
+        out.iter().any(|m| m.target == 0),
+        "once the observer has a realm the mirror is emitted"
     );
 }

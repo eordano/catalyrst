@@ -69,6 +69,7 @@ pkgs.testers.runNixOSTest {
         domain = "test.local";
         tls = "acme-http01";
         subServices.abCdn = false;
+        postflight.enable = false;
       };
 
       system.activationScripts.testSquidEnv = ''

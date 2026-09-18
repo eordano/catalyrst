@@ -1,3 +1,4 @@
+pub mod nats;
 pub mod router;
 pub mod scratch_dir;
 pub mod sql_capture;
@@ -98,11 +99,9 @@ pub fn pg_unusable<T>(var: &str, detail: &str) -> Option<T> {
 /// The one line an operator gets in place of an assertion. It has to name the
 /// test, because the harness line right after it says `ok` and that is the only
 /// other thing on screen.
+#[rustfmt::skip]
 pub fn skip_notice(test: &str, requirement: &str, detail: &str) -> String {
-    format!(
-        "SKIPPED {test}: {requirement} unavailable ({detail}); \
-         {OPT_OUT} is set, so this test asserted NOTHING and still reports ok\n"
-    )
+    format!("SKIPPED {test}: {requirement} unavailable ({detail}); {OPT_OUT} is set, so this test asserted NOTHING and still reports ok\n")
 }
 
 /// Writes straight to the stderr *file descriptor*, bypassing the thread-local

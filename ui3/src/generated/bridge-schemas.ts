@@ -2,23 +2,45 @@
 import { z } from "zod";
 
 import type { AvatarColor3 } from "./bridge/AvatarColor3";
+import type { BootstrapPhase } from "./bridge/BootstrapPhase";
 import type { BridgeAction } from "./bridge/BridgeAction";
+import type { CancelTravelPayload } from "./bridge/CancelTravelPayload";
 import type { ChangeRealmPayload } from "./bridge/ChangeRealmPayload";
+import type { ClientReadiness } from "./bridge/ClientReadiness";
+import type { ConnectionPhase } from "./bridge/ConnectionPhase";
+import type { ConnectionStatus } from "./bridge/ConnectionStatus";
+import type { Delivery } from "./bridge/Delivery";
 import type { FriendEntry } from "./bridge/FriendEntry";
 import type { FriendRef } from "./bridge/FriendRef";
 import type { FriendRequestEntry } from "./bridge/FriendRequestEntry";
 import type { FriendsRequestPayload } from "./bridge/FriendsRequestPayload";
 import type { KillPortablePayload } from "./bridge/KillPortablePayload";
+import type { LifecycleCommandKind } from "./bridge/LifecycleCommandKind";
+import type { LifecycleCommandResult } from "./bridge/LifecycleCommandResult";
+import type { LifecycleSnapshot } from "./bridge/LifecycleSnapshot";
 import type { NativeHostEvent } from "./bridge/NativeHostEvent";
 import type { NativeHostMessage } from "./bridge/NativeHostMessage";
+import type { NavigationPhase } from "./bridge/NavigationPhase";
 import type { NearbyPlayer } from "./bridge/NearbyPlayer";
+import type { Operation } from "./bridge/Operation";
 import type { OverlayPush } from "./bridge/OverlayPush";
+import type { ParamKind } from "./bridge/ParamKind";
 import type { PermissionScope } from "./bridge/PermissionScope";
+import type { PlacementPhase } from "./bridge/PlacementPhase";
 import type { PlayEmotePayload } from "./bridge/PlayEmotePayload";
 import type { PortableEntry } from "./bridge/PortableEntry";
+import type { RealmPhase } from "./bridge/RealmPhase";
+import type { RealmStatus } from "./bridge/RealmStatus";
+import type { ResidencyPhase } from "./bridge/ResidencyPhase";
 import type { ResolvePermissionPayload } from "./bridge/ResolvePermissionPayload";
+import type { RetryConnectionPayload } from "./bridge/RetryConnectionPayload";
+import type { RoomPhase } from "./bridge/RoomPhase";
 import type { RotateAvatarPreviewPayload } from "./bridge/RotateAvatarPreviewPayload";
+import type { ScenePhase } from "./bridge/ScenePhase";
+import type { SceneRoomStatus } from "./bridge/SceneRoomStatus";
 import type { SendChatPayload } from "./bridge/SendChatPayload";
+import type { ServiceDef } from "./bridge/ServiceDef";
+import type { ServiceValue } from "./bridge/ServiceValue";
 import type { SetAvatarBasePayload } from "./bridge/SetAvatarBasePayload";
 import type { SetAvatarEquipPayload } from "./bridge/SetAvatarEquipPayload";
 import type { SetAvatarPayload } from "./bridge/SetAvatarPayload";
@@ -34,7 +56,13 @@ import type { SetVoiceParticipantVolumePayload } from "./bridge/SetVoiceParticip
 import type { SignedFetchPayload } from "./bridge/SignedFetchPayload";
 import type { SignRequestPayload } from "./bridge/SignRequestPayload";
 import type { TeleportPayload } from "./bridge/TeleportPayload";
+import type { TravelOutcome } from "./bridge/TravelOutcome";
+import type { TravelPayload } from "./bridge/TravelPayload";
+import type { TravelPhase } from "./bridge/TravelPhase";
+import type { TravelStatus } from "./bridge/TravelStatus";
 import type { VoiceParticipant } from "./bridge/VoiceParticipant";
+import type { WebParam } from "./bridge/WebParam";
+import type { WorkerPhase } from "./bridge/WorkerPhase";
 
 export const AvatarColor3Schema = z.object({
   r: z.number(),
@@ -42,12 +70,49 @@ export const AvatarColor3Schema = z.object({
   b: z.number(),
 });
 
-export const BridgeActionSchema = z.enum(["Teleport", "ChangeRealm", "SendChat", "friends.request", "SignRequest", "PlayEmote", "StopEmote", "SetTimeOfDay", "GetSettings", "SetSetting", "SetMic", "SetMicEnabled", "SetAvatar", "SetIdentity", "LoginGuest", "LoginNew", "Logout", "SignedFetch", "RequestAvatarPreview", "RotateAvatarPreview", "ResolvePermission", "CapturePhoto", "SetCameraMode", "SetVoiceParticipantVolume", "SetExplorerUiOpen", "KillPortable"]);
+export const BootstrapPhaseSchema = z.enum(["idle", "prerequisites", "initializing", "ready", "starting", "lobby", "enteringWorld", "world", "failed"]);
+
+export const BridgeActionSchema = z.enum(["Travel", "CancelTravel", "RetryConnection", "GetLifecycleSnapshot", "Teleport", "ChangeRealm", "SendChat", "friends.request", "SignRequest", "PlayEmote", "StopEmote", "SetTimeOfDay", "GetSettings", "SetSetting", "SetMic", "SetMicEnabled", "SetAvatar", "SetIdentity", "LoginGuest", "LoginNew", "Logout", "SignedFetch", "RequestAvatarPreview", "RotateAvatarPreview", "ResolvePermission", "CapturePhoto", "SetCameraMode", "SetVoiceParticipantVolume", "SetExplorerUiOpen", "KillPortable"]);
+
+export const CancelTravelPayloadSchema = z.object({
+  requestId: z.string(),
+  expectedSession: z.string(),
+});
 
 export const ChangeRealmPayloadSchema = z.object({
   realm: z.string(),
   position: z.string().optional(),
 });
+
+export const PlacementPhaseSchema = z.enum(["waitingIdentity", "waitingRealm", "waitingPointers", "waitingScene", "waitingColliders", "placing", "placed", "degraded", "cancelled"]);
+
+export const ScenePhaseSchema = z.enum(["queued", "entity", "crdt", "javascript", "waitingAdmission", "starting", "running", "empty", "failed", "retired"]);
+
+export const ClientReadinessSchema = z.object({
+  placement: PlacementPhaseSchema.nullable(),
+  scene: ScenePhaseSchema.nullable(),
+  avatarReady: z.boolean(),
+  movementReady: z.boolean(),
+  pendingAssets: z.number(),
+  canExplore: z.boolean(),
+  globalRoom: z.boolean().nullable(),
+  sceneRoom: z.boolean().nullable(),
+});
+
+export const ConnectionPhaseSchema = z.enum(["down", "connecting", "waitingIdentity", "awaitingChallenge", "signing", "awaitingResponse", "established", "dead"]);
+
+export const ConnectionStatusSchema = z.object({
+  id: z.string(),
+  protocol: z.string(),
+  scene: z.string().nullable(),
+  control: z.boolean(),
+  phase: ConnectionPhaseSchema,
+  attempt: z.number(),
+  error: z.string().nullable(),
+  canRetry: z.boolean(),
+});
+
+export const DeliverySchema = z.enum(["launch", "destination", "host", "resolved"]);
 
 export const FriendEntrySchema = z.object({
   address: z.string(),
@@ -79,6 +144,70 @@ export const KillPortablePayloadSchema = z.object({
   pid: z.string(),
 });
 
+export const LifecycleCommandKindSchema = z.enum(["travel", "cancelTravel", "retryConnection"]);
+
+export const LifecycleCommandResultSchema = z.object({
+  requestId: z.string(),
+  action: LifecycleCommandKindSchema,
+  accepted: z.boolean(),
+  error: z.string().nullable(),
+});
+
+export const RealmPhaseSchema = z.enum(["idle", "resolving", "fetching", "transitioning", "active", "failed", "cancelled"]);
+
+export const RealmStatusSchema = z.object({
+  phase: RealmPhaseSchema,
+  generation: z.number(),
+  destination: z.string().nullable(),
+  error: z.string().nullable(),
+});
+
+export const RoomPhaseSchema = z.enum(["detached", "acquiring", "joining", "attached", "reconnecting", "backoff", "blocked", "leaving"]);
+
+export const SceneRoomStatusSchema = z.object({
+  phase: RoomPhaseSchema,
+  scene: z.string().nullable(),
+  error: z.string().nullable(),
+});
+
+export const OperationSchema = z.object({
+  session: z.string(),
+  realm: z.number(),
+  instance: z.number(),
+  requestId: z.string(),
+  attempt: z.number(),
+});
+
+export const TravelPhaseSchema = z.enum(["idle", "requested", "resolving", "preparing", "placing", "arrived", "degraded", "failed", "cancelled", "superseded"]);
+
+export const TravelOutcomeSchema = z.object({
+  operation: OperationSchema,
+  phase: TravelPhaseSchema,
+  reason: z.string().nullable(),
+});
+
+export const TravelStatusSchema = z.object({
+  operation: OperationSchema,
+  realmOperation: OperationSchema.nullable(),
+  phase: TravelPhaseSchema,
+  realm: z.string(),
+  parcel: z.tuple([z.number(), z.number()]).nullable(),
+  blockingReason: z.string().nullable(),
+  canCancel: z.boolean(),
+});
+
+export const LifecycleSnapshotSchema = z.object({
+  session: z.string(),
+  revision: z.number(),
+  realm: RealmStatusSchema,
+  travel: TravelStatusSchema.nullable(),
+  readiness: ClientReadinessSchema,
+  outcomes: z.array(TravelOutcomeSchema),
+  commandResults: z.array(LifecycleCommandResultSchema),
+  connections: z.array(ConnectionStatusSchema),
+  sceneRoom: SceneRoomStatusSchema.nullable(),
+});
+
 export const NativeHostEventSchema = z.union([z.object({
   t: z.literal("ready"),
   site: z.string(),
@@ -101,6 +230,8 @@ export const NativeHostMessageSchema = z.union([z.object({
   payload: z.string(),
 }), z.object({
   t: z.literal("engineStart"),
+  realm: z.string().nullable().optional(),
+  parcel: z.tuple([z.number(), z.number()]).nullable().optional(),
 }), z.object({
   t: z.literal("pointerRegions"),
   w: z.number(),
@@ -127,6 +258,8 @@ export const NativeHostMessageSchema = z.union([z.object({
   level: z.string(),
   msg: z.string(),
 })]);
+
+export const NavigationPhaseSchema = z.enum(["idle", "moving", "arrived", "blocked", "cancelled"]);
 
 export const NearbyPlayerSchema = z.object({
   address: z.string(),
@@ -168,6 +301,9 @@ export const VoiceParticipantSchema = z.object({
 });
 
 export const OverlayPushSchema = z.union([z.object({
+  kind: z.literal("lifecycle"),
+  snapshot: LifecycleSnapshotSchema,
+}), z.object({
   kind: z.literal("identity"),
   address: z.string(),
   signerAddress: z.string(),
@@ -272,16 +408,26 @@ export const OverlayPushSchema = z.union([z.object({
   nonce: z.number(),
 })]);
 
+export const ParamKindSchema = z.enum(["string", "flag", "bool", "number"]);
+
 export const PermissionScopeSchema = z.enum(["once", "scene", "realm", "global"]);
 
 export const PlayEmotePayloadSchema = z.object({
   urn: z.string(),
 });
 
+export const ResidencyPhaseSchema = z.enum(["wanted", "loading", "resident", "pendingEviction", "retiring", "released"]);
+
 export const ResolvePermissionPayloadSchema = z.object({
   id: z.number(),
   allow: z.boolean(),
   level: PermissionScopeSchema.optional(),
+});
+
+export const RetryConnectionPayloadSchema = z.object({
+  requestId: z.string(),
+  expectedSession: z.string(),
+  connectionId: z.string(),
 });
 
 export const RotateAvatarPreviewPayloadSchema = z.object({
@@ -291,6 +437,16 @@ export const RotateAvatarPreviewPayloadSchema = z.object({
 export const SendChatPayloadSchema = z.object({
   message: z.string(),
   channel: z.string().optional(),
+});
+
+export const ServiceValueSchema = z.enum(["http", "websocket", "authority"]);
+
+export const ServiceDefSchema = z.object({
+  name: z.string(),
+  value: ServiceValueSchema,
+  scheme: z.string(),
+  sub: z.string(),
+  path: z.string(),
 });
 
 export const SetAvatarBasePayloadSchema = z.object({
@@ -368,28 +524,67 @@ export const TeleportPayloadSchema = z.object({
   z: z.number(),
 });
 
+export const TravelPayloadSchema = z.object({
+  requestId: z.string(),
+  expectedSession: z.string(),
+  realm: z.string().nullable(),
+  parcel: z.tuple([z.number(), z.number()]).nullable(),
+  spawnPoint: z.string().nullable(),
+});
+
+export const WebParamSchema = z.object({
+  name: z.string(),
+  kind: ParamKindSchema,
+  delivery: DeliverySchema,
+  doc: z.string(),
+});
+
+export const WorkerPhaseSchema = z.enum(["queued", "waitingWorker", "waitingBootstrap", "readyToBind", "binding", "running", "failed", "backoff", "retiring", "released"]);
+
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
 type Mutual<A, B> = AssignableTo<A, B> extends true ? AssignableTo<B, A> : false;
 type Assert<T extends true> = T;
 
 export type _AssertAvatarColor3 = Assert<Mutual<AvatarColor3, z.infer<typeof AvatarColor3Schema>>>;
+export type _AssertBootstrapPhase = Assert<Mutual<BootstrapPhase, z.infer<typeof BootstrapPhaseSchema>>>;
 export type _AssertBridgeAction = Assert<Mutual<BridgeAction, z.infer<typeof BridgeActionSchema>>>;
+export type _AssertCancelTravelPayload = Assert<Mutual<CancelTravelPayload, z.infer<typeof CancelTravelPayloadSchema>>>;
 export type _AssertChangeRealmPayload = Assert<Mutual<ChangeRealmPayload, z.infer<typeof ChangeRealmPayloadSchema>>>;
+export type _AssertClientReadiness = Assert<Mutual<ClientReadiness, z.infer<typeof ClientReadinessSchema>>>;
+export type _AssertConnectionPhase = Assert<Mutual<ConnectionPhase, z.infer<typeof ConnectionPhaseSchema>>>;
+export type _AssertConnectionStatus = Assert<Mutual<ConnectionStatus, z.infer<typeof ConnectionStatusSchema>>>;
+export type _AssertDelivery = Assert<Mutual<Delivery, z.infer<typeof DeliverySchema>>>;
 export type _AssertFriendEntry = Assert<Mutual<FriendEntry, z.infer<typeof FriendEntrySchema>>>;
 export type _AssertFriendRef = Assert<Mutual<FriendRef, z.infer<typeof FriendRefSchema>>>;
 export type _AssertFriendRequestEntry = Assert<Mutual<FriendRequestEntry, z.infer<typeof FriendRequestEntrySchema>>>;
 export type _AssertFriendsRequestPayload = Assert<Mutual<FriendsRequestPayload, z.infer<typeof FriendsRequestPayloadSchema>>>;
 export type _AssertKillPortablePayload = Assert<Mutual<KillPortablePayload, z.infer<typeof KillPortablePayloadSchema>>>;
+export type _AssertLifecycleCommandKind = Assert<Mutual<LifecycleCommandKind, z.infer<typeof LifecycleCommandKindSchema>>>;
+export type _AssertLifecycleCommandResult = Assert<Mutual<LifecycleCommandResult, z.infer<typeof LifecycleCommandResultSchema>>>;
+export type _AssertLifecycleSnapshot = Assert<Mutual<LifecycleSnapshot, z.infer<typeof LifecycleSnapshotSchema>>>;
 export type _AssertNativeHostEvent = Assert<Mutual<NativeHostEvent, z.infer<typeof NativeHostEventSchema>>>;
 export type _AssertNativeHostMessage = Assert<Mutual<NativeHostMessage, z.infer<typeof NativeHostMessageSchema>>>;
+export type _AssertNavigationPhase = Assert<Mutual<NavigationPhase, z.infer<typeof NavigationPhaseSchema>>>;
 export type _AssertNearbyPlayer = Assert<Mutual<NearbyPlayer, z.infer<typeof NearbyPlayerSchema>>>;
+export type _AssertOperation = Assert<Mutual<Operation, z.infer<typeof OperationSchema>>>;
 export type _AssertOverlayPush = Assert<Mutual<OverlayPush, z.infer<typeof OverlayPushSchema>>>;
+export type _AssertParamKind = Assert<Mutual<ParamKind, z.infer<typeof ParamKindSchema>>>;
 export type _AssertPermissionScope = Assert<Mutual<PermissionScope, z.infer<typeof PermissionScopeSchema>>>;
+export type _AssertPlacementPhase = Assert<Mutual<PlacementPhase, z.infer<typeof PlacementPhaseSchema>>>;
 export type _AssertPlayEmotePayload = Assert<Mutual<PlayEmotePayload, z.infer<typeof PlayEmotePayloadSchema>>>;
 export type _AssertPortableEntry = Assert<Mutual<PortableEntry, z.infer<typeof PortableEntrySchema>>>;
+export type _AssertRealmPhase = Assert<Mutual<RealmPhase, z.infer<typeof RealmPhaseSchema>>>;
+export type _AssertRealmStatus = Assert<Mutual<RealmStatus, z.infer<typeof RealmStatusSchema>>>;
+export type _AssertResidencyPhase = Assert<Mutual<ResidencyPhase, z.infer<typeof ResidencyPhaseSchema>>>;
 export type _AssertResolvePermissionPayload = Assert<Mutual<ResolvePermissionPayload, z.infer<typeof ResolvePermissionPayloadSchema>>>;
+export type _AssertRetryConnectionPayload = Assert<Mutual<RetryConnectionPayload, z.infer<typeof RetryConnectionPayloadSchema>>>;
+export type _AssertRoomPhase = Assert<Mutual<RoomPhase, z.infer<typeof RoomPhaseSchema>>>;
 export type _AssertRotateAvatarPreviewPayload = Assert<Mutual<RotateAvatarPreviewPayload, z.infer<typeof RotateAvatarPreviewPayloadSchema>>>;
+export type _AssertScenePhase = Assert<Mutual<ScenePhase, z.infer<typeof ScenePhaseSchema>>>;
+export type _AssertSceneRoomStatus = Assert<Mutual<SceneRoomStatus, z.infer<typeof SceneRoomStatusSchema>>>;
 export type _AssertSendChatPayload = Assert<Mutual<SendChatPayload, z.infer<typeof SendChatPayloadSchema>>>;
+export type _AssertServiceDef = Assert<Mutual<ServiceDef, z.infer<typeof ServiceDefSchema>>>;
+export type _AssertServiceValue = Assert<Mutual<ServiceValue, z.infer<typeof ServiceValueSchema>>>;
 export type _AssertSetAvatarBasePayload = Assert<Mutual<SetAvatarBasePayload, z.infer<typeof SetAvatarBasePayloadSchema>>>;
 export type _AssertSetAvatarEquipPayload = Assert<Mutual<SetAvatarEquipPayload, z.infer<typeof SetAvatarEquipPayloadSchema>>>;
 export type _AssertSetAvatarPayload = Assert<Mutual<SetAvatarPayload, z.infer<typeof SetAvatarPayloadSchema>>>;
@@ -405,4 +600,10 @@ export type _AssertSetVoiceParticipantVolumePayload = Assert<Mutual<SetVoicePart
 export type _AssertSignedFetchPayload = Assert<Mutual<SignedFetchPayload, z.infer<typeof SignedFetchPayloadSchema>>>;
 export type _AssertSignRequestPayload = Assert<Mutual<SignRequestPayload, z.infer<typeof SignRequestPayloadSchema>>>;
 export type _AssertTeleportPayload = Assert<Mutual<TeleportPayload, z.infer<typeof TeleportPayloadSchema>>>;
+export type _AssertTravelOutcome = Assert<Mutual<TravelOutcome, z.infer<typeof TravelOutcomeSchema>>>;
+export type _AssertTravelPayload = Assert<Mutual<TravelPayload, z.infer<typeof TravelPayloadSchema>>>;
+export type _AssertTravelPhase = Assert<Mutual<TravelPhase, z.infer<typeof TravelPhaseSchema>>>;
+export type _AssertTravelStatus = Assert<Mutual<TravelStatus, z.infer<typeof TravelStatusSchema>>>;
 export type _AssertVoiceParticipant = Assert<Mutual<VoiceParticipant, z.infer<typeof VoiceParticipantSchema>>>;
+export type _AssertWebParam = Assert<Mutual<WebParam, z.infer<typeof WebParamSchema>>>;
+export type _AssertWorkerPhase = Assert<Mutual<WorkerPhase, z.infer<typeof WorkerPhaseSchema>>>;

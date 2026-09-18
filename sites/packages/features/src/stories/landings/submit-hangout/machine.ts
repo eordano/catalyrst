@@ -18,14 +18,14 @@ export type SubmitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SubmitResult>;
 
-export type HangoutInput = {
+type HangoutInput = {
   trackCtx: TrackContext;
   draft?: HangoutDraft;
   submit?: SubmitFn;
   track?: TrackFn;
 };
 
-export type HangoutContext = {
+type HangoutContext = {
   trackCtx: TrackContext;
   draft: HangoutDraft;
   submit: SubmitFn;
@@ -34,9 +34,9 @@ export type HangoutContext = {
   error?: string;
 };
 
-export type DraftPatch = Partial<HangoutDraft>;
+type DraftPatch = Partial<HangoutDraft>;
 
-export type HangoutEvent =
+type HangoutEvent =
   | { type: "SIGN_IN" }
   | { type: "EDIT"; patch: DraftPatch }
   | { type: "NEXT" }
@@ -68,7 +68,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type HangoutStateId = keyof typeof STATE_TO_SLUG;
-export type HangoutStepSlug = (typeof STATE_TO_SLUG)[HangoutStateId];
+type HangoutStepSlug = (typeof STATE_TO_SLUG)[HangoutStateId];
 
 export const FIRST_STEP_SLUG: HangoutStepSlug = STATE_TO_SLUG.signinGate;
 
@@ -233,8 +233,6 @@ export const hangoutMachine = setup({
     },
   },
 });
-
-export type HangoutMachine = typeof hangoutMachine;
 
 export function emitStepCompleted(
   track: TrackFn,

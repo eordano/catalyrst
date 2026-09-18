@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from "react";
 import type { Orientation } from "./layout/orientation";
 
-export type MobileOrientation = Orientation;
+type MobileOrientation = Orientation;
 
-export type MobileOverride = "mobile" | "desktop" | null;
+type MobileOverride = "mobile" | "desktop" | null;
 
-export type MobileEnv = {
+type MobileEnv = {
   readonly isMobile: boolean;
   readonly coarsePointer: boolean;
   readonly anyHover: boolean;
@@ -19,12 +19,12 @@ export type MobileEnv = {
   readonly uaMobileHint: boolean;
 };
 
-export const MOBILE_MAX_SHORT_EDGE = 900;
-export const MOBILE_HINTED_MAX_SHORT_EDGE = 1200;
-export const MOBILE_OVERRIDE_PARAM = "mobile";
-export const MOBILE_OVERRIDE_STORAGE_KEY = "dcl.mobile.force";
-export const SSR_VIEWPORT_WIDTH = 1600;
-export const SSR_VIEWPORT_HEIGHT = 720;
+const MOBILE_MAX_SHORT_EDGE = 900;
+const MOBILE_HINTED_MAX_SHORT_EDGE = 1200;
+const MOBILE_OVERRIDE_PARAM = "mobile";
+const MOBILE_OVERRIDE_STORAGE_KEY = "dcl.mobile.force";
+const SSR_VIEWPORT_WIDTH = 1600;
+const SSR_VIEWPORT_HEIGHT = 720;
 
 const COARSE_POINTER_QUERY = "(pointer: coarse)";
 const ANY_HOVER_QUERY = "(any-hover: hover)";
@@ -153,10 +153,6 @@ export function getMobileEnv(): MobileEnv {
   return snapshot;
 }
 
-export function getServerMobileEnv(): MobileEnv {
-  return SERVER_ENV;
-}
-
 export function refreshMobileEnv(): void {
   const next = evaluate();
   const prev = snapshot;
@@ -187,7 +183,7 @@ function attach(): () => void {
   };
 }
 
-export function subscribeMobileEnv(onChange: () => void): () => void {
+function subscribeMobileEnv(onChange: () => void): () => void {
   listeners.add(onChange);
   if (detach == null) {
     detach = attach();
@@ -210,10 +206,6 @@ export function setMobileOverride(next: MobileOverride): void {
   } catch {
   }
   refreshMobileEnv();
-}
-
-export function useMobileEnv(): MobileEnv {
-  return useSyncExternalStore(subscribeMobileEnv, getMobileEnv, getServerMobileEnv);
 }
 
 function getIsMobile(): boolean {

@@ -69,38 +69,6 @@
   justify-content: flex-end;
 }
 
-.transfer-wizard__btn {
-  appearance: none;
-  border: 1px solid #43404a;
-  background: transparent;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 600;
-  padding: 12px 26px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
-}
-
-.transfer-wizard__btn:hover {
-  border-color: #6b6776;
-}
-
-.transfer-wizard__btn--primary {
-  background: var(--brand-cta);
-  border-color: var(--brand-cta);
-}
-
-.transfer-wizard__btn--primary:hover {
-  background: #ff4f70;
-  border-color: #ff4f70;
-}
-
-.transfer-wizard__btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .transfer-wizard__hint {
   margin: 0;
   font-size: 14px;

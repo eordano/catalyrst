@@ -1,7 +1,9 @@
+@import "../../components/surface.css";
+
 .st {
-  --st-violet: #39055c;
-  --st-violet-deep: #220040;
-  --st-bar: rgba(13, 9, 20, 0.72);
+  --st-violet: var(--ui-panel);
+  --st-violet-deep: var(--ui-canvas);
+  --st-bar: var(--ui-shell);
   --st-ink: var(--text);
   --st-muted: var(--ink-7);
   --st-faint: var(--ink-45);

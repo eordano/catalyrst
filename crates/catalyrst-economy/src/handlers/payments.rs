@@ -8,9 +8,9 @@ use serde_json::{json, Value};
 
 use crate::handlers::admin::require_admin;
 use crate::http::errors::ApiError;
-use crate::ports::abi::{getNonceCall, ERC721_TRANSFER_TOPIC0};
+use crate::ports::abi::{balanceOfCall, getNonceCall, ERC721_TRANSFER_TOPIC0};
 use crate::ports::contracts_addrs::DclContracts;
-use crate::ports::signer::{ReceiptLog, ReceiptOutcome};
+use crate::ports::signer::{DirectSigner, ReceiptLog, ReceiptOutcome};
 use crate::AppState;
 
 const ERC20_TRANSFER_TOPIC0: [u8; 32] = ERC721_TRANSFER_TOPIC0;
@@ -114,33 +114,70 @@ pub struct PaymentsNonceOut {
     pub nonce: String,
 }
 
-pub async fn nonce(
-    State(state): State<AppState>,
-    Path(address): Path<String>,
-) -> Result<Json<PaymentsNonceOut>, ApiError> {
+fn mana_reader<'a>(
+    state: &'a AppState,
+    address: &str,
+    purpose: &str,
+) -> Result<(Address, &'a DirectSigner, Address), ApiError> {
     let user: Address = address
         .trim()
         .parse()
         .map_err(|e| ApiError::InvalidTransaction(format!("invalid address {address:?}: {e}")))?;
 
     let Some(signer) = state.transaction.direct_signer() else {
-        return Err(ApiError::RelayerUnavailable(
-            "No RPC provider is provisioned (META_TX_BROADCAST_ENABLED=true with RELAYER_PRIVATE_KEY + RPC_URL required); cannot read the meta-tx nonce.".into(),
-        ));
+        return Err(ApiError::RelayerUnavailable(format!(
+            "No RPC provider is provisioned (META_TX_BROADCAST_ENABLED=true with RELAYER_PRIVATE_KEY + RPC_URL required); cannot read {purpose}."
+        )));
     };
     let chain_id = state.config.collections_chain_id;
     let Some(contracts) = DclContracts::for_chain(chain_id) else {
         return Err(ApiError::RelayerUnavailable(format!(
-            "no Decentraland contracts known for chain {chain_id}; cannot read the meta-tx nonce"
+            "no Decentraland contracts known for chain {chain_id}; cannot read {purpose}"
         )));
     };
+    Ok((user, signer, contracts.mana_token))
+}
 
+pub async fn nonce(
+    State(state): State<AppState>,
+    Path(address): Path<String>,
+) -> Result<Json<PaymentsNonceOut>, ApiError> {
+    let (user, signer, mana_token) = mana_reader(&state, &address, "the meta-tx nonce")?;
     let ret = signer
-        .eth_call(contracts.mana_token, encode_get_nonce(user).into())
+        .eth_call(mana_token, encode_get_nonce(user).into())
         .await?;
     let nonce = decode_get_nonce_return(&ret)?;
     Ok(Json(PaymentsNonceOut {
         nonce: nonce.to_string(),
+    }))
+}
+
+pub fn encode_balance_of(owner: Address) -> Vec<u8> {
+    balanceOfCall { owner }.abi_encode()
+}
+
+pub fn decode_balance_of_return(ret: &[u8]) -> Result<U256, ApiError> {
+    balanceOfCall::abi_decode_returns(ret)
+        .map_err(|e| ApiError::RelayerFailed(format!("could not decode balanceOf return: {e}")))
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "economy/"))]
+pub struct PaymentsBalanceOut {
+    pub balance: String,
+}
+
+pub async fn balance(
+    State(state): State<AppState>,
+    Path(address): Path<String>,
+) -> Result<Json<PaymentsBalanceOut>, ApiError> {
+    let (user, signer, mana_token) = mana_reader(&state, &address, "the MANA balance")?;
+    let ret = signer
+        .eth_call(mana_token, encode_balance_of(user).into())
+        .await?;
+    let balance = decode_balance_of_return(&ret)?;
+    Ok(Json(PaymentsBalanceOut {
+        balance: balance.to_string(),
     }))
 }
 
@@ -403,5 +440,33 @@ mod tests {
         let ret = U256::from(42u64).to_be_bytes::<32>();
         assert_eq!(decode_get_nonce_return(&ret).unwrap(), U256::from(42u64));
         assert!(decode_get_nonce_return(&[0u8; 5]).is_err());
+    }
+
+    #[test]
+    fn balance_of_calldata_is_the_erc20_selector_plus_padded_address() {
+        let data = encode_balance_of(SHOPPER);
+        assert_eq!(data.len(), 4 + 32);
+        assert_eq!(&data[..4], &[0x70, 0xa0, 0x82, 0x31]);
+        assert_eq!(&data[4..16], &[0u8; 12]);
+        assert_eq!(&data[16..36], SHOPPER.as_slice());
+    }
+
+    #[test]
+    fn balance_of_return_decodes_uint256() {
+        let wei = U256::from(39_580_378_408_756_389_366u128);
+        let ret = wei.to_be_bytes::<32>();
+        assert_eq!(decode_balance_of_return(&ret).unwrap(), wei);
+        assert!(decode_balance_of_return(&[0u8; 5]).is_err());
+    }
+
+    #[test]
+    fn balance_wire_shape_is_a_decimal_wei_string() {
+        let out = PaymentsBalanceOut {
+            balance: U256::from(5_000_000_000_000_000_000u128).to_string(),
+        };
+        assert_eq!(
+            serde_json::to_string(&out).unwrap(),
+            r#"{"balance":"5000000000000000000"}"#
+        );
     }
 }

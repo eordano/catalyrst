@@ -1,23 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { reelKey, reelQuery, type ReelPage } from "../../data/catalyst/reel";
 import "./camera.css";
 import { sendBridge, subscribeBridge, useBridgeState } from "../../overlay/bridge";
 import { serviceBase, signedFetch } from "../../data/catalyst/client";
 import Lightbox from "../components/Lightbox";
-
-type Shortcut = { action: string; keys: string[] };
-
-const SHORTCUTS: Shortcut[] = [
-  { action: "Take a photo", keys: ["Space"] },
-  { action: "Move camera", keys: ["W", "A", "S", "D"] },
-  { action: "Up / Down", keys: ["Q", "/", "E"] },
-  { action: "Rotate", keys: ["Right Mouse"] },
-  { action: "Zoom", keys: ["Scroll"] },
-  { action: "Adjust speed", keys: ["Shift"] },
-  { action: "Roll camera", keys: [",", "/", "."] },
-  { action: "Reset roll", keys: ["R"] },
-  { action: "Toggle UI", keys: ["H"] },
-  { action: "Exit camera", keys: ["Esc"] },
-];
+import { CAMERA_MODE_SHORTCUTS } from "./shortcuts";
 
 const STATUS_LABEL: Record<string, string> = {
   capturing: "Capturing\u{2026}",
@@ -68,30 +56,38 @@ type ReelImage = { id: string; url: string; thumbnailUrl?: string };
 type CameraProps = { onClose?: () => void };
 
 export default function Camera({ onClose }: CameraProps) {
+  const queryClient = useQueryClient();
   const identity = useBridgeState((s) => s.identity);
+  const cached = identity.address ? queryClient.getQueryData<ReelPage>(reelKey(identity.address)) : undefined;
   const scene = useBridgeState((s) => s.scene);
   const [showShortcuts, setShowShortcuts] = useState(true);
+  const [uiHidden, setUiHidden] = useState(false);
   const [flash, setFlash] = useState(false);
   const [status, setStatus] = useState("idle");
+  const capturePending = useRef(false);
   const [error, setError] = useState("");
-  const [reel, setReel] = useState<ReelImage[]>([]);
+  const [reel, setReel] = useState<ReelImage[]>(cached?.images ?? []);
+  const [reelLoading, setReelLoading] = useState(!!identity.address && !cached);
+  const [reelError, setReelError] = useState(false);
+  const reelAttempt = useRef(0);
   const [lightbox, setLightbox] = useState<string | null>(null);
 
   const address = identity?.address || null;
 
   const loadReel = useCallback(async () => {
     if (!address) return;
+    const attempt = ++reelAttempt.current;
+    setReelLoading(!queryClient.getQueryData(reelKey(address)));
+    setReelError(false);
     try {
-      const { status, body } = await signedFetch(
-        `${serviceBase("cameraReel")}/api/users/${address}/images`,
-        { method: "GET" }
-      );
-      if (status < 200 || status >= 300) return;
-      const data = JSON.parse(body);
-      setReel(Array.isArray(data?.images) ? data.images : []);
+      const data = await queryClient.fetchQuery(reelQuery(address));
+      if (attempt === reelAttempt.current) setReel(data.images);
     } catch {
+      if (attempt === reelAttempt.current) setReelError(true);
+    } finally {
+      if (attempt === reelAttempt.current) setReelLoading(false);
     }
-  }, [address]);
+  }, [address, queryClient]);
 
   const upload = useCallback(
     async (dataUrl: string) => {
@@ -125,7 +121,8 @@ export default function Camera({ onClose }: CameraProps) {
         );
         if (code >= 200 && code < 300) {
           setStatus("saved");
-          loadReel();
+          await queryClient.invalidateQueries({ queryKey: reelKey(address), refetchType: "none" });
+          void loadReel();
           setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), 2500);
         } else {
           let msg = `Upload failed (${code})`;
@@ -141,41 +138,58 @@ export default function Camera({ onClose }: CameraProps) {
         setError(e instanceof Error ? e.message : "Upload failed");
       }
     },
-    [address, identity, scene, loadReel]
+    [address, identity, scene, loadReel, queryClient]
   );
 
   useEffect(() => {
     const unsub = subscribeBridge((push: unknown) => {
       const p = push as { kind?: string; dataUrl?: string } | null;
-      if (p && p.kind === "photo" && p.dataUrl) upload(p.dataUrl);
+      if (capturePending.current && p && p.kind === "photo" && p.dataUrl) {
+        capturePending.current = false;
+        upload(p.dataUrl);
+      }
     });
     return unsub;
   }, [upload]);
 
   useEffect(() => {
-    loadReel();
+    void loadReel();
+    return () => { reelAttempt.current++; };
   }, [loadReel]);
 
   const takePhoto = useCallback(() => {
+    if (status === "capturing" || status === "uploading") return;
     if (!address) {
       setStatus("noauth");
       setFlash(true);
       setTimeout(() => setFlash(false), 220);
       return;
     }
+    capturePending.current = true;
     sendBridge("CapturePhoto");
     setStatus("capturing");
     setFlash(true);
     setTimeout(() => setFlash(false), 220);
     setTimeout(() => focusWorldCanvas(), 0);
-  }, [address]);
+  }, [address, status]);
+
+  useEffect(() => {
+    if (status !== "capturing") return;
+    const timer = setTimeout(() => {
+      capturePending.current = false;
+      setStatus("error");
+      setError("The camera did not respond. Please try taking the photo again.");
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [status]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== "Space" && e.key !== " ") return;
+      if (e.code !== "Space" && e.key !== " " && e.code !== "KeyH") return;
       const ae = document.activeElement;
       if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || (ae instanceof HTMLElement && ae.isContentEditable))) return;
       e.preventDefault();
+      if (e.code === "KeyH") { if (!e.repeat) setUiHidden(value => !value); return; }
       takePhoto();
     };
     window.addEventListener("keydown", onKey);
@@ -194,7 +208,7 @@ export default function Camera({ onClose }: CameraProps) {
   }, []);
 
   return (
-    <div className="cam">
+    <div className="cam" data-ui-hidden={uiHidden || undefined}>
       <div className="cam__view">
         <div className="cam__guides">
           <span className="cam__gv" style={{ left: "33.33%" }} />
@@ -215,7 +229,7 @@ export default function Camera({ onClose }: CameraProps) {
             <button className="cam__shortclose" onClick={() => setShowShortcuts(false)} aria-label="Close">&#xD7;</button>
           </div>
           <div className="cam__shortlist">
-            {SHORTCUTS.map((s) => (
+            {CAMERA_MODE_SHORTCUTS.map((s) => (
               <div className="cam__shortrow" key={s.action}>
                 <span className="cam__shortaction">{s.action}</span>
                 <Keys keys={s.keys} />
@@ -226,13 +240,15 @@ export default function Camera({ onClose }: CameraProps) {
       )}
 
       {status !== "idle" && (
-        <div className={"cam__status cam__status--" + status} role="status" aria-live="polite">
+        <div className={"cam__status cam__status--" + status} role={status === "error" ? "alert" : "status"} aria-busy={status === "capturing" || status === "uploading" || undefined}>
           {status === "error" ? error || "Upload failed" : STATUS_LABEL[status]}
         </div>
       )}
 
-      {reel.length > 0 && (
+      {(reelLoading || reelError || reel.length > 0) && (
         <div className="cam__reelstrip" aria-label="Recent photos">
+          {reelLoading && <p role="status" aria-busy="true">Loading recent photos&hellip;</p>}
+          {reelError && <p role="alert">Couldn't load recent photos. <button type="button" onClick={() => { void loadReel(); }}>Retry</button></p>}
           {reel.slice(0, 8).map((img) => (
             <img
               key={img.id}

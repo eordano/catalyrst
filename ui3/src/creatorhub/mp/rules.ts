@@ -75,10 +75,6 @@ export const LANE_STARTING_NOTE =
 export const SIDECAR_START_COMMAND =
   "cd tools/mp-testd && npm run build && npm start";
 
-export function laneCap(lane: MpLane): number {
-  return LANE_CAPS[lane].max;
-}
-
 export function fixtureAllowed(lane: MpLane, fixture: string): boolean {
   if (fixture === SYNC_FIXTURE) return true;
   if ((GAME_FIXTURES as readonly string[]).includes(fixture)) {
@@ -93,9 +89,9 @@ export function fixturesForLane(lane: MpLane): string[] {
     : [SYNC_FIXTURE];
 }
 
-export type MpScene = { kind: MpSourceKind; ref: string };
+type MpScene = { kind: MpSourceKind; ref: string };
 
-export type MpShape = {
+type MpShape = {
   profile: string;
   peers?: Record<string, Record<string, number>>;
   schedule?: Array<{
@@ -118,7 +114,7 @@ export type MpRunSpec = {
 
 export type MpLaunchRequest = { preset: string } | MpRunSpec;
 
-export type MpSpecCheck =
+type MpSpecCheck =
   | { ok: true }
   | { ok: false; field: string; error: string };
 

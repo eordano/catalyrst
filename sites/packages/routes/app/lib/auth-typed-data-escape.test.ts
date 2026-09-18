@@ -8,70 +8,54 @@ import {
 } from "./auth-typed-data-escape";
 
 describe("escapeUnreadableTypedDataText", () => {
-  it.each([
-    [
-      "an override that would reorder its neighbours",
-      "Send 1 MANA to \u{202e}0xattacker",
-      "Send 1 MANA to \\u{202e}0xattacker",
-    ],
-    [
-      "a backslash, so the escapes around it cannot be forged",
-      "allow\\u{202e}done",
-      "allow\\\\u{202e}done",
-    ],
-    ["a zero-width space", "1\u{200b}", "1\\u{200b}"],
-    ["a byte-order mark", "\u{feff}Decentraland", "\\u{feff}Decentraland"],
-    ["what decoding invalid UTF-8 produces", "MANA\u{fffd}", "MANA\\u{fffd}"],
-    ["a paragraph separator", "one\u{2029}two", "one\\u{2029}two"],
-    ["a private-use code point", "\u{f0000}", "\\u{f0000}"],
-  ])("shows %s as a visible escape", (_label, text, expected) => {
-    expect(escapeUnreadableTypedDataText(text)).toBe(expected);
+  it("shows every unreadable code point as a visible escape, every occurrence included", () => {
+    const unreadable: [string, string, string][] = [
+      [
+        "an override that would reorder its neighbours",
+        "Send 1 MANA to \u{202e}0xattacker",
+        "Send 1 MANA to \\u{202e}0xattacker",
+      ],
+      [
+        "a backslash, so the escapes around it cannot be forged",
+        "allow\\u{202e}done",
+        "allow\\\\u{202e}done",
+      ],
+      ["a zero-width space", "1\u{200b}", "1\\u{200b}"],
+      ["a byte-order mark", "\u{feff}Decentraland", "\\u{feff}Decentraland"],
+      ["what decoding invalid UTF-8 produces", "MANA\u{fffd}", "MANA\\u{fffd}"],
+      ["a paragraph separator", "one\u{2029}two", "one\\u{2029}two"],
+      ["a private-use code point", "\u{f0000}", "\\u{f0000}"],
+      ["every occurrence", "\u{202e}a\u{202e}b\u{202e}", "\\u{202e}a\\u{202e}b\\u{202e}"],
+    ];
+    for (const [label, text, expected] of unreadable) {
+      expect(escapeUnreadableTypedDataText(text), label).toBe(expected);
+    }
   });
 
-  it("leaves the line breaks and tabs a reader can see as they were signed", () => {
-    const laid = "Order\n\ttoken: MANA\r\n\tamount: 1";
-    expect(escapeUnreadableTypedDataText(laid)).toBe(laid);
-  });
-
-  it("leaves readable text, the ordinary space included, exactly as it was signed", () => {
-    const readable = "Send 1 MANA to 0xdead - approve until 2026/12/31 (fee 0.5%)";
-    expect(escapeUnreadableTypedDataText(readable)).toBe(readable);
-    expect(escapeUnreadableTypedDataText("")).toBe("");
-  });
-
-  it("leaves spaces that are not the ordinary space as they were signed", () => {
-    for (const spaced of [
+  it("leaves readable text, its line breaks and tabs, and its uncommon spaces exactly as they were signed", () => {
+    for (const signed of [
+      "Order\n\ttoken: MANA\r\n\tamount: 1",
+      "Send 1 MANA to 0xdead - approve until 2026/12/31 (fee 0.5%)",
+      "",
       "Send\u{a0}1 MANA to\u{2007}you",
       "Trusted\u{202f}App",
       "Decentraland\u{3000}",
     ]) {
-      expect(escapeUnreadableTypedDataText(spaced)).toBe(spaced);
+      expect(escapeUnreadableTypedDataText(signed), JSON.stringify(signed)).toBe(signed);
     }
-  });
-
-  it("escapes every occurrence, not just the first", () => {
-    expect(escapeUnreadableTypedDataText("\u{202e}a\u{202e}b\u{202e}")).toBe(
-      "\\u{202e}a\\u{202e}b\\u{202e}",
-    );
   });
 });
 
 describe("sanitizeTypedDataForDisplay", () => {
-  it("escapes field names the way it escapes the text they carry", () => {
+  it("escapes field names and nested text alike and leaves everything that is not text untouched", () => {
     expect(sanitizeTypedDataForDisplay({ "spen\u{202e}der": "0x\u{200b}dead" })).toEqual({
       "spen\\u{202e}der": "0x\\u{200b}dead",
     });
-  });
-
-  it("walks nested structs and arrays", () => {
     expect(
       sanitizeTypedDataForDisplay({
         checks: { externalChecks: [{ memo: "a\u{202e}b" }, ["c\u{200b}d"]] },
       }),
     ).toEqual({ checks: { externalChecks: [{ memo: "a\\u{202e}b" }, ["c\\u{200b}d"]] } });
-  });
-
-  it("leaves everything that is not text untouched", () => {
     expect(
       sanitizeTypedDataForDisplay({ qty: 10, required: true, target: null, missing: undefined }),
     ).toEqual({ qty: 10, required: true, target: null, missing: undefined });
@@ -86,19 +70,17 @@ describe("sanitizeTypedDataForDisplay", () => {
 });
 
 describe("truncateForDisplay", () => {
-  it("leaves text at or under the cap byte-identical", () => {
+  it("leaves text at or under the cap byte-identical and cuts text past it, saying the page is not showing all of it", () => {
     const justUnder = "a".repeat(MAX_DISPLAYED_TYPED_DATA_CHARS - 1);
     expect(truncateForDisplay(justUnder)).toBe(justUnder);
     const exact = "a".repeat(MAX_DISPLAYED_TYPED_DATA_CHARS);
     expect(truncateForDisplay(exact)).toBe(exact);
     expect(truncateForDisplay("")).toBe("");
-  });
 
-  it("cuts text past the cap and says the page is not showing all of it", () => {
     const shown = truncateForDisplay("a".repeat(MAX_DISPLAYED_TYPED_DATA_CHARS + 1));
     expect(shown).toContain("truncated");
     expect(shown).toContain("your wallet shows what it signs");
-    expect(shown.startsWith("a".repeat(MAX_DISPLAYED_TYPED_DATA_CHARS))).toBe(true);
+    expect(shown.startsWith(exact)).toBe(true);
     expect(shown.length).toBeLessThan(MAX_DISPLAYED_TYPED_DATA_CHARS + 200);
   });
 

@@ -26,7 +26,7 @@ import "./mplaunchform.css";
 type PeerOverride = { peer: string; latency_ms: string; loss_pct: string };
 type ScheduleRow = { at_ms: string; peer: string; duration_ms: string };
 
-export type MpLaunchFormProps = {
+type MpLaunchFormProps = {
   presets: string[];
   profiles: string[];
   disabled?: boolean;

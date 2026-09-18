@@ -8,14 +8,19 @@ use super::sql::{
     build_limit_offset, build_metadata_joins, build_min_item_created_at_cte,
     build_nfts_with_orders_cte_v1, build_nfts_with_orders_cte_v2, build_order_by,
     build_owners_join, build_seen_join, build_top_n_items_cte, build_trades_cte, build_trades_join,
-    push_nfts_with_orders_v1_body, Builder,
+    push_nfts_with_orders_v1_body, push_nfts_with_orders_v1_body_for_page, Builder,
 };
 use super::types::{CatalogFilters, CatalogSortBy};
 use super::MAX_NUMERIC_NUMBER;
 
 pub fn build_collections_items_catalog_query(f: &CatalogFilters) -> (String, PgArguments) {
     let mut b = Builder::new();
-    if two_pass_v1(f) {
+    if page_first_v1(f) {
+        build_ranked_cte_page_first_v1(&mut b, f);
+        b.push_sql(", nfts_with_orders AS ( ");
+        push_nfts_with_orders_v1_body_for_page(&mut b, f, "ranked");
+        b.push_sql(" ) ");
+    } else if two_pass_v1(f) {
         b.push_sql(" WITH nfts_with_orders AS MATERIALIZED ( ");
         push_nfts_with_orders_v1_body(&mut b, f);
         b.push_sql(" ) ");
@@ -97,6 +102,36 @@ pub fn build_collections_items_catalog_query(f: &CatalogFilters) -> (String, PgA
 
 fn two_pass_v1(f: &CatalogFilters) -> bool {
     f.first.is_some() || f.skip.is_some()
+}
+
+/// Neither the predicates nor the sort key read the open-order aggregate, so the page can be
+/// ranked first and the aggregate computed for those items only.
+fn page_first_v1(f: &CatalogFilters) -> bool {
+    two_pass_v1(f)
+        && matches!(
+            f.sort_by.unwrap_or(CatalogSortBy::Newest),
+            CatalogSortBy::Newest | CatalogSortBy::RecentlySold | CatalogSortBy::Suggested
+        )
+        && f.is_on_sale.is_none()
+        && f.min_price.is_none()
+        && f.max_price.is_none()
+        && !f.only_listing
+        && !f.only_minting
+}
+
+fn build_ranked_cte_page_first_v1(b: &mut Builder, f: &CatalogFilters) {
+    b.push_sql(&format!(
+        " WITH ranked AS ( SELECT items.id AS ranked_id FROM {schema}.item AS items ",
+        schema = MARKETPLACE_SQUID_SCHEMA
+    ));
+    if ranked_needs_metadata(f) {
+        build_metadata_joins(b);
+    }
+    build_seen_join(b, f);
+    build_collections_where(b, f, false);
+    build_order_by(b, f, false);
+    build_limit_offset(b, f);
+    b.push_sql(" ) ");
 }
 
 fn ranked_needs_metadata(f: &CatalogFilters) -> bool {
@@ -267,11 +302,11 @@ pub fn build_collections_items_count_query(f: &CatalogFilters) -> (String, PgArg
         b.push_sql(" AND ((items.search_is_store_minter = true AND items.available > 0) OR EXISTS (SELECT 1 FROM marketplace.mv_trades AS t WHERE t.status = 'open' AND t.type = 'public_item_order' AND (t.available IS NULL OR t.available > 0) AND t.contract_address_sent = items.collection_id AND (t.assets->'sent'->>'item_id')::numeric = items.blockchain_id");
         if let Some(mn) = &f.min_price {
             let bi = b.bind_string(mn.clone());
-            b.push_sql(&format!(" AND t.amount_received >= ${}", bi));
+            b.push_sql(&format!(" AND t.amount_received >= ${}::numeric", bi));
         }
         if let Some(mx) = &f.max_price {
             let bi = b.bind_string(mx.clone());
-            b.push_sql(&format!(" AND t.amount_received <= ${}", bi));
+            b.push_sql(&format!(" AND t.amount_received <= ${}::numeric", bi));
         }
         b.push_sql("))");
     }
@@ -288,19 +323,19 @@ pub fn build_collections_items_count_query(f: &CatalogFilters) -> (String, PgArg
         if f.only_minting {
             let bi = b.bind_string(mn);
             b.push_sql(&format!(
-                " AND items.price >= ${} AND items.price IS DISTINCT FROM '{}'",
+                " AND items.price >= ${}::numeric AND items.price IS DISTINCT FROM '{}'",
                 bi, MAX_NUMERIC_NUMBER
             ));
         } else if f.only_listing {
             let bi = b.bind_string(mn);
             b.push_sql(&format!(
-                " AND (EXISTS (SELECT 1 FROM {schema}.\"order\" AS o WHERE o.status = 'open' AND o.expires_at_normalized > NOW() AND o.item_id = items.id AND o.price >= ${0}) OR EXISTS (SELECT 1 FROM marketplace.mv_trades AS t WHERE t.status = 'open' AND t.type = 'public_nft_order' AND (t.available IS NULL OR t.available > 0) AND t.contract_address_sent = items.collection_id AND (t.assets->'sent'->>'item_id')::numeric = items.blockchain_id AND t.amount_received >= ${0}))",
+                " AND (EXISTS (SELECT 1 FROM {schema}.\"order\" AS o WHERE o.status = 'open' AND o.expires_at_normalized > NOW() AND o.item_id = items.id AND o.price >= ${0}::numeric) OR EXISTS (SELECT 1 FROM marketplace.mv_trades AS t WHERE t.status = 'open' AND t.type = 'public_nft_order' AND (t.available IS NULL OR t.available > 0) AND t.contract_address_sent = items.collection_id AND (t.assets->'sent'->>'item_id')::numeric = items.blockchain_id AND t.amount_received >= ${0}::numeric))",
                 bi, schema = MARKETPLACE_SQUID_SCHEMA,
             ));
         } else {
             let bi = b.bind_string(mn);
             b.push_sql(&format!(
-                " AND ((items.price >= ${0} AND items.available > 0 AND (items.search_is_store_minter = true OR items.search_is_marketplace_v3_minter = true)) OR EXISTS (SELECT 1 FROM {schema}.\"order\" AS o WHERE o.status = 'open' AND o.expires_at_normalized > NOW() AND o.item_id = items.id AND o.price >= ${0}) OR EXISTS (SELECT 1 FROM marketplace.mv_trades AS t WHERE t.status = 'open' AND (t.available IS NULL OR t.available > 0) AND t.contract_address_sent = items.collection_id AND (t.assets->'sent'->>'item_id')::numeric = items.blockchain_id AND t.amount_received >= ${0}))",
+                " AND ((items.price >= ${0}::numeric AND items.available > 0 AND (items.search_is_store_minter = true OR items.search_is_marketplace_v3_minter = true)) OR EXISTS (SELECT 1 FROM {schema}.\"order\" AS o WHERE o.status = 'open' AND o.expires_at_normalized > NOW() AND o.item_id = items.id AND o.price >= ${0}::numeric) OR EXISTS (SELECT 1 FROM marketplace.mv_trades AS t WHERE t.status = 'open' AND (t.available IS NULL OR t.available > 0) AND t.contract_address_sent = items.collection_id AND (t.assets->'sent'->>'item_id')::numeric = items.blockchain_id AND t.amount_received >= ${0}::numeric))",
                 bi, schema = MARKETPLACE_SQUID_SCHEMA,
             ));
         }
@@ -309,17 +344,17 @@ pub fn build_collections_items_count_query(f: &CatalogFilters) -> (String, PgArg
     if let Some(mx) = f.max_price.clone() {
         if f.only_minting {
             let bi = b.bind_string(mx);
-            b.push_sql(&format!(" AND items.price <= ${}", bi));
+            b.push_sql(&format!(" AND items.price <= ${}::numeric", bi));
         } else if f.only_listing {
             let bi = b.bind_string(mx);
             b.push_sql(&format!(
-                " AND (EXISTS (SELECT 1 FROM {schema}.\"order\" AS o WHERE o.status = 'open' AND o.expires_at_normalized > NOW() AND o.item_id = items.id AND o.price <= ${0}) OR EXISTS (SELECT 1 FROM marketplace.mv_trades AS t WHERE t.status = 'open' AND t.type = 'public_nft_order' AND (t.available IS NULL OR t.available > 0) AND t.contract_address_sent = items.collection_id AND (t.assets->'sent'->>'item_id')::numeric = items.blockchain_id AND t.amount_received <= ${0}))",
+                " AND (EXISTS (SELECT 1 FROM {schema}.\"order\" AS o WHERE o.status = 'open' AND o.expires_at_normalized > NOW() AND o.item_id = items.id AND o.price <= ${0}::numeric) OR EXISTS (SELECT 1 FROM marketplace.mv_trades AS t WHERE t.status = 'open' AND t.type = 'public_nft_order' AND (t.available IS NULL OR t.available > 0) AND t.contract_address_sent = items.collection_id AND (t.assets->'sent'->>'item_id')::numeric = items.blockchain_id AND t.amount_received <= ${0}::numeric))",
                 bi, schema = MARKETPLACE_SQUID_SCHEMA,
             ));
         } else {
             let bi = b.bind_string(mx);
             b.push_sql(&format!(
-                " AND ((items.price <= ${0} AND items.available > 0 AND (items.search_is_store_minter = true OR items.search_is_marketplace_v3_minter = true)) OR EXISTS (SELECT 1 FROM {schema}.\"order\" AS o WHERE o.status = 'open' AND o.expires_at_normalized > NOW() AND o.item_id = items.id AND o.price <= ${0}) OR EXISTS (SELECT 1 FROM marketplace.mv_trades AS t WHERE t.status = 'open' AND (t.available IS NULL OR t.available > 0) AND t.contract_address_sent = items.collection_id AND (t.assets->'sent'->>'item_id')::numeric = items.blockchain_id AND t.amount_received <= ${0}))",
+                " AND ((items.price <= ${0}::numeric AND items.available > 0 AND (items.search_is_store_minter = true OR items.search_is_marketplace_v3_minter = true)) OR EXISTS (SELECT 1 FROM {schema}.\"order\" AS o WHERE o.status = 'open' AND o.expires_at_normalized > NOW() AND o.item_id = items.id AND o.price <= ${0}::numeric) OR EXISTS (SELECT 1 FROM marketplace.mv_trades AS t WHERE t.status = 'open' AND (t.available IS NULL OR t.available > 0) AND t.contract_address_sent = items.collection_id AND (t.assets->'sent'->>'item_id')::numeric = items.blockchain_id AND t.amount_received <= ${0}::numeric))",
                 bi, schema = MARKETPLACE_SQUID_SCHEMA,
             ));
         }

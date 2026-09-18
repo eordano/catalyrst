@@ -1,8 +1,4 @@
-import {
-  useSyncSummary,
-  type EngineSummary,
-  type SyncEngine,
-} from "../lib/sync-engine";
+import { type EngineSummary } from "../lib/sync-engine";
 import "./syncindicator.css";
 
 type Tone = "ok" | "busy" | "attn" | "warn";
@@ -151,16 +147,3 @@ export function SyncIndicatorView({ summary, className, onReview, title }: SyncI
   );
 }
 
-type SyncIndicatorProps = {
-  engine: SyncEngine;
-  className?: string;
-  onReview?: () => void;
-  title?: string;
-};
-
-export default function SyncIndicator({ engine, className, onReview, title }: SyncIndicatorProps) {
-  const summary = useSyncSummary(engine);
-  return (
-    <SyncIndicatorView summary={summary} className={className} onReview={onReview} title={title} />
-  );
-}

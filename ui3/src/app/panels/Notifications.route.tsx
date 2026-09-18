@@ -113,8 +113,8 @@ function toCard(n: Notification, now: number): NotifCard {
   return card;
 }
 
-export function prefetch(queryClient: QueryClient) {
-  const address = getDeployIdentity()?.signerAddress;
+export function prefetch(queryClient: QueryClient, viewer?: string | null) {
+  const address = viewer === undefined ? getDeployIdentity()?.signerAddress : viewer;
   const headers =
     typeof window !== "undefined" ? window.__DCL_AUTH_HEADERS__ || undefined : undefined;
   return queryClient
@@ -130,7 +130,7 @@ export function prefetch(queryClient: QueryClient) {
 type NotificationsPanelProps = { floating?: boolean };
 
 export default function NotificationsPanel({ floating = false }: NotificationsPanelProps) {
-  const { notifications, markRead, markAllRead } = useNotifications();
+  const { notifications, address, isLoading, isError, refetch, markRead, markAllRead } = useNotifications();
 
   const items = useMemo<NotifCard[] | undefined>(() => {
     if (!notifications) return undefined;
@@ -142,11 +142,15 @@ export default function NotificationsPanel({ floating = false }: NotificationsPa
 
   return (
     <Notifications
+      key={address ?? "guest"}
       bare
       floating={floating}
+      loading={isLoading}
+      error={isError}
+      onRetry={() => void refetch()}
       onMarkRead={onMarkRead}
       onMarkAllRead={markAllRead}
-      {...(items ? { items } : {})}
+      items={items ?? []}
     />
   );
 }

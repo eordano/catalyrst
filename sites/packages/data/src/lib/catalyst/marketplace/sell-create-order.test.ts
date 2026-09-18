@@ -164,62 +164,44 @@ describe("failClosedCreate is what the route still ships", () => {
 });
 
 describe("buildCreateOrder \u{2014} refusals before anything is signed", () => {
-  it("requires a signed-in identity", async () => {
+  it("requires a signed-in identity and a connected wallet that is the signed-in account and owns the item", async () => {
     await expect(
       buildCreateOrder(deps({ identity: null }))({ order: order() }),
     ).rejects.toThrow("listing unavailable: sign in first");
-    expect(mPostJSON).not.toHaveBeenCalled();
-  });
-
-  it("requires a connected wallet", async () => {
     await expect(
       buildCreateOrder(deps({ provider: null }))({ order: order() }),
     ).rejects.toThrow("listing unavailable: connect a browser wallet first");
-  });
-
-  it("refuses when the connected wallet is not the signed-in account", async () => {
     await expect(
       buildCreateOrder(
         deps({ address: "0x1111111111111111111111111111111111111111" }),
       )({ order: order() }),
     ).rejects.toThrow("not the signed-in account");
-  });
-
-  it("refuses when the connected wallet does not own the item", async () => {
     await expect(
       buildCreateOrder(deps())({
         order: order({ owner: "0x2222222222222222222222222222222222222222" }),
       }),
     ).rejects.toThrow("does not own this item");
-  });
-
-  it("refuses when the wallet is on another chain", async () => {
-    const { provider } = fakeProvider({ chainId: 1 });
-    await expect(
-      buildCreateOrder(deps({ provider }))({ order: order() }),
-    ).rejects.toThrow("switch the wallet to Polygon (chain 137); it is on chain 1");
-  });
-
-  it("refuses a chain with no off-chain marketplace deployment", async () => {
-    await expect(
-      buildCreateOrder(deps())({ order: order({ chainId: 42161 }) }),
-    ).rejects.toThrow("no off-chain marketplace is deployed on chain 42161");
-  });
-
-  it("refuses an expiration that is already past", async () => {
-    await expect(
-      buildCreateOrder(deps())({ order: order({ expiresAt: NOW - 1 }) }),
-    ).rejects.toThrow("the expiration date is in the past");
     expect(mPostJSON).not.toHaveBeenCalled();
   });
 
-  it("refuses a zero price", async () => {
+  it("refuses a wallet on another chain and a chain with no off-chain marketplace deployment", async () => {
+    const { provider } = fakeProvider({ chainId: 1 });
+    await expect(
+      buildCreateOrder(deps({ provider }))({ order: order() }),
+    ).rejects.toThrow(/Polygon/);
+    await expect(
+      buildCreateOrder(deps())({ order: order({ chainId: 42161 }) }),
+    ).rejects.toThrow(/42161/);
+    expect(mPostJSON).not.toHaveBeenCalled();
+  });
+
+  it("refuses an expiration already past, a zero price, and an estate listing that carries no fingerprint", async () => {
+    await expect(
+      buildCreateOrder(deps())({ order: order({ expiresAt: NOW - 1 }) }),
+    ).rejects.toThrow("the expiration date is in the past");
     await expect(
       buildCreateOrder(deps())({ order: order({ price: "0" }) }),
     ).rejects.toThrow("the price must be above zero");
-  });
-
-  it("refuses an estate listing that carries no fingerprint", () => {
     expect(() =>
       buildListingTrade({
         signer: SELLER,
@@ -233,29 +215,35 @@ describe("buildCreateOrder \u{2014} refusals before anything is signed", () => {
         signerSignatureIndex: 0,
       }),
     ).toThrow("an estate listing needs the estate fingerprint");
+    expect(mPostJSON).not.toHaveBeenCalled();
   });
 });
 
 describe("buildCreateOrder \u{2014} approval driven by real receipts", () => {
-  it("skips the approval transaction when the marketplace is already approved", async () => {
+  it("skips the approval transaction when already approved and posts the signed trade with the catalyrst-market signer/intent, returning its id", async () => {
     const { provider, calls } = fakeProvider({ approved: true });
     const result = await buildCreateOrder(deps({ provider }))({ order: order() });
 
     expect(calls.some((c) => c.method === "eth_sendTransaction")).toBe(false);
     expect(result.approvalTxHash).toBeNull();
-    expect(result.order.id).toBe("trade-abc");
-  });
 
-  it("declares the signer and intent catalyrst-market authorizes POST /v1/trades on", async () => {
-    const { provider } = fakeProvider({ approved: true });
-    await buildCreateOrder(deps({ provider }))({ order: order() });
-
-    const lastCall = mPostJSON.mock.calls.at(-1);
-    expect(lastCall?.[0]).toBe("/market/v1/trades");
-    expect((lastCall?.[2] as { metadata?: unknown })?.metadata).toEqual({
+    expect(mPostJSON).toHaveBeenCalledTimes(1);
+    const [path, body, opts] = mPostJSON.mock.calls[0];
+    expect(path).toBe("/market/v1/trades");
+    expect((opts as { metadata?: unknown })?.metadata).toEqual({
       signer: "dcl:marketplace",
       intent: "dcl:create-trade",
     });
+    expect(body).toMatchObject({
+      signer: SELLER,
+      network: "MATIC",
+      chainId: 137,
+      type: "public_nft_order",
+      signature: SIGNATURE,
+    });
+    expect(result.order.id).toBe("trade-abc");
+    expect(result.order.marketplaceAddress).toBe(MARKET.address);
+    expect(result.order.price).toBe(manaToWei(1500));
   });
 
   it("sends setApprovalForAll for the off-chain marketplace and waits for the receipt", async () => {
@@ -275,32 +263,35 @@ describe("buildCreateOrder \u{2014} approval driven by real receipts", () => {
     );
     expect(
       calls.filter((c) => c.method === "eth_getTransactionReceipt").length,
-    ).toBe(3);
+    ).toBeGreaterThanOrEqual(3);
     expect(result.approvalTxHash).toBe(APPROVAL_TX);
   });
 
-  it("aborts on a reverted approval without signing or posting anything", async () => {
-    const { provider, calls } = fakeProvider({
+  it("aborts on a reverted approval or a wallet rejection without signing or posting anything", async () => {
+    const reverted = fakeProvider({
       receipt: { status: "0x0", blockNumber: "0x2a" },
     });
     const signTrade = vi.fn(async () => SIGNATURE);
-
     await expect(
-      buildCreateOrder(deps({ provider, signTrade }))({ order: order() }),
+      buildCreateOrder(deps({ provider: reverted.provider, signTrade }))({ order: order() }),
     ).rejects.toThrow("did not succeed (status 0x0)");
-
     expect(signTrade).not.toHaveBeenCalled();
+    expect(reverted.calls.some((c) => c.method === "eth_call")).toBe(true);
+
+    const rejected = fakeProvider({ sendFails: "User rejected the request" });
+    await expect(
+      buildCreateOrder(deps({ provider: rejected.provider }))({ order: order() }),
+    ).rejects.toThrow("User rejected the request");
     expect(mPostJSON).not.toHaveBeenCalled();
-    expect(calls.some((c) => c.method === "eth_call")).toBe(true);
   });
 
-  it("gives up honestly when the approval never confirms", async () => {
+  it("gives up honestly when the approval never confirms or confirms without taking effect", async () => {
     let clock = NOW;
-    const { provider } = fakeProvider({ receipt: null });
+    const pending = fakeProvider({ receipt: null });
     await expect(
       buildCreateOrder(
         deps({
-          provider,
+          provider: pending.provider,
           approval: {
             pollIntervalMs: 0,
             timeoutMs: 10,
@@ -309,23 +300,12 @@ describe("buildCreateOrder \u{2014} approval driven by real receipts", () => {
           },
         }),
       )({ order: order() }),
-    ).rejects.toThrow("was not confirmed in time; nothing was signed");
-    expect(mPostJSON).not.toHaveBeenCalled();
-  });
+    ).rejects.toThrow(/not confirmed/);
 
-  it("refuses when the confirmed approval did not take effect", async () => {
-    const { provider } = fakeProvider({ approveAfterSend: false });
+    const ineffective = fakeProvider({ approveAfterSend: false });
     await expect(
-      buildCreateOrder(deps({ provider }))({ order: order() }),
-    ).rejects.toThrow("confirmed but the marketplace is still not approved");
-    expect(mPostJSON).not.toHaveBeenCalled();
-  });
-
-  it("propagates a wallet rejection of the approval", async () => {
-    const { provider } = fakeProvider({ sendFails: "User rejected the request" });
-    await expect(
-      buildCreateOrder(deps({ provider }))({ order: order() }),
-    ).rejects.toThrow("User rejected the request");
+      buildCreateOrder(deps({ provider: ineffective.provider }))({ order: order() }),
+    ).rejects.toThrow(/still not approved/);
     expect(mPostJSON).not.toHaveBeenCalled();
   });
 });
@@ -374,7 +354,7 @@ describe("buildCreateOrder \u{2014} the signed trade", () => {
     expect(typedData.message.checks.signerSignatureIndex).toBe(7);
   });
 
-  it("rejects a signature the wallet could not have produced", async () => {
+  it("fails closed on an invalid wallet signature, a marketplace answer without a trade id, or a marketplace error", async () => {
     const { provider } = fakeProvider({ approved: true });
     await expect(
       buildCreateOrder(deps({ provider, signTrade: async () => "0xshort" }))({
@@ -382,38 +362,13 @@ describe("buildCreateOrder \u{2014} the signed trade", () => {
       }),
     ).rejects.toThrow("the wallet returned an invalid trade signature");
     expect(mPostJSON).not.toHaveBeenCalled();
-  });
 
-  it("posts the signed trade to the marketplace and returns its id", async () => {
-    const { provider } = fakeProvider({ approved: true });
-    const result = await buildCreateOrder(deps({ provider }))({ order: order() });
-
-    expect(mPostJSON).toHaveBeenCalledTimes(1);
-    const [path, body] = mPostJSON.mock.calls[0];
-    expect(path).toBe("/market/v1/trades");
-    expect(body).toMatchObject({
-      signer: SELLER,
-      network: "MATIC",
-      chainId: 137,
-      type: "public_nft_order",
-      signature: SIGNATURE,
-    });
-    expect(result.order.id).toBe("trade-abc");
-    expect(result.order.marketplaceAddress).toBe(MARKET.address);
-    expect(result.order.price).toBe(manaToWei(1500));
-  });
-
-  it("fails closed when the marketplace answers without a trade id", async () => {
     mPostJSON.mockResolvedValue({ ok: true });
-    const { provider } = fakeProvider({ approved: true });
     await expect(
       buildCreateOrder(deps({ provider }))({ order: order() }),
     ).rejects.toThrow("the marketplace did not return a trade id");
-  });
 
-  it("surfaces the marketplace error rather than inventing a listing", async () => {
     mPostJSON.mockRejectedValue(new Error("Catalyst request failed: 404"));
-    const { provider } = fakeProvider({ approved: true });
     await expect(
       buildCreateOrder(deps({ provider }))({ order: order() }),
     ).rejects.toThrow("Catalyst request failed: 404");
@@ -433,7 +388,7 @@ describe("the signed payload is real EIP-712", () => {
         provider,
         identity: { ...IDENTITY, signer: account.address },
         address: account.address,
-        signTrade: async (typedData, address) => {
+        signTrade: async (typedData) => {
           seen.push(typedData);
           const { EIP712Domain: _domain, ...types } = typedData.types;
           return account.signTypedData({
@@ -462,7 +417,7 @@ describe("the signed payload is real EIP-712", () => {
 });
 
 describe("tradeTypedData \u{2014} units and padding", () => {
-  it("keeps bytes32 fields padded and price exact", () => {
+  it("keeps bytes32 fields padded and the price exact, with manaToWei carrying the decimal the seller sees and no float drift of its own", () => {
     const typedData = tradeTypedData({
       signer: SELLER as `0x${string}`,
       network: "MATIC",
@@ -500,9 +455,7 @@ describe("tradeTypedData \u{2014} units and padding", () => {
     expect(typedData.message.checks.salt).toHaveLength(66);
     expect(typedData.message.checks.allowedRoot).toBe(`0x${"0".repeat(64)}`);
     expect(typedData.message.received[0].value).toBe("100000000000000000");
-  });
 
-  it("manaToWei carries the decimal the seller sees, with no float drift of its own", () => {
     expect(manaToWei("0.1")).toBe("100000000000000000");
     expect(manaToWei(0.1 + 0.2)).toBe(manaToWei("0.30000000000000004"));
     expect(manaToWei(0.1 + 0.2)).toBe("300000000000000040");

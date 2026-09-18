@@ -4,7 +4,7 @@ import { catalystBase } from "../catalyst/client";
 import { fetchProfile } from "../catalyst/overlay/profile";
 import { isProfileOfAddress, profileDisplayName } from "./profile-label";
 
-export type ProfileIdentity = {
+type ProfileIdentity = {
   name: string;
   avatarUrl: string;
 };
@@ -21,7 +21,7 @@ export function useProfileIdentity(
   address: string | null | undefined,
   isConnected: boolean,
 ): ProfileIdentity {
-  const [identity, setIdentity] = useState<ProfileIdentity>(EMPTY);
+  const [identity, setIdentity] = useState<ProfileIdentity & { address: string }>({ ...EMPTY, address: "" });
 
   useEffect(() => {
     if (!isConnected || !address) return;
@@ -34,10 +34,11 @@ export function useProfileIdentity(
         const avatarUrl = toFaceUrl(avatar.avatar?.snapshots?.face256);
         setIdentity((prev) => {
           const next = {
-            name: name || prev.name,
-            avatarUrl: avatarUrl || prev.avatarUrl,
+            address: address.toLowerCase(),
+            name,
+            avatarUrl,
           };
-          return next.name === prev.name && next.avatarUrl === prev.avatarUrl
+          return next.address === prev.address && next.name === prev.name && next.avatarUrl === prev.avatarUrl
             ? prev
             : next;
         });
@@ -49,7 +50,7 @@ export function useProfileIdentity(
     };
   }, [isConnected, address]);
 
-  return identity;
+  return isConnected && address?.toLowerCase() === identity.address ? identity : EMPTY;
 }
 
 export function useProfileName(

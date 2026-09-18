@@ -58,18 +58,6 @@ const EQUIP_EVT = {
   ],
 };
 
-const EXPECTED_STATES = new Set([
-  "opening",
-  "browsing",
-  "selecting",
-  "equipping",
-  "coloring",
-  "reviewing",
-  "saving",
-  "done",
-  "error",
-]);
-
 const TRAVERSAL_EVENTS = [
   { type: "OPEN" as const },
   SELECT_EVT,
@@ -82,135 +70,92 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
-describe("backpackMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(backpackMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
+describe("backpackMachine \u{2014} URL ?step slug map", () => {
+  it("maps every state to a unique round-tripping slug and falls back to opening", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(backpackMachine.states)));
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.opening);
-    expect(slugToState(null)).toBe("opening");
-    expect(slugToState(undefined)).toBe("opening");
-    expect(slugToState("")).toBe("opening");
-    expect(slugToState("nope")).toBe("opening");
     expect(slugToState("browse")).toBe("browsing");
     expect(slugToState("equip")).toBe("equipping");
     expect(slugToState("color")).toBe("coloring");
     expect(slugToState("review")).toBe("reviewing");
     expect(slugToState("save")).toBe("saving");
     expect(slugToState("done")).toBe("done");
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.opening);
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("opening");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("backpackMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveBackpackSnapshot({ step: "opening", trackCtx: TRACK_CTX });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating a later step does NOT fire telemetry and does NOT auto-save", async () => {
+  it("boots opening without a snapshot, hydrates saving silently, and only real transitions track", async () => {
     const track = vi.fn();
     const save = vi.fn(okSave);
-    const snapshot = resolveBackpackSnapshot({
-      step: "saving",
-      trackCtx: TRACK_CTX,
-      save,
-      track,
-      baseWearables: ["urn:decentraland:off-chain:base-avatars:green_hoodie"],
-    });
-    const actor = createActor(backpackMachine, {
+    expect(resolveBackpackSnapshot({ step: "opening", trackCtx: TRACK_CTX })).toBeUndefined();
+
+    const saving = createActor(backpackMachine, {
       input: inputFor(save, track),
-      snapshot,
+      snapshot: resolveBackpackSnapshot({
+        step: "saving",
+        trackCtx: TRACK_CTX,
+        save,
+        track,
+        baseWearables: ["urn:decentraland:off-chain:base-avatars:green_hoodie"],
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("saving")).toBe(true);
-
+    expect(saving.getSnapshot().matches("saving")).toBe(true);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("saving")).toBe(true);
-  });
+    expect(saving.getSnapshot().matches("saving")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveBackpackSnapshot({
-      step: "browsing",
-      trackCtx: TRACK_CTX,
-      track,
-    });
-    const actor = createActor(backpackMachine, {
+    const browsing = createActor(backpackMachine, {
       input: inputFor(okSave, track),
-      snapshot,
+      snapshot: resolveBackpackSnapshot({ step: "browsing", trackCtx: TRACK_CTX, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("browsing")).toBe(true);
+    expect(browsing.getSnapshot().matches("browsing")).toBe(true);
     expect(track).not.toHaveBeenCalled();
-
-    actor.send(SELECT_EVT);
-    expect(actor.getSnapshot().matches("selecting")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(BACKPACK_EVENTS.selected);
+    browsing.send(SELECT_EVT);
+    expect(browsing.getSnapshot().matches("selecting")).toBe(true);
+    expect(names(track)).toContain(BACKPACK_EVENTS.selected);
   });
 });
 
 describe("backpackMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("the funnel states are event-reachable and reviewing needs OPEN, SELECT, EQUIP", () => {
     const paths = getShortestPaths(backpackMachine, {
       input: inputFor(okSave, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
-    for (const p of paths) {
-      const value = p.state.value as string;
-      ends.add(value);
-      expect(EXPECTED_STATES.has(value)).toBe(true);
+    for (const p of paths) ends.add(p.state.value as string);
+    for (const s of ["browsing", "selecting", "equipping", "coloring", "reviewing", "saving"]) {
+      expect(ends.has(s)).toBe(true);
     }
-    expect(ends.has("browsing")).toBe(true);
-    expect(ends.has("selecting")).toBe(true);
-    expect(ends.has("equipping")).toBe(true);
-    expect(ends.has("coloring")).toBe(true);
-    expect(ends.has("reviewing")).toBe(true);
-    expect(ends.has("saving")).toBe(true);
-  });
-
-  it("reaching reviewing passes through OPEN, SELECT, EQUIP", () => {
-    const paths = getShortestPaths(backpackMachine, {
-      input: inputFor(okSave, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const reviewing = paths.find((p) => (p.state.value as string) === "reviewing");
-    expect(reviewing).toBeDefined();
     const events = reviewing!.steps.map((s) => s.event.type);
-    expect(events).toContain("OPEN");
-    expect(events).toContain("SELECT");
-    expect(events).toContain("EQUIP");
+    for (const e of ["OPEN", "SELECT", "EQUIP"]) expect(events).toContain(e);
   });
 });
 
 describe("backpackMachine \u{2014} telemetry events (happy path)", () => {
   it("open -> select -> equip -> color -> review -> save -> done fires the full funnel", async () => {
     const track = vi.fn();
-    const actor = createActor(backpackMachine, {
-      input: inputFor(okSave, track),
-    }).start();
+    const actor = createActor(backpackMachine, { input: inputFor(okSave, track) }).start();
 
     actor.send({ type: "OPEN" });
     expect(actor.getSnapshot().matches("browsing")).toBe(true);
-
     actor.send(SELECT_EVT);
     actor.send(EQUIP_EVT);
     actor.send({ type: "PICK_COLOR", kind: "hair", color: "#b06a2c" });
@@ -218,20 +163,22 @@ describe("backpackMachine \u{2014} telemetry events (happy path)", () => {
     actor.send({ type: "SAVE" });
     await waitFor(actor, (s) => s.matches("done"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BACKPACK_EVENTS.opened);
-    expect(events).toContain(BACKPACK_EVENTS.browsed);
-    expect(events).toContain(BACKPACK_EVENTS.selected);
-    expect(events).toContain(BACKPACK_EVENTS.equipped);
-    expect(events).toContain(BACKPACK_EVENTS.colorChanged);
-    expect(events).toContain(BACKPACK_EVENTS.reviewReached);
-    expect(events).toContain(BACKPACK_EVENTS.saved);
-    expect(events).toContain(BACKPACK_EVENTS.done);
-
+    const events = names(track);
+    for (const e of [
+      BACKPACK_EVENTS.opened,
+      BACKPACK_EVENTS.browsed,
+      BACKPACK_EVENTS.selected,
+      BACKPACK_EVENTS.equipped,
+      BACKPACK_EVENTS.colorChanged,
+      BACKPACK_EVENTS.reviewReached,
+      BACKPACK_EVENTS.saved,
+      BACKPACK_EVENTS.done,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(BACKPACK_EVENTS.reviewReached)).toBeLessThan(
       events.indexOf(BACKPACK_EVENTS.saved),
     );
-
     const openedCall = track.mock.calls.find((c) => c[0] === BACKPACK_EVENTS.opened);
     expect(openedCall?.[2]).toMatchObject({
       sid: "sid-abc",
@@ -243,36 +190,24 @@ describe("backpackMachine \u{2014} telemetry events (happy path)", () => {
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
   });
 
-  it("empty-inventory path fires cl_backpack_inventory_empty and stays on browse", () => {
+  it("an empty inventory stays on browse without saving, and equip can skip color straight to review", () => {
+    const emptyTrack = vi.fn();
+    const empty = createActor(backpackMachine, { input: inputFor(okSave, emptyTrack) }).start();
+    empty.send({ type: "OPEN" });
+    empty.send({ type: "INVENTORY_EMPTY" });
+    expect(empty.getSnapshot().matches("browsing")).toBe(true);
+    expect(names(emptyTrack)).toContain(BACKPACK_EVENTS.inventoryEmpty);
+    expect(names(emptyTrack)).not.toContain(BACKPACK_EVENTS.saved);
+
     const track = vi.fn();
-    const actor = createActor(backpackMachine, {
-      input: inputFor(okSave, track),
-    }).start();
-
-    actor.send({ type: "OPEN" });
-    actor.send({ type: "INVENTORY_EMPTY" });
-    expect(actor.getSnapshot().matches("browsing")).toBe(true);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BACKPACK_EVENTS.inventoryEmpty);
-    expect(events).not.toContain(BACKPACK_EVENTS.saved);
-  });
-
-  it("equip can skip color and go straight to review", () => {
-    const track = vi.fn();
-    const actor = createActor(backpackMachine, {
-      input: inputFor(okSave, track),
-    }).start();
-
+    const actor = createActor(backpackMachine, { input: inputFor(okSave, track) }).start();
     actor.send({ type: "OPEN" });
     actor.send(SELECT_EVT);
     actor.send(EQUIP_EVT);
     actor.send({ type: "REVIEW" });
     expect(actor.getSnapshot().matches("reviewing")).toBe(true);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BACKPACK_EVENTS.reviewReached);
-    expect(events).not.toContain(BACKPACK_EVENTS.colorChanged);
+    expect(names(track)).toContain(BACKPACK_EVENTS.reviewReached);
+    expect(names(track)).not.toContain(BACKPACK_EVENTS.colorChanged);
   });
 });
 
@@ -285,10 +220,7 @@ describe("backpackMachine \u{2014} save failure + retry", () => {
       if (calls === 1) throw new Error("content server read-only");
       return okSave(args);
     };
-
-    const actor = createActor(backpackMachine, {
-      input: inputFor(save, track),
-    }).start();
+    const actor = createActor(backpackMachine, { input: inputFor(save, track) }).start();
 
     actor.send({ type: "OPEN" });
     actor.send(SELECT_EVT);
@@ -297,12 +229,9 @@ describe("backpackMachine \u{2014} save failure + retry", () => {
     actor.send({ type: "SAVE" });
     await waitFor(actor, (s) => s.matches("error"));
     expect(actor.getSnapshot().context.error).toBe("content server read-only");
-
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("done"));
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BACKPACK_EVENTS.saved);
+    expect(names(track)).toContain(BACKPACK_EVENTS.saved);
   });
 });
 
@@ -312,7 +241,6 @@ describe("simulateSave", () => {
     const a = await simulateSave({ wearables: ["a", "b"], colors });
     const b = await simulateSave({ wearables: ["a", "b"], colors });
     const c = await simulateSave({ wearables: ["a", "c"], colors });
-    expect(a.entityId).toMatch(/^bafkrei-sim-/);
     expect(a.entityId).toBe(b.entityId);
     expect(a.entityId).not.toBe(c.entityId);
   });

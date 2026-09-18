@@ -24,13 +24,13 @@ export type SubmitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SubmitResult>;
 
-export type BanNameInput = {
+type BanNameInput = {
   trackCtx: TrackContext;
   submit?: SubmitFn;
   track?: TrackFn;
 };
 
-export type BanNameContext = {
+type BanNameContext = {
   trackCtx: TrackContext;
   submit: SubmitFn;
   track: TrackFn;
@@ -40,7 +40,7 @@ export type BanNameContext = {
   error?: string;
 };
 
-export type BanNameEvent =
+type BanNameEvent =
   | { type: "SUBMIT_NAME"; name: string }
   | { type: "SUBMIT_DESCRIPTION"; description: string; coAuthors: string[] }
   | { type: "CONFIRM" }
@@ -67,8 +67,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type BanNameStateId = keyof typeof STATE_TO_SLUG;
-export type BanNameStepSlug = (typeof STATE_TO_SLUG)[BanNameStateId];
+type BanNameStateId = keyof typeof STATE_TO_SLUG;
+type BanNameStepSlug = (typeof STATE_TO_SLUG)[BanNameStateId];
 
 export const FIRST_STEP_SLUG: BanNameStepSlug = STATE_TO_SLUG.details;
 
@@ -80,7 +80,7 @@ export const stateToSlug: (value: string) => BanNameStepSlug = stepSlugs.toSlug;
 
 export const slugToState: (slug: string | null | undefined) => BanNameStateId = stepSlugs.toState;
 
-export function emptyDraft(): BanNameDraft {
+function emptyDraft(): BanNameDraft {
   return { name: "", description: "", coAuthors: [] };
 }
 
@@ -269,8 +269,6 @@ export const banNameMachine = setup({
     },
   },
 });
-
-export type BanNameMachine = typeof banNameMachine;
 
 export function resolveBanNameSnapshot(args: {
   step: BanNameStateId;

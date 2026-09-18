@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import fixture from "../../../fixtures/governance-link-accounts.json";
 
-export const PROVIDERS = ["forum", "discord", "push"] as const;
+const PROVIDERS = ["forum", "discord", "push"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 export function toProvider(raw: string | null | undefined): Provider | null {
@@ -67,8 +67,7 @@ const LinkAccountsSchema = z.object({
   verification_seconds: z.number(),
 });
 
-export type LinkStep = z.infer<typeof StepSchema>;
-export type AccountCopy = z.infer<typeof AccountSchema>;
+type LinkStep = z.infer<typeof StepSchema>;
 export type LinkAccountsData = z.infer<typeof LinkAccountsSchema>;
 
 function fallbackSteps(post: string): LinkStep[] {
@@ -182,12 +181,12 @@ export function getLinkAccountsData(): LinkAccountsData {
 
 export type VerifyResult = { provider: Provider; verified: true };
 
-export type VerifyAccountFn = (args: {
+type VerifyAccountFn = (args: {
   provider: Provider;
   signal?: AbortSignal;
 }) => Promise<VerifyResult>;
 
-export const PROVIDER_BLOCKER: Record<Provider, string> = {
+const PROVIDER_BLOCKER: Record<Provider, string> = {
   forum: "forum challenge service not configured (needs DISCOURSE_API_KEY, GATSBY_DISCOURSE_API, GATSBY_DISCOURSE_USER and GATSBY_DISCOURSE_CONNECT_THREAD)",
   discord:
     "Discord verification bot not configured (needs DISCORD_TOKEN and DISCORD_PROFILE_VERIFICATION_CHANNEL_ID, plus the bot joined to the guild that owns that channel)",
@@ -200,7 +199,7 @@ export const failClosedVerify: VerifyAccountFn = async ({ provider }) => {
 
 export type UnlinkResult = { account: Provider; unlinked: true };
 
-export type UnlinkAccountFn = (args: {
+type UnlinkAccountFn = (args: {
   account: Provider;
   signal?: AbortSignal;
 }) => Promise<UnlinkResult>;

@@ -12,14 +12,14 @@ type CwpcSummary = {
 type CwpcFeeLine = {
   rarity: string;
   count: number;
-  manaPerItem: number;
-  mana: number;
+  manaPerItem: number | string;
+  mana: number | string;
 };
 type CwpcFee = {
   lines: CwpcFeeLine[];
   itemCount: number;
-  manaPerItem: number;
-  totalMana: number;
+  manaPerItem: number | string;
+  totalMana: number | string;
 };
 
 type ChPublishCollectionViewProps = {
@@ -38,6 +38,17 @@ type ChPublishCollectionViewProps = {
   onAccept?: () => void;
   onRetry?: () => void;
   onDone?: () => void;
+  live?: boolean;
+  linked?: { providerName: string; availableSlots: number | null; requiredSlots: number };
+  email?: string;
+  onEmailChange?: (email: string) => void;
+  forumUrl?: string;
+  progress?: string;
+  resumeMessage?: string;
+  recoveryHash?: string;
+  onRecoveryHashChange?: (hash: string) => void;
+  onRecover?: () => void;
+  onCancel?: () => void;
 };
 
 export default function ChPublishCollectionView({
@@ -56,6 +67,8 @@ export default function ChPublishCollectionView({
   onAccept = undefined,
   onRetry = undefined,
   onDone = undefined,
+  linked, live = false, email = "", onEmailChange, forumUrl, progress, resumeMessage,
+  recoveryHash = "", onRecoveryHashChange, onRecover, onCancel,
 }: ChPublishCollectionViewProps) {
   const costTitleId = useId();
   const termsTitleId = useId();
@@ -68,7 +81,6 @@ export default function ChPublishCollectionView({
     <div className="cwpc" data-step={step}>
       {view === "summary" && summary && (
         <>
-          <p className="cwpc__eyebrow cwpc__eyebrow--summary">Step 1 of 4 &#xB7; Review collection</p>
           <ChCollectionDetail
             collection={summary.collection}
             wearables={summary.wearables}
@@ -77,7 +89,7 @@ export default function ChPublishCollectionView({
           />
           <div className="cwpc__controls" role="group" aria-label="Review collection">
             <Button variant="primary" onClick={() => onNext?.()}>
-              Continue to publish fee
+              {linked ? "Review item slots" : "Continue to publish fee"}
             </Button>
           </div>
         </>
@@ -86,22 +98,28 @@ export default function ChPublishCollectionView({
       {view === "cost" && (
         <>
           <section className="cwpc__panel" aria-labelledby={costTitleId}>
-            <p className="cwpc__eyebrow">Step 2 of 4 &#xB7; Publish fee</p>
             <h1 id={costTitleId} className="cwpc__title">
-              Publish-fee breakdown
+              {linked ? "Publish linked items" : "Publish-fee breakdown"}
             </h1>
             <p className="cwpc__lead">
-              Publishing charges a one-time MANA fee per item ({fee.manaPerItem} MANA
-              each). The fee is the same for every rarity tier and is rolled up
-              below.
+              {linked ? <>Publishing uses item slots from {linked.providerName}. You authorize the slots with your wallet.</> : <>
+                The publication fee is paid in MANA on Polygon. Network gas is separate.
+                {live ? " These fees come from the collection contract and are checked again before payment." : " This preview uses sample fees."}
+              </>}
             </p>
-            <FeeTable fee={fee} />
+            {linked ? <>
+              <dl className="cwpc__slots">
+                <div><dt>Items to publish</dt><dd>{linked.requiredSlots.toLocaleString()}</dd></div>
+                <div><dt>Available slots</dt><dd>{linked.availableSlots?.toLocaleString() ?? "\u2014"}</dd></div>
+              </dl>
+              {linked.availableSlots !== null && linked.availableSlots < linked.requiredSlots && <p className="cwpc__lead" role="alert">Your provider needs more item slots before you can publish this collection.</p>}
+            </> : <FeeTable fee={fee} />}
           </section>
           <div className="cwpc__controls" role="group" aria-label="Publish fee">
             <Button variant="secondary" onClick={() => onBack?.()}>
               Back
             </Button>
-            <Button variant="primary" onClick={() => onNext?.()}>
+            <Button variant="primary" disabled={!!linked && (linked.availableSlots === null || linked.availableSlots < linked.requiredSlots)} onClick={() => onNext?.()}>
               Continue to terms
             </Button>
           </div>
@@ -111,7 +129,6 @@ export default function ChPublishCollectionView({
       {view === "terms" && (
         <>
           <section className="cwpc__panel" aria-labelledby={termsTitleId}>
-            <p className="cwpc__eyebrow">Step 3 of 4 &#xB7; Terms</p>
             <h1 id={termsTitleId} className="cwpc__title">
               Content &amp; curation terms
             </h1>
@@ -119,6 +136,10 @@ export default function ChPublishCollectionView({
               Once submitted, the collection is reviewed by the Decentraland
               curation committee and its items are locked.
             </p>
+            {live && <label className="cwpc__field">Email for publication terms
+              <input type="email" autoComplete="email" required maxLength={254} value={email} onChange={e => onEmailChange?.(e.target.value)} />
+              <span>Shared with Decentraland Foundation for this submission.</span>
+            </label>}
             <div className="cwpc__terms" tabIndex={0}>
               <h2>By publishing this collection you confirm that:</h2>
               <ul>
@@ -128,12 +149,10 @@ export default function ChPublishCollectionView({
                   Ethics.
                 </li>
                 <li>
-                  Items cannot be added or removed after publishing, and the
-                  collection is locked pending curation review.
+                  {linked ? "These items are locked while Foundation reviews their content." : "Items cannot be added or removed after publishing, and the collection is locked pending curation review."}
                 </li>
                 <li>
-                  The MANA publish fee is non-refundable once the payment is
-                  signed.
+                  {linked ? <>You authorize {linked.requiredSlots.toLocaleString()} item slot{linked.requiredSlots === 1 ? "" : "s"} from {linked.providerName} for this submission.</> : "The MANA publish fee is non-refundable once the payment is confirmed."}
                 </li>
               </ul>
             </div>
@@ -154,7 +173,7 @@ export default function ChPublishCollectionView({
             </Button>
             <Button
               variant="primary"
-              disabled={!accepted}
+              disabled={!accepted || (live && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))}
               aria-label={accepted ? undefined : "Check the box to continue"}
               title={accepted ? undefined : "Check the box to continue"}
               onClick={() => onAccept?.()}
@@ -167,14 +186,12 @@ export default function ChPublishCollectionView({
 
       {view === "pay" && (
         <section className="cwpc__status" aria-labelledby={payTitleId} aria-live="polite">
-          <p className="cwpc__eyebrow">Step 4 of 4 &#xB7; Payment</p>
           <div className="cwpc__spinner" aria-hidden="true" />
           <h1 id={payTitleId} className="cwpc__title">
-            Approve MANA &amp; sign publish
+            {progress || (linked ? "Authorize item slots" : "Approve MANA & sign publish")}
           </h1>
           <p className="cwpc__lead">
-            Confirm the {fee.totalMana} MANA publish fee in your wallet. The on-chain
-            payment is <strong>simulated</strong> on this realm.
+            {linked ? "Follow the prompts in your wallet. Retrying uses the same item-slot authorization." : live ? "Follow the prompts in your wallet. Once paid, retries continue the same submission without another publication payment." : <>Confirm the {fee.totalMana} MANA sample fee. This payment is simulated.</>}
           </p>
         </section>
       )}
@@ -186,28 +203,29 @@ export default function ChPublishCollectionView({
             <path d="M20 33l8 8 16-18" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <h1 id={doneTitleId} className="cwpc__title">
-            Submitted for curation review
+            {linked ? "Sent to Foundation" : "Submitted for curation review"}
           </h1>
           <p className="cwpc__lead">
             {collectionName ? <>&#x201C;{collectionName}&#x201D;</> : "Your collection"}{" "}
-            ({fee.itemCount} item{fee.itemCount === 1 ? "" : "s"},
+            {linked ? <>was submitted to the Decentraland curation committee.{forumUrl ? " Follow the review on its forum topic." : " You can check its status in Foundation Builder."}</> : live ? <>is submitted to the Decentraland curation committee. Follow the review on its forum topic.</> : <>({fee.itemCount} item{fee.itemCount === 1 ? "" : "s"},
             {" "}
             {fee.totalMana} MANA) is locked and now in the curation queue. On
             mainnet the committee reviews it and posts its decision on the
             collection's forum topic &#x2014; typically within days, sometimes weeks.
             Here the committee review is a <strong>stub</strong> on this realm,
-            so no real review or forum post will happen.
+            so no real review or forum post will happen.</>}
           </p>
           {statusHref ? (
             <p className="cwpc__lead">
               <a className="cwpc__statuslink" href={statusHref}>
                 Track your submission
               </a>{" "}
-              &#x2014; a local status view of this simulated review.
+              {!live && <> &#x2014; a local status view of this simulated review.</>}
             </p>
           ) : null}
+          {forumUrl && <p><a className="cwpc__statuslink" href={forumUrl} target="_blank" rel="noreferrer">Open review topic</a></p>}
           {txHash ? (
-            <p className="cwpc__tx">tx: {txHash} (simulated)</p>
+            <p className="cwpc__tx">tx: {live ? <a className="cwpc__statuslink" href={`https://polygonscan.com/tx/${txHash}`} target="_blank" rel="noreferrer">{txHash}</a> : <>{txHash} (simulated)</>}</p>
           ) : null}
           {onDone ? (
             <div className="cwpc__controls">
@@ -223,16 +241,16 @@ export default function ChPublishCollectionView({
         <>
           <section className="cwpc__status" role="alert" aria-labelledby={errTitleId}>
             <h1 id={errTitleId} className="cwpc__title">
-              Publish payment failed
+              Publication needs attention
             </h1>
             <p className="cwpc__lead">
-              {error || "The publish payment could not be completed."}{" "}
-              You can try the (simulated) payment again or go back to the terms.
+              {error || (linked ? "The linked submission could not be completed." : "The publish payment could not be completed.")}{" "}
+              {live ? "Retry to continue from the last completed step." : "You can retry this simulated payment."}
             </p>
           </section>
           <div className="cwpc__controls">
             <Button variant="secondary" onClick={() => onBack?.()}>
-              Back to terms
+              {live ? "Review collection" : "Back to terms"}
             </Button>
             <Button variant="primary" onClick={() => onRetry?.()}>
               Try again
@@ -240,6 +258,22 @@ export default function ChPublishCollectionView({
           </div>
         </>
       )}
+
+      {(view === "checking" || view === "resume") && <section className="cwpc__status" aria-live="polite">
+        <h1 className="cwpc__title">{view === "checking" ? "Checking your collection" : "Continue your publication"}</h1>
+        <p className="cwpc__lead">{view === "checking" ? (linked ? "Inspecting models and checking your provider's item slots." : "Inspecting models and checking the current publication fee.") : resumeMessage}</p>
+        {view === "resume" && onRetry && <Button variant="primary" onClick={onRetry}>Continue submission</Button>}
+      </section>}
+      {(view === "error" || view === "resume") && (onRecover || onCancel) && <section className="cwpc__panel" aria-label="Recover publication">
+        {onRecover && <>
+          <label className="cwpc__field">Polygon publication transaction hash
+            <input value={recoveryHash} onChange={e => onRecoveryHashChange?.(e.target.value)} placeholder="0x&#x2026;" autoComplete="off" spellCheck={false} />
+            <span>Copy the collection transaction from your wallet activity.</span>
+          </label>
+          <Button variant="secondary" disabled={!/^0x[\da-f]{64}$/i.test(recoveryHash.trim())} onClick={onRecover}>Recover transaction</Button>
+        </>}
+        {onCancel && <Button variant="secondary" onClick={onCancel}>Unlock draft for editing</Button>}
+      </section>}
 
       {view === "blocked" && (
         <section className="cwpc__blocked" aria-labelledby={blockedTitleId}>
@@ -280,9 +314,15 @@ function ManaGlyph() {
   );
 }
 
+function displayMana(value: number | string) {
+  const text=String(value);
+  const [whole,fraction=""]=text.split(".");
+  return fraction.length>4 && /[1-9]/.test(fraction.slice(4)) ? `\u2248${whole}.${fraction.slice(0,4)}` : text;
+}
+
 function FeeTable({ fee }: { fee: CwpcFee }) {
   return (
-    <table className="cwpc__fee">
+    <><table className="cwpc__fee">
       <thead>
         <tr>
           <th>Rarity</th>
@@ -306,13 +346,13 @@ function FeeTable({ fee }: { fee: CwpcFee }) {
             <td className="cwpc__num">
               <span className="cwpc__mana">
                 <ManaGlyph />
-                {line.manaPerItem}
+                {displayMana(line.manaPerItem)}
               </span>
             </td>
             <td className="cwpc__num">
               <span className="cwpc__mana">
                 <ManaGlyph />
-                {line.mana}
+                {displayMana(line.mana)}
               </span>
             </td>
           </tr>
@@ -324,11 +364,12 @@ function FeeTable({ fee }: { fee: CwpcFee }) {
           <td className="cwpc__num">
             <span className="cwpc__mana">
               <ManaGlyph />
-              {fee.totalMana}
+              {displayMana(fee.totalMana)}
             </span>
           </td>
         </tr>
       </tbody>
     </table>
+    <p className="cwpc__exact">Exact fee: <span>{fee.totalMana} MANA</span></p></>
   );
 }

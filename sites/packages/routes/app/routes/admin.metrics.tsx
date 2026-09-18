@@ -5,9 +5,11 @@ import AdMetricsPage from "@ui/admin/pages/AdMetricsPage";
 import type { AdMetricsSurfaceLink } from "@ui/admin/pages/AdMetricsTypes";
 import SitesChrome from "@ui/web/frames/SitesChrome";
 
+import AdminConsoleLinks from "@features/components/admin/AdminConsoleLinks";
+
 import { loadAdminMetrics, type SurfaceKey } from "@data/lib/catalyst/admin/metrics";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import type { Route } from "./+types/admin.metrics";
@@ -32,13 +34,12 @@ const SURFACES: AdMetricsSurfaceLink[] = [
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: metrics } = await storyLoaderWith(
     request,
     STORY,
     DEFAULT_ASSIGNMENT,
+    () => loadAdminMetrics({ signal: request.signal }),
   );
-
-  const metrics = await loadAdminMetrics({ signal: request.signal });
 
   const payload = { sid, assignment, metrics };
 
@@ -97,6 +98,7 @@ export default function AdminMetricsRoute({ loaderData }: Route.ComponentProps) 
         surfaces={SURFACES}
         onSurfaceClick={onSurfaceClick}
         LinkComponent={Link}
+        nav={<AdminConsoleLinks current="metrics" />}
       />
     </SitesChrome>
   );

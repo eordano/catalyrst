@@ -18,7 +18,7 @@ import {
 } from "@ui/marketplace/pages/MkCheckout";
 
 import { useAuth } from "@data/lib/auth/index";
-import { ManaPane } from "@features/components/marketplace/PaymentSection";
+import { ManaTopupPane } from "@features/components/marketplace/PaymentSection";
 import {
   createPackIntent,
   formatCredits,
@@ -231,7 +231,7 @@ function ManaPackForm({
       </p>
 
       {auth.identity ? (
-        <ManaPane
+        <ManaTopupPane
           identity={auth.identity}
           credits={pack.credits}
           trackCtx={{ sid, story: STORY }}

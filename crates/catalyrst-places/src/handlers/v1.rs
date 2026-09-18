@@ -11,7 +11,7 @@ use crate::handlers::categories::category_i18n_en;
 use crate::handlers::destinations::{
     decorate_next_event, enrich, list_destinations, parse_with_options, Destination,
 };
-use crate::handlers::federation::lookup_entity;
+use crate::handlers::federation::lookup_entity_for;
 use crate::http::errors::ApiError;
 use crate::http::response::{ApiData, ApiDataTotal};
 use crate::ports::places::{CategoryTarget, PlaceRow, PlacesComponent};
@@ -117,13 +117,21 @@ pub async fn find_destination(
     places: &PlacesComponent,
     id: &str,
 ) -> Result<Option<PlaceRow>, ApiError> {
+    find_destination_for(places, id, None).await
+}
+
+pub async fn find_destination_for(
+    places: &PlacesComponent,
+    id: &str,
+    viewer: Option<&str>,
+) -> Result<Option<PlaceRow>, ApiError> {
     match resolve_entity_type(id) {
         EntityType::Place => Ok(places
-            .find_by_id(&id.to_lowercase())
+            .find_by_id_for(&id.to_lowercase(), viewer)
             .await?
             .filter(|p| !p.disabled && !p.world)),
         EntityType::World => Ok(places
-            .find_world_by_id(id)
+            .find_world_by_id_for(id, viewer)
             .await?
             .filter(|w| !w.disabled && w.world && w.show_in_places)),
     }
@@ -155,14 +163,10 @@ pub async fn get_v1_destination(
 ) -> Result<Json<ApiData<Destination>>, ApiError> {
     let flags = parse_with_options(&pairs)?;
     let user = crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
-    let Some(row) = find_destination(&state.places, &id).await? else {
+    let Some(row) = find_destination_for(&state.places, &id, user.as_deref()).await? else {
         return Err(ApiError::not_found(format!("Destination not found: {id}")));
     };
     let mut rows = vec![row];
-    state
-        .places
-        .apply_user_interactions(user.as_deref(), &mut rows)
-        .await;
     enrich(&state, &mut rows, &flags).await;
     let mut out: Vec<Destination> = rows.into_iter().map(Destination::from).collect();
     decorate_next_event(&state, &mut out, &flags).await;
@@ -216,7 +220,7 @@ async fn resolve_destination_entity(
     } else {
         entity_id.to_lowercase()
     };
-    let mut entity = match lookup_entity(&state.places, &lookup_id, is_world).await? {
+    let entity = match lookup_entity_for(&state.places, &lookup_id, is_world, Some(user)).await? {
         Some(entity) => entity,
         None if is_world => {
             return Err(ApiError::not_found(format!(
@@ -231,10 +235,6 @@ async fn resolve_destination_entity(
             )))
         }
     };
-    state
-        .places
-        .apply_user_interactions(Some(user), std::slice::from_mut(&mut entity))
-        .await;
     Ok((entity, entity_type))
 }
 

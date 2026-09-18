@@ -77,7 +77,7 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ),
     (
         "CHECKOUT_WORKER_INTERVAL_SECS",
-        "checkout worker poll interval in seconds (default 5)",
+        "checkout worker poll interval in seconds (default 30)",
     ),
     (
         "CHECKOUT_MAX_ATTEMPTS",

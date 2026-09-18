@@ -2,6 +2,7 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import { useRef, useState } from "react";
 import { Avatar, Badge } from "../../atoms/primitives";
 import { requestFriendAction, FRIEND_ACTIONS } from "../../data/hooks/friendActions";
+import ContentStatus from "../../components/ContentStatus";
 import EmptyState from "../../components/EmptyState";
 import ProfileCard from "../components/ProfileCard";
 import "./friends.css";
@@ -91,6 +92,7 @@ type FriendsProps = {
   initialSection?: SectionId;
   floating?: boolean;
   isGuest?: boolean;
+  loading?: boolean;
   friends?: Friend[];
   received?: Request[];
   sent?: Request[];
@@ -102,6 +104,7 @@ export default function Friends({
   initialSection = "friends",
   floating = false,
   isGuest = false,
+  loading = false,
   friends = [],
   received = [],
   sent = [],
@@ -173,7 +176,9 @@ export default function Friends({
             </button>
           ))}
         </div>
-        <button className="fr__close" aria-label="Close" onClick={onClose}>&#xD7;</button>
+        {floating ? null : (
+          <button className="fr__close" aria-label="Close" onClick={onClose}>&#xD7;</button>
+        )}
       </header>
 
       <div className="fr__body">
@@ -184,6 +189,8 @@ export default function Friends({
             title="Friends aren't available"
             subtitle="Sign in with a wallet to add and manage friends."
           />
+        ) : loading ? (
+          <ContentStatus pending message="Connecting to friends&hellip;" />
         ) : section === "friends" ? (
           <>
             <GroupHeader

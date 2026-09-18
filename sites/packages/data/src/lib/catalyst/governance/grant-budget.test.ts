@@ -38,16 +38,11 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("loadGrantBudget", () => {
-  it("calls /budgets \u{2014} the path this node routes \u{2014} not the upstream /budget/all", async () => {
-    const fetchImpl = vi.fn(async (_url: string) => jsonResponse(PERIODS));
-    await loadGrantBudget({ base: BASE, fetchImpl: fetchImpl as never });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fetchImpl.mock.calls[0][0]).toBe(`${BASE}/budgets`);
-  });
-
-  it("projects the newest period and reports how fresh it is", async () => {
+  it("calls /budgets (the path this node routes, not the upstream /budget/all) and projects the newest period with its freshness", async () => {
     const fetchImpl = vi.fn(async (_url: string) => jsonResponse(PERIODS));
     const budget = await loadGrantBudget({ base: BASE, fetchImpl: fetchImpl as never });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0][0]).toBe(`${BASE}/budgets`);
     expect(budget.source).toBe("live");
     expect(budget.period.id).toBe("newest");
     expect(budget.asOf).toBe("2025-01-01T00:00:00.000Z");
@@ -55,29 +50,25 @@ describe("loadGrantBudget", () => {
     expect(platform?.available).toBe(325174);
   });
 
-  it("reports an unavailable state on a non-2xx \u{2014} it must not serve the fixture", async () => {
-    const fetchImpl = vi.fn(async (_url: string) => jsonResponse({ error: "nope" }, 404));
-    const budget = await loadGrantBudget({ base: BASE, fetchImpl: fetchImpl as never });
-    expect(budget.source).toBe("unavailable");
-    expect(budget.reason).toMatch(/404/);
-    expect(budget.categories).toEqual([]);
-  });
+  it("reports an unavailable state (never the fixture) on a non-2xx, an unreachable endpoint, or a node with no budget periods", async () => {
+    const nonOk = vi.fn(async (_url: string) => jsonResponse({ error: "nope" }, 404));
+    const notFound = await loadGrantBudget({ base: BASE, fetchImpl: nonOk as never });
+    expect(notFound.source).toBe("unavailable");
+    expect(notFound.reason).toMatch(/404/);
+    expect(notFound.categories).toEqual([]);
 
-  it("reports an unavailable state when the endpoint is unreachable", async () => {
-    const fetchImpl = vi.fn(async (_url: string) => {
+    const unreachable = vi.fn(async (_url: string) => {
       throw new Error("ECONNREFUSED");
     });
-    const budget = await loadGrantBudget({ base: BASE, fetchImpl: fetchImpl as never });
-    expect(budget.source).toBe("unavailable");
-    expect(budget.reason).toMatch(/ECONNREFUSED/);
-  });
+    const down = await loadGrantBudget({ base: BASE, fetchImpl: unreachable as never });
+    expect(down.source).toBe("unavailable");
+    expect(down.reason).toMatch(/ECONNREFUSED/);
 
-  it("reports an unavailable state when the node holds no budget periods", async () => {
-    const fetchImpl = vi.fn(async (_url: string) =>
+    const empty = vi.fn(async (_url: string) =>
       jsonResponse({ data: [], limit: 100, offset: 0 }),
     );
-    const budget = await loadGrantBudget({ base: BASE, fetchImpl: fetchImpl as never });
-    expect(budget.source).toBe("unavailable");
-    expect(budget.reason).toMatch(/no budget periods/);
+    const none = await loadGrantBudget({ base: BASE, fetchImpl: empty as never });
+    expect(none.source).toBe("unavailable");
+    expect(none.reason).toMatch(/no budget periods/);
   });
 });

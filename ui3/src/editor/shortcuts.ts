@@ -1,6 +1,6 @@
 import type { EditorTool } from "./bus-protocol";
 
-export type EditorShortcutAction =
+type EditorShortcutAction =
   | { type: "tool"; tool: EditorTool }
   | { type: "delete" }
   | { type: "duplicate" }
@@ -29,13 +29,14 @@ export function isTypingTarget(
     if (path.length > 0) el = path[0];
   } catch {
   }
-  const node = el as { tagName?: string; isContentEditable?: boolean } | null;
+  const node = el as { tagName?: string; isContentEditable?: boolean; closest?: (selector: string) => Element | null } | null;
   const tag = node?.tagName;
   return (
     tag === "INPUT" ||
     tag === "TEXTAREA" ||
     tag === "SELECT" ||
-    node?.isContentEditable === true
+    node?.isContentEditable === true ||
+    !!node?.closest?.('[role="textbox"], .monaco-editor')
   );
 }
 
@@ -103,49 +104,39 @@ export const FORWARDED_KEYS = new Set([
 const isForwardedKey = (key: string): boolean =>
   FORWARDED_KEYS.has(key) || FORWARDED_KEYS.has(key.toLowerCase());
 
-const wiredWindows = new WeakSet<Window>();
-
-export function forwardEngineKeys(engineWindow: Window | null | undefined): void {
-  try {
-    if (!engineWindow || typeof engineWindow.addEventListener !== "function") return;
-    if (wiredWindows.has(engineWindow)) return;
-    wiredWindows.add(engineWindow);
-    for (const type of ["keydown", "keyup"] as const) {
-      engineWindow.addEventListener(
-        type,
-        (ev) => {
-          const e = ev as KeyboardEvent;
-          if (typeof e.key !== "string" || !isForwardedKey(e.key)) return;
-          if (e.metaKey || e.ctrlKey || e.key === "F5") e.preventDefault();
-          try {
-            window.dispatchEvent(
-              new KeyboardEvent(type, {
-                key: e.key,
-                code: e.code,
-                shiftKey: e.shiftKey,
-                ctrlKey: e.ctrlKey,
-                metaKey: e.metaKey,
-                altKey: e.altKey,
-                bubbles: false,
-                cancelable: true,
-              }),
-            );
-          } catch {
-          }
-        },
-        { capture: true },
-      );
-    }
-  } catch {
-  }
+export function forwardEngineKeys(
+  engineWindow: Window | null | undefined,
+  options: { iframe?: HTMLIFrameElement | null; isEditingEnabled?: () => boolean } = {},
+): () => void {
+  if (!engineWindow || typeof engineWindow.addEventListener !== "function") return () => {};
+  const onKey = (e: KeyboardEvent) => {
+    if (isTypingTarget(e) || typeof e.key !== "string") return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod && !isForwardedKey(e.key)) return;
+    if (!mod && e.key !== "F5" && options.isEditingEnabled?.() === false) return;
+    if (mod || e.key === "F5") e.preventDefault();
+    const forwarded = new KeyboardEvent(e.type, {
+      key: e.key, code: e.code, keyCode: e.keyCode, which: e.which,
+      shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey,
+      bubbles: true, cancelable: true,
+    } as KeyboardEventInit);
+    (window.document.body ?? window.document).dispatchEvent(forwarded);
+  };
+  const onPointerDown = () => options.iframe?.focus();
+  for (const type of ["keydown", "keyup"]) engineWindow.addEventListener(type, onKey as EventListener, true);
+  engineWindow.addEventListener("pointerdown", onPointerDown, true);
+  return () => {
+    for (const type of ["keydown", "keyup"]) engineWindow.removeEventListener(type, onKey as EventListener, true);
+    engineWindow.removeEventListener("pointerdown", onPointerDown, true);
+  };
 }
 
-export interface ShortcutItem {
+interface ShortcutItem {
   combo: string;
   label: string;
 }
 
-export interface ShortcutGroup {
+interface ShortcutGroup {
   title: string;
   items: ShortcutItem[];
 }

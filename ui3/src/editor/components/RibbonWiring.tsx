@@ -10,7 +10,7 @@ export interface RibbonWiringState {
   action?: string | null;
 }
 
-export interface RibbonWiringProps {
+interface RibbonWiringProps {
   state: RibbonWiringState;
   onOpen?: () => void;
 }

@@ -57,9 +57,16 @@ pub(super) async fn root(State(st): State<Arc<AppState>>, req: Request) -> Respo
 async fn handle_ws(socket: axum::extract::ws::WebSocket, st: Arc<AppState>) {
     let mut rx = st.reload_tx.subscribe();
     let (mut sink, mut stream) = socket.split();
+    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(20));
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     tracing::info!("scene-update websocket client connected");
     loop {
         tokio::select! {
+            _ = heartbeat.tick() => {
+                if sink.send(Message::Ping(Bytes::new())).await.is_err() {
+                    break;
+                }
+            },
             msg = rx.recv() => match msg {
                 Ok(frame) => {
                     let message = match frame {
@@ -74,6 +81,7 @@ async fn handle_ws(socket: axum::extract::ws::WebSocket, st: Arc<AppState>) {
                 Err(_) => break,
             },
             incoming = stream.next() => match incoming {
+                Some(Ok(Message::Close(_))) => break,
                 Some(Ok(_)) => continue,
                 _ => break,
             },
@@ -167,7 +175,7 @@ pub(super) async fn about(State(st): State<Arc<AppState>>, req: Request) -> Json
 fn realm_adapter(st: &AppState, headers: &HeaderMap) -> String {
     if st.offline_comms {
         "offline:offline".to_string()
-    } else if st.livekit.is_some() {
+    } else if st.voice().is_some() {
         format!("signed-login:{}/signed-login", preview_origin(headers))
     } else {
         format!("ws-room:{}/mini-comms/room-1", preview_ws_origin(headers))
@@ -192,7 +200,7 @@ pub(super) async fn get_scene_adapter(
     body: Bytes,
 ) -> Response {
     let body: Option<Value> = serde_json::from_slice(&body).ok();
-    if let Some(lk) = &st.livekit {
+    if let Some(lk) = st.voice() {
         let (signer, metadata) = match verified_signer(&headers, "/get-scene-adapter").await {
             Ok(v) => v,
             Err(refused) => return refused,
@@ -356,14 +364,19 @@ pub(super) async fn preview_wearables(
     let base = format!("{}/content/contents", preview_origin(&headers));
     Json(json!({
         "ok": true,
-        "data": collect_preview_wearables(&st.projects(), &base, &st.machine),
+        "data": collect_preview_wearables(&st.projects(), &base, |p| scene_entity_cached(&st, p)),
     }))
 }
 
 /// One entry per project with a readable `wearable.json`; a plain scene
 /// contributes nothing, so the route answers `{ok: true, data: []}` like
-/// upstream. Hashes are the preview's own reversible path hashes.
-fn collect_preview_wearables(projects: &[Project], base: &str, machine: &str) -> Vec<Value> {
+/// upstream. The contents are the project's scene entity's (the same walk
+/// and the same reversible path hashes), so the entity memo serves both.
+fn collect_preview_wearables(
+    projects: &[Project],
+    base: &str,
+    entity_of: impl Fn(&Project) -> Value,
+) -> Vec<Value> {
     let mut out = Vec::new();
     for p in projects {
         let Ok(text) = std::fs::read_to_string(p.root.join("wearable.json")) else {
@@ -372,14 +385,14 @@ fn collect_preview_wearables(projects: &[Project], base: &str, machine: &str) ->
         let Ok(mut wearable) = serde_json::from_str::<Value>(&text) else {
             continue;
         };
-        let tag = root_tag(&p.root, machine);
-        let contents: Vec<Value> = collect_publishable_files(&p.root)
-            .unwrap_or_default()
-            .iter()
-            .map(|rel| {
-                let hash = b64_content_hash_in_root(&tag, rel, &p.root.join(rel));
-                json!({ "key": rel, "url": format!("{base}/{hash}"), "hash": hash })
-            })
+        let entity = entity_of(p);
+        let contents: Vec<Value> = entity
+            .get("content")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|c| Some((c.get("file")?.as_str()?, c.get("hash")?.as_str()?)))
+            .map(|(rel, hash)| json!({ "key": rel, "url": format!("{base}/{hash}"), "hash": hash }))
             .collect();
         if let Some(obj) = wearable.as_object_mut() {
             obj.insert("baseUrl".into(), json!(base));
@@ -765,6 +778,56 @@ mod tests {
     use crate::scene::b64_content_hash;
     use crate::start::testkit::{self, body_text, Tmp};
     use axum::http::HeaderValue;
+
+    #[tokio::test]
+    async fn preview_socket_heartbeats_preserve_reload_and_release_subscription() {
+        use std::time::Duration;
+        use tokio_tungstenite::tungstenite::Message as ClientMessage;
+
+        let state = contents_state(Vec::new());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = axum::Router::new()
+            .route("/", axum::routing::get(root))
+            .with_state(state.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let (mut socket, _) = tokio_tungstenite::connect_async(format!("ws://{address}/"))
+            .await
+            .unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await
+            .expect("idle preview must send a heartbeat")
+            .unwrap()
+            .unwrap();
+        assert!(matches!(first, ClientMessage::Ping(_)));
+        socket.flush().await.unwrap();
+        let second = tokio::time::timeout(Duration::from_secs(25), socket.next())
+            .await
+            .expect("heartbeats must repeat while the scene is idle")
+            .unwrap()
+            .unwrap();
+        assert!(matches!(second, ClientMessage::Ping(_)));
+        socket.flush().await.unwrap();
+        state
+            .reload_tx
+            .send(ReloadFrame::Text("reload-proof".into()))
+            .unwrap();
+        let frame = tokio::time::timeout(Duration::from_secs(2), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(frame, ClientMessage::Text("reload-proof".into()));
+        socket.close(None).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while state.reload_tx.receiver_count() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("closed clients must release their reload subscription");
+        server.abort();
+    }
 
     fn project_at(root: PathBuf) -> Project {
         Project {
@@ -1343,7 +1406,9 @@ mod tests {
     fn a_scene_without_a_wearable_json_contributes_no_entries() {
         let tmp = Tmp::new("plain");
         std::fs::write(tmp.0.join("scene.json"), "{}").unwrap();
-        let out = collect_preview_wearables(&[project_at(tmp.0.clone())], "http://x/c", "m");
+        let out = collect_preview_wearables(&[project_at(tmp.0.clone())], "http://x/c", |p| {
+            build_scene_entity(p, "m")
+        });
         assert!(out.is_empty());
     }
 
@@ -1357,7 +1422,9 @@ mod tests {
         )
         .unwrap();
         std::fs::write(tmp.0.join("model.glb"), b"glb").unwrap();
-        let out = collect_preview_wearables(&[project_at(tmp.0.clone())], "http://x/c", "m");
+        let out = collect_preview_wearables(&[project_at(tmp.0.clone())], "http://x/c", |p| {
+            build_scene_entity(p, "m")
+        });
         assert_eq!(out.len(), 1);
         assert_eq!(out[0]["id"], "urn:x");
         assert_eq!(out[0]["baseUrl"], "http://x/c");
@@ -1385,7 +1452,10 @@ mod tests {
         let tmp = Tmp::new("bad");
         std::fs::write(tmp.0.join("wearable.json"), "{not json").unwrap();
         assert!(
-            collect_preview_wearables(&[project_at(tmp.0.clone())], "http://x/c", "m").is_empty()
+            collect_preview_wearables(&[project_at(tmp.0.clone())], "http://x/c", |p| {
+                build_scene_entity(p, "m")
+            })
+            .is_empty()
         );
     }
 

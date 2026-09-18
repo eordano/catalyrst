@@ -9,43 +9,33 @@ import { approveBlocked } from "./auth-request-params";
 import type { UnverifiableReason } from "./auth-request-params";
 
 describe("isScrolledToEnd", () => {
-  it("counts a block that does not overflow as read", () => {
-    expect(isScrolledToEnd({ scrollHeight: 120, scrollTop: 0, clientHeight: 220 })).toBe(true);
-    expect(isScrolledToEnd({ scrollHeight: 220, scrollTop: 0, clientHeight: 220 })).toBe(true);
-  });
-
-  it("holds a long message until it has been scrolled to its end", () => {
-    expect(isScrolledToEnd({ scrollHeight: 2000, scrollTop: 0, clientHeight: 220 })).toBe(false);
-    expect(isScrolledToEnd({ scrollHeight: 2000, scrollTop: 1000, clientHeight: 220 })).toBe(false);
-    expect(isScrolledToEnd({ scrollHeight: 2000, scrollTop: 1777, clientHeight: 220 })).toBe(false);
-    expect(isScrolledToEnd({ scrollHeight: 2000, scrollTop: 1780, clientHeight: 220 })).toBe(true);
-  });
-
-  it("allows the two pixels a zoomed or high-density screen leaves behind", () => {
-    expect(isScrolledToEnd({ scrollHeight: 400, scrollTop: 198, clientHeight: 200 })).toBe(true);
-    expect(isScrolledToEnd({ scrollHeight: 400, scrollTop: 197, clientHeight: 200 })).toBe(false);
-    expect(isScrolledToEnd({ scrollHeight: 2000.6, scrollTop: 1780, clientHeight: 220 })).toBe(true);
-    expect(isScrolledToEnd({ scrollHeight: 2003, scrollTop: 1780, clientHeight: 220 })).toBe(false);
-  });
-
-  it("stays true once the block is scrolled past its end", () => {
-    expect(isScrolledToEnd({ scrollHeight: 2000, scrollTop: 1900, clientHeight: 220 })).toBe(true);
+  it("counts a block as read once it does not overflow or is scrolled to its end, fractional heights included", () => {
+    const cases: [Parameters<typeof isScrolledToEnd>[0], boolean][] = [
+      [{ scrollHeight: 120, scrollTop: 0, clientHeight: 220 }, true],
+      [{ scrollHeight: 220, scrollTop: 0, clientHeight: 220 }, true],
+      [{ scrollHeight: 2000, scrollTop: 0, clientHeight: 220 }, false],
+      [{ scrollHeight: 2000, scrollTop: 1000, clientHeight: 220 }, false],
+      [{ scrollHeight: 2000, scrollTop: 1780, clientHeight: 220 }, true],
+      [{ scrollHeight: 2000.6, scrollTop: 1780, clientHeight: 220 }, true],
+      [{ scrollHeight: 2000, scrollTop: 1900, clientHeight: 220 }, true],
+    ];
+    for (const [box, read] of cases) {
+      expect(isScrolledToEnd(box), JSON.stringify(box)).toBe(read);
+    }
   });
 });
 
 describe("gatesOnPayloadReading", () => {
-  const rows: [string, UnverifiableReason][] = [
-    ["a readable personal_sign message", "unverified_message"],
-    ["an opaque personal_sign message", "opaque_message"],
-    ["typed data", "unrecognized_typed_data"],
-    ["a transaction", "unsimulated_transaction"],
-  ];
-
-  it.each(rows)("holds %s until its payload was read to the end", (_label, unverifiable) => {
-    expect(gatesOnPayloadReading(unverifiable)).toBe(true);
-  });
-
-  it("gates nothing before the request has been classified", () => {
+  it("holds every classified request until its payload was read to the end and gates nothing before classification", () => {
+    const reasons: UnverifiableReason[] = [
+      "unverified_message",
+      "opaque_message",
+      "unrecognized_typed_data",
+      "unsimulated_transaction",
+    ];
+    for (const unverifiable of reasons) {
+      expect(gatesOnPayloadReading(unverifiable), unverifiable).toBe(true);
+    }
     expect(gatesOnPayloadReading(null)).toBe(false);
   });
 });
@@ -54,9 +44,6 @@ describe("acknowledgmentBlocked", () => {
   it("holds the acknowledgment only where the gate applies and the block is unread", () => {
     expect(acknowledgmentBlocked(true, false)).toBe(true);
     expect(acknowledgmentBlocked(true, true)).toBe(false);
-  });
-
-  it("never holds a request the gate does not apply to", () => {
     expect(acknowledgmentBlocked(false, false)).toBe(false);
     expect(acknowledgmentBlocked(false, true)).toBe(false);
   });

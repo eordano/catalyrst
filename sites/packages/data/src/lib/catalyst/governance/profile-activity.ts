@@ -101,7 +101,7 @@ const ProfileSchema = z.object({
   voted: z.array(VotedRowSchema),
 });
 
-export type ProposalRow = z.infer<typeof ProposalRowSchema>;
+type ProposalRow = z.infer<typeof ProposalRowSchema>;
 export type ProfileActivity = z.infer<typeof ProfileSchema>;
 
 export function emptyProfile(address: string): ProfileActivity {

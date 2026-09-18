@@ -78,10 +78,14 @@ fn catalyst_payload() -> Value {
 }
 
 fn signed_request(kind: &str, payload: &Value) -> Request<Body> {
+    signed_request_with_metadata(kind, payload, "{}")
+}
+
+fn signed_request_with_metadata(kind: &str, payload: &Value, metadata: &str) -> Request<Body> {
     let wallet = Wallet::from_hex(AUTHOR_KEY).expect("author wallet");
     let path = format!("/proposals/{kind}");
     let timestamp = (chrono::Utc::now().timestamp_millis()).to_string();
-    let sign_payload = build_payload("post", &path, &timestamp, "{}");
+    let sign_payload = build_payload("post", &path, &timestamp, metadata);
     let chain = create_simple_auth_chain(&wallet, &sign_payload).expect("auth chain");
     let links = chain.as_array().expect("auth chain links");
 
@@ -90,7 +94,7 @@ fn signed_request(kind: &str, payload: &Value) -> Request<Body> {
         .uri(path)
         .header("content-type", "application/json")
         .header("x-identity-timestamp", timestamp)
-        .header("x-identity-metadata", "{}");
+        .header("x-identity-metadata", metadata);
     for (index, link) in links.iter().enumerate() {
         builder = builder.header(format!("x-identity-auth-chain-{index}"), link.to_string());
     }
@@ -304,6 +308,23 @@ async fn an_unsigned_request_is_rejected_before_anything_is_submitted() {
 
     let response = app
         .oneshot(unsigned_request("catalyst", &catalyst_payload()))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(captured.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_scene_signed_request_is_rejected_before_anything_is_submitted() {
+    let (base_url, captured) = mock_snapshot().await;
+    let app = write_router(Arc::new(SnapshotGate::build(ready_config(&base_url))));
+
+    let response = app
+        .oneshot(signed_request_with_metadata(
+            "catalyst",
+            &catalyst_payload(),
+            r#"{"signer":"decentraland-kernel-scene"}"#,
+        ))
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);

@@ -95,6 +95,8 @@
 }
 .mknamespage__field:focus-within {
   border-color: #fff;
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
 }
 
 .mknamespage__input {
@@ -229,4 +231,5 @@
     grid-template-columns: 1fr;
   }
   .mknamespage__card { max-width: 300px; margin: 0 auto; }
+  .mknamespage__cta { width: 100%; }
 }

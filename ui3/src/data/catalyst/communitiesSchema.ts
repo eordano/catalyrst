@@ -1,4 +1,4 @@
-import { getJSON, serviceBase, type RequestOpts } from "./client";
+import { getJSON, sendSignedJSON, serviceBase, type RequestOpts } from "./client";
 import { field, hasId, isRecord, keepRows } from "./rows";
 import {
   CommunityEventSchema,
@@ -15,19 +15,31 @@ import type {
   CommunityWire,
 } from "./schemas/communities";
 
-export {
-  CommunityEventSchema,
-  CommunityMemberSchema,
-  CommunityPlaceSchema,
-  CommunityPostSchema,
-  CommunitySchema,
-};
+export { CommunitySchema };
 
 const PROD_COMMUNITY_CDN = /^https:\/\/cdn\.decentraland\.org(?=\/social\/communities\/)/;
+const COMMUNITY_THUMB_PATH = /^\/social\/communities\/[0-9a-f-]{36}\/raw-thumbnail\.png$/i;
 
-export function normalizeCommunityThumbnail(v: unknown): string | null {
+function siteHostname(): string {
+  return typeof window === "undefined" ? "" : window.location.hostname;
+}
+
+export function isOwnAssetHost(host: string, site = siteHostname()): boolean {
+  return site !== "" && host !== site && host.endsWith(`.${site}`);
+}
+
+export function normalizeCommunityThumbnail(v: unknown, site = siteHostname()): string | null {
   if (typeof v !== "string" || v === "" || v === "N/A") return null;
-  return v.replace(PROD_COMMUNITY_CDN, serviceBase("communitiesCdn"));
+  const url = v.replace(PROD_COMMUNITY_CDN, serviceBase("communitiesCdn"));
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  if (parsed.protocol !== "https:" || !COMMUNITY_THUMB_PATH.test(parsed.pathname)) return url;
+  if (!isOwnAssetHost(parsed.hostname, site)) return url;
+  return `${serviceBase("communitiesCdn")}${parsed.pathname}`;
 }
 
 export function normalizeCommunity(c: CommunityWire) {
@@ -42,13 +54,13 @@ export function normalizeCommunity(c: CommunityWire) {
 
 export type Community = ReturnType<typeof normalizeCommunity>;
 
-export function normalizeCommunityMember(m: CommunityMemberWire) {
+function normalizeCommunityMember(m: CommunityMemberWire) {
   return { ...m, joinedAt: m.joinedAt ?? null };
 }
 
 export type CommunityMember = ReturnType<typeof normalizeCommunityMember>;
 
-export function normalizeCommunityEvent(e: CommunityEventWire) {
+function normalizeCommunityEvent(e: CommunityEventWire) {
   return {
     ...e,
     name: e.name ?? null,
@@ -58,21 +70,21 @@ export function normalizeCommunityEvent(e: CommunityEventWire) {
   };
 }
 
-export type CommunityEvent = ReturnType<typeof normalizeCommunityEvent>;
+type CommunityEvent = ReturnType<typeof normalizeCommunityEvent>;
 
-export function normalizeCommunityPost(p: CommunityPostWire) {
+function normalizeCommunityPost(p: CommunityPostWire) {
   return { ...p, createdAt: p.createdAt ?? null };
 }
 
-export type CommunityPost = ReturnType<typeof normalizeCommunityPost>;
+type CommunityPost = ReturnType<typeof normalizeCommunityPost>;
 
-export function normalizeCommunityPlace(p: CommunityPlaceWire) {
+function normalizeCommunityPlace(p: CommunityPlaceWire) {
   return { ...p, addedAt: p.addedAt ?? null };
 }
 
-export type CommunityPlace = ReturnType<typeof normalizeCommunityPlace>;
+type CommunityPlace = ReturnType<typeof normalizeCommunityPlace>;
 
-export type CommunityDetail = {
+type CommunityDetail = {
   community: Community;
   members: CommunityMember[];
   events: CommunityEvent[];
@@ -111,12 +123,20 @@ function unwrapData(env: unknown): unknown {
   return (env as { data?: unknown } | null | undefined)?.data ?? env;
 }
 
+type CommunityReadOpts = RequestOpts & { authenticated?: boolean };
+
+function communityJSON(path: string, opts: CommunityReadOpts) {
+  const { authenticated, ...request } = opts;
+  return authenticated
+    ? sendSignedJSON(path, { ...request, service: "communities", method: "GET" })
+    : getJSON(path, { ...request, service: "communities" });
+}
+
 export async function loadCommunities(
   params: RequestOpts["query"] = {},
-  opts: RequestOpts = {},
+  opts: CommunityReadOpts = {},
 ): Promise<Community[]> {
-  const raw = await getJSON("/v1/communities", {
-    service: "communities",
+  const raw = await communityJSON("/v1/communities", {
     ...opts,
     query: params,
   });
@@ -130,13 +150,13 @@ export async function loadCommunities(
 
 export async function loadCommunity(
   id?: string | null,
-  opts: RequestOpts = {},
+  opts: CommunityReadOpts = {},
 ): Promise<CommunityDetail | null> {
   if (!id) return null;
   try {
     const svcOpts = { service: "communities" as const, ...opts };
     const [cRaw, mRaw] = await Promise.all([
-      getJSON(`/v1/communities/${encodeURIComponent(id)}`, svcOpts),
+      communityJSON(`/v1/communities/${encodeURIComponent(id)}`, svcOpts),
       getJSON(`/v1/communities/${encodeURIComponent(id)}/members`, svcOpts).catch(
         () => null,
       ),

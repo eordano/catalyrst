@@ -5,7 +5,7 @@ import "./ldwhatsonpage.css";
 
 type StWhatSOnProps = ComponentProps<typeof StWhatSOn>;
 
-export type LdWhatsOnFilter = { id: string; label: string };
+type LdWhatsOnFilter = { id: string; label: string };
 
 export type LdWhatsOnEventLink = {
   id: string;

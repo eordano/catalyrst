@@ -1,4 +1,5 @@
-BRIDGE_CRATE=bridge_protocol
+BRIDGE_CRATES=()
+BRIDGE_CARGO_ARGS=""
 
 GENERATED_DIR_REL="ui3/src/generated"
 
@@ -11,17 +12,20 @@ TS_CRATES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 load_generated_crates() {
   local script="$TS_CRATES_ROOT/sites/scripts/generated-artefacts.mts"
-  local bridge_crates=()
   mapfile -t CATALYRST_CRATES < <(node "$script" --list catalyrst-pkgs) || return 1
   mapfile -t CATALYRST_TS_CRATES < <(node "$script" --list catalyrst-ts) || return 1
   mapfile -t OPENAPI_SPECS < <(node "$script" --list catalyrst-openapi) || return 1
-  mapfile -t bridge_crates < <(node "$script" --list bridge) || return 1
+  mapfile -t BRIDGE_CRATES < <(node "$script" --list bridge) || return 1
+  local bridge_ts_crates=()
+  mapfile -t bridge_ts_crates < <(node "$script" --list bridge-ts) || return 1
   if [[ ${#CATALYRST_CRATES[@]} -eq 0 || ${#CATALYRST_TS_CRATES[@]} -eq 0 ||
-    ${#OPENAPI_SPECS[@]} -eq 0 || ${#bridge_crates[@]} -ne 1 ]]; then
+    ${#OPENAPI_SPECS[@]} -eq 0 || ${#BRIDGE_CRATES[@]} -eq 0 ]]; then
     echo "ts-crates: no crate declares [package.metadata.generated] -- refusing to run an empty gate" >&2
     return 1
   fi
-  BRIDGE_CRATE="${bridge_crates[0]}"
+  BRIDGE_CARGO_ARGS=""
+  for crate in "${BRIDGE_CRATES[@]}"; do BRIDGE_CARGO_ARGS+=" -p $crate"; done
+  for crate in "${bridge_ts_crates[@]}"; do BRIDGE_CARGO_ARGS+=" --features $crate/ts"; done
 }
 
 ts_rs_shell_run() {

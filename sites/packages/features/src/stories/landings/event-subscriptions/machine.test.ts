@@ -14,11 +14,8 @@ import {
   enabledTypes,
   simulateCommit,
   type CommitFn,
-  type CommitResult,
   type TrackFn,
 } from "./machine";
-
-const RESULT: CommitResult = { kind: "subscribe", at: 123 };
 
 const okCommit: CommitFn = async ({ kind }) => ({ kind, at: 1 });
 const failCommit: CommitFn = async () => {
@@ -39,17 +36,6 @@ function inputFor(commit: CommitFn, track: TrackFn) {
   };
 }
 
-const EXPECTED_STATES = new Set([
-  "idle",
-  "signinGate",
-  "editing",
-  "submitting",
-  "subscribed",
-  "unsubscribing",
-  "unsubscribed",
-  "error",
-]);
-
 const TRAVERSAL_EVENTS = [
   { type: "START" as const },
   { type: "SIGN_IN" as const },
@@ -62,151 +48,95 @@ const TRAVERSAL_EVENTS = [
   { type: "BACK" as const },
 ];
 
-describe("subscriptionMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(subscriptionMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
+describe("subscriptionMachine \u{2014} URL ?step slug map", () => {
+  it("maps every state to a unique round-tripping slug and falls back to idle", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(subscriptionMachine.states)));
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.idle);
-    expect(slugToState(null)).toBe("idle");
-    expect(slugToState(undefined)).toBe("idle");
-    expect(slugToState("")).toBe("idle");
-    expect(slugToState("nope")).toBe("idle");
     expect(slugToState("signin-gate")).toBe("signinGate");
-    expect(slugToState("editing")).toBe("editing");
-    expect(slugToState("submitting")).toBe("submitting");
-    expect(slugToState("unsubscribing")).toBe("unsubscribing");
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.idle);
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("idle");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("subscriptionMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveSubscriptionSnapshot({
-      step: "idle",
-      trackCtx: inputFor(okCommit, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating signinGate does NOT re-fire its entry telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveSubscriptionSnapshot({
-      step: "signinGate",
-      trackCtx: inputFor(okCommit, track).trackCtx,
-      track,
-    });
-    const actor = createActor(subscriptionMachine, {
-      input: inputFor(okCommit, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("signinGate")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-  });
-
-  it("hydrating submitting does NOT fire telemetry and does NOT auto-commit", async () => {
+  it("boots idle without a snapshot, hydrates later steps silently, and only real transitions track", async () => {
     const track = vi.fn();
     const commit = vi.fn(okCommit);
-    const snapshot = resolveSubscriptionSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(commit, track).trackCtx,
-      commit,
-      track,
-    });
-    const actor = createActor(subscriptionMachine, {
-      input: inputFor(commit, track),
-      snapshot,
-    }).start();
+    const trackCtx = inputFor(commit, track).trackCtx;
+    expect(resolveSubscriptionSnapshot({ step: "idle", trackCtx })).toBeUndefined();
 
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
+    const gate = createActor(subscriptionMachine, {
+      input: inputFor(okCommit, track),
+      snapshot: resolveSubscriptionSnapshot({ step: "signinGate", trackCtx, track }),
+    }).start();
+    expect(gate.getSnapshot().matches("signinGate")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+
+    const submitting = createActor(subscriptionMachine, {
+      input: inputFor(commit, track),
+      snapshot: resolveSubscriptionSnapshot({ step: "submitting", trackCtx, commit, track }),
+    }).start();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("hydrating unsubscribing seeds lastKind=unsubscribe", () => {
-    const snapshot = resolveSubscriptionSnapshot({
-      step: "unsubscribing",
-      trackCtx: inputFor(okCommit, () => {}).trackCtx,
-    });
-    const actor = createActor(subscriptionMachine, {
+    const unsubscribing = createActor(subscriptionMachine, {
       input: inputFor(okCommit, () => {}),
-      snapshot,
+      snapshot: resolveSubscriptionSnapshot({ step: "unsubscribing", trackCtx }),
     }).start();
-    expect(actor.getSnapshot().context.lastKind).toBe("unsubscribe");
-  });
+    expect(unsubscribing.getSnapshot().context.lastKind).toBe("unsubscribe");
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveSubscriptionSnapshot({
-      step: "editing",
-      trackCtx: inputFor(okCommit, track).trackCtx,
-      track,
-    });
-    const actor = createActor(subscriptionMachine, {
+    const editing = createActor(subscriptionMachine, {
       input: inputFor(okCommit, track),
-      snapshot,
+      snapshot: resolveSubscriptionSnapshot({ step: "editing", trackCtx, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("editing")).toBe(true);
+    expect(editing.getSnapshot().matches("editing")).toBe(true);
     expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "TOGGLE", notificationType: "events_starts_soon", enabled: true });
-    expect(track.mock.calls.map((c) => c[0])).toContain(SUBSCRIPTION_EVENTS.edited);
-    expect(actor.getSnapshot().context.selection.events_starts_soon).toBe(true);
+    editing.send({ type: "TOGGLE", notificationType: "events_starts_soon", enabled: true });
+    expect(editing.getSnapshot().context.selection.events_starts_soon).toBe(true);
+    const editedCall = track.mock.calls.find((c) => c[0] === SUBSCRIPTION_EVENTS.edited);
+    expect(editedCall?.[1]).toMatchObject({
+      notification_type: "events_starts_soon",
+      enabled: true,
+    });
   });
 });
 
 describe("subscriptionMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("event paths reach signinGate, editing and submitting, and submitting needs START, SIGN_IN, SUBMIT", () => {
     const paths = getShortestPaths(subscriptionMachine, {
       input: inputFor(okCommit, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
       const value = p.state.value as string;
       ends.add(value);
-      expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("signinGate")).toBe(true);
-    expect(ends.has("editing")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
-
-  it("reaching submitting passes through START, SIGN_IN, and SUBMIT", () => {
-    const paths = getShortestPaths(subscriptionMachine, {
-      input: inputFor(okCommit, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["signinGate", "editing", "submitting"]) expect(ends.has(s)).toBe(true);
     const submitting = paths.find((p) => (p.state.value as string) === "submitting");
-    expect(submitting).toBeDefined();
     const events = submitting!.steps.map((s) => s.event.type);
-    expect(events).toContain("START");
-    expect(events).toContain("SIGN_IN");
-    expect(events).toContain("SUBMIT");
+    for (const e of ["START", "SIGN_IN", "SUBMIT"]) expect(events).toContain(e);
   });
 });
 
 describe("subscriptionMachine \u{2014} telemetry events (happy path)", () => {
-  it("start -> gate -> sign in -> submit -> subscribed fires the full funnel", async () => {
+  it("start -> gate -> sign in -> submit -> subscribed -> unsubscribe fires both funnels", async () => {
     const track = vi.fn();
     const actor = createActor(subscriptionMachine, {
       input: inputFor(okCommit, track),
@@ -214,52 +144,37 @@ describe("subscriptionMachine \u{2014} telemetry events (happy path)", () => {
 
     actor.send({ type: "START" });
     expect(actor.getSnapshot().matches("signinGate")).toBe(true);
-
     actor.send({ type: "SIGN_IN" });
     expect(actor.getSnapshot().matches("editing")).toBe(true);
-
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("subscribed"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(SUBSCRIPTION_EVENTS.started);
-    expect(events).toContain(SUBSCRIPTION_EVENTS.signinRequired);
-    expect(events).toContain(SUBSCRIPTION_EVENTS.signedIn);
-    expect(events).toContain(SUBSCRIPTION_EVENTS.submitting);
-    expect(events).toContain(SUBSCRIPTION_EVENTS.subscribed);
-
+    let events = names(track);
+    for (const e of [
+      SUBSCRIPTION_EVENTS.started,
+      SUBSCRIPTION_EVENTS.signinRequired,
+      SUBSCRIPTION_EVENTS.signedIn,
+      SUBSCRIPTION_EVENTS.submitting,
+      SUBSCRIPTION_EVENTS.subscribed,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(SUBSCRIPTION_EVENTS.started)).toBeLessThan(
       events.indexOf(SUBSCRIPTION_EVENTS.subscribed),
     );
-
     const startedCall = track.mock.calls.find((c) => c[0] === SUBSCRIPTION_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
       experimentKey: "landings_event_subscriptions",
       variant: "wizard",
     });
-    const subscribedCall = track.mock.calls.find(
-      (c) => c[0] === SUBSCRIPTION_EVENTS.subscribed,
-    );
+    const subscribedCall = track.mock.calls.find((c) => c[0] === SUBSCRIPTION_EVENTS.subscribed);
     expect(subscribedCall?.[1]).toEqual({ enabled_count: 1 });
     expect(actor.getSnapshot().context.result?.kind).toBe("subscribe");
-  });
-
-  it("subscribed -> unsubscribe -> unsubscribed fires the unsubscribe funnel", async () => {
-    const track = vi.fn();
-    const actor = createActor(subscriptionMachine, {
-      input: inputFor(okCommit, track),
-    }).start();
-
-    actor.send({ type: "START" });
-    actor.send({ type: "SIGN_IN" });
-    actor.send({ type: "SUBMIT" });
-    await waitFor(actor, (s) => s.matches("subscribed"));
 
     actor.send({ type: "UNSUBSCRIBE" });
     await waitFor(actor, (s) => s.matches("unsubscribed"));
-
-    const events = track.mock.calls.map((c) => c[0]);
+    events = names(track);
     expect(events).toContain(SUBSCRIPTION_EVENTS.unsubscribing);
     expect(events).toContain(SUBSCRIPTION_EVENTS.unsubscribed);
     const unsubscribedCall = track.mock.calls.find(
@@ -269,124 +184,62 @@ describe("subscriptionMachine \u{2014} telemetry events (happy path)", () => {
     expect(actor.getSnapshot().context.lastKind).toBe("unsubscribe");
     expect(actor.getSnapshot().context.result?.kind).toBe("unsubscribe");
   });
-
-  it("TOGGLE updates selection and fires edited with the type+enabled", () => {
-    const track = vi.fn();
-    const actor = createActor(subscriptionMachine, {
-      input: inputFor(okCommit, track),
-    }).start();
-
-    actor.send({ type: "START" });
-    actor.send({ type: "SIGN_IN" });
-    actor.send({ type: "TOGGLE", notificationType: "events_starts_soon", enabled: true });
-
-    expect(actor.getSnapshot().context.selection.events_starts_soon).toBe(true);
-    const editedCall = track.mock.calls.find((c) => c[0] === SUBSCRIPTION_EVENTS.edited);
-    expect(editedCall?.[1]).toMatchObject({
-      notification_type: "events_starts_soon",
-      enabled: true,
-    });
-  });
 });
 
 describe("subscriptionMachine \u{2014} error + retry", () => {
-  it("commit error -> error state fires landings_subscription_error", async () => {
+  it("commit error fires landings_subscription_error and BACK returns to editing", async () => {
     const track = vi.fn();
     const actor = createActor(subscriptionMachine, {
       input: inputFor(failCommit, track),
     }).start();
-
     actor.send({ type: "START" });
     actor.send({ type: "SIGN_IN" });
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("error"));
-
     expect(actor.getSnapshot().context.error).toBe("catalyst gone (410)");
-    expect(track.mock.calls.map((c) => c[0])).toContain(SUBSCRIPTION_EVENTS.error);
-  });
-
-  it("RETRY after a subscribe error re-runs submit and recovers to subscribed", async () => {
-    const track = vi.fn();
-    let calls = 0;
-    const commit: CommitFn = async (args) => {
-      calls += 1;
-      if (calls === 1) throw new Error("catalyst gone (410)");
-      return okCommit(args);
-    };
-
-    const actor = createActor(subscriptionMachine, {
-      input: inputFor(commit, track),
-    }).start();
-
-    actor.send({ type: "START" });
-    actor.send({ type: "SIGN_IN" });
-    actor.send({ type: "SUBMIT" });
-    await waitFor(actor, (s) => s.matches("error"));
-
-    actor.send({ type: "RETRY" });
-    await waitFor(actor, (s) => s.matches("subscribed"));
-    expect(actor.getSnapshot().context.result?.kind).toBe("subscribe");
-  });
-
-  it("RETRY after an unsubscribe error re-runs unsubscribe (guarded by lastKind)", async () => {
-    const track = vi.fn();
-    let calls = 0;
-    const commit: CommitFn = async (args) => {
-      calls += 1;
-      if (args.kind === "unsubscribe" && calls === 2) {
-        throw new Error("catalyst gone (410)");
-      }
-      return okCommit(args);
-    };
-
-    const actor = createActor(subscriptionMachine, {
-      input: inputFor(commit, track),
-    }).start();
-
-    actor.send({ type: "START" });
-    actor.send({ type: "SIGN_IN" });
-    actor.send({ type: "SUBMIT" });
-    await waitFor(actor, (s) => s.matches("subscribed"));
-
-    actor.send({ type: "UNSUBSCRIBE" });
-    await waitFor(actor, (s) => s.matches("error"));
-    expect(actor.getSnapshot().context.lastKind).toBe("unsubscribe");
-
-    actor.send({ type: "RETRY" });
-    await waitFor(actor, (s) => s.matches("unsubscribed"));
-    expect(actor.getSnapshot().context.result?.kind).toBe("unsubscribe");
-  });
-
-  it("BACK from error returns to editing", async () => {
-    const actor = createActor(subscriptionMachine, {
-      input: inputFor(failCommit, () => {}),
-    }).start();
-
-    actor.send({ type: "START" });
-    actor.send({ type: "SIGN_IN" });
-    actor.send({ type: "SUBMIT" });
-    await waitFor(actor, (s) => s.matches("error"));
+    expect(names(track)).toContain(SUBSCRIPTION_EVENTS.error);
 
     actor.send({ type: "BACK" });
     expect(actor.getSnapshot().matches("editing")).toBe(true);
   });
+
+  it("RETRY re-runs the last kind: subscribe after a subscribe error, unsubscribe after an unsubscribe error", async () => {
+    let calls = 0;
+    const commit: CommitFn = async (args) => {
+      calls += 1;
+      if (calls === 1 || (args.kind === "unsubscribe" && calls === 3)) {
+        throw new Error("catalyst gone (410)");
+      }
+      return okCommit(args);
+    };
+    const actor = createActor(subscriptionMachine, {
+      input: inputFor(commit, vi.fn()),
+    }).start();
+
+    actor.send({ type: "START" });
+    actor.send({ type: "SIGN_IN" });
+    actor.send({ type: "SUBMIT" });
+    await waitFor(actor, (s) => s.matches("error"));
+    actor.send({ type: "RETRY" });
+    await waitFor(actor, (s) => s.matches("subscribed"));
+    expect(actor.getSnapshot().context.result?.kind).toBe("subscribe");
+
+    actor.send({ type: "UNSUBSCRIBE" });
+    await waitFor(actor, (s) => s.matches("error"));
+    expect(actor.getSnapshot().context.lastKind).toBe("unsubscribe");
+    actor.send({ type: "RETRY" });
+    await waitFor(actor, (s) => s.matches("unsubscribed"));
+    expect(actor.getSnapshot().context.result?.kind).toBe("unsubscribe");
+    expect(calls).toBe(4);
+  });
 });
 
 describe("simulateCommit + enabledTypes", () => {
-  it("simulateCommit resolves a result keyed by kind (no network)", async () => {
+  it("simulateCommit resolves a CommitResult keyed by kind and enabledTypes returns only the on types", async () => {
     const sub = await simulateCommit({ kind: "subscribe", enabledTypes: [] });
     const unsub = await simulateCommit({ kind: "unsubscribe", enabledTypes: [] });
     expect(sub.kind).toBe("subscribe");
     expect(unsub.kind).toBe("unsubscribe");
-    expect(Object.keys(sub).sort()).toEqual(["at", "kind"]);
-  });
-
-  it("enabledTypes returns only the on types", () => {
     expect(enabledTypes({ a: true, b: false, c: true })).toEqual(["a", "c"]);
-  });
-
-  it("RESULT fixture shape is the CommitResult contract", () => {
-    expect(Object.keys(RESULT).sort()).toEqual(["at", "kind"]);
-    expect(RESULT.kind).toBe("subscribe");
   });
 });

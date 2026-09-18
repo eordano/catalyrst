@@ -1027,4 +1027,3 @@ export const GOVERNANCE_FORMS = {
   projectUpdate,
 } satisfies Record<string, FormDescriptor>;
 
-export default GOVERNANCE_FORMS;

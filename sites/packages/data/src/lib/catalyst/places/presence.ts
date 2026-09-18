@@ -12,8 +12,8 @@ export const PRESENCE_BASE = "/presence";
 
 export { CurrentSnapshotSchema, SceneOccupancyRowSchema, WorldHeadcountRowSchema };
 export type CurrentSnapshot = z.infer<typeof CurrentSnapshotSchema>;
-export type SceneOccupancyRow = z.infer<typeof SceneOccupancyRowSchema>;
-export type WorldHeadcountRow = z.infer<typeof WorldHeadcountRowSchema>;
+type SceneOccupancyRow = z.infer<typeof SceneOccupancyRowSchema>;
+type WorldHeadcountRow = z.infer<typeof WorldHeadcountRowSchema>;
 
 export type PresenceSnapshot = {
   current: CurrentSnapshot | null;
@@ -36,14 +36,14 @@ function presencePath(suffix: string): string {
   return `${PRESENCE_BASE}${suffix}`;
 }
 
-export async function fetchCurrent(opts: GetOptions = {}): Promise<CurrentSnapshot | null> {
+async function fetchCurrent(opts: GetOptions = {}): Promise<CurrentSnapshot | null> {
   const env = await getJSON<unknown>(presencePath("/current"), opts);
   const parsed = CurrentEnvelopeSchema.safeParse(env);
   if (!parsed.success || !parsed.data.current) return null;
   return parsed.data.current;
 }
 
-export async function fetchCurrentScenes(opts: GetOptions = {}): Promise<SceneOccupancyRow[]> {
+async function fetchCurrentScenes(opts: GetOptions = {}): Promise<SceneOccupancyRow[]> {
   const env = await getJSON<unknown>(presencePath("/current/scenes"), opts);
   const parsed = ScenesEnvelopeSchema.safeParse(env);
   if (!parsed.success) {
@@ -58,7 +58,7 @@ export async function fetchCurrentScenes(opts: GetOptions = {}): Promise<SceneOc
   return out;
 }
 
-export async function fetchCurrentWorlds(opts: GetOptions = {}): Promise<WorldHeadcountRow[]> {
+async function fetchCurrentWorlds(opts: GetOptions = {}): Promise<WorldHeadcountRow[]> {
   const env = await getJSON<unknown>(presencePath("/current/worlds"), opts);
   const parsed = WorldsEnvelopeSchema.safeParse(env);
   if (!parsed.success) {
@@ -108,7 +108,7 @@ export function worldJumpUrl(worldName: string): string {
   return `https://catalyst.example.com/play/?realm=${encodeURIComponent(worldName)}`;
 }
 
-export type OccupancyTotals = {
+type OccupancyTotals = {
   peers: number;
   scenes: number;
   worlds: number;

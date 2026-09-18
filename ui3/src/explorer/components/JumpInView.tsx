@@ -2,7 +2,7 @@ import Button from "../../atoms/Button";
 import TeleportPrompt from "./TeleportPrompt";
 import "./jumpinview.css";
 
-export type JumpInViewProps = {
+type JumpInViewProps = {
   variant: string;
   placeTitle: string;
   launching: boolean;

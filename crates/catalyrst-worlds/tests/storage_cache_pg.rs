@@ -372,3 +372,185 @@ async fn list_page_splices_row_text_verbatim() {
 
     scratch.drop().await;
 }
+
+#[tokio::test]
+async fn paged_lists_carry_an_exact_total_in_one_statement() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    let storage = Storage::new(pool.clone(), cache_cfg(false));
+
+    for key in ["a", "b", "c"] {
+        storage
+            .world_upsert_with_quota(WORLD, PLACE, key, "1", LIMITS)
+            .await
+            .unwrap();
+        storage
+            .player_upsert_with_quota(WORLD, PLACE, PLAYER_A, key, "1", LIMITS)
+            .await
+            .unwrap();
+        storage
+            .env_upsert_with_quota(WORLD, PLACE, key, b"x", 1, LIMITS)
+            .await
+            .unwrap();
+    }
+    storage
+        .player_upsert_with_quota(WORLD, PLACE, PLAYER_B, "z", "1", LIMITS)
+        .await
+        .unwrap();
+
+    let (page, total) = storage
+        .world_list_page(WORLD, PLACE, 2, 0, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        page.iter().map(|e| e.key.as_str()).collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert_eq!(total, 3);
+    let (past_end, total) = storage
+        .world_list_page(WORLD, PLACE, 2, 10, None)
+        .await
+        .unwrap();
+    assert!(past_end.is_empty());
+    assert_eq!(
+        total, 3,
+        "an empty page past the start still reports the count"
+    );
+    let (none, total) = storage
+        .world_list_page(WORLD, PLACE, 2, 0, Some("zz"))
+        .await
+        .unwrap();
+    assert!(none.is_empty());
+    assert_eq!(total, 0);
+
+    let (page, total) = storage
+        .player_list_page(WORLD, PLACE, PLAYER_A, 10, 1, Some("b"))
+        .await
+        .unwrap();
+    assert!(page.is_empty());
+    assert_eq!(total, 1);
+    let (page, total) = storage
+        .player_list_page(WORLD, PLACE, PLAYER_A, 10, 1, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        page.iter().map(|e| e.key.as_str()).collect::<Vec<_>>(),
+        ["b", "c"]
+    );
+    assert_eq!(total, 3);
+
+    let (players, total) = storage
+        .player_list_players_page(WORLD, PLACE, 1, 0)
+        .await
+        .unwrap();
+    assert_eq!(players, vec![PLAYER_A.to_string()]);
+    assert_eq!(total, 2);
+    let (players, total) = storage
+        .player_list_players_page(WORLD, PLACE, 1, 1)
+        .await
+        .unwrap();
+    assert_eq!(players, vec![PLAYER_B.to_string()]);
+    assert_eq!(total, 2);
+
+    let (keys, total) = storage
+        .env_list_keys_page(WORLD, PLACE, 5, 0, None)
+        .await
+        .unwrap();
+    assert_eq!(keys, vec!["a", "b", "c"]);
+    assert_eq!(total, 3);
+    let (keys, total) = storage
+        .env_list_keys_page(WORLD, PLACE, 5, 3, None)
+        .await
+        .unwrap();
+    assert!(keys.is_empty());
+    assert_eq!(total, 3);
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn quota_upsert_refuses_over_limit_writes_in_place() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    let storage = Storage::new(pool.clone(), cache_cfg(false));
+    let tight = NamespaceLimits {
+        max_value_size_bytes: 8,
+        max_total_size_bytes: 12,
+    };
+
+    storage
+        .world_upsert_with_quota(WORLD, PLACE, "a", "12345678", tight)
+        .await
+        .unwrap();
+    let too_big = storage
+        .world_upsert_with_quota(WORLD, PLACE, "b", "123456789", tight)
+        .await
+        .unwrap_err();
+    assert!(
+        too_big
+            .to_string()
+            .contains("exceeds the maximum allowed size (8 bytes)"),
+        "{too_big}"
+    );
+    let over_total = storage
+        .world_upsert_with_quota(WORLD, PLACE, "b", "12345", tight)
+        .await
+        .unwrap_err();
+    assert!(
+        over_total
+            .to_string()
+            .contains("would exceed the maximum allowed (12 bytes)"),
+        "{over_total}"
+    );
+    assert!(storage
+        .world_get(WORLD, PLACE, "b")
+        .await
+        .unwrap()
+        .is_none());
+    // Replacing the existing value counts its old size against the total.
+    storage
+        .world_upsert_with_quota(WORLD, PLACE, "a", "1234", tight)
+        .await
+        .unwrap();
+    storage
+        .world_upsert_with_quota(WORLD, PLACE, "b", "12345678", tight)
+        .await
+        .unwrap();
+    let info = storage.world_size_info(WORLD, PLACE, None).await.unwrap();
+    assert_eq!(info.total_size, 12);
+
+    storage
+        .player_upsert_with_quota(WORLD, PLACE, PLAYER_A, "k", "12345678", tight)
+        .await
+        .unwrap();
+    let err = storage
+        .player_upsert_with_quota(WORLD, PLACE, PLAYER_A, "k2", "12345", tight)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("would exceed"), "{err}");
+    storage
+        .player_upsert_with_quota(WORLD, PLACE, PLAYER_B, "k", "12345678", tight)
+        .await
+        .unwrap();
+
+    storage
+        .env_upsert_with_quota(WORLD, PLACE, "e", b"xxxxxxxx", 8, tight)
+        .await
+        .unwrap();
+    let err = storage
+        .env_upsert_with_quota(WORLD, PLACE, "e2", b"xxxxx", 5, tight)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("would exceed"), "{err}");
+    assert!(storage
+        .env_get_enc(WORLD, PLACE, "e2")
+        .await
+        .unwrap()
+        .is_none());
+
+    scratch.drop().await;
+}

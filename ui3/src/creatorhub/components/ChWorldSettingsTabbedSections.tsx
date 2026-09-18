@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Close, ChevronDownAlt } from "../../atoms/icons";
 import Button from "../../atoms/Button";
 import Checkbox from "../../atoms/Checkbox";
@@ -139,6 +139,28 @@ const MoreIcon = () => (
   </svg>
 );
 
+export type WorldSettingsValues = {
+  title: string;
+  description: string;
+  categories: string[];
+  spawnCoordinates: string;
+  skyboxTime: number | null;
+  singlePlayer: boolean;
+  showInPlaces: boolean;
+  thumbnailUrl: string | null;
+};
+
+const EMPTY_SETTINGS: WorldSettingsValues = {
+  title: "", description: "", categories: [], spawnCoordinates: "0,0",
+  skyboxTime: null, singlePlayer: false, showInPlaces: true, thumbnailUrl: null,
+};
+
+type SettingsFieldsProps = {
+  settings: WorldSettingsValues;
+  onChange: (change: Partial<WorldSettingsValues>) => void;
+  onThumbnail?: (file: File) => void;
+};
+
 export type WorldSceneVM = {
   entityId: string;
   title: string;
@@ -159,20 +181,17 @@ const ATLAS = [
 ];
 const ATLAS_FILL: Record<number, string> = { 1: "#ff2d55", 2: "#438fff" };
 
-function DetailsTab() {
-  const thumbnail: string | null = null;
+function DetailsTab({ settings, onChange, onThumbnail }: SettingsFieldsProps) {
+  const thumbnail = settings.thumbnailUrl;
+  const fileInput = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<string[]>([]);
+  const selected = settings.categories;
   const labelFor = (v: string) =>
     CATEGORY_OPTIONS.find((o) => o.value === v)?.label || v;
   const toggle = (v: string) => {
-    setSelected((prev) =>
-      prev.includes(v)
-        ? prev.filter((x) => x !== v)
-        : prev.length < MAX_CATEGORIES
-          ? [...prev, v]
-          : prev,
-    );
+    onChange({ categories: selected.includes(v)
+      ? selected.filter((x) => x !== v)
+      : selected.length < MAX_CATEGORIES ? [...selected, v] : selected });
   };
 
   return (
@@ -180,14 +199,14 @@ function DetailsTab() {
       <label className="chwsts__inputlabel chwsts__colbig">
         <span className="chwsts__labeltext">{COPY.details.world_title}</span>
         <span className="chwsts__textfield">
-          <input className="chwsts__input" type="text" defaultValue="" />
+          <input className="chwsts__input" type="text" value={settings.title} maxLength={100} onChange={(event) => onChange({ title: event.target.value })} />
         </span>
       </label>
 
       <label className="chwsts__inputlabel chwsts__colbig">
         <span className="chwsts__labeltext">{COPY.details.description}</span>
         <span className="chwsts__textfield">
-          <textarea className="chwsts__textarea" rows={4} defaultValue="" />
+          <textarea aria-label={COPY.details.description} className="chwsts__textarea" rows={4} value={settings.description} maxLength={1000} onChange={(event) => onChange({ description: event.target.value })} />
         </span>
       </label>
 
@@ -200,7 +219,12 @@ function DetailsTab() {
             <span className="chwsts__noimage">{COPY.details.no_image}</span>
           )}
         </div>
-        <Button variant="secondary" className="chwsts__thumbbtn">
+        <input ref={fileInput} type="file" hidden accept="image/png,image/jpeg,image/gif,image/webp" aria-label="World thumbnail" onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) onThumbnail?.(file);
+          event.target.value = "";
+        }} />
+        <Button variant="secondary" className="chwsts__thumbbtn" disabled={!onThumbnail} onClick={() => fileInput.current?.click()}>
           <FolderIcon />
           {thumbnail ? COPY.details.replace_image : COPY.details.set_image}
         </Button>
@@ -279,12 +303,15 @@ function RangeHourField({
   value,
   disabled,
   inputId,
+  onChange,
 }: {
   value: number;
+  onChange: (value: number) => void;
   disabled?: boolean;
   inputId?: string;
 }) {
-  const [seconds, setSeconds] = useState(value);
+  const seconds = value;
+  const setSeconds = onChange;
   const completion = useMemo(() => {
     const norm = Math.min(Math.max(seconds, MIN_SECONDS), MAX_SECONDS);
     return ((norm - MIN_SECONDS) / (MAX_SECONDS - MIN_SECONDS)) * 100 || 0;
@@ -326,11 +353,11 @@ function RangeHourField({
   );
 }
 
-function GeneralTab() {
-  const [auto, setAuto] = useState(true);
-  const [single, setSingle] = useState(false);
-  const [places, setPlaces] = useState(true);
-  const [x, y] = ["0", "0"];
+function GeneralTab({ settings, onChange }: SettingsFieldsProps) {
+  const auto = settings.skyboxTime === null;
+  const single = settings.singlePlayer;
+  const places = settings.showInPlaces;
+  const [x = "0", y = "0"] = settings.spawnCoordinates.split(",");
   const uid = useId();
   const xId = `${uid}-x`;
   const yId = `${uid}-y`;
@@ -345,11 +372,11 @@ function GeneralTab() {
           <div className="chwsts__row">
             <span className="chwsts__coordfield">
               <label className="chwsts__coordlabel" htmlFor={xId}>X</label>
-              <input id={xId} className="chwsts__coordinput" defaultValue={x} />
+              <input id={xId} className="chwsts__coordinput" type="number" min={-150} max={150} step={1} value={x} onChange={(event) => onChange({ spawnCoordinates: `${event.target.value},${y}` })} />
             </span>
             <span className="chwsts__coordfield">
               <label className="chwsts__coordlabel" htmlFor={yId}>Y</label>
-              <input id={yId} className="chwsts__coordinput" defaultValue={y} />
+              <input id={yId} className="chwsts__coordinput" type="number" min={-150} max={150} step={1} value={y} onChange={(event) => onChange({ spawnCoordinates: `${x},${event.target.value}` })} />
             </span>
           </div>
         </div>
@@ -357,17 +384,17 @@ function GeneralTab() {
 
       <div className="chwsts__formgroup">
         <TitleDivider title={COPY.general.world_skybox} />
-        <Checkbox checked={auto} onChange={setAuto}>
+        <Checkbox checked={auto} onChange={(checked) => onChange({ skyboxTime: checked ? null : MIDDAY_SECONDS })}>
           {COPY.general.auto_skybox}
         </Checkbox>
         <label className="chwsts__body2" htmlFor={offsetId}>{COPY.general.max_offset}</label>
-        <RangeHourField value={MIDDAY_SECONDS} disabled={auto} inputId={offsetId} />
+        <RangeHourField value={settings.skyboxTime ?? MIDDAY_SECONDS} onChange={(skyboxTime) => onChange({ skyboxTime })} disabled={auto} inputId={offsetId} />
       </div>
 
       <div className="chwsts__formgroup">
         <TitleDivider title={COPY.general.general} />
         <div className="chwsts__column">
-          <Checkbox checked={single} onChange={setSingle}>
+          <Checkbox checked={single} onChange={(singlePlayer) => onChange({ singlePlayer })}>
             {COPY.general.single_player}
           </Checkbox>
           {single && (
@@ -378,7 +405,7 @@ function GeneralTab() {
           )}
         </div>
         <div className="chwsts__showinplaces">
-          <Checkbox checked={places} onChange={setPlaces}>
+          <Checkbox checked={places} onChange={(showInPlaces) => onChange({ showInPlaces })}>
             {COPY.general.show_in_places}
           </Checkbox>
         </div>
@@ -653,6 +680,9 @@ const TABS = [
 ];
 
 type ChWorldSettingsTabbedSectionsProps = {
+  settings?: WorldSettingsValues;
+  onSettingsChange?: (change: Partial<WorldSettingsValues>) => void;
+  onThumbnail?: (file: File) => void;
   variant?: "modal" | "panel";
   tab?: string;
   isOwner?: boolean;
@@ -670,6 +700,9 @@ type ChWorldSettingsTabbedSectionsProps = {
 };
 
 export default function ChWorldSettingsTabbedSections({
+  settings,
+  onSettingsChange,
+  onThumbnail,
   variant = "modal",
   tab = "details",
   isOwner = true,
@@ -685,10 +718,16 @@ export default function ChWorldSettingsTabbedSections({
   onDiscard,
   onSave,
 }: ChWorldSettingsTabbedSectionsProps) {
+  const [internalSettings, setInternalSettings] = useState(EMPTY_SETTINGS);
+  const values = settings ?? internalSettings;
+  const update = (change: Partial<WorldSettingsValues>) => {
+    if (onSettingsChange) onSettingsChange(change);
+    else setInternalSettings((current) => ({ ...current, ...change }));
+  };
   const [internalTab, setInternalTab] = useState(tab);
   const active = onTabChange ? tab : internalTab;
   const activeTab = isOwner ? active : "layout";
-  const showActions = hasChanges && activeTab !== "layout";
+  const showActions = hasChanges;
   const pickTab = (id: string) => {
     if (onTabChange) onTabChange(id);
     else setInternalTab(id);
@@ -717,6 +756,7 @@ export default function ChWorldSettingsTabbedSections({
               className="chwsts__close"
               aria-label="Close World Settings"
               onClick={onClose}
+              disabled={isLoading}
             >
               <Close size={22} />
             </button>
@@ -738,6 +778,7 @@ export default function ChWorldSettingsTabbedSections({
                   role="tab"
                   aria-selected={t.id === activeTab}
                   className={"chwsts__tab" + (t.id === activeTab ? " is-selected" : "")}
+                  disabled={isLoading}
                   onClick={() => pickTab(t.id)}
                 >
                   {t.label}
@@ -753,8 +794,12 @@ export default function ChWorldSettingsTabbedSections({
               </div>
             ) : (
               <>
-                {activeTab === "details" && <DetailsTab />}
-                {activeTab === "general" && <GeneralTab />}
+                {activeTab !== "layout" && (
+                  <fieldset disabled={isLoading} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+                    {activeTab === "details" && <DetailsTab settings={values} onChange={update} onThumbnail={onThumbnail} />}
+                    {activeTab === "general" && <GeneralTab settings={values} onChange={update} />}
+                  </fieldset>
+                )}
                 {activeTab === "layout" && (
                   <LayoutTab
                     key={layoutView}
@@ -769,10 +814,10 @@ export default function ChWorldSettingsTabbedSections({
                 {showActions && (
                   <div className="chwsts__actionscontainer">
                     <span className="chwsts__unsavedtext">{COPY.discard_confirmation}</span>
-                    <Button variant="ghost" onClick={onDiscard}>
+                    <Button variant="ghost" onClick={onDiscard} disabled={isLoading}>
                       {COPY.actions.discard}
                     </Button>
-                    <Button variant="primary" onClick={onSave}>
+                    <Button variant="primary" onClick={onSave} disabled={isLoading}>
                       {COPY.actions.save}
                     </Button>
                   </div>

@@ -1,9 +1,25 @@
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+
 use axum::extract::{Path, State};
 use axum::Json;
 use serde_json::{json, Value};
 
 use crate::http::ApiError;
 use crate::AppState;
+
+/// Resolved wearable entities per selected URN set; only successful lookups are kept.
+const PREVIEW_MEMO_TTL: Duration = Duration::from_secs(120);
+
+fn preview_memo() -> &'static moka::future::Cache<String, Arc<Vec<Value>>> {
+    static MEMO: OnceLock<moka::future::Cache<String, Arc<Vec<Value>>>> = OnceLock::new();
+    MEMO.get_or_init(|| {
+        moka::future::Cache::builder()
+            .time_to_live(PREVIEW_MEMO_TTL)
+            .max_capacity(1024)
+            .build()
+    })
+}
 
 /// `GET /world/{world_name}/preview-wearables` -- the smart wearables this realm
 /// is previewing.
@@ -41,7 +57,20 @@ pub async fn get_preview_wearables(
         return Ok(Json(json!({ "ok": true, "data": [] })));
     }
 
-    let entities = fetch_active_entities(&state, &selected).await;
+    let mut sorted = selected.clone();
+    sorted.sort();
+    let memo_key = sorted.join("\n");
+    let entities = match preview_memo().get(&memo_key).await {
+        Some(hit) => hit,
+        None => match fetch_active_entities(&state, &selected).await {
+            Some(fetched) => {
+                let fetched = Arc::new(fetched);
+                preview_memo().insert(memo_key, fetched.clone()).await;
+                fetched
+            }
+            None => Arc::new(Vec::new()),
+        },
+    };
     let content_base = state.cfg.content_public_url.trim_end_matches('/');
     let data: Vec<Value> = entities
         .iter()
@@ -54,7 +83,7 @@ pub async fn get_preview_wearables(
 /// A failure here is not the visitor's problem: the realm is still enterable, and the
 /// client's contract is that an empty list means "nothing previewed", so an unreachable
 /// content server degrades to that rather than a 500 mid-entry.
-async fn fetch_active_entities(state: &AppState, pointers: &[String]) -> Vec<Value> {
+async fn fetch_active_entities(state: &AppState, pointers: &[String]) -> Option<Vec<Value>> {
     let url = format!(
         "{}/entities/active",
         state.cfg.content_public_url.trim_end_matches('/')
@@ -66,18 +95,18 @@ async fn fetch_active_entities(state: &AppState, pointers: &[String]) -> Vec<Val
         .send()
         .await;
     match resp {
-        Ok(r) if r.status().is_success() => r.json::<Vec<Value>>().await.unwrap_or_default(),
+        Ok(r) if r.status().is_success() => r.json::<Vec<Value>>().await.ok(),
         Ok(r) => {
             tracing::warn!(
                 url,
                 status = r.status().as_u16(),
                 "preview-wearables: content server rejected the pointer lookup"
             );
-            Vec::new()
+            None
         }
         Err(e) => {
             tracing::warn!(url, error = %e, "preview-wearables: content server unreachable");
-            Vec::new()
+            None
         }
     }
 }

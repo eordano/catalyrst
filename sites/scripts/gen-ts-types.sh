@@ -21,7 +21,7 @@ ts_rs_shell_run catalyrst "$catalyrst_cmd"
 node "$SITES/scripts/gen-openapi-ts.mts" "$GENERATED/catalyst/openapi" "${OPENAPI_SPECS[@]}"
 
 ts_rs_shell_run bridge "set -e; export TS_RS_EXPORT_DIR='$GENERATED'; cd '$ROOT/bevy-explorer'; \
-cargo test --features ts -p '$BRIDGE_CRATE' --lib export_bindings"
+cargo test $BRIDGE_CARGO_ARGS --lib export_bindings"
 
 assemble_editor_bus "$GENERATED/editor-bus" "$GENERATED/editor-bus.ts"
 rm -rf "$GENERATED/editor-bus"

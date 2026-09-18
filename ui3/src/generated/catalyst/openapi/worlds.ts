@@ -460,6 +460,12 @@ export interface components {
       permission: string;
       world_wide: boolean;
     };
+    PersonalWorldsStatus: {
+      /** Format: int64 */
+      maxSizeBytes: number;
+      /** Format: int64 */
+      maxWorlds: number;
+    };
     /**
      * @description One mirrored world, as published.
      *
@@ -532,6 +538,7 @@ export interface components {
     StatusResponse: {
       comms: components["schemas"]["CommsStatus"];
       content: components["schemas"]["ContentStatus"];
+      personalWorlds?: null | components["schemas"]["PersonalWorldsStatus"];
     };
     WorldIndexEntry: {
       name: string;
@@ -1287,6 +1294,9 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["IndexResponse"];
         };
+      };
+      304: {
+        content: never;
       };
       500: {
         content: {

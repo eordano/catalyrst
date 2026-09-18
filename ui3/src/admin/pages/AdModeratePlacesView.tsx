@@ -1,3 +1,4 @@
+import Button from "../../atoms/Button";
 import Spinner from "../../atoms/Spinner";
 import AdModerationDecisionBar from "./AdModerationDecisionBar";
 import AdReportQueue from "./AdReportQueue";
@@ -9,10 +10,10 @@ import type {
   QueueBuckets,
   ReportCard,
 } from "./AdReportTypes";
-import "../../web/pages/stwhatsonadminpendingevents.css";
+import "../admin.css";
 import "./placesmoderation.css";
 
-export type AdModeratePlacesViewProps = {
+type AdModeratePlacesViewProps = {
   step: string;
   value: ModeratePlacesStateValue;
   buckets: QueueBuckets;
@@ -58,7 +59,7 @@ export default function AdModeratePlacesView({
   onContinue,
 }: AdModeratePlacesViewProps) {
   return (
-    <div className="mpw" data-step={step} data-state={value}>
+    <div className="adm adm-places" data-step={step} data-state={value}>
       <AdReportQueue
         buckets={buckets}
         reasons={reasons}
@@ -67,46 +68,30 @@ export default function AdModeratePlacesView({
         onOpen={onOpen}
       />
 
-      <div className="mpw-layer" role="group" aria-label="Moderation wizard">
+      <div role="group" aria-label="Moderation wizard">
         {value === "reviewReport" && activeCard && (
-          <div className="mpw-panel">
+          <div className="adm-card adm-card--solid adm-card--float">
             <AdReportReviewPanel
               card={activeCard}
               reasons={reasons}
               onClose={onClose}
             />
-            <div className="mpw-panel__decide">
-              <p className="mpw-panel__text">Choose a decision to continue.</p>
-              <div className="mpw-panel__decidebtns">
-                <button
-                  type="button"
-                  className="mdb-btn mdb-btn--resolve"
-                  onClick={() => onDecide("resolve")}
-                >
+            <div className="adm-card__foot adm-stack">
+              <p className="adm-card__text">Choose a decision to continue.</p>
+              <div className="adm-actions adm-actions--start">
+                <Button variant="secondary" tone="success" onClick={() => onDecide("resolve")}>
                   Resolve
-                </button>
-                <button
-                  type="button"
-                  className="mdb-btn mdb-btn--dismiss"
-                  onClick={() => onDecide("dismiss")}
-                >
+                </Button>
+                <Button variant="secondary" onClick={() => onDecide("dismiss")}>
                   Dismiss
-                </button>
-                <button
-                  type="button"
-                  className="mdb-btn mdb-btn--action"
-                  onClick={() => onDecide("action")}
-                >
+                </Button>
+                <Button variant="secondary" tone="danger" onClick={() => onDecide("action")}>
                   Action + disable
-                </button>
+                </Button>
                 {activeCard.status !== "open" && (
-                  <button
-                    type="button"
-                    className="mdb-btn mdb-btn--reopen"
-                    onClick={() => onDecide("reopen")}
-                  >
+                  <Button variant="secondary" onClick={() => onDecide("reopen")}>
                     Reopen
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -114,7 +99,7 @@ export default function AdModeratePlacesView({
         )}
 
         {value === "decision" && activeCard && (
-          <div className="mpw-panel">
+          <div className="adm-card adm-card--solid adm-card--float">
             <AdModerationDecisionBar
               card={activeCard}
               resolutions={resolutions}
@@ -130,29 +115,29 @@ export default function AdModeratePlacesView({
         )}
 
         {value === "submitting" && (
-          <div className="mpw-panel mpw-panel--submitting" role="status">
-            <Spinner size={22} aria-hidden="true" />
-            <p className="mpw-panel__text">
-              Applying decision&#x2026; <em>(PATCH /places/api/reports/{activeId})</em>
-            </p>
+          <div className="adm-card adm-card--solid adm-card--float" role="status">
+            <div className="adm-actions adm-actions--start">
+              <Spinner size={22} aria-hidden="true" />
+              <p className="adm-card__text">
+                Applying decision&#x2026; <em>(PATCH /places/api/reports/{activeId})</em>
+              </p>
+            </div>
           </div>
         )}
 
         {value === "moderated" && activeCard && (
-          <div className="mpw-panel mpw-panel--done" role="status" aria-live="polite">
-            <h2 className="mpw-panel__title">Decision recorded</h2>
-            <p className="mpw-panel__text">
+          <div className="adm-card adm-card--solid adm-card--float" role="status" aria-live="polite">
+            <h2 className="adm-card__title">Decision recorded</h2>
+            <p className="adm-card__text">
               <strong>{activeCard.placeTitle}</strong> &#x2014; report #{activeCard.id}{" "}
               {resultStatus ?? "updated"}
               {resultPlaceDisabled ? "; place disabled" : ""}.
             </p>
-            <button
-              type="button"
-              className="mdb-btn mdb-btn--confirm"
-              onClick={onContinue}
-            >
-              Back to queue
-            </button>
+            <div className="adm-actions adm-actions--start">
+              <Button variant="primary" onClick={onContinue}>
+                Back to queue
+              </Button>
+            </div>
           </div>
         )}
       </div>

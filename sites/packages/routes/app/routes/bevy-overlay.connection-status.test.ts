@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as track from "@core/lib/telemetry/track";
+import { resetRealmAboutCache } from "@data/lib/catalyst/realm-about.server";
 import { loader } from "./bevy-overlay.connection-status";
 
 type RealmStatus = {
@@ -39,6 +40,7 @@ async function realmFrom(): Promise<RealmStatus> {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  resetRealmAboutCache();
   vi.spyOn(track, "trackExposure").mockImplementation(() => {});
 });
 
@@ -47,22 +49,12 @@ afterEach(() => {
 });
 
 describe("GET /bevy-overlay/connection-status", () => {
-  it("degrades to the unavailable realm when /about is unreachable", async () => {
+  it("degrades to the unavailable realm when /about is unreachable, errors or is not JSON", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
     expect(await realmFrom()).toEqual({ ...NULL_REALM, unavailable: true });
-  });
-
-  it("degrades to the unavailable realm on a /about error status", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("nope", { status: 503 }),
-    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("nope", { status: 503 }));
     expect(await realmFrom()).toEqual({ ...NULL_REALM, unavailable: true });
-  });
-
-  it("degrades to the unavailable realm when /about is not JSON", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("<html>down</html>", { status: 200 }),
-    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("<html>down</html>", { status: 200 }));
     expect(await realmFrom()).toEqual({ ...NULL_REALM, unavailable: true });
   });
 
@@ -73,7 +65,7 @@ describe("GET /bevy-overlay/connection-status", () => {
     }
   });
 
-  it("reads realm name, comms protocol and user count from a healthy /about", async () => {
+  it("reads realm name, comms protocol and user count from a healthy /about and nulls wrong types", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       json({
         healthy: true,
@@ -87,14 +79,10 @@ describe("GET /bevy-overlay/connection-status", () => {
       usersCount: 42,
       unavailable: false,
     });
-  });
 
-  it("nulls comms fields with wrong types instead of guessing", async () => {
+    resetRealmAboutCache();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      json({
-        configurations: { realmName: "hela" },
-        comms: { protocol: "", usersCount: "42" },
-      }),
+      json({ configurations: { realmName: "hela" }, comms: { protocol: "", usersCount: "42" } }),
     );
     expect(await realmFrom()).toEqual({ ...NULL_REALM, realmName: "hela" });
   });

@@ -85,13 +85,9 @@ pub async fn livekit_webhook(
     };
 
     if let Some(action) = action {
-        if let Err(e) = state
+        state
             .worlds
-            .record_access(&world, &participant.identity, action, &room.name)
-            .await
-        {
-            tracing::warn!(error = %e, "failed to persist world access log row");
-        }
+            .record_access_queued(&world, &participant.identity, action, &room.name);
     }
 
     Ok(Json(json!({ "ok": true })))

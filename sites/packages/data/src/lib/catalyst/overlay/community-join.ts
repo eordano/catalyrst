@@ -34,7 +34,7 @@ function projectRow(node: unknown): CommunityRow | null {
   return parsed.data;
 }
 
-export function isDisplayableCommunity(c: CommunityRow): boolean {
+function isDisplayableCommunity(c: CommunityRow): boolean {
   const name = (c.name ?? "").trim();
   if (!name) return false;
   if (/[<>]/.test(name)) return false;
@@ -100,9 +100,7 @@ export function actionFor(community: Pick<Community, "privacy">): JoinAction {
   return community.privacy === "private" ? "request" : "join";
 }
 
-export type RequestBody = { kind: "request_to_join" };
-
-export const CommitResultSchema = z.object({
+const CommitResultSchema = z.object({
   ok: z.literal(true),
   action: z.enum(["join", "request"]),
   communityId: z.string(),

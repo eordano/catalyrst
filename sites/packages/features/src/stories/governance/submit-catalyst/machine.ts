@@ -13,8 +13,8 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type { TrackFn };
 
-export type NodeDetails = { owner: string; domain: string; alreadyACatalyst: boolean };
-export type Rationale = { description: string; coAuthors: string[] };
+type NodeDetails = { owner: string; domain: string; alreadyACatalyst: boolean };
+type Rationale = { description: string; coAuthors: string[] };
 
 export type CreateFn = (args: {
   request: CatalystRequest;
@@ -23,14 +23,14 @@ export type CreateFn = (args: {
   signal?: AbortSignal;
 }) => Promise<CreatedProposal>;
 
-export type SubmitCatalystInput = {
+type SubmitCatalystInput = {
   request: CatalystRequest;
   trackCtx: TrackContext;
   create?: CreateFn;
   track?: TrackFn;
 };
 
-export type SubmitCatalystContext = {
+type SubmitCatalystContext = {
   request: CatalystRequest;
   trackCtx: TrackContext;
   create: CreateFn;
@@ -41,7 +41,7 @@ export type SubmitCatalystContext = {
   error?: string;
 };
 
-export type SubmitCatalystEvent =
+type SubmitCatalystEvent =
   | { type: "FILL_DETAILS"; owner: string; domain: string; alreadyACatalyst?: boolean }
   | { type: "DOMAIN_INVALID" }
   | { type: "FILL_DESCRIPTION"; description: string; coAuthors?: string[] }
@@ -69,8 +69,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type CatalystStateId = keyof typeof STATE_TO_SLUG;
-export type CatalystStepSlug = (typeof STATE_TO_SLUG)[CatalystStateId];
+type CatalystStateId = keyof typeof STATE_TO_SLUG;
+type CatalystStepSlug = (typeof STATE_TO_SLUG)[CatalystStateId];
 
 export const FIRST_STEP_SLUG: CatalystStepSlug = STATE_TO_SLUG.details;
 
@@ -261,8 +261,6 @@ export const submitCatalystMachine = setup({
     },
   },
 });
-
-export type SubmitCatalystMachine = typeof submitCatalystMachine;
 
 export function resolveCatalystSnapshot(args: {
   step: CatalystStateId;

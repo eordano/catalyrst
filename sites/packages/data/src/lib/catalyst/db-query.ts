@@ -1,6 +1,6 @@
 import type { FetchPlacesParams } from "./types";
 
-export type SqlQuery = { text: string; values: unknown[] };
+type SqlQuery = { text: string; values: unknown[] };
 
 export const PLACE_COLUMNS = `
   id, title, description, raw->>'image' AS image,

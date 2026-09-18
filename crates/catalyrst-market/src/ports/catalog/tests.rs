@@ -356,9 +356,14 @@ fn v1_two_pass_shape() {
     };
     let (sql, _) = build_collections_items_catalog_query(&paged);
     assert!(
-        sql.contains("WITH nfts_with_orders AS MATERIALIZED"),
-        "aggregate must be a shared CTE"
+        sql.contains("WITH ranked AS ( SELECT items.id AS ranked_id"),
+        "item-only sorts rank the page before aggregating orders: {sql}"
     );
+    assert!(
+        sql.contains("orders.item_id IN (SELECT ranked_id FROM ranked)"),
+        "aggregate must be scoped to the page: {sql}"
+    );
+    assert!(!sql.contains("MATERIALIZED"), "{sql}");
     assert!(
         sql.contains("orders.expires_at_normalized > NOW()")
             && sql.contains("orders.expires_at BETWEEN 1000000000 AND 9999999999")
@@ -372,6 +377,40 @@ fn v1_two_pass_shape() {
         "payload pass must join the page"
     );
     assert_eq!(sql.matches("LIMIT $").count(), 1, "{sql}");
+
+    for f in [
+        CatalogFilters {
+            first: Some(24),
+            sort_by: Some(CatalogSortBy::Cheapest),
+            ..Default::default()
+        },
+        CatalogFilters {
+            first: Some(24),
+            is_on_sale: Some(true),
+            ..Default::default()
+        },
+        CatalogFilters {
+            first: Some(24),
+            min_price: Some("1".into()),
+            ..Default::default()
+        },
+        CatalogFilters {
+            first: Some(24),
+            only_listing: true,
+            ..Default::default()
+        },
+    ] {
+        let (sql, _) = build_collections_items_catalog_query(&f);
+        assert!(
+            sql.contains("WITH nfts_with_orders AS MATERIALIZED"),
+            "sorts and filters that read the aggregate keep it shared: {sql}"
+        );
+        assert!(!sql.contains("IN (SELECT ranked_id FROM ranked)"), "{sql}");
+        assert!(
+            sql.contains("JOIN ranked ON ranked.ranked_id = items.id"),
+            "{sql}"
+        );
+    }
 
     let unpaged = CatalogFilters::default();
     let (sql, _) = build_collections_items_catalog_query(&unpaged);

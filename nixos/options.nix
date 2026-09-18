@@ -502,6 +502,50 @@ in
       '';
     };
 
+    comms.v4 = mkOption {
+      description = ''
+        Multiplayer v4, served beside v3 on the same endpoints. On by default
+        wherever `subServices.comms` is on: the module provisions the
+        `comms_control` authority database with its `archipelago` role, arms
+        Archipelago, Comms Gatekeeper and both Pulse units, and advertises the
+        endpoints under `/about` -> `comms.v4`. `COMMS_PROTOCOL` stays `v3`
+        and old clients are unaffected. `enable = false` yields exactly the
+        pre-v4 units. Every empty string takes its derived value: `audience`
+        is `domain`, `pulseIssuer` is `pulse-server.<domain>`,
+        `pulseNativeEndpoint` is `pulse-server.<domain>:<pulse.port>`; with
+        `exposure = "lan"` both use the bare `domain`, the way `livekit.host`
+        addresses the box directly. Two
+        deployments that must not accept each other's signatures need
+        different audiences; replicas of one deployment share the audience and
+        differ in `pulseIssuer`. The server drops an advertised control URL
+        that is not `wss` (or `ws` on loopback), so `tls = "none"` on a
+        routable name advertises Pulse only. `pulseWebTransportUrl` stays
+        unset unless a WebTransport listener is fronted outside this module.
+        With the social bundle on, `/about` also advertises
+        `https://<domain>/island-refresh`, the signed empty-body POST a v4
+        client renews its island credential with; like the control URL it is
+        dropped when it is not `https` (or `http` on loopback).
+        `applicationRelay` lets Pulse carry scene application data for
+        clients that prove they hold a LiveKit token of the room. Pulse then
+        asks the comms member for a room lease at
+        `http://127.0.0.1:5145/internal/pulse/room-authority/v1`, which
+        nginx never exposes, and signs each request with a dedicated 32-byte
+        key generated once into `secretsDir`; both share the host network,
+        so the endpoint stays on loopback. Off by default, as in the binary.
+      '';
+      default = { };
+      type = types.submodule {
+        options = {
+          enable = boolOpt true;
+          audience = strOpt "";
+          pulseIssuer = strOpt "";
+          pulseNativeEndpoint = strOpt "";
+          pulseWebTransportUrl = strOpt "";
+          applicationRelay = boolOpt false;
+        };
+      };
+    };
+
     subServices = mkOption {
       description = ''
         Which sibling services to run. Seeded by `profile` through

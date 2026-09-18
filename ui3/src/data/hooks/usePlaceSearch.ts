@@ -11,11 +11,13 @@ export function isEnsQuery(query: string): boolean {
   return ENS_RE.test(query.trim());
 }
 
-export type PlaceSearchResult = {
+type PlaceSearchResult = {
   placeHits: PlaceView[];
   worldHits: PlaceView[];
   loading: boolean;
   active: boolean;
+  error: boolean;
+  retry: () => void;
 };
 
 export function usePlaceSearch(query: string): PlaceSearchResult {
@@ -35,10 +37,14 @@ export function usePlaceSearch(query: string): PlaceSearchResult {
     active,
   );
 
+  const waiting = query.trim() !== debounced;
+  const searching = query.trim().length >= MIN_QUERY_LEN;
   return {
-    placeHits: active ? (placesQ.data ?? []) : [],
-    worldHits: active ? (worldsQ.data ?? []) : [],
-    loading: active && (placesQ.isLoading || worldsQ.isLoading),
-    active,
+    placeHits: active && !waiting ? (placesQ.data ?? []) : [],
+    worldHits: active && !waiting ? (worldsQ.data ?? []) : [],
+    loading: searching && (waiting || placesQ.isPending || worldsQ.isPending),
+    active: searching,
+    error: searching && !waiting && (placesQ.isError || worldsQ.isError),
+    retry: () => { void placesQ.refetch(); void worldsQ.refetch(); },
   };
 }

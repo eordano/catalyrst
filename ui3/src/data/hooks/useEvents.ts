@@ -17,13 +17,25 @@ import {
   type EventsParams,
 } from "../catalyst/events";
 import { qk, STALE } from "../queryKeys";
+import { useBridgeState } from "../../overlay/bridge";
+import { playScreenEnabled, playSection } from "../screens/play-client";
+import { PLAY_EVENTS_PARAMS, PLAY_UPCOMING_PARAMS } from "../screens/play";
+import { usePublicResult } from "./usePublicResult";
 
 export function useEvents(params: EventsParams = {}) {
-  return useQuery({
+  const client = useQueryClient();
+  const address = useBridgeState((state) => state.identity.address);
+  const section = params.list === PLAY_EVENTS_PARAMS.list && params.limit === PLAY_EVENTS_PARAMS.limit ? "events"
+    : params.list === PLAY_UPCOMING_PARAMS.list && params.limit === PLAY_UPCOMING_PARAMS.limit ? "upcoming" : null;
+  const lobby = Object.keys(params).length === 2 && section;
+  const query = useQuery({
     queryKey: qk.events(params),
-    queryFn: ({ signal }) => fetchEvents(params, { signal }),
-    staleTime: STALE.events,
+    queryFn: ({ signal }) => playScreenEnabled(client) && lobby
+      ? playSection(client, address, lobby, signal)
+      : fetchEvents(params, { signal }),
+    staleTime: 30_000,
   });
+  return usePublicResult(query, qk.events(params));
 }
 
 export function useEventCategories() {
@@ -34,7 +46,7 @@ export function useEventCategories() {
   });
 }
 
-export const INTERESTED_ERROR_MESSAGE =
+const INTERESTED_ERROR_MESSAGE =
   "There was an error changing your interest on the event. Please try again.";
 
 type EventsPage = { data: DclEvent[]; total: number };

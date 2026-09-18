@@ -7,33 +7,31 @@ function fakeBus() {
     calls,
     ref: {
       current: {
-        addEntity: (name: string, parent: number, components: unknown) =>
-          calls.push({ name, parent, components }),
+        rpc: async (method: string, [name, parent, components]: [string, number, unknown]) => {
+          expect(method).toBe("addEntity");
+          calls.push({ name, parent, components });
+          return "512";
+        },
       },
     } as never,
   };
 }
 
+const src = (c: unknown) => (c as { GltfContainer: { src: string } }).GltfContainer.src;
+
 describe("placeAssetOnBus", () => {
-  it("places a seed-catalog asset (src) with its model attached", async () => {
+  it("places a seed-catalog asset with its model attached, preferring the live catalog's glbUrl when both exist", async () => {
     const bus = fakeBus();
     await placeAssetOnBus(bus.ref, {
       id: "door", name: "Cyberpunk Door", pack: "Smart Items",
       src: "/content/contents/bafyDOOR", smart: true,
     });
-    expect(bus.calls).toHaveLength(1);
-    const c = bus.calls[0]!;
-    expect(c.name).toBe("Cyberpunk Door");
-    expect((c.components as { GltfContainer: { src: string } }).GltfContainer.src)
-      .toContain("/content/contents/bafyDOOR");
-  });
-
-  it("still prefers the live catalog's glbUrl when both exist", async () => {
-    const bus = fakeBus();
     await placeAssetOnBus(bus.ref, {
       id: "x", name: "X", glbUrl: "/builder-items/bafyLIVE", src: "/content/contents/bafySEED",
     });
-    expect((bus.calls[0]!.components as { GltfContainer: { src: string } }).GltfContainer.src)
-      .toContain("bafyLIVE");
+    expect(bus.calls).toHaveLength(2);
+    expect(bus.calls[0]!.name).toBe("Cyberpunk Door");
+    expect(src(bus.calls[0]!.components)).toContain("/content/contents/bafyDOOR");
+    expect(src(bus.calls[1]!.components)).toContain("bafyLIVE");
   });
 });

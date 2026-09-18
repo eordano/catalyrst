@@ -2,6 +2,7 @@
   imports = [
     ./options.nix
     ./preflight.nix
+    ./postflight.nix
     ./apparmor.nix
     ./firewall.nix
     ./web.nix

@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import "./landingstory.css";
 
-export type LandingStoryBeat = {
+type LandingStoryBeat = {
   title: string;
   body: string;
   cta?: { label: string; href: string };

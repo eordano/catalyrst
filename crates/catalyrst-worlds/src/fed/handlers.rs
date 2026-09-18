@@ -297,13 +297,13 @@ pub async fn get_federation_mirror(
     let limit = q.limit.unwrap_or(100).clamp(1, 1000);
     let offset = q.offset.unwrap_or(0).max(0);
 
-    let (rows, total) = state
-        .mirror
-        .store()
-        .list_mirror(&state.fed_peers, peer.as_ref(), limit, offset)
-        .await?;
-
-    let statuses = state.mirror.store().peer_statuses().await?;
+    let ((rows, total), statuses) = tokio::try_join!(
+        state
+            .mirror
+            .store()
+            .list_mirror(&state.fed_peers, peer.as_ref(), limit, offset),
+        state.mirror.store().peer_statuses(),
+    )?;
     let peers = state
         .fed_peers
         .peers()

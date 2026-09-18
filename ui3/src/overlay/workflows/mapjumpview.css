@@ -51,10 +51,10 @@
 }
 .map__teleportnote {
   margin: 14px 0 0;
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.5);
-  word-break: break-all;
+  color: rgba(255, 255, 255, 0.78);
+  overflow-wrap: anywhere;
 }
 .map__teleportnote code {
   font-size: 11px;
@@ -66,6 +66,8 @@
 .map__teleportcard .map__jump {
   margin-top: 16px;
 }
+.map__teleportcard .map__jump:disabled { opacity: .65; cursor: wait; }
+.map__teleportcard .map__jump:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 
 .map__unavailable {
   position: absolute;

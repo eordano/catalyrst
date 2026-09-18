@@ -1,9 +1,13 @@
+import Button from "@ui/atoms/Button";
+import { Avatar } from "@ui/atoms/primitives";
+import "@ui/admin/admin.css";
+
 import {
   shortAddress,
   type UserBan,
 } from "@data/lib/catalyst/admin/user-bans";
 
-export type UserBanTableProps = {
+type UserBanTableProps = {
   bans: UserBan[];
   onLift: (address: string) => void;
   onSelect?: (address: string) => void;
@@ -21,61 +25,52 @@ function expiryLabel(expiresAt: string | null): string {
   });
 }
 
-function hueFor(addr: string): number {
-  let h = 0;
-  for (let i = 0; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) % 360;
-  return h;
-}
-
 export default function UserBanTable({ bans, onLift, onSelect }: UserBanTableProps) {
   return (
-    <div className="au__tablewrap">
-      <table className="au__table" aria-label="Active global bans">
+    <div className="adm-scroll">
+      <table className="adm-table" aria-label="Active global bans">
         <thead>
           <tr>
-            <th className="au__th">User</th>
-            <th className="au__th">Reason</th>
-            <th className="au__th">Banned by</th>
-            <th className="au__th">Expires</th>
-            <th className="au__th au__th--center">Action</th>
+            <th>User</th>
+            <th>Reason</th>
+            <th>Banned by</th>
+            <th>Expires</th>
+            <th className="is-center">Action</th>
           </tr>
         </thead>
         <tbody>
           {bans.map((b) => (
             <tr
               key={b.id}
-              className="au-row"
+              className={onSelect ? "is-link" : undefined}
               onClick={onSelect ? () => onSelect(b.bannedAddress) : undefined}
             >
-              <td className="au-cell au-cell--user">
-                <span
-                  className="au-avatar u-avatar"
-                  style={{ "--sz": "40px", "--hue": hueFor(b.bannedAddress) } as React.CSSProperties}
-                  aria-hidden="true"
-                />
-                <span className="au-cell__addr">{shortAddress(b.bannedAddress)}</span>
-                {b.name ? <span className="au-cell__name">{` (${b.name})`}</span> : null}
+              <td className="is-nowrap">
+                <Avatar seed={b.bannedAddress} size={40} />
+                <span className="adm-mono">{shortAddress(b.bannedAddress)}</span>
+                {b.name ? <span className="adm-dim">{` (${b.name})`}</span> : null}
               </td>
-              <td className="au-cell">{b.reason}</td>
-              <td className="au-cell">{shortAddress(b.bannedBy)}</td>
-              <td className="au-cell">{expiryLabel(b.expiresAt)}</td>
-              <td className="au-cell au-cell--center">
-                <button
-                  type="button"
-                  className="au-btn au-btn--secondary"
+              <td>{b.reason}</td>
+              <td className="adm-mono">{shortAddress(b.bannedBy)}</td>
+              <td>{expiryLabel(b.expiresAt)}</td>
+              <td className="is-center">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  tone="success"
                   onClick={(e) => {
                     e.stopPropagation();
                     onLift(b.bannedAddress);
                   }}
                 >
                   Lift ban
-                </button>
+                </Button>
               </td>
             </tr>
           ))}
           {bans.length === 0 && (
             <tr>
-              <td className="au-cell au-cell--center au-cell--empty" colSpan={5}>
+              <td className="is-empty" colSpan={5}>
                 No active global bans
               </td>
             </tr>

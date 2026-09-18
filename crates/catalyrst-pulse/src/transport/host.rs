@@ -1,8 +1,12 @@
-use std::net::{SocketAddr, UdpSocket};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::net::UdpSocket;
 
 use rusty_enet as enet;
 
+use super::application_budget::{ApplicationBudget, ApplicationPayload};
 use crate::transport::packet::Packet;
 use crate::transport::peer::PeerId;
 
@@ -41,7 +45,38 @@ pub enum Event {
 }
 
 pub struct Host {
-    inner: enet::Host<UdpSocket>,
+    inner: enet::Host<ReadySocket>,
+    application_global: Arc<tokio::sync::Semaphore>,
+    application_peers: HashMap<PeerId, ApplicationBudget>,
+}
+
+struct ReadySocket(UdpSocket);
+
+impl enet::Socket for ReadySocket {
+    type Address = SocketAddr;
+    type Error = std::io::Error;
+
+    fn init(&mut self, _: enet::SocketOptions) -> std::io::Result<()> {
+        self.0.set_broadcast(true)
+    }
+
+    fn send(&mut self, address: SocketAddr, buffer: &[u8]) -> std::io::Result<usize> {
+        match self.0.try_send_to(buffer, address) {
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(0),
+            result => result,
+        }
+    }
+
+    fn receive(
+        &mut self,
+        buffer: &mut [u8; enet::MTU_MAX],
+    ) -> std::io::Result<Option<(SocketAddr, enet::PacketReceived)>> {
+        match self.0.try_recv_from(buffer) {
+            Ok((len, address)) => Ok(Some((address, enet::PacketReceived::Complete(len)))),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -65,19 +100,24 @@ fn packet_kind(packet: &Packet) -> enet::PacketKind {
 
 impl Host {
     pub async fn bind(config: HostConfig) -> std::io::Result<Self> {
-        let socket = UdpSocket::bind(config.bind)?;
+        let socket = UdpSocket::bind(config.bind).await?;
+        socket.writable().await?;
         let settings = enet::HostSettings {
             peer_limit: config.max_peers,
             channel_limit: config.channel_limit as usize,
             ..Default::default()
         };
-        let inner = enet::Host::new(socket, settings)
+        let inner = enet::Host::new(ReadySocket(socket), settings)
             .map_err(|e| std::io::Error::other(format!("enet host: {e:?}")))?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            application_global: ApplicationBudget::global(),
+            application_peers: HashMap::new(),
+        })
     }
 
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        self.inner.socket().local_addr()
+        self.inner.socket().0.local_addr()
     }
 
     pub fn peer_ip(&mut self, peer: PeerId) -> Option<String> {
@@ -102,13 +142,19 @@ impl Host {
             .map_err(|e| std::io::Error::other(format!("{e:?}")))?
             .map(|e| e.no_ref());
         match event {
-            Some(enet::EventNoRef::Connect { peer, .. }) => Ok(Some(Event::Connect {
-                peer: peer.0 as PeerId,
-                ip: None,
-            })),
-            Some(enet::EventNoRef::Disconnect { peer, .. }) => Ok(Some(Event::Disconnect {
-                peer: peer.0 as PeerId,
-            })),
+            Some(enet::EventNoRef::Connect { peer, .. }) => {
+                self.application_peers.remove(&(peer.0 as PeerId));
+                Ok(Some(Event::Connect {
+                    peer: peer.0 as PeerId,
+                    ip: None,
+                }))
+            }
+            Some(enet::EventNoRef::Disconnect { peer, .. }) => {
+                self.application_peers.remove(&(peer.0 as PeerId));
+                Ok(Some(Event::Disconnect {
+                    peer: peer.0 as PeerId,
+                }))
+            }
             Some(enet::EventNoRef::Receive {
                 peer,
                 channel_id,
@@ -122,7 +168,10 @@ impl Host {
                 }))
             }
             None => {
-                tokio::time::sleep(SERVICE_POLL).await;
+                tokio::select! {
+                    ready = self.inner.socket().0.readable() => { ready?; }
+                    _ = tokio::time::sleep(SERVICE_POLL) => {}
+                }
                 Ok(None)
             }
         }
@@ -137,6 +186,7 @@ impl Host {
     }
 
     pub async fn disconnect_now(&mut self, peer: PeerId, reason: u32) -> std::io::Result<()> {
+        self.application_peers.remove(&peer);
         if let Some(p) = self.inner.get_peer_mut(to_enet_peer(peer)) {
             p.disconnect_now(reason);
             self.inner.flush();
@@ -155,6 +205,34 @@ impl Host {
         }
         let _ = p.send(packet.channel, &raw);
         Ok(())
+    }
+
+    pub async fn send_application(&mut self, peer: PeerId, packet: Packet) -> std::io::Result<()> {
+        let kind = packet_kind(&packet);
+        let p = self
+            .inner
+            .get_peer_mut(to_enet_peer(peer))
+            .filter(|peer| peer.state() == enet::PeerState::Connected)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "application peer unavailable",
+                )
+            })?;
+        let budget = self
+            .application_peers
+            .entry(peer)
+            .or_insert_with(|| ApplicationBudget::new(self.application_global.clone()));
+        let permit = budget.reserve(packet.data.len())?;
+        let raw = enet::Packet::new(
+            Box::new(ApplicationPayload {
+                bytes: packet.data,
+                _permit: permit,
+            }),
+            kind,
+        );
+        p.send(packet.channel, &raw)
+            .map_err(|error| std::io::Error::other(format!("application send: {error:?}")))
     }
 
     /// One `enet_host_flush` for the whole tick's outbox; `send` only queues.

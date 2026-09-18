@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import ConfirmDialog from "../../explorer/components/ConfirmDialog";
 import type { QueryClient } from "@tanstack/react-query";
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -8,21 +10,23 @@ import SearchField from "../../atoms/SearchField";
 import UpcomingEventCard from "../../web/components/UpcomingEventCard";
 import CommunityCreate from "../../explorer/components/CommunityCreate";
 import ContextMenu from "../../components/ContextMenu";
+import ContentStatus from "../../components/ContentStatus";
 import type { ContextMenuItem } from "../../components/ContextMenu";
 import { siteUrl } from "../../data/site";
-import { qk, STALE } from "../../data/queryKeys";
-import { loadCommunities } from "../../data/catalyst/communitiesSchema";
 import type { Community, CommunityMember } from "../../data/catalyst/communities";
 import {
   useCommunities,
+  communitiesQuery,
   useCommunity,
   useCommunityPosts,
   useCommunityPlaces,
   useJoinCommunity,
   useLeaveCommunity,
 } from "../../data/hooks/useCommunities";
+import { useCommunityProfiles } from "../../data/hooks/useCommunityProfiles";
 import { useFriends } from "../../data/hooks/useFriends";
 import { requestFriendAction } from "../../data/hooks/friendActions";
+import { useBridgeState } from "../../overlay/bridge";
 
 import "../../explorer/pages/communities.css";
 import "../../explorer/pages/communitymembers.css";
@@ -32,15 +36,8 @@ const cssVars = (s: VarStyle): CSSProperties => s;
 
 type MaybeHttpError = { status?: number; message?: string } | null | undefined;
 
-export function prefetch(queryClient: QueryClient) {
-  try {
-    queryClient.prefetchQuery({
-      queryKey: qk.communities({}),
-      queryFn: ({ signal }) => loadCommunities({}, { signal }),
-      staleTime: STALE.communities,
-    });
-  } catch {
-  }
+export function prefetch(queryClient: QueryClient, address?: string | null) {
+  return queryClient.prefetchQuery(communitiesQuery({}, address));
 }
 
 const isHttpUrl = (s: unknown): boolean => typeof s === "string" && /^https?:\/\//i.test(s);
@@ -66,12 +63,6 @@ function visLabel(c: Community): string {
   if (c.visibility === "unlisted") return "Unlisted";
   return c.privacy === "private" ? "Private" : "Public";
 }
-
-const BULLETS = [
-  { icon: "\u{2665}", text: "Connect over shared interests" },
-  { icon: "\u{2691}", text: "Get notified about community events" },
-  { icon: "\u{2726}", text: "Chat in a shared channel" },
-];
 
 type SidebarProps = {
   onCreate: () => void;
@@ -132,14 +123,6 @@ function Sidebar({ onCreate, mine, showingMine, onToggleMine, onOpen }: SidebarP
         </div>
         <div className="cm__promosub">Find your people. Join the fun.</div>
 
-        <ul className="cm__bullets">
-          {BULLETS.map((b) => (
-            <li className="cm__bullet" key={b.text}>
-              <span className="cm__bicon" aria-hidden="true">{b.icon}</span>
-              {b.text}
-            </li>
-          ))}
-        </ul>
       </div>
     </aside>
   );
@@ -165,12 +148,14 @@ const ERR_STYLE: CSSProperties = {
 
 type JoinButtonProps = {
   id: string;
+  name: string;
   privacy?: string;
   joined?: unknown;
   variant: "card" | "detail";
 };
 
-function JoinButton({ id, privacy, joined, variant }: JoinButtonProps) {
+function JoinButton({ id, name, privacy, joined, variant }: JoinButtonProps) {
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const join = useJoinCommunity();
   const leave = useLeaveCommunity();
   const [override, setOverride] = useState<"joined" | "left" | "requested" | null>(null);
@@ -192,13 +177,19 @@ function JoinButton({ id, privacy, joined, variant }: JoinButtonProps) {
       { onSuccess: () => setOverride(isPublic ? "joined" : "requested") },
     );
   };
-  const doLeave = (e?: ReactMouseEvent) => {
+  const requestLeave = (e?: ReactMouseEvent) => {
     e?.stopPropagation?.();
+    if (!pending) setConfirmLeave(true);
+  };
+  const doLeave = () => {
     if (pending) return;
+    setConfirmLeave(false);
     setOverride(null);
     join.reset();
     leave.mutate({ id }, { onSuccess: () => setOverride("left") });
   };
+
+  const confirmation = confirmLeave && createPortal(<div onClick={event => event.stopPropagation()}><ConfirmDialog title="Leave community?" body={`Are you sure you want to leave ${name}?`} confirmLabel="Leave community" cancelLabel="Stay" danger onConfirm={doLeave} onCancel={() => setConfirmLeave(false)} /></div>, document.body);
 
   if (variant === "detail") {
     let label;
@@ -212,10 +203,11 @@ function JoinButton({ id, privacy, joined, variant }: JoinButtonProps) {
           className="cmb__join"
           type="button"
           disabled={pending || requested}
-          onClick={effectiveJoined ? doLeave : doJoin}
+          onClick={effectiveJoined ? requestLeave : doJoin}
         >
           {label}
         </button>
+        {confirmation}
         {err ? <span style={ERR_STYLE} role="alert">{joinErrorText(err)}</span> : null}
       </div>
     );
@@ -224,7 +216,7 @@ function JoinButton({ id, privacy, joined, variant }: JoinButtonProps) {
   let cardEl;
   if (effectiveJoined) {
     cardEl = (
-      <button className="cm__joined" type="button" disabled={pending} onClick={doLeave}>
+      <button className="cm__joined" type="button" disabled={pending} onClick={requestLeave}>
         {leave.isPending ? "Leaving\u{2026}" : "Joined"}
         <span className="cm__btncoin" aria-hidden="true">&#x25C6;</span>
       </button>
@@ -250,6 +242,7 @@ function JoinButton({ id, privacy, joined, variant }: JoinButtonProps) {
   return (
     <>
       {cardEl}
+      {confirmation}
       {err ? <span style={ERR_STYLE} role="alert">{joinErrorText(err)}</span> : null}
     </>
   );
@@ -285,7 +278,7 @@ function CommunityCard({ c, onOpen }: CommunityCardProps) {
           </span>
         </div>
         <div className="cm__actions">
-          <JoinButton id={c.id} privacy={c.privacy} joined={joined} variant="card" />
+          <JoinButton id={c.id} name={c.name} privacy={c.privacy} joined={joined} variant="card" />
         </div>
       </div>
     </article>
@@ -300,7 +293,7 @@ function CommunityList({ onOpen }: { onOpen: (id: string) => void }) {
   const [query, setQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [tab, setTab] = useState<"browse" | "mine">("browse");
-  const { data, isLoading, isError, error, refetch } = useCommunities();
+  const { data, isPending, isError, refetch } = useCommunities();
 
   const all: Community[] = data ?? [];
   const matches = (c: Community, q: string) =>
@@ -313,7 +306,7 @@ function CommunityList({ onOpen }: { onOpen: (id: string) => void }) {
   const gridList = showingMine ? mineFiltered : filtered;
 
   let body;
-  if (isLoading) {
+  if (isPending) {
     body = (
       <div className="cm__grid" aria-busy="true">
         {Array.from({ length: 10 }).map((_, i) => (
@@ -325,11 +318,7 @@ function CommunityList({ onOpen }: { onOpen: (id: string) => void }) {
       </div>
     );
   } else if (isError) {
-    body = (
-      <div className="cm__seclabel" role="alert">
-        Couldn&#x2019;t load communities{error?.message ? ` \u{2014} ${error.message}` : ""}.
-      </div>
-    );
+    body = <ContentStatus message="Couldn't load communities." onRetry={() => void refetch()} />;
   } else if (gridList.length === 0) {
     body = (
       <div className="cm__seclabel">
@@ -379,7 +368,7 @@ function CommunityList({ onOpen }: { onOpen: (id: string) => void }) {
         </div>
         <div className="cm__section">
           <div className="cm__seclabel">
-            {showingMine ? "My Communities" : "Browse Communities"} {isLoading ? "" : `(${gridList.length})`}
+            {showingMine ? "My Communities" : "Browse Communities"} {isPending ? "" : `(${gridList.length})`}
           </div>
           {body}
         </div>
@@ -453,9 +442,10 @@ function shortAddress(addr?: string | null): string {
 }
 
 function PostsTab({ id }: { id: string }) {
-  const { data, isLoading } = useCommunityPosts(id);
+  const { data, isPending, isError, refetch } = useCommunityPosts(id);
   const posts = data ?? [];
-  if (isLoading) return <div className="cmb__empty" aria-busy="true">Loading announcements&#x2026;</div>;
+  if (isPending) return <ContentStatus pending message="Loading announcements&hellip;" />;
+  if (isError) return <ContentStatus message="Couldn't load announcements." onRetry={() => void refetch()} />;
   if (posts.length === 0) return <div className="cmb__empty">No announcements yet.</div>;
   return (
     <ul className="cmb__posts">
@@ -483,9 +473,10 @@ function PostsTab({ id }: { id: string }) {
 }
 
 function PlacesTab({ id }: { id: string }) {
-  const { data, isLoading } = useCommunityPlaces(id);
+  const { data, isPending, isError, refetch } = useCommunityPlaces(id);
   const places = data ?? [];
-  if (isLoading) return <div className="cmb__empty" aria-busy="true">Loading places&#x2026;</div>;
+  if (isPending) return <ContentStatus pending message="Loading shared places&hellip;" />;
+  if (isError) return <ContentStatus message="Couldn't load shared places." onRetry={() => void refetch()} />;
   if (places.length === 0) return <div className="cmb__empty">No places shared yet.</div>;
   return (
     <div className="cmb__placegrid">
@@ -565,15 +556,16 @@ function CommunityMenu({ id, joined, onLeft }: CommunityMenuProps) {
 }
 
 function CommunityDetail({ id, onClose }: { id: string; onClose: () => void }) {
+  const identity = useBridgeState(s => s.identity);
   const [tab, setTab] = useState("members");
   const [memberQuery, setMemberQuery] = useState("");
   const [justSent, setJustSent] = useState<ReadonlySet<string>>(new Set());
-  const { data, isLoading, isError, error } = useCommunity(id);
+  const { data, isPending, isError, error } = useCommunity(id);
   const { friends } = useFriends();
   const navigate = useNavigate();
 
   const community: Community | null = data?.community ?? null;
-  const members = data?.members ?? [];
+  const members = useCommunityProfiles(data?.members ?? [], tab === "members");
   const events = data?.events ?? [];
 
   const friendSet = useMemo(
@@ -588,7 +580,7 @@ function CommunityDetail({ id, onClose }: { id: string; onClose: () => void }) {
   }, [members, memberQuery]);
 
   const addFriend = (m: CommunityMember) => {
-    if (!m.memberAddress) return;
+    if (!m.memberAddress || m.memberAddress.toLowerCase() === identity.address?.toLowerCase()) return;
     requestFriendAction("request", m.memberAddress);
     setJustSent((prev) => new Set(prev).add(m.memberAddress.toLowerCase()));
   };
@@ -608,7 +600,7 @@ function CommunityDetail({ id, onClose }: { id: string; onClose: () => void }) {
           <header className="cmb__header">
             <span className="cmb__thumb" style={thumbStyle} />
             <div className="cmb__headinfo">
-              <h2 className="cmb__cname u-truncate">{community?.name || (isLoading ? "Loading\u{2026}" : "Community")}</h2>
+              <h2 className="cmb__cname u-truncate">{community?.name || (isPending ? "Loading\u{2026}" : "Community")}</h2>
               <div className="cmb__meta">
                 <GlobeIcon />
                 {community ? `${visLabel(community)} \u{B7} ${fmt(community.membersCount)} Members` : "\u{2014}"}
@@ -620,7 +612,7 @@ function CommunityDetail({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
             {community ? (
               <div className="cmb__headactions">
-                <JoinButton id={id} privacy={community.privacy} joined={joined} variant="detail" />
+                <JoinButton id={id} name={community.name} privacy={community.privacy} joined={joined} variant="detail" />
                 {joined && (
                   <button
                     type="button"
@@ -659,7 +651,7 @@ function CommunityDetail({ id, onClose }: { id: string; onClose: () => void }) {
               <PlacesTab id={id} />
             ) : tab === "photos" ? (
               <div className="cmb__empty">No photos shared yet.</div>
-            ) : isLoading ? (
+            ) : isPending ? (
               <div className="cmb__empty" aria-busy="true">Loading members&#x2026;</div>
             ) : filteredMembers.length === 0 ? (
               <div className="cmb__empty">{memberQuery ? "No members match your search." : "No members to show."}</div>
@@ -687,7 +679,7 @@ function CommunityDetail({ id, onClose }: { id: string; onClose: () => void }) {
                           <span className={"cmb__role " + (ROLE_CLASS[role] || "")}>{cap(role)}</span>
                         )}
                       </div>
-                      {isFriend ? (
+                      {addrLc === identity.address?.toLowerCase() ? <span className="cmb__add">You</span> : isFriend ? (
                         <span className="cmb__add is-friend">Already Friend</span>
                       ) : requested ? (
                         <span className="cmb__add is-sent">Requested</span>

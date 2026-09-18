@@ -57,13 +57,13 @@ async fn fetch_denylist(http: &reqwest::Client, url: Option<&str>) -> Option<Has
     match http.get(url).send().await {
         Ok(resp) => match resp.json::<Value>().await {
             Ok(body) => Some(parse_denylist(&body)),
-            Err(e) => {
-                tracing::warn!(error = %e, url, "failed to parse wallet denylist (keeping last known)");
+            Err(_) => {
+                tracing::warn!("failed to parse wallet denylist; keeping last known list");
                 None
             }
         },
-        Err(e) => {
-            tracing::warn!(error = %e, url, "failed to fetch wallet denylist (keeping last known)");
+        Err(_) => {
+            tracing::warn!("failed to fetch wallet denylist; keeping last known list");
             None
         }
     }
@@ -90,6 +90,45 @@ fn contains_wallet(wallets: &HashSet<String>, identity: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::io::Write;
+
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn wallet_denylist_transport_logs_never_retain_the_configured_url() {
+        const CANARY: &str = "worlds-wallet-denylist-private-material-canary";
+        let component = DenyListComponent::new(
+            reqwest::Client::new(),
+            Some(format!("http://127.0.0.1:1/{CANARY}")),
+        );
+        let buffer = LogBuffer::default();
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        assert!(!component.is_denylisted("0xabc").await);
+
+        let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+        assert!(logs.contains("failed to fetch wallet denylist"));
+        assert!(!logs.contains(CANARY), "configured URL survived in {logs}");
+    }
 
     #[test]
     fn parse_denylist_lowercases_wallets() {

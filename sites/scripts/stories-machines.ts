@@ -1,8 +1,12 @@
 import { readdirSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { toDirectedGraph } from "@xstate/graph";
+import { playbackDiagram } from "../../ui3/src/editor/playback-machine";
+import { editorPageDiagram } from "../../ui3/src/editor/page-machine";
+import { projectRealmDiagram } from "../../ui3/src/editor/pages/project-realm-machine";
+import { sceneSessionMermaid } from "../../ui3/src/editor/pages/scene-session";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const STORIES = join(HERE, "..", "packages", "features", "src", "stories");
@@ -180,7 +184,7 @@ function buildMermaid(mod: any): Built {
 }
 
 const files = findMachines(STORIES);
-type Entry = { surface: string; name: string; built: Built };
+type Entry = { surface: string; name: string; source: string; built: Built; description?: string };
 const entries: Entry[] = [];
 const failures: string[] = [];
 
@@ -189,11 +193,43 @@ for (const f of files) {
   const surface = rel.split("/")[0];
   try {
     const mod = await import(pathToFileURL(f).href);
-    entries.push({ surface, name: rel, built: buildMermaid(mod) });
+    entries.push({ surface, name: rel, source: `./${rel}/machine.ts`, built: buildMermaid(mod) });
   } catch (e: any) {
     failures.push(`${rel}: ${String(e.message || e).split("\n")[0]}`);
   }
 }
+
+const editorMachines = [
+  { name: "project-preparation", file: "pages/project-realm-machine.ts", exportName: "transitionProjectRealm", mermaid: projectRealmDiagram(), description: "Owner: useProjectRealm. Session and request IDs reject stale completion; preparation aborts on retirement and drains before replacement. Deadline: 75 seconds." },
+  { name: "scene-session", file: "pages/scene-session.ts", exportName: "reduceSceneSession", mermaid: `stateDiagram-v2\n${sceneSessionMermaid()}`, description: "Owner: useEditorBusBridge. Hydration carries generation and attempt identity. Handshake deadline: 75 seconds; hydration deadline: 30 seconds. Retired and timed-out sessions reject late results." },
+  { name: "playback", file: "playback-machine.ts", exportName: "playbackTransition", mermaid: playbackDiagram(), description: "Owner: usePlaybackMachine / DeWorkspace. Edges show acknowledged commands, not request acceptance. One pending request carries generation and ID. Stop restores the authored snapshot; failure preserves running mode and the snapshot for retry. Debugger pause and visibility suspension use the same gate." },
+  { name: "page-operations", file: "page-machine.ts", exportName: "editorPageTransition", mermaid: editorPageDiagram(), description: "Owner: useEditorPageMachine / EditorWizard. Save, Open and Publish share one request gate. Requests capture generation, ID and edit revision; completion reports success, cancellation or failure. Saving an older revision cannot clear newer edits. Connection changes abort pending work without discarding unsaved revisions." },
+];
+for (const machine of editorMachines) {
+  const states = new Set([...machine.mermaid.matchAll(/(\w+) --> (\w+)/g)].flatMap(match => [match[1], match[2]])).size;
+  entries.push({ surface: "creator-hub", name: `creator-hub/scene-editor/${machine.name}`,
+    source: relative(STORIES, join(HERE, "../../ui3/src/editor", machine.file)),
+    description: machine.description,
+    built: { mermaid: machine.mermaid, states, exportName: machine.exportName } });
+}
+entries.sort((a, b) => a.name.localeCompare(b.name));
+
+const editorLifecycle = [
+  "### Scene editor lifecycle",
+  "",
+  "The editor owns browser orchestration; Bevy owns scene contents and acknowledged playback. The four diagrams below come directly from the editor's executable transition tables.",
+  "",
+  "Browser bootstrap (DclEditorChrome) observes engine readiness independently from scene restoration. SDK connection (SdkEditorWorkspace) has scoped connecting/ready/error attempts, cleanup cancellation and a 15-second connection deadline. These reducers are covered in the [editor source](../../../../../ui3/src/editor/); their diagrams are not table-generated here.",
+  "",
+  "Full ordered workspace snapshots expose destination, phase, blocking reason, progress, independent project/engine/scene readiness, capabilities, pending request and outcome. A subscriber receives the current snapshot on attachment. Controls use the same transition guards.",
+  "",
+  "Each iframe uses a fresh `editorSession` UUID and `dcl-editor-bus:<UUID>`. Retry rotates the namespace and rebinds scene, page, Save/Publish, dirty tracking and MCP. Missing or invalid IDs fail closed. The page and editor-scene bundle must ship together.",
+  "",
+  "Supported work is aborted on retirement; project preparation and play-state writes drain in order, and persistence is queued per project. Already-committed writes are not rolled back. Transport isolation is verified, but project cache and play-state storage remain origin-wide: this does not provide independent simultaneous multi-tab project storage.",
+  "",
+  "Validation: run the editor lifecycle tests and Creator Hub capture scripts in tools/screen-tour.",
+  "",
+].join("\n");
 
 const bySurface = new Map<string, Entry[]>();
 for (const e of entries) {
@@ -203,7 +239,7 @@ for (const e of entries) {
 const surfaces = [...bySurface.keys()].sort();
 
 const md: string[] = [];
-md.push("# Story state machines");
+md.push("# Story and editor state machines");
 md.push("");
 md.push(
   `_Auto-generated by \`scripts/stories-machines.ts\` (\`npm run story:machines\`). ${entries.length} machines across ${surfaces.length} surfaces. Diagrams render inline on GitHub / VS Code._`,
@@ -216,12 +252,14 @@ md.push("");
 for (const s of surfaces) {
   md.push(`## ${s}`);
   md.push("");
+  if (s === "creator-hub") md.push(editorLifecycle);
   for (const e of bySurface.get(s)!) {
     md.push(`### ${e.name}`);
     md.push(
-      `\`${e.built.exportName}\` - ${e.built.states} states - [source](./${e.name}/machine.ts)`,
+      `\`${e.built.exportName}\` - ${e.built.states} states - [source](${e.source})`,
     );
     md.push("");
+    if (e.description) md.push(e.description, "");
     md.push("```mermaid");
     md.push(e.built.mermaid);
     md.push("```");
@@ -240,7 +278,7 @@ const cards = entries
   .map(
     (e) => `<article class="card" data-name="${e.name}" data-surface="${e.surface}">
   <h3>${e.name} <small>${e.built.exportName} \u{B7} ${e.built.states} states</small></h3>
-  <pre class="mermaid">${e.built.mermaid
+${e.description ? `  <p>${e.description}</p>\n` : ""}  <pre class="mermaid">${e.built.mermaid
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")}</pre>
 </article>`,
@@ -250,7 +288,7 @@ const cards = entries
 const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Story state machines</title>
+<title>Story and editor state machines</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 system-ui, sans-serif; margin: 0; padding: 1.25rem; max-width: 1100px; margin-inline: auto; }
@@ -265,7 +303,7 @@ const html = `<!doctype html>
   .hidden { display: none; }
 </style></head>
 <body>
-  <h1>Story state machines</h1>
+  <h1>Story and editor state machines</h1>
   <div class="meta">${entries.length} machines \u{B7} ${surfaces.length} surfaces \u{B7} generated by scripts/stories-machines.ts</div>
   <input id="q" type="search" placeholder="filter by name\u{2026} (e.g. marketplace, vote, deploy)" autofocus />
   <div id="list">

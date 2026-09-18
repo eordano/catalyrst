@@ -23,7 +23,7 @@ export type CommitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<CommitResult>;
 
-export type PermissionsInput = {
+type PermissionsInput = {
   trackCtx: TrackContext;
   accessType?: AccessType;
   collaborators?: string[];
@@ -31,7 +31,7 @@ export type PermissionsInput = {
   track?: TrackFn;
 };
 
-export type PermissionsContext = {
+type PermissionsContext = {
   trackCtx: TrackContext;
   track: TrackFn;
   commit: CommitFn;
@@ -43,7 +43,7 @@ export type PermissionsContext = {
   error?: string;
 };
 
-export type PermissionsEvent =
+type PermissionsEvent =
   | { type: "START_INVITE" }
   | { type: "SUBMIT_INVITE"; channel: InviteChannel }
   | { type: "OPEN_PASSWORD" }
@@ -78,8 +78,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type PermsStateId = keyof typeof STATE_TO_SLUG;
-export type PermsStepSlug = (typeof STATE_TO_SLUG)[PermsStateId];
+type PermsStateId = keyof typeof STATE_TO_SLUG;
+type PermsStepSlug = (typeof STATE_TO_SLUG)[PermsStateId];
 
 export const FIRST_STEP_SLUG: PermsStepSlug = STATE_TO_SLUG.access;
 
@@ -281,8 +281,6 @@ export const permissionsMachine = setup({
     },
   },
 });
-
-export type PermissionsMachine = typeof permissionsMachine;
 
 export function resolvePermissionsSnapshot(args: {
   step: PermsStateId;

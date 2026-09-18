@@ -412,13 +412,9 @@ pub async fn list_reports(
     let offset = q.offset.filter(|o| *o >= 0).unwrap_or(0);
     let reported = q.reported.filter(|a| !a.is_empty());
     let status = q.status.filter(|s| !s.is_empty());
-    let total = state
+    let (reports, total) = state
         .player_reports
-        .count_reports(reported.as_deref(), status.as_deref())
-        .await?;
-    let reports = state
-        .player_reports
-        .list_reports(reported.as_deref(), status.as_deref(), limit, offset)
+        .list_reports_page(reported.as_deref(), status.as_deref(), limit, offset)
         .await?;
 
     let data = serde_json::to_value(reports).unwrap_or(serde_json::Value::Array(vec![]));
@@ -445,12 +441,11 @@ pub async fn get_report(
     )
     .await?;
 
-    let report = state
+    let (report, evidence) = state
         .player_reports
-        .get_report(report_id)
+        .get_report_with_evidence(report_id)
         .await?
         .ok_or_else(|| not_found_labeled("Report not found"))?;
-    let evidence = state.player_reports.list_evidence(report_id).await?;
 
     let data = serde_json::to_value(report).unwrap_or(serde_json::Value::Null);
     let evidence = serde_json::to_value(evidence).unwrap_or(serde_json::Value::Array(vec![]));

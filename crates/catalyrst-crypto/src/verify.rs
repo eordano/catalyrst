@@ -50,7 +50,7 @@ pub async fn verify_auth_chain_async(
                 check_address_match(&current_authority, &recovered, index)?;
 
                 debug!(
-                    payload = %link.payload,
+                    link_index = index,
                     signer = %recovered,
                     "ECDSA_SIGNED_ENTITY: verified"
                 );
@@ -141,7 +141,7 @@ pub async fn verify_auth_chain_async(
                 }
 
                 debug!(
-                    payload = %link.payload,
+                    link_index = index,
                     contract = %current_authority,
                     "ECDSA_EIP_1654_SIGNED_ENTITY: contract validated"
                 );
@@ -193,7 +193,7 @@ fn verify_chain_inner(
                 check_address_match(&current_authority, &recovered, index)?;
 
                 debug!(
-                    payload = %link.payload,
+                    link_index = index,
                     signer = %recovered,
                     "ECDSA_SIGNED_ENTITY: verified"
                 );
@@ -279,6 +279,22 @@ fn check_address_match(expected: &str, actual: &str, index: usize) -> Result<(),
 mod tests {
     use super::*;
     use crate::auth_chain::{AuthLink, AuthLinkType};
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn test_simple_auth_chain_roundtrip() {
@@ -446,5 +462,36 @@ mod tests {
             bad_result.unwrap_err(),
             AuthError::FinalAuthorityMismatch { .. }
         ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn signed_entity_verification_logs_never_retain_the_payload() {
+        use crate::{create_simple_auth_chain, Wallet};
+
+        const KEY: &str = "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318";
+        const CANARY: &str = "crypto-signed-entity-private-material-canary";
+        let wallet = Wallet::from_hex(KEY).unwrap();
+        let chain: AuthChain =
+            serde_json::from_value(create_simple_auth_chain(&wallet, CANARY).unwrap()).unwrap();
+        let buffer = LogBuffer::default();
+        let writer = buffer.clone();
+        let _forces_per_thread_interest =
+            tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        verify_auth_chain(&chain, CANARY, Some(0)).unwrap();
+        verify_auth_chain_async(&chain, CANARY, Some(0), None)
+            .await
+            .unwrap();
+
+        let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(logs.matches("ECDSA_SIGNED_ENTITY: verified").count(), 2);
+        assert!(!logs.contains(CANARY), "signed payload survived in {logs}");
     }
 }

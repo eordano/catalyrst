@@ -52,7 +52,7 @@ impl AppStateInner {
             move || {
                 let ctx = ctx.clone();
                 async move {
-                    ctx.expire_private_voice_chats(expiration_ms, batch_size)
+                    ctx.sweep_private_voice_chats_if_due(expiration_ms, batch_size)
                         .await;
                     Ok::<(), std::convert::Infallible>(())
                 }

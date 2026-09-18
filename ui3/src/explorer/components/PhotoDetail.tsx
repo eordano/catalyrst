@@ -5,14 +5,14 @@ import Button from "../../atoms/Button";
 import { useDialogKeys } from "../../components/useDialogKeys";
 import "./photodetail-view.css";
 
-export type ReelPerson = {
+type ReelPerson = {
   userName: string;
   userAddress: string;
   wearables?: string[];
   isGuest?: boolean;
 };
 
-export type ReelPhotoMeta = {
+type ReelPhotoMeta = {
   userName?: string;
   userAddress?: string;
   dateTime?: string;

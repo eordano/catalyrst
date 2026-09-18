@@ -40,7 +40,7 @@ export type GateInput = {
   hasVp: boolean;
 };
 
-export type SubmitPollInput = {
+type SubmitPollInput = {
   trackCtx: TrackContext;
   gate: GateInput;
   draft?: PollDraft;
@@ -48,7 +48,7 @@ export type SubmitPollInput = {
   track?: TrackFn;
 };
 
-export type SubmitPollContext = {
+type SubmitPollContext = {
   trackCtx: TrackContext;
   gate: GateInput;
   draft: PollDraft;
@@ -58,7 +58,7 @@ export type SubmitPollContext = {
   error?: string;
 };
 
-export type SubmitPollEvent =
+type SubmitPollEvent =
   | { type: "NEXT" }
   | { type: "BACK" }
   | { type: "SET_DETAILS"; title: string; description: string }
@@ -101,7 +101,7 @@ export function areOptionsValid(draft: PollDraft): boolean {
   return draft.coAuthors.every((c) => c.trim().length === POLL_LIMITS.coAuthor.len);
 }
 
-export function canSubmit(gate: GateInput): boolean {
+function canSubmit(gate: GateInput): boolean {
   return gate.connected && gate.hasVp;
 }
 
@@ -115,8 +115,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type SubmitPollStateId = keyof typeof STATE_TO_SLUG;
-export type SubmitPollStepSlug = (typeof STATE_TO_SLUG)[SubmitPollStateId];
+type SubmitPollStateId = keyof typeof STATE_TO_SLUG;
+type SubmitPollStepSlug = (typeof STATE_TO_SLUG)[SubmitPollStateId];
 
 export const FIRST_STEP_SLUG: SubmitPollStepSlug = STATE_TO_SLUG.intro;
 
@@ -290,8 +290,6 @@ export const submitPollMachine = setup({
     },
   },
 });
-
-export type SubmitPollMachine = typeof submitPollMachine;
 
 export function resolveSubmitPollSnapshot(args: {
   step: SubmitPollStateId;

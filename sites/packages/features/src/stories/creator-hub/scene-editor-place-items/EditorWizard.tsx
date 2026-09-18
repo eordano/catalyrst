@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 
+import { useEditorPageMachine } from "@ui/editor/pages/useEditorPageMachine";
+import { editorPageDirty, type EditorPageRequest } from "@ui/editor/page-machine";
+import { INITIAL_WORKSPACE, type EditorWorkspaceSnapshot } from "@ui/editor/workspace-lifecycle";
 import DeWorkspace from "@ui/editor/pages/DeWorkspace";
-import { placedProjectContents } from "@ui/editor/project-cache";
+import type { DeWorkspaceCode } from "@ui/editor/types";
+import DeSceneSettings from "@ui/editor/components/DeSceneSettings";
+import { openSceneSettingsFile } from "@data/lib/fs/scene-settings-file";
+import { runEditorEffect } from "@ui/editor/serial-effect";
+import { createEditorBus, editorBusChannelFromViewportSrc } from "@ui/editor/editor-bus";
+import { PROJECT_REALM_EFFECT, placedProjectContents } from "@ui/editor/project-cache";
 import DeEditorAppBar, { DeEditorControlsBar as Controls } from "@ui/editor/components/DeEditorAppBar";
 import { STARTER_TEMPLATES } from "@ui/creatorhub/pages/ChTemplates";
-import { EDITOR_BUS_CHANNEL, type BusEnvelope, type PageToSceneMessage } from "@ui/generated/editor-bus";
+import { type BusEnvelope, type PageToSceneMessage } from "@ui/generated/editor-bus";
 
 import type {
   HierarchyNode,
@@ -13,14 +21,36 @@ import type {
 import type { CatalogItem } from "@data/lib/catalyst/creator-hub/asset-catalog.server";
 import { buildScaffoldFiles } from "@data/lib/fs/scaffold-project";
 import { hasTemplateComposite } from "@data/lib/fs/template-composites";
+import type { SdkProjectConnection, SdkProject } from "@data/lib/fs/sdk-project";
+import {
+  NO_COMPOSITE_CODE_ONLY_HINT,
+  NO_COMPOSITE_HINT,
+  OPEN_FAILED_HINT,
+} from "@data/lib/fs/local-scene";
 import {
   handleStore,
   slugifyProjectTitle,
   ensureHandlePermission,
 } from "@data/lib/fs/handle-store";
 
-export type EditorWizardProps = {
+function sdkFileProject(connection: SdkProjectConnection): NonNullable<DeWorkspaceCode["project"]> {
+  return {
+    id: connection.url,
+    list: () => connection.list(),
+    read: path => connection.read(path),
+    readOnly: path => connection.readOnly(path),
+    write: (path, content) => connection.write(path, content),
+    remove: path => connection.remove(path),
+    createFileSession: () => sdkFileProject(connection.createFileSession()),
+    assistant: connection.assistant,
+    assets: connection.assets,
+    uiDesigner: connection.uiDesigner,
+  };
+}
+
+type EditorWizardProps = {
   seed: SceneEditorSeed;
+  projectSlug?: string;
   onExit?: () => void;
   onPublish?: (id?: string, draft?: string) => void;
   viewportSrc?: string;
@@ -30,6 +60,10 @@ export type EditorWizardProps = {
   catalog?: CatalogItem[];
   template?: string;
   failedToLoadLocal?: boolean;
+  from?: string | null;
+  sdkProject?: SdkProjectConnection;
+  sdkDescriptor?: SdkProject;
+  onDevicePreview?: () => void;
 };
 
 type DiskSaveState =
@@ -45,6 +79,11 @@ type DiskSaveState =
   | { phase: "canceled"; serverSynced?: boolean }
   | { phase: "error"; message: string };
 
+type DiskOpenState =
+  | { phase: "idle" }
+  | { phase: "picking" | "reading" | "opening" }
+  | { phase: "error"; message: string };
+
 const MUTATING_TO_SCENE = new Set<PageToSceneMessage["type"]>([
   "add-entity",
   "set-component",
@@ -54,8 +93,16 @@ const MUTATING_TO_SCENE = new Set<PageToSceneMessage["type"]>([
   "component-written",
 ]);
 
-export default function EditorWizard({
+export default function EditorWizard(props: EditorWizardProps) {
+  return <EditorWizardSession key={`${props.projectSlug || props.seed.scene.title}:${props.viewportSrc ?? ""}:${props.sdkProject?.url ?? ""}`} {...props} />;
+}
+
+function EditorWizardSession({
+  sdkProject,
+  sdkDescriptor,
+  onDevicePreview,
   seed,
+  projectSlug,
   onExit,
   onPublish,
   viewportSrc,
@@ -65,44 +112,71 @@ export default function EditorWizard({
   catalog,
   template,
   failedToLoadLocal,
+  from = null,
 }: EditorWizardProps) {
   const [templateNoticeDismissed, setTemplateNoticeDismissed] = useState(false);
   const [localErrorDismissed, setLocalErrorDismissed] = useState(false);
   const [liveCopyNoteDismissed, setLiveCopyNoteDismissed] = useState(false);
   const [diskSave, setDiskSave] = useState<DiskSaveState>({ phase: "idle" });
-  const [enginePlaying, setEnginePlaying] = useState(false);
+  const [diskOpen, setDiskOpen] = useState<DiskOpenState>({ phase: "idle" });
+  const projectKey = projectSlug || slugifyProjectTitle(seed.scene.title);
+  const operations = useEditorPageMachine(`${projectKey}:${viewportSrc ?? ""}:${sdkProject?.url ?? ""}`);
+  const [workspace, setWorkspace] = useState<EditorWorkspaceSnapshot>(INITIAL_WORKSPACE);
+  const activeViewportSrc = workspace.destination ?? viewportSrc;
+  const enginePlaying = workspace.playing;
+  const operationsBusy = !!operations.state.pending;
+  const canOperate = workspace.capabilities.open && !operationsBusy;
+  const canSave = canOperate && (!viewportSrc || workspace.capabilities.save);
+  const finish = (request: EditorPageRequest, status: "completed" | "cancelled" | "failed", saved = false, error?: string) =>
+    operations.send({ type: "finished", request, status, saved, error });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [engineStatus, setEngineStatus] = useState<"connecting" | "online" | "offline">(
     "connecting",
   );
 
-  const dirtyRef = useRef(false);
+  const isDirty = () => editorPageDirty(operations.current.current);
+  const workspaceRef = useRef(workspace);
+  const onLifecycle = useCallback((snapshot: EditorWorkspaceSnapshot) => {
+    const previous = workspaceRef.current;
+    if (snapshot.session !== previous.session || snapshot.destination !== previous.destination || (previous.ready && !snapshot.ready)) {
+      const pending = operations.current.current.pending;
+      operations.send({ type: "connection-changed" });
+      if (pending) {
+        const message = "The editor reconnected. Check your scene and try again.";
+        if (pending.command === "open") setDiskOpen({ phase: "error", message });
+        else setDiskSave({ phase: "error", message });
+      }
+    }
+    workspaceRef.current = snapshot;
+    setWorkspace(snapshot);
+  }, [operations.send]);
   useEffect(() => {
-    if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return undefined;
-    const ch = new BroadcastChannel(EDITOR_BUS_CHANNEL);
-    ch.onmessage = (ev) => {
+    if (typeof window === "undefined") return undefined;
+    const channel = editorBusChannelFromViewportSrc(activeViewportSrc);
+    const ch = !channel || typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(channel);
+    if (ch) ch.onmessage = (ev) => {
       const env = (ev.data ?? null) as BusEnvelope | null;
       if (!env || typeof env !== "object" || !env.msg) return;
-      if (env.to === "scene" && MUTATING_TO_SCENE.has(env.msg.type)) dirtyRef.current = true;
-      if (env.to === "page" && env.msg.type === "drag-end") dirtyRef.current = true;
-      if (env.to === "page" && env.msg.type === "play-state") {
-        setEnginePlaying(env.msg.playing === true);
-      }
+      if (env.to === "scene" && MUTATING_TO_SCENE.has(env.msg.type)) operations.send({ type: "edited" });
+      if (env.to === "scene" && env.msg.type === "rpc" && ["moveHierarchy", "pasteEntities", "pasteComponent", "writeComponents", "removeComponent", "removeEntities", "addEntity"].includes(env.msg.method)) operations.send({ type: "edited" });
+      if (env.to === "page" && env.msg.type === "drag-end") operations.send({ type: "edited" });
     };
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!dirtyRef.current) return;
+      if (!isDirty() && !operations.current.current.pending) return;
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
-      ch.close();
+      ch?.close();
       window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, []);
+  }, [activeViewportSrc]);
   const guardedExit = onExit
     ? () => {
+        if (operations.current.current.pending) return;
         if (
-          dirtyRef.current &&
+          isDirty() &&
           typeof window !== "undefined" &&
           !window.confirm("You have unsaved changes. Leave the editor without saving?")
         ) {
@@ -112,61 +186,76 @@ export default function EditorWizard({
       }
     : undefined;
 
+  const sceneTitleRef = useRef(seed.scene.title);
+  const onSceneNameChange = useCallback((name: string) => { if (sceneTitleRef.current !== name) operations.send({ type: "edited" }); sceneTitleRef.current = name; }, [operations.send]);
   const seedRef = useRef(seed);
   seedRef.current = seed;
   const draftAssetsRef = useRef(draftAssets);
   draftAssetsRef.current = draftAssets;
   const projectAssets = () => ({ ...draftAssetsRef.current, ...placedProjectContents() });
 
-  const persistPublishDraft = async (): Promise<string | null> => {
-    const scene = seedRef.current.scene;
-    const slug = slugifyProjectTitle(scene.title);
+  const exportComposite = async (request: EditorPageRequest) => {
+    const signal = operations.signal(request);
+    signal.throwIfAborted();
+    const bus = createEditorBus(activeViewportSrc);
+    const close = () => bus.close();
+    signal.addEventListener("abort", close, { once: true });
+    try { return await bus.exportComposite(); }
+    finally { signal.removeEventListener("abort", close); close(); }
+  };
+  const persistenceKey = `editor-project:${sdkProject?.url ?? projectKey}`;
+  const persistPublishDraft = (request: EditorPageRequest): Promise<string | null> =>
+    runEditorEffect(persistenceKey, () => operations.accepts(request), () => writePublishDraft(request));
+  const writePublishDraft = async (request: EditorPageRequest): Promise<string | null> => {
+    const check = () => { if (!operations.accepts(request)) throw new Error("The editor session changed. Try again."); };
+    check();
+    const scene = { ...seedRef.current.scene, title: sceneTitleRef.current };
+    const slug = projectKey;
     let composite: string | null = null;
     if (viewportSrc) {
-      try {
-        const [{ normalizeEngineComposite }, { createEditorBus }] = await Promise.all([
-          import("@data/lib/fs/save-scene"),
-          import("@ui/editor/editor-bus"),
-        ]);
-        const bus = createEditorBus();
-        try {
-          composite = normalizeEngineComposite(await bus.exportComposite(2000));
-        } finally {
-          bus.close();
-        }
-      } catch {
-        composite = null;
-      }
+      const { requireEngineComposite } = await import("@data/lib/fs/save-scene");
+      check();
+      composite = await requireEngineComposite(12000, () => exportComposite(request));
+      check();
     }
     composite = composite ?? rawComposite ?? null;
-    if (!composite) return null;
+    if (!composite) throw new Error("The scene could not be captured. Reconnect and try again.");
+    if (sdkProject) {
+      await sdkProject.write(sdkDescriptor?.compositePath || "main.composite", composite, operations.signal(request));
+      check();
+      return null;
+    }
     await handleStore.putMeta(slug, {
       title: scene.title,
       base: scene.base,
       template: scene.template,
       composite,
       assets: projectAssets(),
-    });
+    }, operations.signal(request));
+    check();
     try {
       const { pushServerDraft } = await import(
         "@data/lib/catalyst/creator-hub/scene-drafts-client"
       );
+      check();
       await pushServerDraft(slug, {
         composite,
         title: scene.title,
         base: scene.base,
         ...(scene.template ? { template: scene.template } : {}),
         assets: projectAssets(),
-      });
+      }, operations.signal(request));
     } catch {
     }
+    check();
     return slug;
   };
 
   const guardedPublish = onPublish
     ? (id?: string) => {
+        if (!canSave) return;
         if (
-          dirtyRef.current &&
+          !sdkProject && isDirty() &&
           typeof window !== "undefined" &&
           !window.confirm(
             "You have unsaved changes. Continue to publish? A draft of this scene will be kept so you can come back.",
@@ -174,9 +263,20 @@ export default function EditorWizard({
         ) {
           return;
         }
-        void persistPublishDraft()
-          .catch(() => null)
-          .then((draft) => onPublish(id, draft ?? undefined));
+        const request = operations.begin("publish", canSave);
+        if (!request) return;
+        void persistPublishDraft(request)
+          .then((draft) => {
+            if (!operations.accepts(request)) return;
+            finish(request, "completed", true);
+            onPublish(id, draft ?? undefined);
+          })
+          .catch((error) => {
+            if (!operations.accepts(request)) return;
+            const message = error instanceof Error ? error.message : "The scene could not be prepared for publishing.";
+            finish(request, "failed", false, message);
+            setDiskSave({ phase: "error", message });
+          });
       }
     : undefined;
 
@@ -188,12 +288,17 @@ export default function EditorWizard({
     typeof DeWorkspace
   >["tree"];
   const workspaceCode = useMemo(() => {
-    const slug = slugifyProjectTitle(seed.scene.title);
+    if (sdkProject) return {
+      typesUrl: "/dcl-sdk-types.json",
+      project: sdkFileProject(sdkProject),
+    };
+    const slug = projectKey;
     return {
       typesUrl: "/dcl-sdk-types.json",
       virtualFiles: buildScaffoldFiles({
         name: seed.scene.title,
         template: seed.scene.template,
+        parcels: seed.scene.parcels,
       }),
       getDir: async () => {
         try {
@@ -221,7 +326,8 @@ export default function EditorWizard({
         });
       },
     };
-  }, [seed.scene.title, seed.scene.base, seed.scene.template]);
+  }, [projectKey, seed.scene.title, seed.scene.base, seed.scene.template, sdkProject]);
+  const loadSettings = useCallback(() => openSceneSettingsFile(workspaceCode), [workspaceCode]);
   const localAssets =
     (seed.assetCatalog as { local?: { path: string; folder: string }[] }).local ?? [];
   const selectedNode = seed.hierarchy.find((n) => n.selected) ?? seed.hierarchy[0];
@@ -240,16 +346,17 @@ export default function EditorWizard({
     : undefined;
 
   const gameTemplateId = templateId && hasTemplateComposite(templateId) ? templateId : null;
-  const prepareRealm = useCallback(async () => {
+  const prepareRealm = useCallback(async (signal?: AbortSignal) => {
     if (!gameTemplateId) return;
     const { populateTemplateRealm } = await import("@data/lib/fs/project-realm");
     const res = await populateTemplateRealm({
+      signal,
       template: gameTemplateId,
       name: seedRef.current.scene.title,
       assets: { ...draftAssetsRef.current, ...placedProjectContents() },
     });
     if (!res.ok) {
-      console.warn("[editor] template game realm population failed:", res.reason);
+      throw new Error(`Could not prepare the template realm: ${res.reason}`);
     }
   }, [gameTemplateId]);
 
@@ -383,28 +490,96 @@ export default function EditorWizard({
       </div>
     ) : null;
 
+  async function onOpenFromDisk() {
+    if (!canOperate) return;
+    if (
+      isDirty() &&
+      typeof window !== "undefined" &&
+      !window.confirm("You have unsaved changes. Open another scene and lose them?")
+    ) {
+      return;
+    }
+    const request = operations.begin("open", canOperate);
+    if (!request) return;
+    setDiskOpen({ phase: "picking" });
+    try {
+      const { openLocalScene, stageLocalSceneForEditor } = await import(
+        "@data/lib/fs/local-scene"
+      );
+      if (!operations.accepts(request)) return;
+      const out = await openLocalScene({ onPhase: (phase) => { if (operations.accepts(request)) setDiskOpen({ phase }); } });
+      if (!operations.accepts(request)) return;
+      if (out.status === "cancelled") {
+        finish(request, "cancelled");
+        setDiskOpen({ phase: "idle" });
+        return;
+      }
+      if (out.status === "no-composite") {
+        finish(request, "failed");
+        setDiskOpen({
+          phase: "error",
+          message: out.hasSceneJson ? NO_COMPOSITE_CODE_ONLY_HINT : NO_COMPOSITE_HINT,
+        });
+        return;
+      }
+      setDiskOpen({ phase: "opening" });
+      await runEditorEffect(PROJECT_REALM_EFFECT, () => operations.accepts(request), () => stageLocalSceneForEditor(out.result, operations.signal(request)));
+      if (!operations.accepts(request)) return;
+      finish(request, "completed", true);
+      if (typeof window !== "undefined") {
+        window.location.assign(
+          `/creator-hub/scene-editor?source=local&from=${encodeURIComponent(from ?? "editor")}`,
+        );
+      }
+    } catch {
+      if (!operations.accepts(request)) return;
+      finish(request, "failed", false, OPEN_FAILED_HINT);
+      setDiskOpen({ phase: "error", message: OPEN_FAILED_HINT });
+    }
+  }
+
   async function onSaveToDisk() {
-    if (diskSave.phase === "saving" || enginePlaying) return;
+    const request = operations.begin("save", canSave);
+    if (!request) return;
+    if (sdkProject) {
+      setDiskSave({ phase: "saving" });
+      try {
+        await persistPublishDraft(request);
+        if (!operations.accepts(request)) return;
+        finish(request, "completed", true);
+        setDiskSave({ phase: "saved", via: "fsa-handle", filename: sdkDescriptor?.compositePath || "main.composite", entities: seed.hierarchy.length });
+      } catch (error) {
+        if (!operations.accepts(request)) return;
+        finish(request, "failed");
+        setDiskSave({ phase: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
     setDiskSave({ phase: "saving" });
     try {
       const { saveSceneFromEngine } = await import("@data/lib/fs/save-scene");
-      const res = await saveSceneFromEngine(
+      if (!operations.accepts(request)) return;
+      const res = await runEditorEffect(persistenceKey, () => operations.accepts(request), () => saveSceneFromEngine(
         seed.hierarchy,
         {},
         {
+          signal: operations.signal(request),
+          exportComposite: () => exportComposite(request),
           project: {
-            title: seed.scene.title,
+            slug: projectKey,
+            title: sceneTitleRef.current,
             base: seed.scene.base,
             template: seed.scene.template,
             assets: projectAssets(),
           },
         },
-      );
+      ));
+      if (!operations.accepts(request)) return;
       if (!res.written) {
-        if (res.serverSynced === true) dirtyRef.current = false;
+        finish(request, "cancelled", res.serverSynced === true);
         setDiskSave({ phase: "canceled", serverSynced: res.serverSynced });
       } else {
-        dirtyRef.current = false;
+        finish(request, "completed", true);
         setDiskSave({
           phase: "saved",
           via: res.via === "download" ? "download" : "fsa-handle",
@@ -414,12 +589,42 @@ export default function EditorWizard({
         });
       }
     } catch (e) {
+      if (!operations.accepts(request)) return;
+      finish(request, "failed");
       setDiskSave({
         phase: "error",
         message: e instanceof Error ? e.message : String(e ?? "unknown error"),
       });
     }
   }
+
+  const openStatusStrip =
+    diskOpen.phase === "idle" ? null : (
+      <Controls label="Open">
+        {diskOpen.phase === "error" ? (
+          <span role="alert" style={{ color: "var(--error, #ff8080)" }}>
+            {diskOpen.message}
+          </span>
+        ) : (
+          <span className="editor-wizard__spinner" role="status">
+            {diskOpen.phase === "picking"
+              ? "Pick the project folder that holds your saved scene\u{2026}"
+              : diskOpen.phase === "reading"
+                ? "Reading the project folder\u{2026}"
+                : "Opening the scene\u{2026}"}
+          </span>
+        )}
+        {diskOpen.phase === "error" && (
+          <button
+            type="button"
+            className="editor-wizard__btn"
+            onClick={() => setDiskOpen({ phase: "idle" })}
+          >
+            Dismiss
+          </button>
+        )}
+      </Controls>
+    );
 
   const saveStatusStrip =
     diskSave.phase === "idle" ? null : (
@@ -464,18 +669,31 @@ export default function EditorWizard({
 
   return (
     <div className="editor-wizard">
-      <DeEditorAppBar
-        title={seed.scene.title}
-        viewportSrc={viewportSrc}
-        previewSrc={previewSrc}
-        engine={engineStatus}
-        publishOptions={buildPublishOptions(seed.scene)}
-        onExit={guardedExit}
-        onPublish={guardedPublish}
-      />
-
       <DeWorkspace
+        onLifecycle={onLifecycle}
+        operationsBusy={operationsBusy}
+        renderHeader={(navigation, scene) => (
+          <DeEditorAppBar
+            exitDisabled={operationsBusy}
+            busy={enginePlaying || workspace.busy || operationsBusy}
+            title={scene.name}
+            onRename={scene.rename}
+            projectTools={<nav aria-label="Project tools" className="editor-wizard__project-tools">
+              <button type="button" className="editor-wizard__btn" disabled={!canOperate} onClick={() => setSettingsOpen(true)}>Scene settings</button>
+              {sdkProject && <a href={sdkProject.link("storage")} target="_blank" rel="noreferrer">Storage</a>}
+              {onDevicePreview && <button type="button" className="editor-wizard__btn" onClick={onDevicePreview}>Device preview</button>}
+              {sdkProject && <span title={sdkDescriptor?.capabilities.watch ? "Preview rebuilds on save" : "File watching is off"}>SDK project</span>}
+            </nav>}
+            viewportSrc={viewportSrc}
+            previewSrc={previewSrc}
+            engine={engineStatus}
+            publishOptions={buildPublishOptions(seed.scene)}
+            onExit={guardedExit}
+            onPublish={canSave ? guardedPublish : undefined}
+          >{navigation}</DeEditorAppBar>
+        )}
         title={seed.scene.title}
+        onSceneNameChange={onSceneNameChange}
         tree={tree}
         inspector={inspector}
         catalog={catalogItems}
@@ -483,16 +701,25 @@ export default function EditorWizard({
         viewportSrc={viewportSrc}
         rawComposite={rawComposite}
         code={workspaceCode}
-        prepareRealm={gameTemplateId ? prepareRealm : undefined}
+        prepareRealm={!sdkProject && gameTemplateId ? prepareRealm : undefined}
         onEngineStatus={setEngineStatus}
-        onSaveToDisk={enginePlaying ? undefined : onSaveToDisk}
-        onPublish={guardedPublish ? () => guardedPublish() : undefined}
+        onSaveToDisk={canSave ? onSaveToDisk : undefined}
+        onSceneSettings={!canOperate ? undefined : () => setSettingsOpen(true)}
+        onOpenFromDisk={!canOperate || sdkProject ? undefined : () => void onOpenFromDisk()}
+        onPublish={canSave && guardedPublish ? () => guardedPublish() : undefined}
+        sceneInfo={{
+          base: seed.scene.base,
+          parcels: seed.scene.parcels,
+          template: seed.scene.template ?? null,
+        }}
         saveState={
           diskSave.phase === "saving"
             ? "saving"
             : diskSave.phase === "error"
               ? "error"
-              : diskSave.phase === "saved" && !dirtyRef.current
+              : (diskSave.phase === "saved" ||
+                    (diskSave.phase === "canceled" && diskSave.serverSynced === true)) &&
+                  !isDirty()
                 ? "saved"
                 : "idle"
         }
@@ -501,7 +728,10 @@ export default function EditorWizard({
       {localErrorBanner}
       {templateNotice}
       {liveCopyNote}
+      {operations.state.pending?.command === "publish" && <Controls label="Publish"><span role="status">{"Preparing your scene for publishing\u2026"}</span></Controls>}
+      {openStatusStrip}
       {saveStatusStrip}
+      {settingsOpen && <DeSceneSettings load={loadSettings} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

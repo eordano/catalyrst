@@ -7,6 +7,7 @@ pub mod onboarding;
 pub mod ping;
 pub mod realm_provider;
 pub mod runtime_config;
+pub(crate) mod swr;
 pub mod worlds_content_server;
 
 use axum::http::StatusCode;

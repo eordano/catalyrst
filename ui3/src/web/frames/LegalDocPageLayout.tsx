@@ -5,7 +5,7 @@ import "./legaldoc.css";
 
 export type TocItem = { id: string; label: string; depth?: number };
 
-export type LegalBlock =
+type LegalBlock =
   | string
   | {
       type?: string;
@@ -14,7 +14,7 @@ export type LegalBlock =
       items?: ReactNode[];
     };
 
-export type LegalSection = { id: string; heading: string; body?: LegalBlock[] };
+type LegalSection = { id: string; heading: string; body?: LegalBlock[] };
 
 export type LegalDoc = {
   title?: string;

@@ -12,7 +12,7 @@ import {
 
 export type { TrackFn };
 
-export type CommunityJoinInput = {
+type CommunityJoinInput = {
   trackCtx: TrackContext;
   commit?: CommitFn;
   track?: TrackFn;
@@ -20,7 +20,7 @@ export type CommunityJoinInput = {
   action?: JoinAction;
 };
 
-export type CommunityJoinContext = {
+type CommunityJoinContext = {
   trackCtx: TrackContext;
   commit: CommitFn;
   track: TrackFn;
@@ -30,7 +30,7 @@ export type CommunityJoinContext = {
   error?: string;
 };
 
-export type CommunityJoinEvent =
+type CommunityJoinEvent =
   | { type: "SELECT"; communityId: string; action: JoinAction }
   | { type: "START" }
   | { type: "CONFIRM" }
@@ -54,8 +54,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type CommunityJoinStateId = keyof typeof STATE_TO_SLUG;
-export type CommunityJoinStepSlug = (typeof STATE_TO_SLUG)[CommunityJoinStateId];
+type CommunityJoinStateId = keyof typeof STATE_TO_SLUG;
+type CommunityJoinStepSlug = (typeof STATE_TO_SLUG)[CommunityJoinStateId];
 
 export const FIRST_STEP_SLUG: CommunityJoinStepSlug = STATE_TO_SLUG.browsing;
 
@@ -106,7 +106,7 @@ export const communityJoinMachine = setup({
           community_id: context.communityId,
           action: context.action,
           pending: context.result?.pending ?? false,
-          stub: true,
+          stub: context.commit === simulateCommit,
         },
         context.trackCtx,
       ),
@@ -189,8 +189,6 @@ export const communityJoinMachine = setup({
     },
   },
 });
-
-export type CommunityJoinMachine = typeof communityJoinMachine;
 
 export function resolveCommunityJoinSnapshot(args: {
   step: CommunityJoinStateId;

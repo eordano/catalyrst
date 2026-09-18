@@ -1,9 +1,10 @@
+import { formatUnits } from "viem";
 import { z } from "zod";
 
 import { getJSON } from "../client";
 import type { GetOptions } from "../client";
 
-export const RARITIES = [
+const RARITIES = [
   "unique",
   "mythic",
   "exotic",
@@ -14,7 +15,7 @@ export const RARITIES = [
   "common",
 ] as const;
 
-export const ITEM_STATUSES = [
+const ITEM_STATUSES = [
   "ready",
   "not_ready",
   "published",
@@ -22,7 +23,7 @@ export const ITEM_STATUSES = [
   "unsynced",
 ] as const;
 
-export const COLLECTION_STATUSES = [
+const COLLECTION_STATUSES = [
   "synced",
   "under_review",
   "unsynced",
@@ -31,7 +32,7 @@ export const COLLECTION_STATUSES = [
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-export const WearableItemSchema = z.object({
+const WearableItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   rarity: z.enum(RARITIES),
@@ -44,7 +45,7 @@ export const WearableItemSchema = z.object({
 });
 export type WearableItem = z.infer<typeof WearableItemSchema>;
 
-export const EmoteItemSchema = z.object({
+const EmoteItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   rarity: z.enum(RARITIES),
@@ -57,7 +58,7 @@ export const EmoteItemSchema = z.object({
 });
 export type EmoteItem = z.infer<typeof EmoteItemSchema>;
 
-export const CollectionSchema = z.object({
+const CollectionSchema = z.object({
   id: z.string(),
   name: z.string(),
   status: z.enum(COLLECTION_STATUSES),
@@ -136,10 +137,12 @@ const LiveItemSchema = z.object({
   total_supply: z.number().nullish(),
   is_published: z.boolean().nullish(),
   is_approved: z.boolean().nullish(),
+  contents: z.record(z.string(), z.string()).optional(),
   data: z
     .object({
       category: z.string().nullish(),
       loop: z.boolean().nullish(),
+      representations: z.array(z.object({ mainFile: z.string(), contents: z.array(z.string()) })).optional(),
     })
     .nullish(),
 });
@@ -148,7 +151,8 @@ type LiveItem = z.infer<typeof LiveItemSchema>;
 function liveStatus(it: LiveItem): (typeof ITEM_STATUSES)[number] {
   if (it.is_published && it.is_approved) return "published";
   if (it.is_published) return "under_review";
-  return it.price != null ? "ready" : "not_ready";
+  const reps = it.data?.representations;
+  return it.price != null && it.data?.category && reps?.length && reps.every(rep => rep.contents.includes(rep.mainFile) && rep.contents.every(file => !!it.contents?.[file])) ? "ready" : "not_ready";
 }
 
 export async function fetchCollectionItems(
@@ -170,7 +174,7 @@ export async function fetchCollectionItems(
     const rarity = (RARITIES as readonly string[]).includes(it.rarity ?? "")
       ? (it.rarity as (typeof RARITIES)[number])
       : "common";
-    const price = it.price == null ? null : String(it.price);
+    const price = it.price == null ? null : formatUnits(BigInt(it.price), 18);
     const supply =
       it.is_published && it.is_approved && it.total_supply != null
         ? String(it.total_supply)
@@ -327,7 +331,7 @@ function onchainRarity(r: string | null | undefined): (typeof RARITIES)[number] 
     : "common";
 }
 
-export type OnchainCollectionDetail = {
+type OnchainCollectionDetail = {
   found: boolean;
   meta: CollectionMeta | null;
   wearables: WearableItem[];

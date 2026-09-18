@@ -13,16 +13,21 @@ import {
 type Case = [name: string, value: unknown, schemaAccepts: boolean];
 
 function table(
+  label: string,
   schema: { safeParse(v: unknown): { success: boolean } },
   guard: (v: unknown) => boolean,
   cases: Case[],
 ): void {
-  for (const [name, value, schemaAccepts] of cases) {
-    test(name, () => {
-      expect(schema.safeParse(value).success).toBe(schemaAccepts);
-      expect(guard(value)).toBe(true);
-    });
-  }
+  test(`${label}: the schema accepts exactly what this build writes and every shape passes the legacy guard`, () => {
+    const offenders: string[] = [];
+    for (const [name, value, schemaAccepts] of cases) {
+      if (schema.safeParse(value).success !== schemaAccepts) {
+        offenders.push(`schema ${schemaAccepts ? "rejected" : "accepted"}: ${name}`);
+      }
+      if (!guard(value)) offenders.push(`guard rejected: ${name}`);
+    }
+    expect(offenders).toEqual([]);
+  });
 }
 
 describe("auth identity", () => {
@@ -43,7 +48,7 @@ describe("auth identity", () => {
     ...over,
   });
 
-  table(AuthIdentitySchema, guard, [
+  table("auth identity", AuthIdentitySchema, guard, [
     ["what this build writes", identity(), true],
     [
       "a private key stored without its 0x prefix",
@@ -74,7 +79,7 @@ describe("thirdweb session", () => {
     return Boolean(p?.token && p?.address);
   };
 
-  table(ThirdwebSessionSchema, guard, [
+  table("thirdweb session", ThirdwebSessionSchema, guard, [
     ["what this build writes", { token: "eyJ...", address: "0xabc" }, true],
     ["a token stored as its expiry epoch", { token: 1893456000, address: "0xabc" }, false],
     [
@@ -88,7 +93,7 @@ describe("thirdweb session", () => {
 describe("pending purchases", () => {
   const guard = (v: unknown) => Boolean(v && typeof v === "object");
 
-  table(PendingTopupStoreSchema, guard, [
+  table("pending top-ups", PendingTopupStoreSchema, guard, [
     ["what this build writes", { "0xabc": { txHash: "0x1", ts: 1_700_000_000_000 } }, true],
     [
       "a timestamp stored as an ISO string, which never looks expired",
@@ -98,7 +103,7 @@ describe("pending purchases", () => {
     ["an entry keyed straight to its hash", { "0xabc": "0x1" }, false],
   ]);
 
-  table(PendingCheckoutStoreSchema, guard, [
+  table("pending checkouts", PendingCheckoutStoreSchema, guard, [
     ["what this build writes", { "0xabc": { checkoutId: 42, ts: 1_700_000_000_000 } }, true],
     [
       "a checkout written before entries carried a timestamp",
@@ -117,7 +122,7 @@ describe("sim collection items", () => {
   const guard = (v: unknown) => Boolean(v && typeof v === "object");
   const entry = (files: unknown[]) => ({ c1: { ts: 1_700_000_000_000, files } });
 
-  table(SimCollectionItemsStoreSchema, guard, [
+  table("sim collection items", SimCollectionItemsStoreSchema, guard, [
     ["what this build writes", entry([{ name: "hat.glb", size: 12, fileType: "model/gltf" }]), true],
     ["a file size stored as a formatted string", entry([{ name: "hat.glb", size: "12 KB", fileType: "model/gltf" }]), false],
     ["a draft reduced to its file names", entry(["hat.glb"]), false],
@@ -128,7 +133,7 @@ describe("dev signer key", () => {
   const guard = (v: unknown) => typeof v === "string" && v.startsWith("0x");
   const key = `0x${"a".repeat(64)}`;
 
-  table(DevSignerKeySchema, guard, [
+  table("dev signer key", DevSignerKeySchema, guard, [
     ["a real burner key", key, true],
     ["a truncated key, which viem would throw on", "0xdeadbeef", false],
     ["an address stored where the key belongs", `0x${"b".repeat(40)}`, false],
@@ -149,7 +154,7 @@ describe("shop favorites", () => {
     ...over,
   });
 
-  table(PersistedFavoritesSchema, guard, [
+  table("shop favorites", PersistedFavoritesSchema, guard, [
     ["what this build writes", [card()], true],
     ["a card written before `unit` existed, which the read migrates", [card({ unit: undefined })], true],
     [

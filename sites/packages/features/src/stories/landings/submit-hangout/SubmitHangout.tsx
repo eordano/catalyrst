@@ -20,7 +20,7 @@ import {
 
 export type CategoryOption = { name: string; label: string };
 
-export type SubmitHangoutProps = {
+type SubmitHangoutProps = {
   trackCtx: TrackContext;
   categories: CategoryOption[];
   categoriesError?: boolean;

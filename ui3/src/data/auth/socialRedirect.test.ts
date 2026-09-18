@@ -16,12 +16,7 @@ afterEach(() => {
 });
 
 describe("completeSocialRedirectLogin", () => {
-  test("no authResult param: no-op", async () => {
-    setUrl("");
-    await expect(completeSocialRedirectLogin()).resolves.toBe(false);
-  });
-
-  test("valid authResult: signs an identity via the proxy and stashes it", async () => {
+  test("valid authResult: signs an identity via the proxy, stashes it, and strips only its own param", async () => {
     vi.stubGlobal(
       "fetch",
       async () =>
@@ -42,7 +37,9 @@ describe("completeSocialRedirectLogin", () => {
     expect(getEngineAuthState()).toEqual({ status: "pending", address: WALLET });
   });
 
-  test("garbage authResult: param stripped, no sign-in, no crash", async () => {
+  test("no authResult param is a no-op, and a garbage one is stripped without signing in or crashing", async () => {
+    setUrl("");
+    await expect(completeSocialRedirectLogin()).resolves.toBe(false);
     setUrl(`?${AUTH_RESULT_PARAM}=%7Bnope`);
     await expect(completeSocialRedirectLogin()).resolves.toBe(false);
     expect(

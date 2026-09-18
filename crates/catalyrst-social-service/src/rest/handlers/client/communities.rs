@@ -148,17 +148,18 @@ pub async fn create_community(
             return e;
         }
     }
-    for pid in &place_ids {
-        let place = sqlx::query(
+    if !place_ids.is_empty() {
+        let places = sqlx::query(
             "INSERT INTO community_places (id, community_id, added_by, added_at) \
-             VALUES ($1,$2,$3, now()) ON CONFLICT (id, community_id) DO NOTHING",
+             SELECT p, $2, $3, now() FROM unnest($1::text[]) AS p \
+             ON CONFLICT (id, community_id) DO NOTHING",
         )
-        .bind(pid)
+        .bind(&place_ids)
         .bind(id)
         .bind(signer.as_str())
         .execute(&mut *tx)
         .await;
-        if let Err(e) = place {
+        if let Err(e) = places {
             return map_db::<()>(Err(e)).unwrap_err();
         }
     }

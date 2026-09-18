@@ -9,7 +9,7 @@ use crate::world_storage::handlers::common::{
     UpsertBody, ValidatedJson,
 };
 use crate::world_storage::http::errors::ApiError;
-use crate::world_storage::{authorize, resolve_scene_context, signed_path, AppState, AuthPolicy};
+use crate::world_storage::{resolve_authorized, signed_path, AppState, AuthPolicy};
 
 pub async fn get(
     State(state): State<AppState>,
@@ -18,8 +18,7 @@ pub async fn get(
     uri: axum::http::Uri,
 ) -> Result<RawJson, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &headers, "get", &path, AuthPolicy::DEFAULT).await?;
     validate_key(&key)?;
 
     let value = state
@@ -36,8 +35,7 @@ pub async fn upsert(
 ) -> Result<RawJson, ApiError> {
     let (parts, body) = req.into_parts();
     let path = signed_path(&parts.uri);
-    let ctx = resolve_scene_context(&state, &parts.headers, "put", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &parts.headers, "put", &path, AuthPolicy::DEFAULT).await?;
     validate_key(&key)?;
     check_content_length(&parts.headers, state.cfg.world_limits.max_value_size_bytes)?;
 
@@ -68,8 +66,7 @@ pub async fn delete(
     uri: axum::http::Uri,
 ) -> Result<axum::http::StatusCode, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &headers, "delete", &path, AuthPolicy::DEFAULT).await?;
     validate_key(&key)?;
 
     state
@@ -86,23 +83,18 @@ pub async fn list(
     uri: axum::http::Uri,
 ) -> Result<RawJson, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &headers, "get", &path, AuthPolicy::DEFAULT).await?;
 
     let p = parse_pagination(&params)?;
-    let entries = state
+    let (entries, total) = state
         .storage
-        .world_list(
+        .world_list_page(
             &ctx.world_name,
             &ctx.place_id,
             p.limit,
             p.offset,
             p.prefix.as_deref(),
         )
-        .await?;
-    let total = state
-        .storage
-        .world_count(&ctx.world_name, &ctx.place_id, p.prefix.as_deref())
         .await?;
 
     Ok(raw_paginated_response(&entries, p.limit, p.offset, total))
@@ -114,8 +106,14 @@ pub async fn clear(
     uri: axum::http::Uri,
 ) -> Result<axum::http::StatusCode, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
+    let ctx = resolve_authorized(
+        &state,
+        &headers,
+        "delete",
+        &path,
+        AuthPolicy::OWNERS_DEPLOYERS_ONLY,
+    )
+    .await?;
 
     require_confirm_delete_all(&headers)?;
 

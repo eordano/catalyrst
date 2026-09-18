@@ -1703,17 +1703,20 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-archipelago"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "async-nats",
  "axum",
  "base64 0.23.1",
  "catalyrst-commons",
+ "catalyrst-contract-gate",
  "catalyrst-crypto",
  "catalyrst-db",
  "catalyrst-envcfg",
  "catalyrst-livekit",
+ "catalyrst-testgate",
  "catalyrst-types",
  "chrono",
  "dashmap",
@@ -1736,13 +1739,14 @@ dependencies = [
  "toml",
  "tower-http 0.7.1",
  "tracing",
+ "tracing-subscriber",
  "url",
  "uuid",
 ]
 
 [[package]]
 name = "catalyrst-auth-chain"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "hex",
  "serde",
@@ -1752,7 +1756,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-authenticated-admin"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "axum",
  "catalyrst-authenticated-principal",
@@ -1762,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-authenticated-principal"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "catalyrst-crypto",
  "catalyrst-types",
@@ -1773,7 +1777,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-badges"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1795,7 +1799,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-bench"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -1818,11 +1822,12 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-builder"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "anyhow",
  "axum",
+ "catalyrst-contract-gate",
  "catalyrst-crypto",
  "catalyrst-db",
  "catalyrst-envcfg",
@@ -1842,7 +1847,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-bvimposters"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1863,7 +1868,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-camera-reel"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1891,7 +1896,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-commons"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1908,9 +1913,11 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-comms"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
+ "async-nats",
+ "async-trait",
  "axum",
  "base64 0.23.1",
  "catalyrst-authenticated-principal",
@@ -1920,16 +1927,20 @@ dependencies = [
  "catalyrst-db",
  "catalyrst-envcfg",
  "catalyrst-livekit",
+ "catalyrst-pulse",
  "catalyrst-testgate",
  "catalyrst-types",
  "chrono",
  "futures",
  "hex",
  "hmac 0.13.0",
+ "metrics",
+ "metrics-exporter-prometheus",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
+ "prost",
  "reqwest",
  "serde",
  "serde_json",
@@ -1938,16 +1949,18 @@ dependencies = [
  "thiserror",
  "tls_codec",
  "tokio",
+ "tokio-tungstenite 0.30.0",
  "tokio-util",
  "tower",
  "tracing",
+ "tracing-subscriber",
  "ts-rs",
  "uuid",
 ]
 
 [[package]]
 name = "catalyrst-conformance"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1969,7 +1982,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-contract-gate"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "axum",
  "catalyrst-crypto",
@@ -1984,7 +1997,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-create"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1999,7 +2012,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-credits"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2008,6 +2021,7 @@ dependencies = [
  "catalyrst-authenticated-admin",
  "catalyrst-authenticated-principal",
  "catalyrst-commons",
+ "catalyrst-contract-gate",
  "catalyrst-crypto",
  "catalyrst-db",
  "catalyrst-envcfg",
@@ -2033,7 +2047,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-crypto"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2051,11 +2065,12 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
 name = "catalyrst-data"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2073,7 +2088,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-db"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "bytes",
  "catalyrst-contract-gate",
@@ -2090,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-deploy-signer"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2111,7 +2126,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-drpc"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "async-channel",
  "async-trait",
@@ -2129,7 +2144,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-economy"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2156,7 +2171,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-envcfg"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2169,7 +2184,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-events"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2207,7 +2222,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-explore"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2226,7 +2241,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-explorer-api"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2250,7 +2265,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-fed"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "async-nats",
@@ -2275,7 +2290,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-fuzz"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2288,7 +2303,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-governance"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2312,7 +2327,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-hashing"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "bs58",
  "data-encoding",
@@ -2321,7 +2336,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-land-authz"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "async-trait",
  "catalyrst-contract-gate",
@@ -2338,7 +2353,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-livekit"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "base64 0.23.1",
  "hmac 0.13.0",
@@ -2349,11 +2364,12 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
 name = "catalyrst-map"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2376,7 +2392,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-market"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2417,7 +2433,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-media"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2426,6 +2442,7 @@ dependencies = [
  "catalyrst-db",
  "catalyrst-envcfg",
  "catalyrst-types",
+ "image",
  "reqwest",
  "serde",
  "serde_json",
@@ -2437,7 +2454,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-notifications"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2461,7 +2478,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-oracle-tests"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -2478,7 +2495,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-places"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2515,11 +2532,12 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-presence"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
  "catalyrst-commons",
+ "catalyrst-contract-gate",
  "catalyrst-db",
  "catalyrst-envcfg",
  "catalyrst-types",
@@ -2538,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-preview-tunnel"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2556,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-price"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2575,7 +2593,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-profile-images"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2593,15 +2611,21 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-pulse"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "async-nats",
+ "base64 0.23.1",
  "bytes",
  "catalyrst-crypto",
  "catalyrst-envcfg",
+ "catalyrst-testgate",
  "catalyrst-types",
  "chrono",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hmac 0.13.0",
  "metrics",
  "metrics-exporter-prometheus",
  "proptest",
@@ -2609,18 +2633,22 @@ dependencies = [
  "prost-build",
  "protox",
  "rcgen",
+ "reqwest",
  "rusty_enet",
+ "serde",
  "serde_json",
  "sha2 0.11.0",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
+ "web-transport-quinn",
  "web_transport",
 ]
 
 [[package]]
 name = "catalyrst-quests"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2649,7 +2677,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-rpc"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2664,7 +2692,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-scene-state"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2691,7 +2719,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-server"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2700,6 +2728,7 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "catalyrst-commons",
+ "catalyrst-contract-gate",
  "catalyrst-crypto",
  "catalyrst-db",
  "catalyrst-envcfg",
@@ -2742,7 +2771,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-signatures"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -2764,7 +2793,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-social"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2782,7 +2811,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-social-service"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2832,7 +2861,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-storage"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "bytes",
  "catalyrst-hashing",
@@ -2849,11 +2878,12 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-telemetry"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
  "catalyrst-authenticated-admin",
+ "catalyrst-commons",
  "catalyrst-contract-gate",
  "catalyrst-envcfg",
  "catalyrst-testgate",
@@ -2870,7 +2900,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-testgate"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "axum",
  "reqwest",
@@ -2880,7 +2910,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-tunnel-protocol"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2888,7 +2918,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-types"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "axum",
  "catalyrst-auth-chain",
@@ -2904,7 +2934,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-validator"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -2922,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-worlds"
-version = "0.26.0"
+version = "0.31.0"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -2961,6 +2991,7 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
+ "tracing-subscriber",
  "ts-rs",
  "url",
  "utoipa",
@@ -3668,7 +3699,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "dcl-one-sdk"
-version = "0.26.1"
+version = "0.31.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3713,6 +3744,30 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "zip",
+]
+
+[[package]]
+name = "dcl-social-api"
+version = "0.31.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.23.1",
+ "catalyrst-crypto",
+ "catalyrst-envcfg",
+ "chrono",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
+ "tower",
+ "tower-http 0.7.1",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -5270,11 +5325,22 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "image-webp",
  "moxcms",
  "num-traits",
  "png",
  "zune-core",
  "zune-jpeg",
+]
+
+[[package]]
+name = "image-webp"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
+dependencies = [
+ "byteorder-lite",
+ "quick-error 2.0.1",
 ]
 
 [[package]]
@@ -7892,6 +7958,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
+name = "quick-error"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
+
+[[package]]
 name = "quinn"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8893,9 +8965,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.43"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -8990,7 +9062,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc6bf79ff24e648f6da1f8d1f011e9cac26491b619e6b9280f2b47f1774e6ee2"
 dependencies = [
  "fnv",
- "quick-error",
+ "quick-error 1.2.3",
  "tempfile",
  "wait-timeout",
 ]
@@ -9980,7 +10052,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -11113,7 +11185,6 @@ dependencies = [
 [[package]]
 name = "web_transport"
 version = "0.1.0"
-source = "git+https://github.com/decentraland/rust-web-transport?rev=c5416501f6ffc4a11303980f9811426ae34c77ef#c5416501f6ffc4a11303980f9811426ae34c77ef"
 dependencies = [
  "bytes",
  "rustls-pemfile",

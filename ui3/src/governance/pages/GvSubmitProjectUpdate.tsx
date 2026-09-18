@@ -227,7 +227,7 @@ const FIELDS: FieldDef[] = [
 
 const CSV_HEADER = "category,description,token,amount,receiver,link";
 
-export type GvSubmitFunds = {
+type GvSubmitFunds = {
   released: string;
   disclosed: string;
   token: string;

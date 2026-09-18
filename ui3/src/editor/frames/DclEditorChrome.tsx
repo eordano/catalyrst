@@ -3,7 +3,7 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import EngineViewport from "./EngineViewport";
 import MobileEditorGate from "../../components/MobileEditorGate";
 import { BOOT_TIMEOUT_MS, BOOT_PROGRESS_POLL_MS, BOOT_LEAVE_MS } from "../editor-config";
-import { bootReducer, bootOverlay, INITIAL_BOOT, type BootStage } from "../boot-machine";
+import { bootReducer, bootOverlay, INITIAL_BOOT, type BootStage, type BootState } from "../boot-machine";
 import "./dcleditorchrome.css";
 import "./dcleditorchrome-toolbar.css";
 import "./dcleditorchrome-menus.css";
@@ -24,6 +24,9 @@ function readEngineWindow(
           dclLoadingProgress?: unknown;
           dclLoadingStep?: unknown;
           dclEngineReady?: unknown;
+          dclBootstrapSnapshot?: { phase?: string };
+          engine_console_command?: unknown;
+          engine_console_command_args?: unknown;
           __engineCrashed?: unknown;
         })
       | null
@@ -34,8 +37,10 @@ function readEngineWindow(
     return {
       progress: typeof p === "number" && isFinite(p) ? p : null,
       stage: BOOT_STAGES.includes(s as BootStage) ? (s as BootStage) : null,
-      ready: w.dclEngineReady === true,
-      crashed: Boolean(w.__engineCrashed),
+      ready: w.dclBootstrapSnapshot
+        ? w.dclBootstrapSnapshot.phase === "World"
+        : w.dclEngineReady === true || typeof w.engine_console_command === "function" || typeof w.engine_console_command_args === "function",
+      crashed: Boolean(w.__engineCrashed) || w.dclBootstrapSnapshot?.phase === "Failed",
     };
   } catch {
     return { progress: null, stage: null, ready: false, crashed: false };
@@ -51,21 +56,31 @@ function formatElapsed(seconds: number): string {
 
 export type EditorEngineStatus = "connecting" | "online" | "offline";
 
-export interface DclEditorChromeProps {
+export interface EditorBootstrapSnapshot { ready: boolean; error: string | null; stage: BootState["stage"]; progress: number | null }
+
+interface DclEditorChromeProps {
+  onBootstrap?: (snapshot: EditorBootstrapSnapshot) => void;
+  onRetry?: () => void;
   children?: ReactNode;
   viewportSrc?: string | null;
   viewportRef?: RefObject<HTMLIFrameElement | null> | null;
   sceneReady?: boolean;
+  sceneError?: string | null;
+  onViewportLoad?: () => void;
   loading?: boolean;
   loadError?: boolean;
   onEngineStatus?: ((status: EditorEngineStatus) => void) | null;
 }
 
 export default function DclEditorChrome({
+  onBootstrap,
+  onRetry,
   children,
   viewportSrc = null,
   viewportRef = null,
   sceneReady = undefined,
+  sceneError = null,
+  onViewportLoad,
   loading = false,
   loadError = false,
   onEngineStatus = null,
@@ -84,6 +99,7 @@ export default function DclEditorChrome({
 
   useEffect(() => {
     if (sceneReady) dispatchBoot({ type: "scene-ready" });
+    else dispatchBoot({ type: "bus-reset" });
   }, [sceneReady]);
 
   useEffect(() => {
@@ -97,6 +113,7 @@ export default function DclEditorChrome({
       if (crashed) {
         lostTicksRef.current = 0;
         setEngineLost(true);
+        dispatchBoot({ type: "engine-error", reason: "The engine stopped. Retry to reconnect the editor." });
       } else if (ready) {
         lostTicksRef.current = 0;
         setEngineLost(false);
@@ -106,7 +123,7 @@ export default function DclEditorChrome({
       }
     }, BOOT_PROGRESS_POLL_MS);
     return () => clearInterval(id);
-  }, [viewportSrc, viewportRef, boot.phase, bootNonce]);
+  }, [viewportSrc, viewportRef, boot.phase, bootNonce, sceneReady]);
 
   useEffect(() => {
     if (!viewportSrc || boot.phase === "ready" || boot.phase === "error") return undefined;
@@ -125,11 +142,14 @@ export default function DclEditorChrome({
 
   const prepFailed = !viewportSrc && (loadError || prepTimedOut);
   const status: EditorEngineStatus =
-    boot.phase === "error" || engineLost || prepFailed
+    boot.phase === "error" || engineLost || prepFailed || sceneError
       ? "offline"
       : boot.phase === "ready"
         ? "online"
         : "connecting";
+  useEffect(() => {
+    onBootstrap?.({ ready: boot.engineReady && !engineLost, error: engineLost ? "The engine disconnected." : boot.phase === "error" ? boot.reason : null, stage: boot.stage, progress: boot.progress });
+  }, [onBootstrap, boot.engineReady, boot.phase, boot.reason, boot.stage, boot.progress, engineLost]);
   const onEngineStatusRef = useRef(onEngineStatus);
   onEngineStatusRef.current = onEngineStatus;
   useEffect(() => {
@@ -137,11 +157,15 @@ export default function DclEditorChrome({
   }, [status]);
 
   const retryBoot = () => {
+    onRetry?.();
+    onViewportLoad?.();
     dispatchBoot({ type: "retry" });
     setBootNonce((n) => n + 1);
   };
 
-  const overlay = prepFailed
+  const overlay = sceneError
+    ? ({ show: true, kind: "error", text: sceneError } as const)
+    : prepFailed
     ? ({
         show: true,
         kind: "error",
@@ -192,7 +216,10 @@ export default function DclEditorChrome({
           key={bootNonce}
           viewportRef={viewportRef}
           src={viewportSrc}
-          onLoad={() => dispatchBoot({ type: "iframe-load" })}
+          onLoad={() => {
+            dispatchBoot({ type: "viewport", src: viewportSrc });
+            onViewportLoad?.();
+          }}
         />
       ) : (
         <>

@@ -1,7 +1,8 @@
 import type { ComponentType } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { EditorTool } from "../bus-protocol";
 import type { EditorCamMode } from "../editor-bus";
+import { useDismiss } from "../use-dismiss";
 import {
   IconBug,
   IconCamera,
@@ -51,6 +52,8 @@ export interface DeToolbarProps {
   cameraPreset?: string;
   onCode?: () => void;
   codeActive?: boolean;
+  onUIDesigner?: () => void;
+  uiDesignerActive?: boolean;
   live?: boolean;
   showGizmo?: boolean;
 }
@@ -77,28 +80,15 @@ export function DeToolbar({
   cameraPreset = "blender",
   onCode = undefined,
   codeActive = false,
+  onUIDesigner,
+  uiDesignerActive = false,
   live = false,
   showGizmo = !live,
 }: DeToolbarProps) {
   const [camOpen, setCamOpen] = useState(false);
   const camRef = useRef<HTMLDivElement | null>(null);
   const chip = saveChip(playing, saveLabel, saveClass);
-
-  useEffect(() => {
-    if (!camOpen) return undefined;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setCamOpen(false);
-    };
-    const onPointer = (e: MouseEvent) => {
-      if (camRef.current && !camRef.current.contains(e.target as Node)) setCamOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onPointer);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onPointer);
-    };
-  }, [camOpen]);
+  useDismiss(camOpen, camRef, () => setCamOpen(false));
 
   return (
     <div className="eui-panel eui-toolbar">
@@ -107,6 +97,7 @@ export function DeToolbar({
         title={hideLeft ? "Show hierarchy" : "Hide hierarchy"}
         aria-label={hideLeft ? "Show hierarchy" : "Hide hierarchy"}
         onClick={onToggleLeft}
+        disabled={!onToggleLeft}
       >
         <IconSidebarLeft />
       </button>
@@ -121,6 +112,7 @@ export function DeToolbar({
               aria-pressed={tool === t.id}
               className={"eui-btn icon" + (tool === t.id ? " active" : "")}
               onClick={() => onTool?.(t.id)}
+              disabled={!onTool}
             >
               <t.Icon />
             </button>
@@ -131,15 +123,15 @@ export function DeToolbar({
       <div className="eui-tool-group">
         {(!live || onPlay || onPause) &&
           (playing ? (
-            <button type="button" className="eui-btn icon active" title={"Scene is running \u{2014} pause"} aria-label={"Scene is running \u{2014} pause"} onClick={onPause}>
+            <button type="button" className="eui-btn icon active" title={"Scene is running \u{2014} pause"} aria-label={"Scene is running \u{2014} pause"} onClick={onPause} disabled={!onPause}>
               <IconPause />
             </button>
           ) : (
             <>
-              <button type="button" className="eui-btn icon" title="Run the scene" aria-label="Run the scene" onClick={onPlay}>
+              <button type="button" className="eui-btn icon" title="Run the scene" aria-label="Run the scene" onClick={onPlay} disabled={!onPlay}>
                 <IconPlay />
               </button>
-              <button type="button" className="eui-btn icon" title="Advance one tick" aria-label="Advance one tick" onClick={onStep}>
+              <button type="button" className="eui-btn icon" title="Advance one tick" aria-label="Advance one tick" onClick={onStep} disabled={!onStep}>
                 <IconStep />
               </button>
             </>
@@ -185,6 +177,8 @@ export function DeToolbar({
           </button>
         </div>
       )}
+
+      {onUIDesigner && <button type="button" className={`eui-btn${uiDesignerActive ? " active" : ""}`} aria-pressed={uiDesignerActive} onClick={onUIDesigner}>UI Designer</button>}
 
       {onCamMode && (
         <div ref={camRef} style={{ position: "relative", display: "flex" }}>
@@ -246,6 +240,7 @@ export function DeToolbar({
         title={hideRight ? "Show inspector" : "Hide inspector"}
         aria-label={hideRight ? "Show inspector" : "Hide inspector"}
         onClick={onToggleRight}
+        disabled={!onToggleRight}
       >
         <IconSidebarRight />
       </button>

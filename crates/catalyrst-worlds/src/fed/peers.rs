@@ -230,7 +230,7 @@ impl std::fmt::Display for PeerOmitted {
 /// A peer that cleared every gate in [`PeerNotAdmitted`] and for which a root-pinned
 /// TLS client was built.
 ///
-/// A witness type in the house style of `FederatedCommunityWriteAuthority`
+/// An authority type in the house style of `FederatedCommunityWriteAuthority`
 /// (`catalyrst-social-service/src/rest/fed/authority.rs`): private fields, no public
 /// constructor, obtainable only from [`AdmittedPeer::admit`], so a function taking
 /// `&AdmittedPeer` cannot be handed a peer that was merely present in the file.

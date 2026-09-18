@@ -5,6 +5,8 @@ import ExploreChrome from "../../explorer/frames/ExploreChrome";
 import SearchField from "../../atoms/SearchField";
 import Checkbox from "../../atoms/Checkbox";
 import Spinner from "../../atoms/Spinner";
+import type { TravelStatus } from "../../generated/bridge/TravelStatus";
+import TravelProgress, { isTravelActive } from "./TravelProgress";
 import { useDialogKeys } from "../../components/useDialogKeys";
 import "../../explorer/pages/map.css";
 import "../../explorer/pages/mapfilters.css";
@@ -39,6 +41,9 @@ type MapJumpViewProps<P extends MjPin> = {
   setHome?: boolean;
   error?: string;
   jumpUrl?: string;
+  arrivalWarning?: string;
+  arrival?: "arrived" | "degraded";
+  runtimeTravel?: TravelStatus | null;
   onTab?: (id: string) => void;
   onClose?: () => void;
   onSearch?: (value: string) => void;
@@ -68,6 +73,9 @@ export default function MapJumpView<P extends MjPin>({
   setHome = false,
   error = undefined,
   jumpUrl = undefined,
+  arrivalWarning = undefined,
+  arrival = undefined,
+  runtimeTravel = null,
   onTab = undefined,
   onClose = undefined,
   onSearch = undefined,
@@ -113,7 +121,7 @@ export default function MapJumpView<P extends MjPin>({
           <div className="map__district map__district--blue" style={{ left: "60%", top: "56%", width: "13%", height: "11%" }} />
           <div className="map__district map__district--pink" style={{ left: "58%", top: "23%", width: "9%", height: "8%" }} />
 
-          <div className="map__player" style={{ ...pinPos("0,0") }} aria-label="Your location">
+          <div className="map__player" role="img" style={{ ...pinPos("0,0") }} aria-label="Your location">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
               <path d="M12 3 20 21l-8-5-8 5 8-18z" fill="#fff" />
             </svg>
@@ -235,7 +243,7 @@ export default function MapJumpView<P extends MjPin>({
                     className="map__jump"
                     onClick={onConfirm}
                   >
-                    jump in
+                    Jump in
                   </button>
                 </div>
               )}
@@ -261,7 +269,7 @@ export default function MapJumpView<P extends MjPin>({
           </div>
         )}
 
-        {(teleporting || arrived || failed) && (
+        {isTravelActive(runtimeTravel) ? <TravelProgress key={`${runtimeTravel.operation.session}:${runtimeTravel.operation.requestId}`} travel={runtimeTravel} /> : (teleporting || arrived || failed) && (
           <div className="map__teleport" role="status" aria-live="polite">
             <div className="map__teleportcard">
               {teleporting && (
@@ -278,13 +286,13 @@ export default function MapJumpView<P extends MjPin>({
               )}
               {arrived && (
                 <>
-                  <p className="map__teleporttitle">You've arrived</p>
+                  <p className="map__teleporttitle">{arrival ? "You've arrived" : "Ready to explore"}</p>
                   <p className="map__teleportsub">
-                    Welcome to <b>{pin?.name}</b> ({pin?.coords}).
+                    {arrival ? "Welcome to" : "Open the explorer to visit"} <b>{pin?.name}</b> ({pin?.coords}).
                   </p>
                   <p className="map__teleportnote">
-                    Engine teleport when the bridge is present; otherwise deep link:{" "}
-                    <code>{jumpUrl}</code>
+                    {arrivalWarning && <span role="status">{arrivalWarning}</span>}
+                    {!arrival && jumpUrl && <a href={jumpUrl}>Open explorer</a>}
                   </p>
                 </>
               )}

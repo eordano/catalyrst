@@ -6,7 +6,7 @@ import {
 } from "./delete-project";
 import { loadCreatorScenes } from "../create/index.server";
 
-export type LoadDeleteProjectResult = {
+type LoadDeleteProjectResult = {
   data: DeleteProjectData;
   source: "live" | "empty" | "unavailable";
 };

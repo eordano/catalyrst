@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { tidy } from "../transform-nudge";
 
-export type NumericField = "position" | "rotation";
-export type NumericAxis = "x" | "y" | "z";
+type NumericField = "position" | "rotation";
+type NumericAxis = "x" | "y" | "z";
 
-export interface RibbonNumericValue {
+interface RibbonNumericValue {
   x: number;
   y: number;
   z: number;
@@ -23,7 +23,7 @@ function display(n: number | undefined): string {
   return String(Math.round(n * 1e3) / 1e3);
 }
 
-export interface NumFieldProps {
+interface NumFieldProps {
   label: string;
   ariaLabel: string;
   value: number | undefined;
@@ -31,7 +31,7 @@ export interface NumFieldProps {
   onCommit: (value: number) => void;
 }
 
-export function NumField({ label, ariaLabel, value, step, onCommit }: NumFieldProps) {
+function NumField({ label, ariaLabel, value, step, onCommit }: NumFieldProps) {
   const [draft, setDraft] = useState(() => display(value));
   const [editing, setEditing] = useState(false);
   const ref = useRef<HTMLInputElement | null>(null);

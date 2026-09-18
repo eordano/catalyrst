@@ -18,7 +18,7 @@ import { useAuth } from "@data/lib/auth/context";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { openSignIn } from "@features/components/auth/signin-store";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { marketplaceMeta } from "@core/lib/seo/marketplace-meta";
 import { track } from "@core/lib/telemetry/track";
 
@@ -51,13 +51,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     readWallet(request) ||
     undefined;
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap, data: seasons } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () => loadSeasons(),
   );
-
-  const seasons = await loadSeasons(request.signal);
 
   const payload = {
     sid,

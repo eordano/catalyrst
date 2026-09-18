@@ -68,7 +68,7 @@ export function isInReturnWindow(
   return lease.status === "leased" && lease.unlockAt > now;
 }
 
-export function availableAfterLabel(lease: EscrowLease): string {
+function availableAfterLabel(lease: EscrowLease): string {
   const d = new Date(lease.unlockAt);
   if (Number.isNaN(d.getTime())) return "soon";
   return d.toLocaleDateString(undefined, {

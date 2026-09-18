@@ -1,9 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import Reel from "./Reel";
+import { MemoryRouter } from "react-router";
 
 const meta = {
   title: "Explorer/Pages/Reel",
   component: Reel,
+  decorators: [(Story) => <MemoryRouter><Story /></MemoryRouter>],
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof Reel>;
 

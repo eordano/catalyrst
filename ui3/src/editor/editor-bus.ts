@@ -12,6 +12,25 @@ import { RPC_TIMEOUT_MS, EXPORT_COMPOSITE_TIMEOUT_MS } from "./editor-config";
 
 export { EDITOR_BUS_CHANNEL };
 
+export const EDITOR_SESSION_PARAM = "editorSession";
+
+const EDITOR_SESSION_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+
+export function editorBusChannel(session: string | null | undefined): string | null {
+  return typeof session === "string" && EDITOR_SESSION_RE.test(session)
+    ? `${EDITOR_BUS_CHANNEL}:${session}`
+    : null;
+}
+
+export function editorBusChannelFromViewportSrc(viewportSrc: string | null | undefined): string | null {
+  if (typeof viewportSrc !== "string" || viewportSrc === "") return null;
+  try {
+    return editorBusChannel(new URL(viewportSrc, globalThis.location?.origin ?? "https://catalyst.example.com").searchParams.get(EDITOR_SESSION_PARAM));
+  } catch {
+    return null;
+  }
+}
+
 export type EditorCamMode = "none" | "free" | "target";
 
 export interface CameraInputDelta {
@@ -100,12 +119,14 @@ const EDITOR_CAM_MODES = new Set<EditorCamMode>(["none", "free", "target"]);
 
 const toWireCamMode = (mode: EditorCamMode): CameraMode => (mode === "none" ? "off" : mode);
 
-export function createEditorBus(): EditorBus {
+export function createEditorBus(viewportSrc?: string | null): EditorBus {
   if (typeof BroadcastChannel === "undefined") return NULL_BUS;
+  const channelName = editorBusChannelFromViewportSrc(viewportSrc);
+  if (!channelName) return NULL_BUS;
 
   let channel: BroadcastChannel;
   try {
-    channel = new BroadcastChannel(EDITOR_BUS_CHANNEL);
+    channel = new BroadcastChannel(channelName);
   } catch {
     return NULL_BUS;
   }

@@ -1,15 +1,9 @@
-import type { QueryClient } from "@tanstack/react-query";
-import type { ComponentType } from "react";
-import { lazy, Suspense } from "react";
+import { lazy } from "react";
 import { createHashRouter, Navigate } from "react-router";
 import type { RouteObject } from "react-router";
 
 import AppLayout from "./AppLayout";
-
-type PanelModule = {
-  default: ComponentType;
-  prefetch?: (queryClient: QueryClient) => void;
-};
+import { createPanelPreloader, type PanelModule } from "./panel-preload";
 
 const panelModules = import.meta.glob<PanelModule>("./panels/*.route.{jsx,tsx}");
 
@@ -24,21 +18,7 @@ export const panelLoaders: Record<string, () => Promise<PanelModule>> =
     Object.entries(panelModules).map(([p, loader]) => [idFromPath(p), loader] as const),
   );
 
-export function prefetchPanel(queryClient: QueryClient, id: string) {
-  const loader = panelLoaders[id];
-  if (!loader) return;
-  loader()
-    .then((mod) => {
-      if (typeof mod.prefetch === "function") {
-        try {
-          mod.prefetch(queryClient);
-        } catch {
-        }
-      }
-    })
-    .catch(() => {
-    });
-}
+export const prefetchPanel = createPanelPreloader(panelLoaders);
 
 const childRoutes: RouteObject[] = Object.entries(panelLoaders).map(([id, loader]) => {
   const Panel = lazy(loader);
@@ -52,9 +32,7 @@ childRoutes.push({ path: "*", element: <Navigate to="/" replace /> });
 export const router = createHashRouter([
   {
     path: "/",
-    element: <AppLayout prefetchPanel={prefetchPanel} />,
+    element: <AppLayout prefetchPanel={prefetchPanel} prefetchAllPanels={prefetchPanel.all} />,
     children: childRoutes,
   },
 ]);
-
-export { Suspense };

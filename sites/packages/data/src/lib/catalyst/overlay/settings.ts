@@ -48,15 +48,15 @@ const SettingsFixtureSchema = z
   .passthrough();
 
 export type SettingModule = z.infer<typeof ModuleSchema>;
-export type SettingGroup = z.infer<typeof GroupSchema>;
-export type SettingsTab = z.infer<typeof TabSchema>;
+type SettingGroup = z.infer<typeof GroupSchema>;
+type SettingsTab = z.infer<typeof TabSchema>;
 
 export type SettingsCatalog = {
   tabs: SettingsTab[];
   sections: Record<string, SettingGroup[]>;
 };
 
-export const TAB_IDS = ["graphics", "sounds", "controls", "chat"] as const;
+const TAB_IDS = ["graphics", "sounds", "controls", "chat"] as const;
 export type TabId = (typeof TAB_IDS)[number];
 
 export const DEFAULT_TAB: TabId = "graphics";

@@ -136,11 +136,10 @@ describe("GET /creator-hub/activity/:world", () => {
     const res = await loader(get("ghost.dcl.eth") as never);
 
     expect(res.init?.status).toBe(404);
-    const payload = res.data as Record<string, unknown>;
-    expect(payload.notFound).toBe(true);
+    expect((res.data as Record<string, unknown>).notFound).toBe(true);
   });
 
-  it("presence down + wcs up is a 200 with deploy and reception still showable", async () => {
+  it("presence down + wcs up is a 200 with deploy and reception showable, presence readings valueless and the scene kv store never a zero", async () => {
     stubFetch(presenceDownRoutes());
 
     const res = await loader(get(WORLD) as never);
@@ -151,29 +150,18 @@ describe("GET /creator-hub/activity/:world", () => {
     expect(payload.notFound).toBe(false);
     expect(payload.allUpstreamsDown).toBe(false);
 
-    const state = (key: string) =>
-      (payload[key] as Record<string, unknown>).state as string;
-
-    expect(SHOWABLE.has(state("sceneUrn"))).toBe(true);
-    expect(SHOWABLE.has(state("spawnCoordinates"))).toBe(true);
-    expect(SHOWABLE.has(state("storage"))).toBe(true);
-    expect(SHOWABLE.has(state("reception"))).toBe(true);
-    expect(SHOWABLE.has(state("worldMeta"))).toBe(true);
+    for (const key of ["sceneUrn", "spawnCoordinates", "storage", "reception", "worldMeta"]) {
+      const d = payload[key] as Record<string, unknown>;
+      expect(SHOWABLE.has(d.state as string), key).toBe(true);
+    }
 
     for (const key of ["inThisWorld", "history", "peak", "occupiedSnapshots"]) {
       const d = payload[key] as Record<string, unknown>;
-      expect(SHOWABLE.has(d.state as string)).toBe(false);
-      expect(Object.hasOwn(d, "value")).toBe(false);
+      expect(SHOWABLE.has(d.state as string), key).toBe(false);
+      expect(Object.hasOwn(d, "value"), key).toBe(false);
     }
-  });
 
-  it("never renders the scene key-value store as a zero", async () => {
-    stubFetch(presenceDownRoutes());
-
-    const res = await loader(get(WORLD) as never);
-    const payload = res.data as Record<string, unknown>;
     const kv = payload.sceneKvStorage as Record<string, unknown>;
-
     expect(kv.state).toBe("unavailable");
     expect(Object.hasOwn(kv, "value")).toBe(false);
     expect(String(kv.reason)).toMatch(/ADR-44/);

@@ -8,9 +8,9 @@ import CreatorHubBreadcrumb from "@ui/creatorhub/components/CreatorHubBreadcrumb
 import "@ui/creatorhub/frames/creatorhubchrome.css";
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import {
   loadWorldPermissions,
@@ -48,10 +48,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   const worldName = url.searchParams.get("world")?.trim() || "";
   const noWorld = worldName === "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: access } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () => noWorld ? Promise.resolve(null) : Promise.all([
+      loadWorldPermissions(worldName, { signal: request.signal }).catch(() => null),
+      loadWorldScenes(worldName, { signal: request.signal }),
+    ]),
   );
 
   const viewer = (
@@ -62,13 +66,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   let perms: LoadWorldPermissionsResult | null = null;
   let gate: WorldGate = noWorld ? "no-world" : "none";
-  if (!noWorld) {
-    const [loaded, scenes] = await Promise.all([
-      loadWorldPermissions(worldName, { signal: request.signal }).catch(
-        () => null,
-      ),
-      loadWorldScenes(worldName, { signal: request.signal }),
-    ]);
+  if (access) {
+    const [loaded, scenes] = access;
     perms =
       loaded ?? {
         permissions: emptyWorldPermissions(worldName),
@@ -105,7 +104,7 @@ export default function CreatorHubWorldPermissions({
   const { sid, step, assignment, permissions, gate, viewer, worldName } =
     loaderData;
   const { isConnected, address, identity } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
   const commit: CommitFn | undefined =
     identity && worldName
       ? async ({ accessType, collaborators, signal }) => {

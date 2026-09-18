@@ -12,7 +12,7 @@ const SceneParcelsSchema = z.object({
   parcels: z.array(z.string()),
 });
 
-export const ProjectSchema = z.object({
+const ProjectSchema = z.object({
   id: z.string().min(1),
   path: z.string(),
   title: z.string(),
@@ -30,7 +30,7 @@ export const ProjectSchema = z.object({
 });
 export type Project = z.infer<typeof ProjectSchema>;
 
-export const DeleteCopySchema = z.object({
+const DeleteCopySchema = z.object({
   title: z.string(),
   files_checkbox: z.string(),
   files_warning: z.string(),
@@ -40,7 +40,7 @@ export const DeleteCopySchema = z.object({
 });
 export type DeleteCopy = z.infer<typeof DeleteCopySchema>;
 
-export const DeleteProjectDataSchema = z.object({
+const DeleteProjectDataSchema = z.object({
   copy: DeleteCopySchema,
   projects: z.array(ProjectSchema),
 });
@@ -50,7 +50,7 @@ export function deleteCopy(): DeleteCopy {
   return DeleteCopySchema.parse((fixture as { copy: unknown }).copy);
 }
 
-export type CreatorSceneLike = {
+type CreatorSceneLike = {
   id: string;
   title: string;
   image?: string | null;

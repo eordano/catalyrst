@@ -21,6 +21,7 @@ type Crate = {
   manifest: string;
   declared: Declared | null;
   emitsTs: boolean;
+  tsFeature: boolean;
   emitsOpenapi: boolean;
   exportDirs: string[];
 };
@@ -89,6 +90,7 @@ function scanCrates(): Crate[] {
         manifest: `${rootRel}/${name}/Cargo.toml`,
         declared,
         emitsTs,
+        tsFeature: /^\s*ts\s*=/m.test(text.split("[features]")[1]?.split(/\n\[/)[0] ?? ""),
         emitsOpenapi,
         exportDirs: [...exportDirs].sort(),
       });
@@ -232,6 +234,7 @@ if (mode === "--list") {
       crates.filter((c) => c.dir.startsWith("bevy-explorer/crates/")),
       "ts-bindings",
     ),
+    "bridge-ts": crates.filter((c) => c.dir.startsWith("bevy-explorer/crates/") && c.declared?.["ts-bindings"] && c.tsFeature).map((c) => c.name),
   };
   if (!lists[what]) {
     console.error(`usage: generated-artefacts.mts --list <${Object.keys(lists).join("|")}>`);

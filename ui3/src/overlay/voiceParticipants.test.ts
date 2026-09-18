@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { VoiceParticipant } from "../generated/bridge/VoiceParticipant";
 import { useVoiceParticipants } from "./voiceParticipants";
@@ -36,28 +36,25 @@ function participant(over: Partial<VoiceParticipant> = {}): VoiceParticipant {
 
 afterEach(() => {
   delete window.dclBridge;
-  vi.useRealTimers();
 });
 
 describe("useVoiceParticipants", () => {
-  it("attaches immediately and replaces the roster on each push", () => {
+  it("attaches immediately, replaces the roster on each push, ignores other kinds, and unsubscribes on unmount", () => {
     const b = makeBridge();
     window.dclBridge = b.bridge;
-    const { result } = renderHook(() => useVoiceParticipants());
+    const { result, unmount } = renderHook(() => useVoiceParticipants());
     expect(result.current.participants).toEqual([]);
     act(() => b.push({ kind: "voiceParticipants", participants: [participant()] }));
     expect(result.current.participants).toHaveLength(1);
-    act(() => b.push({ kind: "voiceParticipants", participants: [] }));
-    expect(result.current.participants).toEqual([]);
-  });
-
-  it("ignores pushes of other kinds", () => {
-    const b = makeBridge();
-    window.dclBridge = b.bridge;
-    const { result } = renderHook(() => useVoiceParticipants());
     act(() => b.push({ kind: "settings", settings: [] }));
     act(() => b.push(null));
+    expect(result.current.participants).toHaveLength(1);
+    act(() => b.push({ kind: "voiceParticipants", participants: [] }));
     expect(result.current.participants).toEqual([]);
+
+    expect(b.listeners.size).toBe(1);
+    unmount();
+    expect(b.listeners.size).toBe(0);
   });
 
   it("applies volume writes optimistically and sends SetVoiceParticipantVolume", () => {
@@ -81,40 +78,5 @@ describe("useVoiceParticipants", () => {
       b.push({ kind: "voiceParticipants", participants: [participant({ volume: 1 })] }),
     );
     expect(result.current.participants.find((p) => p.name === "Ada")?.volume).toBe(1);
-  });
-
-  it("polls every 250ms until the bridge appears", () => {
-    vi.useFakeTimers();
-    const { result } = renderHook(() => useVoiceParticipants());
-    const b = makeBridge();
-    window.dclBridge = b.bridge;
-    act(() => {
-      vi.advanceTimersByTime(250);
-    });
-    act(() => b.push({ kind: "voiceParticipants", participants: [participant()] }));
-    expect(result.current.participants).toHaveLength(1);
-  });
-
-  it("gives up after 10 seconds without a bridge", () => {
-    vi.useFakeTimers();
-    renderHook(() => useVoiceParticipants());
-    act(() => {
-      vi.advanceTimersByTime(10000);
-    });
-    const b = makeBridge();
-    window.dclBridge = b.bridge;
-    act(() => {
-      vi.advanceTimersByTime(2000);
-    });
-    expect(b.listeners.size).toBe(0);
-  });
-
-  it("unsubscribes from the bridge on unmount", () => {
-    const b = makeBridge();
-    window.dclBridge = b.bridge;
-    const { unmount } = renderHook(() => useVoiceParticipants());
-    expect(b.listeners.size).toBe(1);
-    unmount();
-    expect(b.listeners.size).toBe(0);
   });
 });

@@ -10,6 +10,7 @@ use crate::http::ApiError;
 use crate::AppState;
 
 const MAX_AVAILABLE_CONTENT_CIDS: usize = 500;
+const AVAILABLE_CONTENT_CONCURRENCY: usize = 32;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
@@ -40,21 +41,45 @@ pub(crate) fn is_retrievable_content_key(hash: &str) -> bool {
     is_ipfs_v2(hash) || is_sha256_hex(hash)
 }
 
-async fn detect_content_type(path: &std::path::Path) -> String {
-    let file = match tokio::fs::File::open(path).await {
-        Ok(f) => f,
-        Err(_) => return DEFAULT_CONTENT_TYPE.to_string(),
-    };
+/// Hash-addressed blobs never change, so (len, mime) per hash is memoized for the
+/// process lifetime; a vanished file (GC) drops the entry on the next open.
+#[derive(Clone, Copy)]
+struct LocalMeta {
+    len: u64,
+    mime: &'static str,
+}
+
+const LOCAL_META_CAPACITY: u64 = 65_536;
+const UPSTREAM_MISS_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn local_meta_cache() -> &'static moka::future::Cache<String, LocalMeta> {
+    static CACHE: std::sync::OnceLock<moka::future::Cache<String, LocalMeta>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        moka::future::Cache::builder()
+            .max_capacity(LOCAL_META_CAPACITY)
+            .build()
+    })
+}
+
+fn upstream_miss_cache() -> &'static moka::future::Cache<String, ()> {
+    static CACHE: std::sync::OnceLock<moka::future::Cache<String, ()>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        moka::future::Cache::builder()
+            .max_capacity(LOCAL_META_CAPACITY)
+            .time_to_live(UPSTREAM_MISS_TTL)
+            .build()
+    })
+}
+
+/// Reads the sniff window from an open handle; the caller repositions it.
+async fn sniff_open_file(file: &mut tokio::fs::File) -> Option<&'static str> {
     let mut head = Vec::with_capacity(MIME_SNIFF_BYTES as usize);
-    if file
-        .take(MIME_SNIFF_BYTES)
+    file.take(MIME_SNIFF_BYTES)
         .read_to_end(&mut head)
         .await
-        .is_err()
-    {
-        return DEFAULT_CONTENT_TYPE.to_string();
-    }
-    sniff_content_type(&head).to_string()
+        .ok()?;
+    Some(sniff_content_type(&head))
 }
 
 fn sniff_content_type(head: &[u8]) -> &'static str {
@@ -222,17 +247,33 @@ pub async fn available_content(
         }
     }
 
-    let mut out = Vec::with_capacity(cids.len());
-    for cid in cids {
-        let available = tokio::fs::metadata(state.cfg.contents_dir.join(cid))
-            .await
-            .map(|m| m.is_file())
-            .unwrap_or(false);
-        out.push(AvailableContentEntry {
-            cid: cid.to_string(),
-            available,
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(AVAILABLE_CONTENT_CONCURRENCY));
+    let mut set = tokio::task::JoinSet::new();
+    for (i, cid) in cids.iter().enumerate() {
+        let path = state.cfg.contents_dir.join(cid);
+        let sem = sem.clone();
+        set.spawn(async move {
+            let _permit = sem.acquire().await;
+            let available = tokio::fs::metadata(path)
+                .await
+                .map(|m| m.is_file())
+                .unwrap_or(false);
+            (i, available)
         });
     }
+    let mut available = vec![false; cids.len()];
+    while let Some(res) = set.join_next().await {
+        let (i, ok) = res.map_err(|e| ApiError::internal(format!("available-content: {e}")))?;
+        available[i] = ok;
+    }
+    let out = cids
+        .into_iter()
+        .zip(available)
+        .map(|(cid, available)| AvailableContentEntry {
+            cid: cid.to_string(),
+            available,
+        })
+        .collect();
     Ok(axum::Json(out))
 }
 
@@ -247,65 +288,37 @@ async fn proxy(
     }
 
     let local = state.cfg.contents_dir.join(&hash);
-    if let Ok(meta) = tokio::fs::metadata(&local).await {
-        if meta.is_file() {
-            let size = meta.len();
-            let range = headers
-                .get("range")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|r| parse_range(r, size));
-            match range {
-                Some(None) => {
-                    return Ok(Response::builder()
-                        .status(StatusCode::RANGE_NOT_SATISFIABLE)
-                        .header("content-range", format!("bytes */{size}"))
-                        .header("accept-ranges", "bytes")
-                        .body(Body::empty())
-                        .unwrap());
-                }
-                Some(Some((start, end))) => {
-                    let content_type = detect_content_type(&local).await;
-                    let builder = Response::builder()
-                        .status(StatusCode::PARTIAL_CONTENT)
-                        .header("content-type", content_type)
-                        .header("content-range", format!("bytes {start}-{end}/{size}"))
-                        .header("content-length", end - start + 1)
-                        .header("etag", format!("\"{hash}\""))
-                        .header("cache-control", IMMUTABLE_CACHE_CONTROL)
-                        .header("access-control-expose-headers", EXPOSED_HEADERS)
-                        .header("accept-ranges", "bytes");
-                    if method == Method::HEAD {
-                        return Ok(builder.body(Body::empty()).unwrap());
+    let memo = local_meta_cache().get(&hash).await;
+    match tokio::fs::File::open(&local).await {
+        Ok(mut file) => {
+            let meta = match memo {
+                Some(m) => Some(m),
+                None => match file.metadata().await {
+                    Ok(md) if md.is_file() => {
+                        let sniffed = sniff_open_file(&mut file).await;
+                        file.seek(std::io::SeekFrom::Start(0))
+                            .await
+                            .map_err(|e| ApiError::internal(format!("local content seek: {e}")))?;
+                        let m = LocalMeta {
+                            len: md.len(),
+                            mime: sniffed.unwrap_or(DEFAULT_CONTENT_TYPE),
+                        };
+                        if sniffed.is_some() {
+                            local_meta_cache().insert(hash.clone(), m).await;
+                        }
+                        Some(m)
                     }
-                    let mut file = tokio::fs::File::open(&local)
-                        .await
-                        .map_err(|e| ApiError::internal(format!("local content open: {e}")))?;
-                    file.seek(std::io::SeekFrom::Start(start))
-                        .await
-                        .map_err(|e| ApiError::internal(format!("local content seek: {e}")))?;
-                    let stream = ReaderStream::new(file.take(end - start + 1));
-                    return Ok(builder.body(Body::from_stream(stream)).unwrap());
-                }
-                None => {}
+                    _ => None,
+                },
+            };
+            if let Some(meta) = meta {
+                return serve_local(file, meta, &hash, &headers, method).await;
             }
-            let content_type = detect_content_type(&local).await;
-            let builder = Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", content_type)
-                .header("content-length", size)
-                .header("etag", format!("\"{hash}\""))
-                .header("cache-control", IMMUTABLE_CACHE_CONTROL)
-                .header("access-control-expose-headers", EXPOSED_HEADERS)
-                .header("accept-ranges", "bytes");
-            if method == Method::HEAD {
-                return Ok(builder.body(Body::empty()).unwrap());
+        }
+        Err(_) => {
+            if memo.is_some() {
+                local_meta_cache().invalidate(&hash).await;
             }
-            let file = tokio::fs::File::open(&local)
-                .await
-                .map_err(|e| ApiError::internal(format!("local content open: {e}")))?;
-            return Ok(builder
-                .body(Body::from_stream(ReaderStream::new(file)))
-                .unwrap());
         }
     }
 
@@ -315,6 +328,12 @@ async fn proxy(
              so there is no upstream to read through to"
         )));
     };
+
+    if upstream_miss_cache().contains_key(&hash) {
+        return Err(ApiError::not_found(format!(
+            "content {hash} is not stored locally and the upstream reported it missing"
+        )));
+    }
 
     let url = format!("{upstream_base}/contents/{hash}");
 
@@ -335,6 +354,9 @@ async fn proxy(
 
     let status =
         StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    if status == StatusCode::NOT_FOUND {
+        upstream_miss_cache().insert(hash.clone(), ()).await;
+    }
 
     let mut out_headers = HeaderMap::new();
     for name in FORWARD_RESP_HEADERS {
@@ -382,6 +404,63 @@ async fn proxy(
     let mut response = (status, body).into_response();
     response.headers_mut().extend(out_headers);
     Ok(response)
+}
+
+async fn serve_local(
+    mut file: tokio::fs::File,
+    meta: LocalMeta,
+    hash: &str,
+    headers: &HeaderMap,
+    method: Method,
+) -> Result<Response, ApiError> {
+    let size = meta.len;
+    let range = headers
+        .get("range")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|r| parse_range(r, size));
+    match range {
+        Some(None) => Ok(Response::builder()
+            .status(StatusCode::RANGE_NOT_SATISFIABLE)
+            .header("content-range", format!("bytes */{size}"))
+            .header("accept-ranges", "bytes")
+            .body(Body::empty())
+            .unwrap()),
+        Some(Some((start, end))) => {
+            let builder = Response::builder()
+                .status(StatusCode::PARTIAL_CONTENT)
+                .header("content-type", meta.mime)
+                .header("content-range", format!("bytes {start}-{end}/{size}"))
+                .header("content-length", end - start + 1)
+                .header("etag", format!("\"{hash}\""))
+                .header("cache-control", IMMUTABLE_CACHE_CONTROL)
+                .header("access-control-expose-headers", EXPOSED_HEADERS)
+                .header("accept-ranges", "bytes");
+            if method == Method::HEAD {
+                return Ok(builder.body(Body::empty()).unwrap());
+            }
+            file.seek(std::io::SeekFrom::Start(start))
+                .await
+                .map_err(|e| ApiError::internal(format!("local content seek: {e}")))?;
+            let stream = ReaderStream::new(file.take(end - start + 1));
+            Ok(builder.body(Body::from_stream(stream)).unwrap())
+        }
+        None => {
+            let builder = Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", meta.mime)
+                .header("content-length", size)
+                .header("etag", format!("\"{hash}\""))
+                .header("cache-control", IMMUTABLE_CACHE_CONTROL)
+                .header("access-control-expose-headers", EXPOSED_HEADERS)
+                .header("accept-ranges", "bytes");
+            if method == Method::HEAD {
+                return Ok(builder.body(Body::empty()).unwrap());
+            }
+            Ok(builder
+                .body(Body::from_stream(ReaderStream::new(file)))
+                .unwrap())
+        }
+    }
 }
 
 #[cfg(test)]

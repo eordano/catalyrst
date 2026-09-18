@@ -30,7 +30,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const osParam = url.searchParams.get("os");
   const archParam = url.searchParams.get("arch");
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,

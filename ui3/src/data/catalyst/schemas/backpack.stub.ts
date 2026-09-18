@@ -17,7 +17,6 @@ const accept = {
 } as never;
 
 export const WearableSchema = accept;
-export const CategorySchema = accept;
 export const SlotBindingSchema = accept;
 export const EquippedSchema = accept;
 export const OwnedElementSchema = accept;

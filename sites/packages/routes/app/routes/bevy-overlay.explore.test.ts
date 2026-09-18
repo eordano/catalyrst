@@ -16,6 +16,7 @@ vi.mock("@data/lib/catalyst/marketplace/credits.server", async (importOriginal) 
 import { loadPlaces } from "@data/lib/catalyst/places/index.server";
 import { fetchCatalog } from "@data/lib/catalyst/marketplace/index";
 import { loadSeasons } from "@data/lib/catalyst/marketplace/credits.server";
+import { resetCatalogRailCache } from "@data/lib/catalyst/marketplace/catalog-rails.server";
 import * as track from "@core/lib/telemetry/track";
 import { loader } from "./bevy-overlay.explore";
 
@@ -43,6 +44,7 @@ async function dataFrom(search = "") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetCatalogRailCache();
   vi.spyOn(track, "trackExposure").mockImplementation(() => {});
   placesMock.mockResolvedValue({ data: [], total: 0 } as never);
   catalogMock.mockResolvedValue({ data: [] } as never);
@@ -54,70 +56,44 @@ afterEach(() => {
 });
 
 describe("GET /bevy-overlay/explore", () => {
-  it("collapses an unknown tab to places", async () => {
-    const d = await dataFrom("?tab=bogus");
-    expect(d.tab).toBe("places");
-    expect(placesMock).toHaveBeenCalledTimes(1);
+  it("resolves the tab and loads only what that tab shows", async () => {
+    expect((await dataFrom("?tab=bogus")).tab).toBe("places");
+    expect((await dataFrom()).tab).toBe("places");
+    expect(placesMock).toHaveBeenCalledTimes(2);
     expect(catalogMock).not.toHaveBeenCalled();
-  });
 
-  it("defaults a missing tab to places", async () => {
-    const d = await dataFrom();
-    expect(d.tab).toBe("places");
-    expect(placesMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps the marketplace tab and loads its catalog", async () => {
-    const d = await dataFrom("?tab=marketplace");
-    expect(d.tab).toBe("marketplace");
+    expect((await dataFrom("?tab=marketplace")).tab).toBe("marketplace");
     expect(catalogMock).toHaveBeenCalledTimes(1);
-    expect(placesMock).not.toHaveBeenCalled();
+    expect(placesMock).toHaveBeenCalledTimes(2);
+
+    expect((await dataFrom("?tab=reel")).tab).toBe("reel");
+    expect(placesMock).toHaveBeenCalledTimes(2);
+    expect(catalogMock).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the reel tab without loading places or catalog", async () => {
-    const d = await dataFrom("?tab=reel");
-    expect(d.tab).toBe("reel");
-    expect(placesMock).not.toHaveBeenCalled();
-    expect(catalogMock).not.toHaveBeenCalled();
-  });
+  it("marks a dead seasons read failed, not an empty season, and builds the hub from a live one", async () => {
+    const dead = await dataFrom("?tab=credits");
+    expect(dead.tab).toBe("credits");
+    expect(dead.credits).toEqual({ hub: null, failed: true });
 
-  it("marks a dead seasons read failed, not an empty season", async () => {
-    const d = await dataFrom("?tab=credits");
-    expect(d.tab).toBe("credits");
-    expect(d.credits).toEqual({ hub: null, failed: true });
-  });
-
-  it("builds the hub from a live seasons read", async () => {
     seasonsMock.mockResolvedValue({
-      currentSeason: {
-        season: { name: "Season One" },
-        week: { weekNumber: 2, secondsRemaining: 3600 },
-      },
+      currentSeason: { season: { name: "Season One" }, week: { weekNumber: 2, secondsRemaining: 3600 } },
     } as never);
-    const d = await dataFrom("?tab=credits");
-    expect(d.credits.failed).toBe(false);
-    expect(d.credits.hub).toMatchObject({ seasonName: "Season One", weekNumber: 2 });
+    const live = await dataFrom("?tab=credits");
+    expect(live.credits.failed).toBe(false);
+    expect(live.credits.hub).toMatchObject({ seasonName: "Season One", weekNumber: 2 });
   });
 
-  it("marks a failed places read failed, not empty", async () => {
+  it("tells a failed places read from a genuinely empty one", async () => {
+    expect((await dataFrom("?tab=places")).places).toEqual({ items: [], failed: false });
     placesMock.mockRejectedValue(new Error("down"));
-    const d = await dataFrom("?tab=places");
-    expect(d.places).toEqual({ items: [], failed: true });
+    expect((await dataFrom("?tab=places")).places).toEqual({ items: [], failed: true });
   });
 
-  it("keeps a genuinely empty places read unfailed", async () => {
-    const d = await dataFrom("?tab=places");
-    expect(d.places).toEqual({ items: [], failed: false });
-  });
-
-  it("marks a failed catalog read failed, not an empty shop", async () => {
+  it("tells a failed catalog read from a genuinely empty shop", async () => {
+    expect((await dataFrom("?tab=marketplace")).collectibles).toEqual({ items: [], failed: false });
+    resetCatalogRailCache();
     catalogMock.mockRejectedValue(new Error("down"));
-    const d = await dataFrom("?tab=marketplace");
-    expect(d.collectibles).toEqual({ items: [], failed: true });
-  });
-
-  it("keeps a genuinely empty catalog unfailed", async () => {
-    const d = await dataFrom("?tab=marketplace");
-    expect(d.collectibles).toEqual({ items: [], failed: false });
+    expect((await dataFrom("?tab=marketplace")).collectibles).toEqual({ items: [], failed: true });
   });
 });

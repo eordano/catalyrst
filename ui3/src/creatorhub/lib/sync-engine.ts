@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-export type SyncState =
+type SyncState =
   | "synced"
   | "editing"
   | "pending"
@@ -9,7 +9,7 @@ export type SyncState =
   | "conflict"
   | "error";
 
-export type SceneSyncStatus = {
+type SceneSyncStatus = {
   id: string;
   state: SyncState;
   version: number;
@@ -26,7 +26,7 @@ export type EngineSummary = {
 
 export type PushBody = { baseVersion: number; hash: string; blob: unknown; title?: string };
 export type PushResult = { ok: boolean; conflict?: boolean; version?: number; server?: unknown };
-export type PushFn = (id: string, body: PushBody) => Promise<PushResult>;
+type PushFn = (id: string, body: PushBody) => Promise<PushResult>;
 
 export type SyncEngine = {
   subscribe(fn: (s: EngineSummary) => void): () => void;

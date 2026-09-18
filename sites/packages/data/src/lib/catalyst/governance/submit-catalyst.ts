@@ -3,12 +3,11 @@ import { z } from "zod";
 import fixture from "../../../fixtures/governance-submit-catalyst.json";
 import { submitProposal } from "./submit-client";
 import type { AuthIdentity } from "../../auth/types";
-import { ETH_ADDRESS_RE } from "../format/address";
 
-export const CATALYST_REQUESTS = ["add", "remove"] as const;
+const CATALYST_REQUESTS = ["add", "remove"] as const;
 export type CatalystRequest = (typeof CATALYST_REQUESTS)[number];
 
-export const CATALYST_TYPE: Record<CatalystRequest, string> = {
+const CATALYST_TYPE: Record<CatalystRequest, string> = {
   add: "catalyst_add",
   remove: "catalyst_remove",
 };
@@ -81,7 +80,6 @@ const SubmitCatalystSchema = z.object({
   }),
 });
 
-export type RequestCopy = z.infer<typeof RequestCopySchema>;
 export type SubmitCatalystData = z.infer<typeof SubmitCatalystSchema>;
 
 const FALLBACK: SubmitCatalystData = {
@@ -171,17 +169,13 @@ export function getSubmitCatalystData(): SubmitCatalystData {
   return parse();
 }
 
-export function isValidDomainName(domain: string): boolean {
+function isValidDomainName(domain: string): boolean {
   return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/.test(
     domain.trim().toLowerCase(),
   );
 }
 
-export function isEthAddress(addr: string): boolean {
-  return ETH_ADDRESS_RE.test(addr.trim());
-}
-
-export type DomainStatus = {
+type DomainStatus = {
   domain: string;
   valid: boolean;
   contentOk: boolean;
@@ -202,7 +196,7 @@ export function simulateDomainStatus(domain: string): DomainStatus {
   };
 }
 
-export type NewProposalCatalyst = {
+type NewProposalCatalyst = {
   request: CatalystRequest;
   type: string;
   owner: string;

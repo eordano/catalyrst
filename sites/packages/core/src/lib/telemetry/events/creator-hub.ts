@@ -3,7 +3,7 @@ export type CreatorHubEvents = {
     collection_id?: string;
     contract_address?: string;
     count: number;
-    stub: true;
+    stub: boolean;
     type: "linked" | "standard";
   };
   bd_create_collection_items_added: {
@@ -83,7 +83,7 @@ export type CreatorHubEvents = {
     item: string;
     price: string;
     rarity: string;
-    stub: true;
+    stub: boolean;
     urn?: string;
   };
   bd_publish_collection_cost_shown: {
@@ -96,14 +96,14 @@ export type CreatorHubEvents = {
   bd_publish_collection_terms_accepted: Record<string, never>;
   bd_publish_fee_paid: {
     mana: number;
-    simulated: true;
+    simulated: boolean;
     tx_hash?: string;
   };
   bd_publish_submitted: {
     id: string;
     itemCount: number;
-    mana: number;
-    stub: true;
+    mana?: number;
+    stub: boolean;
   };
   ch_claim_name_available: {
     name: string;
@@ -121,7 +121,7 @@ export type CreatorHubEvents = {
   };
   ch_claim_name_returned_to_publish: {
     name: string;
-    simulated?: true;
+    simulated?: boolean;
     world_name?: string;
   };
   ch_claim_name_review_reached: {

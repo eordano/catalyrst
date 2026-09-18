@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { z } from "zod";
 
-export const DownloadOptionSchema = z.object({
+const DownloadOptionSchema = z.object({
   os: z.string(),
   osKey: z.enum(["macos", "windows"]),
   arch: z.string(),
@@ -25,7 +25,7 @@ const FixtureSchema = z.object({
   defaultOption: z.string(),
   systemRequirements: z.record(z.string(), z.string()).default({}),
 });
-export type DownloadFixture = z.infer<typeof FixtureSchema>;
+type DownloadFixture = z.infer<typeof FixtureSchema>;
 
 const FIXTURE_PATH = path.join(
   process.cwd(),
@@ -79,16 +79,16 @@ export function loadDownloadFixture(): DownloadFixture {
 }
 
 export type OsKey = "macos" | "windows";
-export type ArchKey = "arm64" | "amd64";
+type ArchKey = "arm64" | "amd64";
 
-export function detectOs(userAgent: string | null | undefined): OsKey {
+function detectOs(userAgent: string | null | undefined): OsKey {
   const ua = (userAgent ?? "").toLowerCase();
   if (/windows|win64|win32|wow64/.test(ua)) return "windows";
   if (/mac os x|macintosh|mac_powerpc|darwin/.test(ua)) return "macos";
   return "macos";
 }
 
-export function detectArch(userAgent: string | null | undefined, os: OsKey): ArchKey {
+function detectArch(userAgent: string | null | undefined, os: OsKey): ArchKey {
   const ua = (userAgent ?? "").toLowerCase();
   if (/arm64|aarch64/.test(ua)) return "arm64";
   if (os === "windows") return "amd64";
@@ -110,7 +110,7 @@ function normalizeArch(v: string | null | undefined): ArchKey | undefined {
   return undefined;
 }
 
-export type ResolvedDownload = {
+type ResolvedDownload = {
   version: string;
   releaseUrl: string;
   repo: string;

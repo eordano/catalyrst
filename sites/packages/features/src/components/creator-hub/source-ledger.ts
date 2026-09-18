@@ -12,7 +12,7 @@ import type {
 } from "@ui/creatorhub/components/SourceLedger";
 import type { Datum } from "@ui/creatorhub/lib/datum";
 
-export const SOURCE_GROUP_LABELS: Record<SourceClass, string> = {
+const SOURCE_GROUP_LABELS: Record<SourceClass, string> = {
   live: "Live",
   sampled: "Sampled",
   snapshot: "Snapshot",

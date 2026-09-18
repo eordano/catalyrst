@@ -76,10 +76,12 @@ mod tests {
 
     fn state(marketplace: Option<MarketplaceComponent>) -> AppState {
         Arc::new(AppStateInner {
+            polygon_rpc_url: None,
             items: ItemsComponent::new(dead_pool()),
             newsletter: NewsletterComponent::new(dead_pool()),
             marketplace,
             content_bucket_url: "https://example.test".into(),
+            catalog: None,
             admin_addresses: Vec::new(),
             newsletter_service_url: None,
             newsletter_publication_id: None,

@@ -15,7 +15,7 @@ const ICON_CHAT = 1;
 
 type WatcherState = "onboarding" | "joining" | "live" | "waiting";
 
-export type CastWatchProps = {
+type CastWatchProps = {
   trackCtx: TrackContext;
   watch: WatchResult;
   demoMessages?: Array<{ name: string; time: string; body: string }>;

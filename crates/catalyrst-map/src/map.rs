@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -141,6 +143,128 @@ pub struct MapData {
     pub estates_all: HashMap<String, Vec<(i32, i32)>>,
 }
 
+/// Ceiling on how long a grid is served without a rebuild, whatever the fingerprint says.
+pub const DEFAULT_FORCE_REBUILD_AFTER: Duration = Duration::from_secs(15 * 60);
+
+/// Cheap summary of everything the grid build reads. Equal fingerprints mean the
+/// build would produce the same tiles, so the 92k-row rebuild can be skipped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GridFingerprint {
+    /// count(*) over parcels and estates.
+    pub rows: i64,
+    /// max(updated_at) over parcels and estates. The squid bumps it on every path
+    /// that touches a grid column: transfers (which also carry estate membership
+    /// changes), order create/cancel/execute, and parcel or estate metadata updates.
+    pub max_updated_at: i64,
+    /// Hash of the open rental listings; 0 when rentals are off.
+    pub rentals: u64,
+}
+
+/// What the current grid was built from, kept to decide whether the next refresh may skip.
+#[derive(Debug, Clone)]
+pub struct BuildStamp {
+    pub fingerprint: Option<GridFingerprint>,
+    pub built_at: Instant,
+    /// Earliest expiry (unix seconds) among the orders the grid prices. Once it passes a
+    /// tile must drop its price even though nothing in the database moved.
+    pub next_order_expiry: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebuildReason {
+    Initial,
+    FingerprintUnavailable,
+    FingerprintChanged,
+    OrderExpired,
+    ForceInterval,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshOutcome {
+    Rebuilt(RebuildReason),
+    Skipped,
+}
+
+/// Decides whether a refresh must rebuild the grid. `current` is the fingerprint read
+/// just before this refresh (None when the query failed), `now_secs` is wall-clock
+/// unix time for the order-expiry check.
+pub fn rebuild_reason(
+    prev: Option<&BuildStamp>,
+    current: Option<&GridFingerprint>,
+    now: Instant,
+    now_secs: i64,
+    force_after: Duration,
+) -> Option<RebuildReason> {
+    let Some(prev) = prev else {
+        return Some(RebuildReason::Initial);
+    };
+    let Some(current) = current else {
+        return Some(RebuildReason::FingerprintUnavailable);
+    };
+    if prev.fingerprint.as_ref() != Some(current) {
+        return Some(RebuildReason::FingerprintChanged);
+    }
+    if prev.next_order_expiry.is_some_and(|t| t <= now_secs) {
+        return Some(RebuildReason::OrderExpired);
+    }
+    if now.saturating_duration_since(prev.built_at) >= force_after {
+        return Some(RebuildReason::ForceInterval);
+    }
+    None
+}
+
+/// The change-detection query. Its predicate is exactly the one on the partial index
+/// `cat_nft_land_updated_at_idx` (the deployment squid index SQL), so the max is
+/// a one-entry probe and the count an index-only scan.
+pub fn fingerprint_sql(schema: &str) -> String {
+    format!(
+        "SELECT count(*)::int8 AS rows, coalesce(max(updated_at), 0)::int8 AS max_updated_at \
+         FROM {schema}.nft WHERE category IN ('parcel', 'estate')"
+    )
+}
+
+/// Order-independent hash of the open rental listings, 0 for none.
+pub fn rentals_hash(listings: &HashMap<String, TileRentalListing>) -> u64 {
+    if listings.is_empty() {
+        return 0;
+    }
+    let mut keys: Vec<&String> = listings.keys().collect();
+    keys.sort();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for k in keys {
+        let l = &listings[k];
+        k.hash(&mut h);
+        l.expiration.hash(&mut h);
+        l.updated_at.hash(&mut h);
+        for p in &l.periods {
+            p.min_days.hash(&mut h);
+            p.max_days.hash(&mut h);
+            p.price_per_day.hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
+/// Price in MANA and expiry in unix seconds for an order that is still live at `now_secs`.
+/// `expires_at` arrives in seconds (10 digits) or milliseconds.
+pub fn live_order_price(
+    price_wei: Option<&str>,
+    expires_at: Option<i64>,
+    now_secs: i64,
+) -> Option<(f64, i64)> {
+    let (price_wei, expires_at) = (price_wei?, expires_at?);
+    let expires_secs = if expires_at.to_string().len() == 10 {
+        expires_at
+    } else {
+        (expires_at as f64 / 1000.0).round() as i64
+    };
+    if expires_secs <= now_secs {
+        return None;
+    }
+    let wei = price_wei.parse::<f64>().ok()?;
+    Some(((wei / 1e18).round(), expires_secs))
+}
+
 /// Wholesale-cleared whenever the map build yields a new `keyed_at`; the LRU cap bounds
 /// growth between builds.
 struct GenCache {
@@ -166,6 +290,8 @@ pub struct MapComponent {
     special_tiles: Arc<HashMap<String, SpecialTile>>,
     rentals: Option<RentalsClient>,
     data: Arc<RwLock<Option<Arc<MapData>>>>,
+    stamp: Arc<RwLock<Option<BuildStamp>>>,
+    force_rebuild_after: Duration,
     tiles_cache: Arc<RwLock<GenCache>>,
     png_cache: Arc<RwLock<GenCache>>,
 }
@@ -196,9 +322,20 @@ impl MapComponent {
             special_tiles: Arc::new(special),
             rentals: RentalsClient::from_env(),
             data: Arc::new(RwLock::new(None)),
+            stamp: Arc::new(RwLock::new(None)),
+            force_rebuild_after: DEFAULT_FORCE_REBUILD_AFTER,
             tiles_cache: Arc::new(RwLock::new(GenCache::new(tiles_cap))),
             png_cache: Arc::new(RwLock::new(GenCache::new(png_cap))),
         }
+    }
+
+    pub fn with_force_rebuild_after(mut self, force_after: Duration) -> Self {
+        self.force_rebuild_after = force_after;
+        self
+    }
+
+    pub fn build_stamp(&self) -> Option<BuildStamp> {
+        self.stamp.read().clone()
     }
 
     #[cfg(test)]
@@ -270,13 +407,71 @@ impl MapComponent {
         &self.estate_contract
     }
 
-    pub async fn refresh(&self) -> anyhow::Result<()> {
-        let data = self.build().await?;
+    /// Rebuilds the grid only when its inputs moved since the last build (or the last
+    /// build is older than `force_rebuild_after`, or a priced order expired). The
+    /// fingerprint is read before the build so a change landing in between can only
+    /// cause one extra rebuild, never a stale grid.
+    pub async fn refresh(&self) -> anyhow::Result<RefreshOutcome> {
+        let rental_listings = self.fetch_rental_listings().await;
+        let fingerprint = match self.fingerprint(&rental_listings).await {
+            Ok(fp) => Some(fp),
+            Err(e) => {
+                tracing::warn!(error = %e, "grid fingerprint failed; rebuilding unconditionally");
+                None
+            }
+        };
+        let reason = rebuild_reason(
+            self.stamp.read().as_ref(),
+            fingerprint.as_ref(),
+            Instant::now(),
+            chrono::Utc::now().timestamp(),
+            self.force_rebuild_after,
+        );
+        let Some(reason) = reason else {
+            return Ok(RefreshOutcome::Skipped);
+        };
+        let (data, next_order_expiry) = self.build(rental_listings).await?;
         *self.data.write() = Some(Arc::new(data));
-        Ok(())
+        *self.stamp.write() = Some(BuildStamp {
+            fingerprint,
+            built_at: Instant::now(),
+            next_order_expiry,
+        });
+        Ok(RefreshOutcome::Rebuilt(reason))
     }
 
-    async fn build(&self) -> anyhow::Result<MapData> {
+    async fn fingerprint(
+        &self,
+        rental_listings: &HashMap<String, TileRentalListing>,
+    ) -> anyhow::Result<GridFingerprint> {
+        let (rows, max_updated_at): (i64, i64) =
+            sqlx::query_as(sqlx::AssertSqlSafe(fingerprint_sql(&self.schema)))
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(GridFingerprint {
+            rows,
+            max_updated_at,
+            rentals: rentals_hash(rental_listings),
+        })
+    }
+
+    async fn fetch_rental_listings(&self) -> HashMap<String, TileRentalListing> {
+        match &self.rentals {
+            Some(client) => match client.fetch_open_listings().await {
+                Ok(listings) => listings,
+                Err(e) => {
+                    tracing::warn!(error = %e, "rental listings fetch failed; serving tiles without rentalListing");
+                    HashMap::new()
+                }
+            },
+            None => HashMap::new(),
+        }
+    }
+
+    async fn build(
+        &self,
+        rental_listings: HashMap<String, TileRentalListing>,
+    ) -> anyhow::Result<(MapData, Option<i64>)> {
         let sql = format!(
             r#"
             -- Parcel coordinates are correlated with category. Without isolating the
@@ -318,23 +513,13 @@ impl MapComponent {
             .fetch_all(&self.pool)
             .await?;
 
-        let rental_listings: HashMap<String, TileRentalListing> = match &self.rentals {
-            Some(client) => match client.fetch_open_listings().await {
-                Ok(listings) => listings,
-                Err(e) => {
-                    tracing::warn!(error = %e, "rental listings fetch failed; serving tiles without rentalListing");
-                    HashMap::new()
-                }
-            },
-            None => HashMap::new(),
-        };
-
         let now_ms = chrono::Utc::now().timestamp_millis();
         let now_secs = now_ms / 1000;
 
         let mut tiles: HashMap<String, Tile> =
             HashMap::with_capacity(rows.len() + self.special_tiles.len());
         let mut last_updated_at: i64 = 0;
+        let mut next_order_expiry: Option<i64> = None;
 
         for r in &rows {
             let id = coords_to_id(r.x, r.y);
@@ -400,18 +585,13 @@ impl MapComponent {
                 (r.parcel_order_price.clone(), r.parcel_order_expires_at)
             };
 
-            if let (Some(price_str), Some(expires_at_ms)) = (price_str, expires) {
-                let expires_secs = if expires_at_ms.to_string().len() == 10 {
-                    expires_at_ms
-                } else {
-                    (expires_at_ms as f64 / 1000.0).round() as i64
-                };
-                if expires_secs > now_secs {
-                    if let Ok(wei) = price_str.parse::<f64>() {
-                        tile.price = Some((wei / 1e18).round());
-                        tile.expires_at = Some(expires_secs);
-                    }
-                }
+            if let Some((price, expires_secs)) =
+                live_order_price(price_str.as_deref(), expires, now_secs)
+            {
+                tile.price = Some(price);
+                tile.expires_at = Some(expires_secs);
+                next_order_expiry =
+                    Some(next_order_expiry.map_or(expires_secs, |t| t.min(expires_secs)));
             }
 
             tiles.insert(id, tile);
@@ -479,12 +659,15 @@ impl MapComponent {
             }
         }
 
-        Ok(MapData {
-            tiles,
-            last_updated_at,
-            estates_owned,
-            estates_all,
-        })
+        Ok((
+            MapData {
+                tiles,
+                last_updated_at,
+                estates_owned,
+                estates_all,
+            },
+            next_order_expiry,
+        ))
     }
 }
 
@@ -569,5 +752,205 @@ mod tests {
             8,
             "cache must be bounded to cap, not grow to N"
         );
+    }
+
+    const FORCE: Duration = Duration::from_secs(900);
+
+    fn fp(rows: i64, max_updated_at: i64, rentals: u64) -> GridFingerprint {
+        GridFingerprint {
+            rows,
+            max_updated_at,
+            rentals,
+        }
+    }
+
+    fn stamp(
+        fingerprint: Option<GridFingerprint>,
+        age: Duration,
+        next_order_expiry: Option<i64>,
+    ) -> (BuildStamp, Instant) {
+        let now = Instant::now();
+        (
+            BuildStamp {
+                fingerprint,
+                built_at: now - age,
+                next_order_expiry,
+            },
+            now,
+        )
+    }
+
+    #[test]
+    fn first_refresh_always_builds() {
+        let cur = fp(1, 1, 0);
+        assert_eq!(
+            rebuild_reason(None, Some(&cur), Instant::now(), 0, FORCE),
+            Some(RebuildReason::Initial)
+        );
+        assert_eq!(
+            rebuild_reason(None, None, Instant::now(), 0, FORCE),
+            Some(RebuildReason::Initial)
+        );
+    }
+
+    #[test]
+    fn unchanged_fingerprint_skips() {
+        let (prev, now) = stamp(
+            Some(fp(99_109, 1_789_660_187, 0)),
+            Duration::from_secs(60),
+            None,
+        );
+        let cur = fp(99_109, 1_789_660_187, 0);
+        assert_eq!(
+            rebuild_reason(Some(&prev), Some(&cur), now, 1_789_660_300, FORCE),
+            None
+        );
+    }
+
+    #[test]
+    fn any_fingerprint_field_moving_rebuilds() {
+        let (prev, now) = stamp(Some(fp(10, 100, 7)), Duration::from_secs(60), None);
+        for cur in [
+            fp(11, 100, 7),
+            fp(10, 101, 7),
+            fp(10, 99, 7),
+            fp(10, 100, 8),
+        ] {
+            assert_eq!(
+                rebuild_reason(Some(&prev), Some(&cur), now, 0, FORCE),
+                Some(RebuildReason::FingerprintChanged),
+                "{cur:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn failed_fingerprint_rebuilds_like_before() {
+        let (prev, now) = stamp(Some(fp(10, 100, 0)), Duration::from_secs(1), None);
+        assert_eq!(
+            rebuild_reason(Some(&prev), None, now, 0, FORCE),
+            Some(RebuildReason::FingerprintUnavailable)
+        );
+        let (prev, now) = stamp(None, Duration::from_secs(1), None);
+        assert_eq!(
+            rebuild_reason(Some(&prev), Some(&fp(10, 100, 0)), now, 0, FORCE),
+            Some(RebuildReason::FingerprintChanged),
+            "a build made without a fingerprint cannot vouch for the next one"
+        );
+    }
+
+    #[test]
+    fn priced_order_expiry_forces_rebuild() {
+        let (prev, now) = stamp(Some(fp(10, 100, 0)), Duration::from_secs(60), Some(1_000));
+        let cur = fp(10, 100, 0);
+        assert_eq!(
+            rebuild_reason(Some(&prev), Some(&cur), now, 999, FORCE),
+            None
+        );
+        assert_eq!(
+            rebuild_reason(Some(&prev), Some(&cur), now, 1_000, FORCE),
+            Some(RebuildReason::OrderExpired)
+        );
+    }
+
+    #[test]
+    fn force_interval_is_the_safety_net() {
+        let cur = fp(10, 100, 0);
+        let (prev, now) = stamp(Some(fp(10, 100, 0)), FORCE - Duration::from_secs(1), None);
+        assert_eq!(rebuild_reason(Some(&prev), Some(&cur), now, 0, FORCE), None);
+        let (prev, now) = stamp(Some(fp(10, 100, 0)), FORCE, None);
+        assert_eq!(
+            rebuild_reason(Some(&prev), Some(&cur), now, 0, FORCE),
+            Some(RebuildReason::ForceInterval)
+        );
+    }
+
+    #[test]
+    fn change_wins_over_force_and_expiry() {
+        let (prev, now) = stamp(Some(fp(10, 100, 0)), FORCE * 2, Some(1));
+        assert_eq!(
+            rebuild_reason(Some(&prev), Some(&fp(10, 101, 0)), now, 5, FORCE),
+            Some(RebuildReason::FingerprintChanged)
+        );
+    }
+
+    fn listing(expiration: i64, updated_at: i64, price: &str) -> TileRentalListing {
+        TileRentalListing {
+            expiration,
+            periods: vec![crate::rentals::RentalPeriod {
+                min_days: 1,
+                max_days: 7,
+                price_per_day: price.into(),
+            }],
+            updated_at,
+        }
+    }
+
+    #[test]
+    fn rentals_hash_is_order_independent_and_content_sensitive() {
+        assert_eq!(rentals_hash(&HashMap::new()), 0);
+        let a: HashMap<String, TileRentalListing> = [
+            ("n1".to_string(), listing(10, 1, "5")),
+            ("n2".to_string(), listing(20, 2, "6")),
+        ]
+        .into_iter()
+        .collect();
+        let b: HashMap<String, TileRentalListing> = [
+            ("n2".to_string(), listing(20, 2, "6")),
+            ("n1".to_string(), listing(10, 1, "5")),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(rentals_hash(&a), rentals_hash(&b));
+        let mut c = a.clone();
+        c.insert("n2".into(), listing(20, 2, "7"));
+        assert_ne!(rentals_hash(&a), rentals_hash(&c));
+        let mut d = a.clone();
+        d.remove("n1");
+        assert_ne!(rentals_hash(&a), rentals_hash(&d));
+        let mut e = a.clone();
+        e.insert("n1".into(), listing(11, 1, "5"));
+        assert_ne!(rentals_hash(&a), rentals_hash(&e));
+    }
+
+    #[test]
+    fn live_order_price_handles_seconds_and_millis() {
+        let now = 1_700_000_000;
+        assert_eq!(
+            live_order_price(Some("2000000000000000000000"), Some(1_700_000_010), now),
+            Some((2000.0, 1_700_000_010))
+        );
+        assert_eq!(
+            live_order_price(Some("2000000000000000000000"), Some(1_700_000_010_499), now),
+            Some((2000.0, 1_700_000_010))
+        );
+        assert_eq!(live_order_price(Some("1"), Some(1_700_000_000), now), None);
+        assert_eq!(
+            live_order_price(Some("1"), Some(1_699_999_999_000), now),
+            None
+        );
+        assert_eq!(
+            live_order_price(Some("abc"), Some(1_700_000_010), now),
+            None
+        );
+        assert_eq!(live_order_price(None, Some(1_700_000_010), now), None);
+        assert_eq!(live_order_price(Some("1"), None, now), None);
+    }
+
+    #[test]
+    fn fingerprint_sql_matches_the_partial_index_predicate() {
+        let sql = fingerprint_sql("squid_marketplace");
+        println!("{sql}");
+        assert!(sql.contains("FROM squid_marketplace.nft"));
+        assert!(sql.contains("category IN ('parcel', 'estate')"));
+        assert!(sql.contains("count(*)"));
+        assert!(sql.contains("max(updated_at)"));
+    }
+
+    #[tokio::test]
+    async fn force_rebuild_after_is_configurable() {
+        let mc = lazy_component(1, 1).with_force_rebuild_after(Duration::from_secs(5));
+        assert_eq!(mc.force_rebuild_after, Duration::from_secs(5));
+        assert!(mc.build_stamp().is_none());
     }
 }

@@ -1,0 +1,2 @@
+.graphics-progress { position: fixed; inset: 0; z-index: var(--z-panel); pointer-events: none; background: rgb(0 0 0 / .12); display: flex; align-items: flex-end; justify-content: center; padding: 28px; }
+.graphics-progress span { padding: 12px 18px; color: white; background: #18151de8; border-radius: 8px; font: 500 14px/1.4 var(--font-sans); }

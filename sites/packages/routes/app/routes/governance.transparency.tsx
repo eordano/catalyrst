@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import GvTransparency from "@ui/governance/pages/GvTransparency";
 
-import { loadTransparencyData, type MonthlyTotal } from "@data/lib/catalyst/governance/transparency";
+import { loadTransparencyData } from "@data/lib/catalyst/governance/transparency";
 import {
   fetchAuthorProfiles,
   type AuthorProfile,
 } from "@data/lib/catalyst/governance/index";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import type { Route } from "./+types/governance.transparency";
@@ -18,8 +18,6 @@ import type { StoryId } from "@core/lib/telemetry/story-id";
 export const handle = { agentMarkdown: "transparency" } satisfies AgentMarkdownHandle;
 
 const STORY: StoryId = "governance/transparency";
-
-const DASHBOARD_HREF = "https://governance.decentraland.org/transparency";
 
 type ResolvedMember = {
   name: string;
@@ -41,13 +39,12 @@ const DEFAULT_ASSIGNMENT: Assignment = {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: transparency } = await storyLoaderWith(
     request,
     STORY,
     DEFAULT_ASSIGNMENT,
+    () => loadTransparencyData({ signal: request.signal }),
   );
-
-  const transparency = await loadTransparencyData({ signal: request.signal });
 
   const memberAddresses = [
     ...new Set(
@@ -124,15 +121,6 @@ export default function GovernanceTransparency({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d.sid]);
 
-  function onDashboardClick() {
-    track("gv_transparency_dashboard_clicked", { href: DASHBOARD_HREF }, ctx);
-  }
-
-  function onBreakdownToggle(card: "income" | "expenses", open: boolean) {
-    if (!open) return;
-    track("gv_transparency_committee_expanded", { card }, ctx);
-  }
-
   return (
     <div className="governance-transparency-route">
       <GvTransparency
@@ -146,114 +134,3 @@ export default function GovernanceTransparency({
   );
 }
 
-type FooterProps = {
-  vestingHref: string;
-  income: MonthlyTotal;
-  expenses: MonthlyTotal;
-  onDashboardClick: () => void;
-  onBreakdownToggle: (card: "income" | "expenses", open: boolean) => void;
-};
-
-function usd(n: number): string {
-  return "$" + Math.round(n).toLocaleString("en-US");
-}
-
-function InstrumentedFooter({
-  vestingHref,
-  income,
-  expenses,
-  onDashboardClick,
-  onBreakdownToggle,
-}: FooterProps) {
-  return (
-    <div
-      style={{
-        maxWidth: 1180,
-        margin: "0 auto",
-        padding: "8px 24px 56px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 16,
-        color: "rgba(22,22,22,0.86)",
-      }}
-    >
-      <div>
-        <a
-          href={vestingHref}
-          target="_blank"
-          rel="noreferrer"
-          onClick={onDashboardClick}
-          style={{
-            display: "inline-block",
-            padding: "11px 20px",
-            borderRadius: 10,
-            background: "var(--brand-cta)",
-            color: "#fff",
-            fontWeight: 600,
-            textDecoration: "none",
-          }}
-        >
-          Open the full Transparency Dashboard {"\u{2192}"}
-        </a>
-      </div>
-
-      <BreakdownDetails
-        card="income"
-        label="View income breakdown"
-        total={income}
-        onToggle={onBreakdownToggle}
-      />
-      <BreakdownDetails
-        card="expenses"
-        label="View expenses breakdown"
-        total={expenses}
-        onToggle={onBreakdownToggle}
-      />
-    </div>
-  );
-}
-
-type BreakdownProps = {
-  card: "income" | "expenses";
-  label: string;
-  total: MonthlyTotal;
-  onToggle: (card: "income" | "expenses", open: boolean) => void;
-};
-
-function BreakdownDetails({ card, label, total, onToggle }: BreakdownProps) {
-  const wasOpen = useRef(false);
-  const [, force] = useState(0);
-
-  return (
-    <details
-      style={{
-        border: "1px solid rgba(22,22,22,0.12)",
-        borderRadius: 12,
-        padding: "12px 16px",
-        background: "#fff",
-      }}
-      onToggle={(e) => {
-        const open = (e.currentTarget as HTMLDetailsElement).open;
-        if (open && !wasOpen.current) onToggle(card, true);
-        wasOpen.current = open;
-        force((n) => n + 1);
-      }}
-    >
-      <summary style={{ cursor: "pointer", fontWeight: 600 }}>
-        {label} {"\u{2014}"} {usd(total.total)}{" "}
-        <span style={{ color: "rgba(22,22,22,0.5)", fontWeight: 400 }}>
-          ({total.previous >= 0 ? "+" : ""}
-          {total.previous}% vs prev 30d)
-        </span>
-      </summary>
-      <ul style={{ margin: "10px 0 0", paddingLeft: 18, lineHeight: 1.7 }}>
-        {total.details.map((it) => (
-          <li key={it.name}>
-            <strong>{it.name}</strong> {"\u{2014}"} {usd(it.value)}
-            <span style={{ color: "rgba(22,22,22,0.55)" }}> {"\u{B7}"} {it.description}</span>
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}

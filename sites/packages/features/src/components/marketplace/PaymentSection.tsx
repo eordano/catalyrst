@@ -10,9 +10,7 @@ import type { AuthIdentity } from "@data/lib/auth/index";
 import { signTypedData } from "@data/lib/auth/typed-data";
 import {
   executeMetaTxCalldata,
-  fetchManaBalance,
   manaMetaTxTypedData,
-  MANA_POLYGON,
   relayMetaTx,
   transferCalldata,
 } from "@data/lib/catalyst/marketplace/mana-pay";
@@ -34,6 +32,17 @@ import {
 import { track } from "@core/lib/telemetry/track";
 import type { TrackContext } from "@core/lib/telemetry/track";
 
+import {
+  MANA_UNAVAILABLE,
+  defaultPayMethod,
+  manaIdlePhase,
+  manaQuoteState,
+  type ManaBalance,
+  type ManaIdlePhase,
+  type ManaQuoteState,
+} from "./mana-phase";
+import { useManaBalance } from "./use-mana-balance";
+
 const REDEEM_POLL_MS = 3000;
 const REDEEM_POLL_MAX = 60;
 
@@ -54,26 +63,18 @@ export default function PaymentSection({
 }) {
   const [method, setMethod] = useState<PayMethod | null>(preselect ?? null);
   const chosen = useRef(preselect != null);
+  const { balance, refresh: refreshBalance } = useManaBalance(identity.signer);
 
   useEffect(() => {
-    if (chosen.current) return;
-    let cancelled = false;
-    fetchManaBalance(identity.signer)
-      .then((bal) => {
-        if (cancelled || chosen.current) return;
-        setMethod(bal != null && bal > 0n ? "mana" : "card");
-      })
-      .catch(() => {
-        if (!cancelled && !chosen.current) setMethod("card");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [identity.signer]);
+    if (chosen.current || balance === undefined) return;
+    chosen.current = true;
+    setMethod(defaultPayMethod(balance));
+  }, [balance]);
 
   function pick(m: PayMethod) {
     chosen.current = true;
-    setMethod((cur) => (cur === m ? cur : m));
+    if (m === method) return;
+    setMethod(m);
     track("mk_pay_method_selected", { method: m }, trackCtx);
   }
 
@@ -95,8 +96,11 @@ export default function PaymentSection({
         <ManaPane
           identity={identity}
           credits={shortfallCredits}
+          balance={balance}
+          onRefreshBalance={refreshBalance}
           trackCtx={trackCtx}
           onToppedUp={onToppedUp}
+          onPayWithCard={() => pick("card")}
         />
       )}
     </MkPaymentSection>
@@ -153,27 +157,44 @@ function CardPane({
   );
 }
 
-type ManaPhase =
-  | { step: "loading" }
-  | { step: "unavailable"; why: string }
-  | { step: "ready"; quote: ManaTopupQuote; config: PaymentsConfig }
+type ManaActionPhase =
   | { step: "signing"; quote: ManaTopupQuote }
   | { step: "confirming"; txHash: string }
   | { step: "done"; granted: string; txHash: string }
   | { step: "error"; message: string };
 
-export function ManaPane({
-  identity,
-  credits,
-  trackCtx,
-  onToppedUp,
-}: {
+type ManaPhase = ManaIdlePhase | ManaActionPhase;
+
+type ManaPaneProps = {
   identity: AuthIdentity;
   credits: string;
+  balance: ManaBalance;
+  onRefreshBalance: () => void;
   trackCtx: TrackContext;
   onToppedUp: () => void | Promise<void>;
-}) {
-  const [phase, setPhase] = useState<ManaPhase>({ step: "loading" });
+  onPayWithCard?: () => void;
+};
+
+export function ManaTopupPane(
+  props: Omit<ManaPaneProps, "balance" | "onRefreshBalance">,
+) {
+  const { balance, refresh } = useManaBalance(props.identity.signer);
+  return <ManaPane {...props} balance={balance} onRefreshBalance={refresh} />;
+}
+
+function ManaPane({
+  identity,
+  credits,
+  balance,
+  onRefreshBalance,
+  trackCtx,
+  onToppedUp,
+  onPayWithCard,
+}: ManaPaneProps) {
+  const [quoted, setQuoted] = useState<ManaQuoteState>({ step: "loading" });
+  const [action, setAction] = useState<ManaActionPhase | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const phase: ManaPhase = action ?? manaIdlePhase(quoted, balance);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -191,47 +212,27 @@ export function ManaPane({
         cancelled = true;
       };
     }
-    setPhase({ step: "loading" });
+    setQuoted({ step: "loading" });
     Promise.all([fetchPaymentsConfig(), quoteManaTopup(credits)])
       .then(([config, quote]) => {
-        if (cancelled) return;
-        if (!config.enabled || !config.payTo || !config.manaToken) {
-          setPhase({
-            step: "unavailable",
-            why: "MANA payments aren't available right now.",
-          });
-          return;
-        }
-        if (config.manaToken.toLowerCase() !== MANA_POLYGON.address) {
-          setPhase({
-            step: "unavailable",
-            why: "MANA payments are misconfigured \u{2014} please use another method.",
-          });
-          return;
-        }
-        setPhase({ step: "ready", quote, config });
+        if (!cancelled) setQuoted(manaQuoteState(config, quote));
       })
       .catch(() => {
-        if (!cancelled) {
-          setPhase({
-            step: "unavailable",
-            why: "MANA payments aren't available right now.",
-          });
-        }
+        if (!cancelled) setQuoted({ step: "unavailable", why: MANA_UNAVAILABLE });
       });
     return () => {
       cancelled = true;
     };
-  }, [credits]);
+  }, [credits, attempt]);
 
   async function confirmAndRedeem(txHash: string) {
-    setPhase({ step: "confirming", txHash });
+    setAction({ step: "confirming", txHash });
     for (let i = 0; i < REDEEM_POLL_MAX; i++) {
       const res = await redeemManaTopup(identity, txHash);
       if (!alive.current) return;
       if (res.state === "granted") {
         clearPendingTopup(identity.signer);
-        setPhase({ step: "done", granted: res.creditsGranted, txHash });
+        setAction({ step: "done", granted: res.creditsGranted, txHash });
         track(
           "mk_mana_topup_granted",
           { tx: txHash, credits: res.creditsGranted },
@@ -242,7 +243,7 @@ export function ManaPane({
       }
       await new Promise((r) => setTimeout(r, REDEEM_POLL_MS));
     }
-    setPhase({
+    setAction({
       step: "error",
       message:
         "The transfer is taking longer than expected. Your MANA is safe and your receipt is saved \u{2014} come back to checkout any time and the Credits will finish arriving.",
@@ -251,7 +252,7 @@ export function ManaPane({
 
   async function pay(quote: ManaTopupQuote, config: PaymentsConfig) {
     const from = identity.signer.toLowerCase();
-    setPhase({ step: "signing", quote });
+    setAction({ step: "signing", quote });
     try {
       const nonce = await fetchManaNonce(from);
       const fn = transferCalldata(config.payTo as string, quote.weiSuggested);
@@ -265,7 +266,7 @@ export function ManaPane({
       await confirmAndRedeem(txHash);
     } catch (err) {
       if (!alive.current) return;
-      setPhase({
+      setAction({
         step: "error",
         message:
           (err as Error)?.message ??
@@ -281,7 +282,12 @@ export function ManaPane({
       onPay={() => {
         if (phase.step === "ready") void pay(phase.quote, phase.config);
       }}
-      onStartOver={() => setPhase({ step: "loading" })}
+      onStartOver={() => {
+        setAction(null);
+        setAttempt((n) => n + 1);
+        onRefreshBalance();
+      }}
+      onPayWithCard={onPayWithCard}
     />
   );
 }

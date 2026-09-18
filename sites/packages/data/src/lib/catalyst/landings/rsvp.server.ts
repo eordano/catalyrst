@@ -2,7 +2,7 @@ import { fetchEvent, fetchAttendees, fetchEvents } from "../places/events";
 import type { Event, EventAttendee } from "../places/events";
 import type { GetOptions } from "../client";
 
-export type RsvpData = {
+type RsvpData = {
   event: Event | null;
   attendees: EventAttendee[];
   count: number;

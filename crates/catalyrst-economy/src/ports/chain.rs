@@ -3,6 +3,7 @@ use std::time::Duration;
 use alloy::primitives::{Address, B256, U256};
 use alloy::sol;
 use alloy::sol_types::SolCall;
+use catalyrst_commons::cache::{TtlCell, TtlMap};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -15,6 +16,11 @@ sol! {
 }
 
 const DEFAULT_RPC_TIMEOUT_MS: u64 = 10_000;
+
+/// A contract's domain separator and the node's chain id never change, so they
+/// are memoized for a day (bounded only so a redeploy cannot serve them forever).
+const IMMUTABLE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+const DOMAIN_SEPARATOR_CACHE_CAP: usize = 4096;
 
 #[derive(Debug)]
 pub enum ChainError {
@@ -33,6 +39,8 @@ pub struct ChainComponent {
     http: reqwest::Client,
     rpc_url: String,
     timeout: Duration,
+    domain_separators: TtlMap<Address, Option<B256>>,
+    chain_id: TtlCell<u64>,
 }
 
 impl ChainComponent {
@@ -49,6 +57,12 @@ impl ChainComponent {
             http: reqwest::Client::new(),
             rpc_url: rpc_url.to_string(),
             timeout,
+            domain_separators: TtlMap::bounded(
+                "economy-domain-separator",
+                IMMUTABLE_TTL,
+                DOMAIN_SEPARATOR_CACHE_CAP,
+            ),
+            chain_id: TtlCell::new("economy-chain-id"),
         }
     }
 
@@ -125,6 +139,12 @@ impl ChainComponent {
         &self,
         contract: Address,
     ) -> Result<Option<B256>, ChainError> {
+        self.domain_separators
+            .get_or_fetch(contract, || self.fetch_domain_separator(contract))
+            .await
+    }
+
+    async fn fetch_domain_separator(&self, contract: Address) -> Result<Option<B256>, ChainError> {
         if let Some(result) = self
             .call_view(contract, domainSeparatorCall {}.abi_encode())
             .await?
@@ -145,6 +165,12 @@ impl ChainComponent {
     }
 
     pub async fn get_chain_id(&self) -> Result<u64, ChainError> {
+        self.chain_id
+            .get_or_refresh(IMMUTABLE_TTL, || self.fetch_chain_id())
+            .await
+    }
+
+    async fn fetch_chain_id(&self) -> Result<u64, ChainError> {
         let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "eth_chainId", "params": [] });
         let resp = self.rpc(body).await?;
         if let Some(err) = resp.error {
@@ -255,5 +281,81 @@ mod tests {
         assert_eq!(decode_hex(""), Some(Vec::new()));
         assert_eq!(decode_hex("0x0102"), Some(vec![0x01, 0x02]));
         assert_eq!(decode_hex("0xzz"), None);
+    }
+
+    async fn spawn_counting_rpc() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let app = axum::Router::new().route(
+            "/",
+            axum::routing::post(move |axum::Json(req): axum::Json<Value>| {
+                let counter = counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    let id = req.get("id").cloned().unwrap_or(json!(1));
+                    let result = match req["method"].as_str() {
+                        Some("eth_chainId") => json!("0x89"),
+                        Some("eth_call") => {
+                            let data = req["params"][0]["data"].as_str().unwrap_or("");
+                            if data.starts_with(&format!(
+                                "0x{}",
+                                alloy::hex::encode(domainSeparatorCall::SELECTOR)
+                            )) {
+                                json!(format!("0x{}", "5a".repeat(32)))
+                            } else {
+                                return axum::Json(json!({
+                                    "jsonrpc": "2.0", "id": id,
+                                    "error": { "code": 3, "message": "execution reverted" }
+                                }));
+                            }
+                        }
+                        _ => json!(null),
+                    };
+                    axum::Json(json!({ "jsonrpc": "2.0", "id": id, "result": result }))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        (format!("http://{addr}"), calls)
+    }
+
+    #[tokio::test]
+    async fn domain_separator_and_chain_id_are_fetched_once_per_contract() {
+        use std::sync::atomic::Ordering;
+
+        let (url, calls) = spawn_counting_rpc().await;
+        let chain = ChainComponent::new(&url, Duration::from_secs(5));
+        let contract = Address::repeat_byte(0x11);
+
+        let first = chain.get_domain_separator(contract).await.unwrap();
+        let second = chain.get_domain_separator(contract).await.unwrap();
+        assert_eq!(first, Some(B256::repeat_byte(0x5a)));
+        assert_eq!(first, second);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "second lookup is served from memory"
+        );
+
+        assert_eq!(chain.get_chain_id().await.unwrap(), 137);
+        assert_eq!(chain.get_chain_id().await.unwrap(), 137);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        let other = Address::repeat_byte(0x22);
+        assert_eq!(chain.get_domain_separator(other).await.unwrap(), first);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            3,
+            "each contract is fetched once"
+        );
     }
 }

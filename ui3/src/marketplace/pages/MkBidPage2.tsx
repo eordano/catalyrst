@@ -5,6 +5,7 @@ import Modal from "../../components/Modal";
 import ManaMark from "../../atoms/ManaMark";
 import AssetPreviewTile from "../components/AssetPreviewTile";
 import "./mkbidpage2.css";
+import { docsUrl } from "../../data/docs";
 
 type BidItem = {
   name: string;
@@ -202,7 +203,7 @@ export default function MkBidPage2({
                       least 1 MANA. To get this item, switch your network to
                       Polygon to pay for the gas fee with MATIC.{" "}
                       <a
-                        href="https://docs.decentraland.org/blockchain-integration/transactions-in-polygon"
+                        href={docsUrl("player/blockchain-integration/transactions-in-polygon")}
                         className="mkbidpage2__learn"
                         target="_blank"
                         rel="noopener noreferrer"

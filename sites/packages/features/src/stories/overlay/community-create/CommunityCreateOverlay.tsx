@@ -24,7 +24,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type CommunityCreateOverlayProps = {
+type CommunityCreateOverlayProps = {
   trackCtx: TrackContext;
   hasName: boolean;
   membershipOptions: { value: CommunityPrivacy; label: string; note: string }[];

@@ -102,41 +102,6 @@
 .gvcdv__field:focus { border-color: var(--gv-ink); }
 .gvcdv__field:disabled { opacity: 0.45; pointer-events: none; }
 
-.gvcdv__md {
-  border: 1px solid var(--gv-line);
-  border-radius: 8px;
-  background: var(--gv-surface);
-  overflow: hidden;
-}
-.gvcdv__md.is-error { box-shadow: 0 0 0 1px var(--gvcdv-error); border-color: var(--gvcdv-error); }
-.gvcdv__md.is-disabled { opacity: 0.5; pointer-events: none; }
-
-.gvcdv__mdtoolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 6px;
-  background: var(--gvcdv-md-head);
-  border-bottom: 1px solid var(--gv-line);
-}
-.gvcdv__mdgroup { display: flex; align-items: center; gap: 1px; flex-wrap: wrap; }
-.gvcdv__mdgroupright { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
-
-.gvcdv__mdbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  background: none;
-  color: var(--gv-muted);
-  cursor: pointer;
-  border-radius: 6px;
-}
-.gvcdv__mdbtn:hover { background: var(--gv-wash); color: var(--gv-ink); }
-
 .gvcdv__mdtext {
   border: 0;
   background: none;
@@ -149,14 +114,6 @@
   border-radius: 6px;
 }
 .gvcdv__mdtext:hover { background: var(--gv-wash); color: var(--gv-ink); }
-
-.gvcdv__mdcount {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--gv-faint);
-  white-space: nowrap;
-  padding-right: 4px;
-}
 
 .gvcdv__mdarea {
   display: block;
@@ -207,7 +164,6 @@
   font-weight: 600;
   color: var(--gv-ink);
 }
-.gvcdv__chipavatar { flex: 0 0 auto; }
 .gvcdv__chipx {
   border: 0;
   background: none;
@@ -255,14 +211,6 @@
 .gvcdv__submit:hover { background: var(--brand-hover); }
 .gvcdv__submit:disabled { opacity: 0.45; cursor: default; }
 
-.gvcdv__vpwarn {
-  margin: 0;
-  font-size: 17px;
-  line-height: 26px;
-  font-weight: 400;
-  color: var(--brand);
-}
-
 .gvcdv__error {
   border: 1px solid var(--gvcdv-error);
   border-radius: var(--r-card);
@@ -275,58 +223,7 @@
   justify-content: space-between;
   gap: 12px;
 }
-.gvcdv__errornotice { display: inline-flex; align-items: center; gap: 10px; color: var(--gvcdv-error); }
 .gvcdv__errorlabel { font-size: 15px; font-weight: 600; color: var(--gv-ink); }
-.gvcdv__errorshow {
-  flex: 0 0 auto;
-  border: 0;
-  background: none;
-  color: var(--gv-muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-}
-.gvcdv__errorshow:hover { color: var(--gv-ink); }
-
-.gvcdv--login {
-  justify-content: center;
-  align-items: center;
-  min-height: calc(100vh - 64px);
-  padding: 40px 24px;
-}
-.gvcdv__signin {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 10px;
-  max-width: 460px;
-  background: var(--gv-surface);
-  border: 1px solid var(--gv-line);
-  border-radius: var(--r-card);
-  padding: 48px 40px;
-  box-shadow: 0 8px 24px rgba(22, 20, 26, 0.08);
-}
-.gvcdv__signintitle { margin: 0; font-size: 26px; font-weight: 700; color: var(--gv-ink); }
-.gvcdv__signinsub { margin: 0; font-size: 15px; line-height: 22px; font-weight: 500; color: var(--gv-muted); }
-.gvcdv__signinhint { margin: 6px 0 4px; font-size: 14px; font-weight: 600; color: var(--gv-ink); }
-.gvcdv__signinbtn {
-  border: 0;
-  cursor: pointer;
-  background: var(--brand);
-  color: #fff;
-  font: inherit;
-  font-size: 15px;
-  font-weight: 700;
-  height: 48px;
-  padding: 0 36px;
-  border-radius: var(--r-pill);
-  transition: background 0.12s ease;
-}
-.gvcdv__signinbtn:hover { background: var(--brand-hover); }
 
 @media (max-width: 767px) {
   .gvcdv { flex-direction: column; padding: 0 14px 28px; }

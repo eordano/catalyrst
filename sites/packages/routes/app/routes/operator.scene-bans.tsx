@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router";
 import AdControlNotice, { AdBlockedAction } from "@ui/admin/pages/AdControlNotice";
 import SitesChrome from "@ui/web/frames/SitesChrome";
 import OpPlacePicker from "@ui/operator/components/OpPlacePicker";
+import "@ui/admin/admin.css";
 
 import {
   loadOperatorPlaces,
@@ -96,62 +97,68 @@ export default function OperatorSceneBans({ loaderData }: Route.ComponentProps) 
 
   return (
     <SitesChrome active="create">
-      <main className="sa-route">
-        <div className="sa__head">
-          <h1 className="sa__title">Scene bans</h1>
-          <p className="sa__sub">
-            Viewing <code>{d.viewedAddress}</code>. Banning and unbanning in a
-            scene are not available on this node.
-          </p>
-        </div>
+      <main className="adm">
+        <div className="adm__page">
+          <div className="adm__inner adm__inner--mid">
+            <div className="adm__head">
+              <div>
+                <h1 className="adm__title">Scene bans</h1>
+                <p className="adm__sub">
+                  Viewing <code>{d.viewedAddress}</code>. Banning and unbanning in a
+                  scene are not available on this node.
+                </p>
+              </div>
+            </div>
 
-        {d.placesUnreadable && (
-          <AdControlNotice
-            tone="sample"
-            title="Place list could not be read"
-            message={
-              "src/fixtures/operator-scene-bans.json is missing from this build, " +
-              "so the picker below is empty because nothing was read \u{2014} not " +
-              "because there are no places."
-            }
-          />
-        )}
+            {d.placesUnreadable && (
+              <AdControlNotice
+                tone="sample"
+                title="Place list could not be read"
+                message={
+                  "src/fixtures/operator-scene-bans.json is missing from this build, " +
+                  "so the picker below is empty because nothing was read \u{2014} not " +
+                  "because there are no places."
+                }
+              />
+            )}
 
-        {d.placesAreSynthetic && !d.placesUnreadable && (
-          <AdControlNotice
-            tone="sample"
-            title="Sample place list"
-            message={
-              "These places come from src/fixtures/operator-scene-bans.json, not " +
-              "from the network. They are layout data, not a list of scenes you " +
-              "can moderate."
-            }
-          />
-        )}
+            {d.placesAreSynthetic && !d.placesUnreadable && (
+              <AdControlNotice
+                tone="sample"
+                title="Sample place list"
+                message={
+                  "These places come from src/fixtures/operator-scene-bans.json, not " +
+                  "from the network. They are layout data, not a list of scenes you " +
+                  "can moderate."
+                }
+              />
+            )}
 
-        <OpPlacePicker
-          places={d.places.map((p) => ({
-            id: p.id,
-            title: p.title,
-            base_position: p.base_position,
-            image: p.image,
-            user_count: p.user_count,
-          }))}
-          selectedId={d.selectedPlaceId}
-          onSelect={onSelectPlace}
-          owner={d.viewedAddress}
-        />
+            <OpPlacePicker
+              places={d.places.map((p) => ({
+                id: p.id,
+                title: p.title,
+                base_position: p.base_position,
+                image: p.image,
+                user_count: p.user_count,
+              }))}
+              selectedId={d.selectedPlaceId}
+              onSelect={onSelectPlace}
+              owner={d.viewedAddress}
+            />
 
-        <AdControlNotice
-          title="Scene ban list"
-          message={d.bans.message}
-          serverCheck={d.bans.serverCheck}
-          fix={d.bans.fix}
-        />
+            <AdControlNotice
+              title="Scene ban list"
+              message={d.bans.message}
+              serverCheck={d.bans.serverCheck}
+              fix={d.bans.fix}
+            />
 
-        <div className="sa__toolbar">
-          <AdBlockedAction label="Ban in this scene" reason={d.bans.message} />
-          <AdBlockedAction label="Unban" reason={d.bans.message} />
+            <div className="adm-actions adm-actions--start">
+              <AdBlockedAction label="Ban in this scene" reason={d.bans.message} />
+              <AdBlockedAction label="Unban" reason={d.bans.message} />
+            </div>
+          </div>
         </div>
       </main>
     </SitesChrome>

@@ -2,7 +2,7 @@ import { PendingCheckoutStoreSchema } from "../../persisted-schemas";
 
 import { createPendingStore } from "./pending-store";
 
-export const PENDING_CHECKOUT_KEY = "dcl:mk:pending-checkout:v1";
+const PENDING_CHECKOUT_KEY = "dcl:mk:pending-checkout:v1";
 
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 

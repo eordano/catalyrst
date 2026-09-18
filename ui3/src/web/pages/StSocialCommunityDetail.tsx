@@ -3,7 +3,7 @@ import { SitesChromeMaybe } from "../frames/SitesChrome";
 import { CheckFill } from "../../atoms/icons";
 import "./stsocialcommunitydetail.css";
 
-export type Community = {
+type Community = {
   id: string;
   name: string;
   description: string;
@@ -16,7 +16,7 @@ export type Community = {
   role?: string;
 };
 
-export type Member = {
+type Member = {
   memberAddress: string;
   name: string;
   role: string;
@@ -24,7 +24,7 @@ export type Member = {
   profilePictureUrl?: string;
 };
 
-export type CommunityEvent = {
+type CommunityEvent = {
   id: string;
   name: string;
   image?: string;

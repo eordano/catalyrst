@@ -14,13 +14,16 @@ fn scratch_wallet() -> String {
 
 async fn pool() -> Option<sqlx::PgPool> {
     let url = catalyrst_testgate::require_pg("CREDITS_TEST_PG_CONNECTION_STRING")?;
-    Some(
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&url)
-            .await
-            .expect("test PG unreachable"),
-    )
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&url)
+        .await
+        .expect("test PG unreachable");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("test migrations failed");
+    Some(pool)
 }
 
 async fn cleanup(pool: &sqlx::PgPool, addr: &str, idem: &str) {

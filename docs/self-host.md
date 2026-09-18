@@ -2,7 +2,7 @@
 
 The fastest supported path to a working node is the NixOS module
 (`nixosModules.catalyrst`, source in [`nixos/`](../nixos/)). The manual bundle
-runbook ([deploy.md](./deploy.md)) covers non-NixOS hosts; a docker-compose
+runbook (deploy.md) covers non-NixOS hosts; a docker-compose
 distribution is in progress as a third path.
 
 ## 0. Provisioning a fresh cloud VPS (skip if you already run NixOS)
@@ -68,6 +68,25 @@ To boot on a smaller box anyway, either lower the floor
 (`services.catalyrst.preflight.minFreeGiB = 15;`) or keep the check advisory
 (`services.catalyrst.preflight.strict = false;`), which logs the shortfall and
 starts regardless.
+
+### Did the deploy take?
+
+`catalyrst-postflight` answers that after every activation that changes the
+stack, so there is no checklist to walk by hand. It waits for the units, then
+checks that `/about` advertises exactly the `comms.v4` endpoints this
+configuration derives (or none when v4 is off) and still says `v3` for older
+clients, that Pulse listens and keeps its replay journal on the host, that
+Archipelago, Pulse and the social bundle each logged that they are armed in
+their current run, and that nginx hands `/island-refresh` to the social
+bundle. Nothing is stopped or rolled back: a failed check fails the unit, which
+is what `nixos-rebuild switch` and `colmena apply` report, and
+`journalctl -u catalyrst-postflight` names each finding.
+
+`services.catalyrst.postflight.strict = false;` keeps it advisory,
+`timeoutSec` (default 180) is how long it waits for the stack to settle. The
+module also warns at evaluation when `/about` would silently drop a v4 URL:
+the server only advertises a control socket that is `wss` (or `ws` on
+loopback), so `tls = "none"` on a routable name offers Pulse alone.
 
 ## 2. Minimal consumer flake
 
@@ -177,7 +196,7 @@ Two ways forward, depending on what you want:
   configuration, not a degraded one.
 
 Gossip is a separate, also-off-by-default layer
-([federation.md](./federation.md)):
+(federation.md):
 
 ```nix
 services.catalyrst.federation = {
@@ -264,7 +283,7 @@ Decentraland's Genesis manifest for them.
 
 **Comms failure blocks entry; it does not degrade it.** The node detects an
 unreachable SFU and advertises `offline:offline` so people can still get in --
-see [deploy.md](./deploy.md#comms-and-entry).
+see deploy.md.
 
 ## 8. A stock client will not enter my realm
 

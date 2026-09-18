@@ -392,16 +392,6 @@
 }
 .gvsubmitbid__submitbtn:hover:not(:disabled) { background: var(--brand-hover); }
 .gvsubmitbid__submitbtn:disabled { background: var(--gv-faint); cursor: default; }
-
-.gvsubmitbid__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal, 1000);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(22, 20, 26, 0.55);
-}
 .gvsubmitbid__modal {
   width: 420px;
   max-width: calc(100vw - 32px);

@@ -14,7 +14,11 @@ import {
 } from "@data/lib/catalyst/marketplace/index";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { experimentActive } from "@core/lib/experiments/flags";
-import { parseVariantOverride, storyLoader } from "@core/lib/experiments/story-loader";
+import {
+  parseVariantOverride,
+  sidLoader,
+  storyLoader,
+} from "@core/lib/experiments/story-loader";
 import {
   BLOG_SHOP_ENTRY_ARMS,
   BLOG_SHOP_ENTRY_EXPERIMENT_KEY,
@@ -60,24 +64,22 @@ function forcedShopArm(url: URL): BlogShopEntryArm | undefined {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const { sid, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const shop = await storyLoader(request, SHOP_ENTRY_STORY, SHOP_ENTRY_FALLBACK, {
-    skipExposure: true,
-  });
-  const shopActive = await experimentActive(BLOG_SHOP_ENTRY_EXPERIMENT_KEY, {
-    envActive:
-      activeBlogShopEntryExperiment(
-        typeof process !== "undefined"
-          ? process.env?.BLOG_SHOP_ENTRY_EXPERIMENT
-          : undefined,
-      ) !== null,
-    user: shop.userKey,
-  });
+  const { userKey } = sidLoader(request);
+  const [{ sid, wrap }, shop, shopActive] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    storyLoader(request, SHOP_ENTRY_STORY, SHOP_ENTRY_FALLBACK, {
+      skipExposure: true,
+    }),
+    experimentActive(BLOG_SHOP_ENTRY_EXPERIMENT_KEY, {
+      envActive:
+        activeBlogShopEntryExperiment(
+          typeof process !== "undefined"
+            ? process.env?.BLOG_SHOP_ENTRY_EXPERIMENT
+            : undefined,
+        ) !== null,
+      user: userKey,
+    }),
+  ]);
   let shopAssignment = shopActive ? shop.assignment : SHOP_ENTRY_FALLBACK;
   const forcedShop = forcedShopArm(url);
   if (forcedShop) {
@@ -93,9 +95,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const category = url.searchParams.get("category") ?? "";
   const posts = blogPostCards(category);
 
-  const [railItems] = await Promise.all([
+  const railItems =
     shopArm === "rail"
-      ? fetchCatalog({ first: 8, isOnSale: true, sortBy: "recently_listed" })
+      ? await fetchCatalog({ first: 8, isOnSale: true, sortBy: "recently_listed" })
           .then((r) =>
             r.data
               .filter(isCatalogItemBuyable)
@@ -103,8 +105,7 @@ export async function loader({ request }: Route.LoaderArgs) {
               .map((it) => toCollectibleCard(it)),
           )
           .catch(() => null)
-      : Promise.resolve(null),
-  ]);
+      : null;
 
   if (shopActive && !forcedShop) {
     trackExposure({

@@ -8,6 +8,7 @@ use catalyrst_livekit::{build_adapter_url, AccessToken};
 use crate::auth_chain::{require_verified, AuthChainError, EXPLORER_METADATA_KEYS};
 use crate::http::ApiError;
 use crate::livekit::{join_grants, world_room_name, world_scene_room_name, WORLD_ROOM_PREFIX};
+use crate::ports::worlds::WorldProbe;
 use crate::{AppState, RATE_LIMIT_WINDOW_SECONDS};
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -105,7 +106,20 @@ async fn mint(
     let identity = auth.signer.as_str().to_string();
     let secret = auth.secret();
 
-    let world = state.worlds.get_world(world_name).await?;
+    let (lookup, denylisted, platform_banned) = tokio::join!(
+        state.worlds.lookup_world(
+            world_name,
+            WorldProbe {
+                wallet_blocked: Some(&identity),
+                scene_id,
+                ..WorldProbe::default()
+            },
+        ),
+        state.denylist.is_denylisted(&identity),
+        state.bans.is_player_banned(&identity),
+    );
+    let lookup = lookup?;
+    let world = lookup.world;
     let access = world.as_ref().map(|w| w.access.clone()).unwrap_or_default();
     let owner = world.as_ref().and_then(|w| w.owner.clone());
     let is_shared_secret = access.is_shared_secret();
@@ -125,24 +139,18 @@ async fn mint(
         ));
     }
 
-    if state.denylist.is_denylisted(&identity).await {
+    if denylisted {
         return Err(ApiError::forbidden("Access denied, deny-listed wallet."));
     }
 
-    if state.worlds.is_wallet_blocked(&identity).await?
-        || state.bans.is_player_banned(&identity).await
-    {
+    if lookup.wallet_blocked || platform_banned {
         return Err(ApiError::unauthorized(
             "Access denied, you are banned from the platform.",
         ));
     }
 
     let (room, scene_base): (String, Option<String>) = if let Some(scene_id) = scene_id {
-        let base = state
-            .worlds
-            .get_scene_base_parcel(world_name, scene_id)
-            .await?;
-        match base {
+        match lookup.scene_base {
             Some(base) => (world_scene_room_name(world_name, scene_id), Some(base)),
             None => {
                 return Err(ApiError::not_found(format!(

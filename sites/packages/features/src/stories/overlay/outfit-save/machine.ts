@@ -9,7 +9,7 @@ import {
 
 export type { TrackFn };
 
-export type SaveResult = { slot: number; name: string; simulated: true };
+type SaveResult = { slot: number; name: string; simulated: true };
 
 export type SaveFn = (args: {
   slot: number;
@@ -25,14 +25,14 @@ export type OutfitSaveSeed = {
   namesForExtraSlots: string[];
 };
 
-export type OutfitSaveInput = {
+type OutfitSaveInput = {
   trackCtx: TrackContext;
   seed: OutfitSaveSeed;
   save?: SaveFn;
   track?: TrackFn;
 };
 
-export type OutfitSaveContext = {
+type OutfitSaveContext = {
   trackCtx: TrackContext;
   seed: OutfitSaveSeed;
   save: SaveFn;
@@ -45,7 +45,7 @@ export type OutfitSaveContext = {
   error?: string;
 };
 
-export type OutfitSaveEvent =
+type OutfitSaveEvent =
   | { type: "OPEN_SLOT"; slot: number }
   | { type: "SET_NAME"; name: string }
   | { type: "NEXT" }
@@ -71,8 +71,8 @@ export const STATE_TO_SLUG = {
   done: "done",
 } as const;
 
-export type OutfitStateId = keyof typeof STATE_TO_SLUG;
-export type OutfitStepSlug = (typeof STATE_TO_SLUG)[OutfitStateId];
+type OutfitStateId = keyof typeof STATE_TO_SLUG;
+type OutfitStepSlug = (typeof STATE_TO_SLUG)[OutfitStateId];
 
 export const FIRST_STEP_SLUG: OutfitStepSlug = STATE_TO_SLUG.browsing;
 
@@ -84,7 +84,7 @@ export const stateToSlug: (value: string) => OutfitStepSlug = stepSlugs.toSlug;
 
 export const slugToState: (slug: string | null | undefined) => OutfitStateId = stepSlugs.toState;
 
-export const simulateSave: SaveFn = async ({ slot, name, signal }) => {
+const simulateSave: SaveFn = async ({ slot, name, signal }) => {
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, 350);
     signal?.addEventListener("abort", () => {
@@ -254,8 +254,6 @@ export const outfitSaveMachine = setup({
     },
   },
 });
-
-export type OutfitSaveMachine = typeof outfitSaveMachine;
 
 export function valueToSlug(value: string): OutfitStepSlug {
   if (value === "persisting") return STATE_TO_SLUG.saving;

@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import Friends from "./Friends";
+import FloatingPanel from "../components/FloatingPanel";
+import { HudPanelScene } from "../components/FloatingPanel.stories";
 
 const FRIENDS = [
   { name: "Nyx", tag: "#a91f", online: true, status: "online" as const, where: "Genesis Plaza", hue: 280, address: "0x1111111111111111111111111111111111aaaa", hasClaimedName: true },
@@ -39,5 +41,15 @@ export const Guest: Story = {
 export const NoBlocked: Story = {
   render: () => (
     <Friends initialSection="blocked" friends={FRIENDS} received={RECEIVED} sent={SENT} blocked={[]} />
+  ),
+};
+
+export const Floating: Story = {
+  render: () => (
+    <HudPanelScene panel="friends">
+      <FloatingPanel id="friends" onClose={() => {}} flush>
+        <Friends floating friends={FRIENDS} received={RECEIVED} sent={SENT} blocked={BLOCKED} />
+      </FloatingPanel>
+    </HudPanelScene>
   ),
 };

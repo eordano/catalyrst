@@ -39,7 +39,7 @@ export function emptyDraft(): CommunityDraft {
   };
 }
 
-export type CreateCommunityBody = {
+type CreateCommunityBody = {
   name: string;
   description: string;
   private: boolean;
@@ -47,7 +47,7 @@ export type CreateCommunityBody = {
   flags: string[];
 };
 
-export function toCreateCommunityBody(draft: CommunityDraft): CreateCommunityBody {
+function toCreateCommunityBody(draft: CommunityDraft): CreateCommunityBody {
   return {
     name: draft.name.trim(),
     description: draft.description.trim(),
@@ -57,7 +57,7 @@ export function toCreateCommunityBody(draft: CommunityDraft): CreateCommunityBod
   };
 }
 
-export type DraftIssues = Partial<Record<keyof CommunityDraft, string>>;
+type DraftIssues = Partial<Record<keyof CommunityDraft, string>>;
 
 export function validateStep(step: string, draft: CommunityDraft): DraftIssues {
   const issues: DraftIssues = {};
@@ -89,7 +89,7 @@ function hasForbiddenControl(s: string): boolean {
   return false;
 }
 
-export const CreateResultSchema = z.object({
+const CreateResultSchema = z.object({
   id: z.string(),
   name: z.string(),
   privacy: z.enum(["public", "private"]),

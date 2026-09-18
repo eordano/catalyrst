@@ -47,7 +47,7 @@ pub struct PurchaseAdminRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct OutboxLineRow {
     pub id: i64,
     pub item_id: String,
@@ -151,6 +151,35 @@ impl CreditsComponent {
         idempotency_key: Option<&str>,
         detail: &JsonValue,
     ) -> Result<GrantOutcome, ApiError> {
+        let mut tx = self.pool.begin().await?;
+        let outcome = self
+            .admin_grant_credits_in_tx(
+                &mut tx,
+                address,
+                amount,
+                kind,
+                reason,
+                actor,
+                idempotency_key,
+                detail,
+            )
+            .await?;
+        tx.commit().await?;
+        Ok(outcome)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn admin_grant_credits_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        address: &str,
+        amount: &str,
+        kind: &str,
+        reason: Option<&str>,
+        actor: Option<&str>,
+        idempotency_key: Option<&str>,
+        detail: &JsonValue,
+    ) -> Result<GrantOutcome, ApiError> {
         if !matches!(kind, "grant" | "purchase" | "refund") {
             return Err(ApiError::bad_request(
                 "admin_grant_credits kind must be one of grant|purchase|refund",
@@ -158,7 +187,6 @@ impl CreditsComponent {
         }
         let amount = crate::money::CreditAmount::parse_positive(amount)?;
         let amount = amount.as_str();
-        let mut tx = self.pool.begin().await?;
 
         if let Some(key) = idempotency_key {
             let claimed = sqlx::query(
@@ -172,7 +200,7 @@ impl CreditsComponent {
             .bind(address)
             .bind(amount)
             .bind(actor)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?
             .is_some();
 
@@ -186,7 +214,7 @@ impl CreditsComponent {
                 .bind(key)
                 .bind(address)
                 .bind(amount)
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await?;
                 let addr_match: bool = prior.get("addr_match");
                 let amount_match: bool = prior.get("amount_match");
@@ -195,7 +223,6 @@ impl CreditsComponent {
                         "idempotency key already used for a different grant (address/amount mismatch)",
                     ));
                 }
-                tx.commit().await?;
                 return Ok(GrantOutcome {
                     available: prior.get("available"),
                     applied: prior.get("amount"),
@@ -213,43 +240,32 @@ impl CreditsComponent {
         )
         .bind(address)
         .bind(amount)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await?;
         let available: String = row.get("available");
 
+        // Ledger row, audit row and the idempotency snapshot are independent writes.
         sqlx::query(
-            "INSERT INTO credit_ledger (address, kind, amount, bucket, captcha_ok) \
-             VALUES ($1, $3, $2::numeric, 'paid', FALSE)",
+            "WITH l AS ( \
+                 INSERT INTO credit_ledger (address, kind, amount, bucket, captcha_ok) \
+                 VALUES ($1, $3, $2::numeric, 'paid', FALSE) \
+             ), a AS ( \
+                 INSERT INTO admin_audit (action, address, entity_id, amount, reason, actor, detail) \
+                 VALUES ('credits.grant', $1, NULL, $2::numeric, $5, $6, $7) \
+             ) \
+             UPDATE credit_grant_idempotency \
+             SET available = $4::numeric WHERE idempotency_key = $8",
         )
         .bind(address)
         .bind(amount)
         .bind(kind)
-        .execute(&mut *tx)
+        .bind(&available)
+        .bind(reason)
+        .bind(actor)
+        .bind(detail)
+        .bind(idempotency_key)
+        .execute(&mut **tx)
         .await?;
-
-        if let Some(key) = idempotency_key {
-            sqlx::query(
-                "UPDATE credit_grant_idempotency \
-                 SET available = $2::numeric WHERE idempotency_key = $1",
-            )
-            .bind(key)
-            .bind(&available)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        Self::audit(
-            &mut *tx,
-            "credits.grant",
-            Some(address),
-            None,
-            Some(amount),
-            reason,
-            actor,
-            detail,
-        )
-        .await?;
-        tx.commit().await?;
 
         Ok(GrantOutcome {
             available,
@@ -271,24 +287,17 @@ impl CreditsComponent {
         let mut tx = self.pool.begin().await?;
 
         let current = sqlx::query(
-            "SELECT available::text AS available FROM user_credits \
-             WHERE address = $1 FOR UPDATE",
+            "SELECT available::text AS available, earned_available::text AS earned \
+             FROM user_credits WHERE address = $1 FOR UPDATE",
         )
         .bind(address)
         .fetch_optional(&mut *tx)
         .await?;
 
-        let Some(_) = current else {
+        let Some(current) = current else {
             tx.rollback().await?;
             return Err(ApiError::not_found("user has no credits balance"));
         };
-        let current = sqlx::query(
-            "SELECT available::text AS available, earned_available::text AS earned \
-             FROM user_credits WHERE address = $1",
-        )
-        .bind(address)
-        .fetch_one(&mut *tx)
-        .await?;
         let available_before: String = current.get("available");
         let earned_before: String = current.get("earned");
 
@@ -315,32 +324,24 @@ impl CreditsComponent {
         let earned_removed: String = row.get("earned_removed");
         let paid_removed: String = row.get("paid_removed");
 
-        sqlx::query(crate::ports::wallet::LEDGER_SPLIT_INSERT)
-            .bind(address)
-            .bind(&earned_removed)
-            .bind(&paid_removed)
-            .bind(None::<&str>)
-            .bind("consume")
-            .execute(&mut *tx)
-            .await?;
-
         let mut detail = detail.clone();
         if let JsonValue::Object(map) = &mut detail {
             map.insert("requested".into(), JsonValue::String(amount.to_string()));
             map.insert("removed".into(), JsonValue::String(removed.clone()));
         }
-
-        Self::audit(
-            &mut *tx,
-            "credits.revoke",
-            Some(address),
-            None,
-            Some(&removed),
-            reason,
-            actor,
-            &detail,
-        )
-        .await?;
+        sqlx::query(crate::ports::wallet::LEDGER_SPLIT_INSERT_WITH_AUDIT)
+            .bind(address)
+            .bind(&earned_removed)
+            .bind(&paid_removed)
+            .bind(None::<&str>)
+            .bind("consume")
+            .bind("credits.revoke")
+            .bind(&removed)
+            .bind(reason)
+            .bind(actor)
+            .bind(&detail)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
 
         Ok(GrantOutcome {
@@ -451,6 +452,7 @@ impl CreditsComponent {
         )
         .await?;
         tx.commit().await?;
+        self.invalidate_packs();
         Ok(pack)
     }
 
@@ -498,6 +500,7 @@ impl CreditsComponent {
         )
         .await?;
         tx.commit().await?;
+        self.invalidate_packs();
         Ok(pack)
     }
 
@@ -523,6 +526,7 @@ impl CreditsComponent {
         )
         .await?;
         tx.commit().await?;
+        self.invalidate_packs();
         Ok(())
     }
 
@@ -571,12 +575,23 @@ impl CreditsComponent {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<CheckoutAdminRow>, ApiError> {
-        let head = sqlx::query(
-            "SELECT id, address, total_credits::text AS total_credits, status, created_at \
-             FROM checkouts \
-             WHERE ($1::text IS NULL OR address = $1) \
-               AND ($2::text IS NULL OR status = $2) \
-             ORDER BY id DESC LIMIT $3 OFFSET $4",
+        let rows = sqlx::query(
+            "SELECT c.id, c.address, c.total_credits::text AS total_credits, c.status, \
+                    c.created_at, l.lines \
+             FROM checkouts c \
+             LEFT JOIN LATERAL ( \
+                 SELECT json_agg(json_build_object( \
+                            'id', o.id, 'item_id', o.item_id, 'urn', o.urn, \
+                            'token_id', o.token_id, \
+                            'unit_price_credits', o.unit_price_credits::text, \
+                            'mode', o.mode, 'status', o.status, 'attempts', o.attempts, \
+                            'last_error', o.last_error, 'external_ref', o.external_ref) \
+                        ORDER BY o.id) AS lines \
+                 FROM fulfillment_outbox o WHERE o.checkout_id = c.id \
+             ) l ON TRUE \
+             WHERE ($1::text IS NULL OR c.address = $1) \
+               AND ($2::text IS NULL OR c.status = $2) \
+             ORDER BY c.id DESC LIMIT $3 OFFSET $4",
         )
         .bind(address)
         .bind(status)
@@ -585,58 +600,23 @@ impl CreditsComponent {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut checkouts: Vec<CheckoutAdminRow> = head
-            .into_iter()
-            .map(|r| CheckoutAdminRow {
-                id: r.get("id"),
-                address: r.get("address"),
-                total_credits: r.get("total_credits"),
-                status: r.get("status"),
-                created_at: r.get("created_at"),
-                lines: Vec::new(),
+        rows.into_iter()
+            .map(|r| {
+                let lines: Vec<OutboxLineRow> = match r.get::<Option<JsonValue>, _>("lines") {
+                    Some(v) => serde_json::from_value(v)
+                        .map_err(|e| ApiError::Internal(format!("outbox lines decode: {e}")))?,
+                    None => Vec::new(),
+                };
+                Ok(CheckoutAdminRow {
+                    id: r.get("id"),
+                    address: r.get("address"),
+                    total_credits: r.get("total_credits"),
+                    status: r.get("status"),
+                    created_at: r.get("created_at"),
+                    lines,
+                })
             })
-            .collect();
-
-        if checkouts.is_empty() {
-            return Ok(checkouts);
-        }
-
-        let ids: Vec<i64> = checkouts.iter().map(|c| c.id).collect();
-        let lines = sqlx::query(
-            "SELECT id, checkout_id, item_id, urn, token_id, \
-                    unit_price_credits::text AS unit_price_credits, mode, status, \
-                    attempts, last_error, external_ref \
-             FROM fulfillment_outbox \
-             WHERE checkout_id = ANY($1::bigint[]) \
-             ORDER BY checkout_id, id",
-        )
-        .bind(&ids)
-        .fetch_all(&self.pool)
-        .await?;
-
-        use std::collections::HashMap;
-        let mut idx: HashMap<i64, usize> = HashMap::new();
-        for (i, c) in checkouts.iter().enumerate() {
-            idx.insert(c.id, i);
-        }
-        for l in lines {
-            let cid: i64 = l.get("checkout_id");
-            if let Some(&i) = idx.get(&cid) {
-                checkouts[i].lines.push(OutboxLineRow {
-                    id: l.get("id"),
-                    item_id: l.get("item_id"),
-                    urn: l.get("urn"),
-                    token_id: l.get("token_id"),
-                    unit_price_credits: l.get("unit_price_credits"),
-                    mode: l.get("mode"),
-                    status: l.get("status"),
-                    attempts: l.get("attempts"),
-                    last_error: l.get("last_error"),
-                    external_ref: l.get("external_ref"),
-                });
-            }
-        }
-        Ok(checkouts)
+            .collect()
     }
 
     pub async fn admin_list_ledger(

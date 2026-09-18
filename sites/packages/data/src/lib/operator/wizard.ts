@@ -1,6 +1,6 @@
 
-export type WizardProfile = "content-node" | "full-realm" | "public-gateway";
-export type WizardTls = "acme-http01" | "acme-dns01" | "none";
+type WizardProfile = "content-node" | "full-realm" | "public-gateway";
+type WizardTls = "acme-http01" | "acme-dns01" | "none";
 
 export type WizardAnswers = {
   profile: WizardProfile;
@@ -34,11 +34,11 @@ export const WIZARD_DEFAULTS: WizardAnswers = {
   federationSeed: true,
 };
 
-export type WizardIssue = { field: keyof WizardAnswers; message: string };
+type WizardIssue = { field: keyof WizardAnswers; message: string };
 
-export type WizardFile = { path: string; body: string };
+type WizardFile = { path: string; body: string };
 
-export type WizardOutput = {
+type WizardOutput = {
   hostNix: WizardFile;
   secrets: WizardFile[];
   checklist: string[];
@@ -79,14 +79,14 @@ const GATEWAY_SUBDOMAINS = [
 const WALLET_RE = /^0x[0-9a-fA-F]{40}$/;
 const IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
 
-export function parseWallets(raw: string): string[] {
+function parseWallets(raw: string): string[] {
   return raw
     .split(/[\s,]+/)
     .map((w) => w.trim())
     .filter(Boolean);
 }
 
-export function parseSyncSources(raw: string): string[] {
+function parseSyncSources(raw: string): string[] {
   return raw
     .split(/[\s,]+/)
     .map((s) => s.trim())
@@ -102,7 +102,7 @@ function isHttpUrl(v: string): boolean {
   }
 }
 
-export function isPublicProfile(profile: WizardProfile): boolean {
+function isPublicProfile(profile: WizardProfile): boolean {
   return profile !== "content-node";
 }
 

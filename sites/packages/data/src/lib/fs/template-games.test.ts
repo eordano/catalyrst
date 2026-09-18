@@ -29,40 +29,47 @@ function compositeNames(template: string): string[] {
 }
 
 describe("template games \u{2014} name/registry/artifact sync", () => {
-  it("covers every curated template (and no others)", () => {
+  it("covers every curated template (and no others), each registered in games/index.ts", () => {
     expect(Object.keys(REQUIRED_NAMES).sort()).toEqual(TEMPLATE_COMPOSITE_IDS.slice().sort());
     const registry = readFileSync(join(GAMES_DIR, "index.ts"), "utf8");
-    for (const id of TEMPLATE_COMPOSITE_IDS) {
-      expect(registry, `games/index.ts must register '${id}'`).toContain(`'${id}'`);
-    }
+    expect(
+      TEMPLATE_COMPOSITE_IDS.filter((id) => !registry.includes(`'${id}'`)),
+    ).toEqual([]);
   });
 
-  for (const [template, names] of Object.entries(REQUIRED_NAMES)) {
-    it(`${template}: composite, starter code and game bundle drive the SAME entity names`, () => {
+  it("every template's composite, starter code and game bundle source drive the SAME entity names", () => {
+    const offenders: string[] = [];
+    for (const [template, names] of Object.entries(REQUIRED_NAMES)) {
       const authored = compositeNames(template);
       const starter = templateIndexTs(template) ?? "";
       const gameSrc = readFileSync(join(GAMES_DIR, `${template}.ts`), "utf8");
       for (const name of names) {
-        expect(authored, `'${name}' must exist in the ${template} composite`).toContain(name);
-        expect(starter, `starter index.ts must reference '${name}'`).toContain(name);
-        expect(gameSrc, `game bundle source must reference '${name}'`).toContain(name);
+        if (!authored.includes(name)) offenders.push(`${template} composite lacks '${name}'`);
+        if (!starter.includes(name)) offenders.push(`${template} starter index.ts lacks '${name}'`);
+        if (!gameSrc.includes(name)) offenders.push(`${template} bundle source lacks '${name}'`);
       }
-    });
-  }
+    }
+    expect(offenders).toEqual([]);
+  });
 
-  it("the committed bundle artifact exists and carries the play-state contract", () => {
+  it("the committed bundle artifact exists and carries every game, the play-state contract and the step-debugger telemetry contract", () => {
     expect(existsSync(BUNDLE), "run `npm run build` in catalyrst/sites/template-games").toBe(true);
     const js = readFileSync(BUNDLE, "utf8");
     expect(js).toContain("one-play-state");
     expect(js).toContain("one_play");
-    for (const id of TEMPLATE_COMPOSITE_IDS) {
-      expect(js, `bundle must contain the '${id}' game`).toContain(id);
-    }
+    expect(js).toContain("one-dbg ");
+    expect(TEMPLATE_COMPOSITE_IDS.filter((id) => !js.includes(id))).toEqual([]);
   });
 
-  it("the committed bundle artifact carries the step-debugger telemetry contract", () => {
+  it("boots @dcl/sdk before asset-packs so its provider wrapper is registered last", () => {
+    const entry = readFileSync(join(GAMES_DIR, "../index.ts"), "utf8");
+    expect(entry.trimStart()).toMatch(/^import\s+['"]@dcl\/sdk['"]/);
+    expect(entry).not.toContain("setCompositeProvider");
+    expect(entry).toContain("initAssetPacks(engine)");
     const js = readFileSync(BUNDLE, "utf8");
-    expect(js).toContain("one-dbg ");
-    expect(js).toContain("march creeps");
+    const sdkBoot = js.indexOf(".addTransport(");
+    const packsBoot = js.indexOf("Ensure @dcl/sdk boots before initAssetPacks");
+    expect(sdkBoot).toBeGreaterThan(-1);
+    expect(packsBoot).toBeGreaterThan(sdkBoot);
   });
 });

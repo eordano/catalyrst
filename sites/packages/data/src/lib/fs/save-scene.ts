@@ -76,6 +76,7 @@ export type SaveSceneResult = {
 };
 
 export type SaveSceneOptions = {
+  viewportSrc?: string;
   handle?: FileSystemFileHandle | null;
   signal?: AbortSignal;
   writer?: (
@@ -95,6 +96,7 @@ export type SaveSceneOptions = {
 async function pushServerCopy(
   text: string,
   project?: SaveSceneOptions["project"],
+  signal?: AbortSignal,
 ): Promise<boolean> {
   if (typeof window === "undefined") return false;
   try {
@@ -110,6 +112,7 @@ async function pushServerCopy(
       urlSlug ||
       slugifyProjectTitle(project?.title?.trim() || "");
     if (!slug) return false;
+    signal?.throwIfAborted();
     return await pushServerDraft(slug, {
       composite: text,
       ...(project?.title ? { title: project.title } : {}),
@@ -118,8 +121,9 @@ async function pushServerCopy(
       ...(project?.assets && Object.keys(project.assets).length > 0
         ? { assets: project.assets }
         : {}),
-    });
+    }, signal);
   } catch {
+    signal?.throwIfAborted();
     return false;
   }
 }
@@ -129,8 +133,10 @@ async function persistCompositeText(
   entities: number,
   opts: SaveSceneOptions = {},
 ): Promise<SaveSceneResult> {
+  opts.signal?.throwIfAborted();
   const result = await persistCompositeTextLocal(text, entities, opts);
-  const serverSynced = await pushServerCopy(result.text, opts.project);
+  opts.signal?.throwIfAborted();
+  const serverSynced = await pushServerCopy(result.text, opts.project, opts.signal);
   return { ...result, serverSynced };
 }
 
@@ -139,6 +145,7 @@ async function persistCompositeTextLocal(
   entities: number,
   opts: SaveSceneOptions = {},
 ): Promise<SaveSceneResult> {
+  opts.signal?.throwIfAborted();
   const deployed = await persistDeployedProject(text, entities, opts);
   if (deployed) return deployed;
 
@@ -166,8 +173,9 @@ async function persistCompositeTextLocal(
       if (
         dir &&
         (await ensureHandlePermission(dir, "readwrite")) &&
-        (await writeBytesAtPath(dir, COMPOSITE_FILENAME, text))
+        (await writeBytesAtPath(dir, COMPOSITE_FILENAME, text, opts.signal))
       ) {
+        opts.signal?.throwIfAborted();
         await registerLocalProject(text, opts.project);
         return {
           written: true,
@@ -184,7 +192,9 @@ async function persistCompositeTextLocal(
   const write =
     opts.writer ??
     ((name, body, h) => saveTextFile(name, body, h, { onAbort: "cancel" }));
+  opts.signal?.throwIfAborted();
   const result = await write(COMPOSITE_FILENAME, text, handle);
+  opts.signal?.throwIfAborted();
 
   const out: SaveSceneResult = {
     written: result !== "canceled",
@@ -262,6 +272,7 @@ export function normalizeEngineComposite(out: unknown): string | null {
 async function readEngineComposite(
   timeoutMs: number,
   inject?: (() => Promise<unknown>) | null,
+  viewportSrc?: string,
 ): Promise<string | null> {
   if (inject) {
     try {
@@ -274,23 +285,26 @@ async function readEngineComposite(
     return null;
   }
   try {
-    const mod = (await import("@ui/editor/editor-bus")) as {
-      createEditorBus: () => {
-        exportComposite: (t?: number) => Promise<unknown>;
-        close?: () => void;
-        dispose?: () => void;
-      };
-    };
-    const bus = mod.createEditorBus();
+    const { createEditorBus } = await import("@ui/editor/editor-bus");
+    const bus = createEditorBus(viewportSrc ?? null);
     try {
       return normalizeEngineComposite(await bus.exportComposite(timeoutMs));
     } finally {
-      bus.close?.();
-      bus.dispose?.();
+      bus.close();
     }
   } catch {
     return null;
   }
+}
+
+export async function requireEngineComposite(
+  timeoutMs = 12000,
+  inject?: (() => Promise<unknown>) | null,
+  viewportSrc?: string,
+): Promise<string> {
+  const composite = await readEngineComposite(timeoutMs, inject, viewportSrc);
+  if (!composite) throw new Error(ENGINE_GAP_SAVE_ERROR);
+  return composite;
 }
 
 const builderAssetCache = new Map<
@@ -491,10 +505,9 @@ export async function saveSceneFromEngine(
     exportComposite?: (() => Promise<unknown>) | null;
   } = {},
 ): Promise<SaveSceneFromEngineResult> {
-  let text = await readEngineComposite(opts.timeoutMs ?? 12000, opts.exportComposite);
-  if (text === null) {
-    throw new Error(ENGINE_GAP_SAVE_ERROR);
-  }
+  opts.signal?.throwIfAborted();
+  let text = await requireEngineComposite(opts.timeoutMs ?? 12000, opts.exportComposite, opts.viewportSrc);
+  opts.signal?.throwIfAborted();
 
   try {
     text = await persistBuilderAssets(text);
@@ -753,22 +766,33 @@ async function writeBytesAtPath(
   root: FileSystemDirectoryHandle,
   path: string,
   data: Uint8Array | string,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  signal?.throwIfAborted();
   const fh = await fileHandleAtPath(root, path, true);
+  signal?.throwIfAborted();
   if (!fh) return false;
   const create = (
     fh as unknown as {
       createWritable?: () => Promise<{
         write: (d: BufferSource | string) => Promise<void>;
         close: () => Promise<void>;
+        abort?: () => Promise<void>;
       }>;
     }
   ).createWritable;
   if (typeof create !== "function") return false;
   try {
     const writable = await create.call(fh);
-    await writable.write(typeof data === "string" ? data : (data.slice().buffer as ArrayBuffer));
-    await writable.close();
+    try {
+      signal?.throwIfAborted();
+      await writable.write(typeof data === "string" ? data : (data.slice().buffer as ArrayBuffer));
+      signal?.throwIfAborted();
+      await writable.close();
+    } catch (error) {
+      await writable.abort?.();
+      throw error;
+    }
     return true;
   } catch {
     return false;
@@ -934,6 +958,7 @@ async function persistDeployedProject(
   entities: number,
   opts: SaveSceneOptions,
 ): Promise<SaveSceneResult | null> {
+  opts.signal?.throwIfAborted();
   if (opts.writer || opts.handle) return null;
   const pointer = deployedImportPointer();
   if (!pointer) return null;
@@ -961,6 +986,7 @@ async function persistDeployedProject(
     }
     dir = picked.dir;
   }
+  opts.signal?.throwIfAborted();
   materializedDirs.set(slug, dir);
 
   let out = text;
@@ -977,7 +1003,8 @@ async function persistDeployedProject(
       await writeBytesAtPath(dir, SCENE_JSON_FILENAME, entity.metadataText);
     }
   }
-  if (!(await writeBytesAtPath(dir, COMPOSITE_FILENAME, out))) {
+  opts.signal?.throwIfAborted();
+  if (!(await writeBytesAtPath(dir, COMPOSITE_FILENAME, out, opts.signal))) {
     return null;
   }
 

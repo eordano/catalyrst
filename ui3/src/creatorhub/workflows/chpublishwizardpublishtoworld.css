@@ -223,7 +223,6 @@
 
 .cpw__provlogo { display: inline-flex; margin-right: 8px; }
 .cpw__provlogo img { width: 20px; height: 20px; border-radius: 50%; }
-.cpw__provlogo--ens svg { width: 20px; height: 20px; }
 
 .cpw__menu {
   display: flex;
@@ -335,7 +334,6 @@
   font-size: 14px;
 }
 .cpw__worldinfoitem svg { width: 16px; height: 16px; }
-.cpw__settingsbtn { margin: auto 8px 8px 0; height: max-content; }
 
 .cpw__actions {
   display: flex;
@@ -368,7 +366,6 @@
 }
 .cpw__btn--secondary:hover { background: var(--fill-4); }
 .cpw__btn--block { width: 100%; }
-.cpw__settingsbtn { height: 36px; padding: 0 14px; font-size: 14px; }
 
 .cpw__empty {
   display: flex;

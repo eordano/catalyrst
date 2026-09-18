@@ -6,7 +6,7 @@ import "@ui/creatorhub/components/chappsettingstabbedsections.css";
 
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
 
 export const meta = () => creatorHubMeta("Preferences");
@@ -18,7 +18,7 @@ export async function loader() {
 
 export default function CreatorHubSettings() {
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
   const navigate = useNavigate();
 
   return (

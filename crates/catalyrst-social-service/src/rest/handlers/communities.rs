@@ -238,15 +238,17 @@ pub async fn get_communities(
         )
         .await?;
 
-    let owner_names = state
-        .profiles
-        .get_owner_names(&owner_addresses(&results))
-        .await;
+    let user = signer.as_ref().map(|s| s.as_str().to_lowercase());
+    let owners = owner_addresses(&results);
+    let (owner_names, by_community) =
+        tokio::join!(state.profiles.get_owner_names(&owners), async {
+            match user.as_deref() {
+                Some(user) => friends_by_community(&state, user, &results).await,
+                None => HashMap::new(),
+            }
+        });
     enrich_list_v1(&state.cdn_url, &mut results, &owner_names);
-
-    if let Some(user) = signer.as_ref().map(catalyrst_crypto::Signer::as_str) {
-        enrich_with_friends(&state, &user.to_lowercase(), &mut results).await;
-    }
+    enrich_with_friends(&state, by_community, &mut results).await;
 
     let data = Paginated::new(results, total, &pagination);
     Ok(Json(EnvelopeData { data }).into_response())
@@ -298,8 +300,11 @@ async fn friends_by_community(
     community_friends(social, &state.pool, user, &ids).await
 }
 
-async fn enrich_with_friends(state: &AppState, user: &str, items: &mut [CommunityListItem]) {
-    let by_community = friends_by_community(state, user, items).await;
+async fn enrich_with_friends(
+    state: &AppState,
+    by_community: HashMap<Uuid, Vec<String>>,
+    items: &mut [CommunityListItem],
+) {
     if by_community.is_empty() {
         return;
     }

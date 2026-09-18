@@ -486,16 +486,6 @@
   border-top-color: var(--brand);
   animation: u-spin 800ms linear infinite;
 }
-.stprofileplacestab__scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, .8);
-}
 .stprofileplacestab__dialog {
   width: 100%;
   max-width: 880px;

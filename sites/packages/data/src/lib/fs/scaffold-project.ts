@@ -9,7 +9,7 @@ import {
   templateContentMeta,
   templateIndexTs,
 } from "./template-composites";
-import { saveTextFile, type SaveResult as DiskSaveResult } from "./disk";
+import { type SaveResult as DiskSaveResult } from "./disk";
 
 export const SCENE_JSON_FILENAME = "scene.json";
 export const COMPOSITE_FILENAME = "main.composite";
@@ -173,7 +173,6 @@ export function buildScaffoldFiles(opts: BuildScaffoldOptions = {}): ScaffoldFil
     { path: "README.md", text: readme },
   ];
 }
-
 
 type DirHandle = FileSystemDirectoryHandle & {
   getDirectoryHandle: (

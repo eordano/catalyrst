@@ -4,10 +4,11 @@ import ManaMark from "../../atoms/ManaMark";
 import Modal from "../../components/Modal";
 import { suffixLabel, type LabelSuffixProps } from "../../components/labelSuffix";
 import "./mkbuyflow.css";
+import { docsUrl } from "../../data/docs";
 import { ChevronLeft } from "../../atoms/icons";
 
-export type ChainOption = { id: string; name: string; hue: number };
-export type TokenOption = { symbol: string; balance?: string; mana?: boolean; hue?: number };
+type ChainOption = { id: string; name: string; hue: number };
+type TokenOption = { symbol: string; balance?: string; mana?: boolean; hue?: number };
 
 const DEFAULT_CHAINS: ChainOption[] = [
   { id: "polygon", name: "Polygon", hue: 268 },
@@ -524,7 +525,7 @@ export default function MkBuyFlow({
             <span className="mkbuyflow__warning">
               MANA transactions are only gas fee free if the item is at least 1 MANA. To get this item, switch your
               network to Polygon to pay for the gas fee with MATIC.{" "}
-              <a href="https://docs.decentraland.org" target="_blank" rel="noreferrer">
+              <a href={docsUrl("player/blockchain-integration/transactions-in-polygon")} target="_blank" rel="noreferrer">
                 <u>Learn More</u>
               </a>
             </span>

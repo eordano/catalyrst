@@ -46,7 +46,7 @@ let
     pkgs.runCommandLocal "${cfg.realm}-play-root" { } ''
       cp -r --no-preserve=mode,ownership ${pkg}/. "$out"
       rm -rf "$out"/*.prev-* "$out"/pkg.prev-* "$out"/provenance.prev-*.json
-      for f in index.html main.js engine.js pkg/webgpu_build.js \
+      for f in index.html main.js engine.js engine_worker.js wasm_worker.js sandbox_worker.js pkg/webgpu_build.js \
                pkg/webgpu_build_bg.wasm pkg/webgpu_build_bg.wasm.br \
                pkg/manifest.json assets_bundle.bin assets_bundle.bin.br; do
         test -f "$out/$f" || { echo "play bundle is missing $f" >&2; exit 1; }
@@ -54,10 +54,6 @@ let
       for d in ui3-overlay/chunks vendor assets modules; do
         test -d "$out/$d" || { echo "play bundle is missing directory $d" >&2; exit 1; }
       done
-      test ! -e "$out/wasm_worker.js" || {
-        echo "play bundle mixes the wasm_worker topology with the ESM engine" >&2
-        exit 1
-      }
     '';
   playRoot = if cfg.play.package != null then "${playRootFor cfg.play.package}" else cfg.play.dir;
 
@@ -209,6 +205,9 @@ let
       "/presence/" = {
         proxyPass = "http://127.0.0.1:5152/";
       };
+    }
+    // lib.optionalAttrs (cfg.subServices.comms && cfg.subServices.social && cfg.comms.v4.enable) {
+      "/island-refresh" = social;
     };
 
   sitesLoc = {
@@ -223,6 +222,7 @@ let
     "/governance" = sitesLoc;
     "/creator-hub" = sitesLoc;
     "/api/creator-hub" = sitesLoc;
+    "/api/screens/" = sitesLoc;
     "/api/governance" = sitesLoc;
     "/auth" = sitesLoc;
     "/connect" = sitesLoc;
@@ -238,6 +238,8 @@ let
     "/shop" = sitesLoc;
     "/support" = sitesLoc;
     "/whats-on" = sitesLoc;
+    "= /events" = sitesLoc;
+    "= /events/" = sitesLoc;
     "/for" = sitesLoc;
     "/explorer" = sitesLoc;
     "/legal" = sitesLoc;

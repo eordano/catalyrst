@@ -1,6 +1,7 @@
-import type { QueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
+import { qk } from "../../data/queryKeys";
 import Backpack from "../../explorer/pages/Backpack";
 import { useBridgeState, FALLBACK_STATE } from "../../overlay/bridge";
 import {
@@ -11,10 +12,13 @@ import {
 import {
   saveOutfits,
   hexToColor3,
+  color3ToHex,
   fetchEmoteGlbUrl,
 } from "../../data/catalyst/backpack";
 import WearablePreview from "../../wearable-preview/WearablePreview";
 import Spinner from "../../atoms/Spinner";
+import { catalystBase } from "../../data/catalyst/client";
+import type { AvatarStatus } from "../../wearable-preview/avatar";
 
 type PreviewBase = {
   bodyShape?: string;
@@ -36,18 +40,21 @@ function guessAddress(): string | null {
   return FALLBACK_STATE.identity.address;
 }
 
-export function prefetch(queryClient: QueryClient) {
-  try {
-    prefetchOwnedItems(queryClient, guessAddress());
-  } catch {
-  }
+export function prefetch(queryClient: QueryClient, address?: string | null) {
+  return prefetchOwnedItems(queryClient, address === undefined ? guessAddress() : address);
 }
 
 export default function BackpackPanel() {
   const identity = useBridgeState((s) => s.identity);
-  const avatarLoadout = useBridgeState((s) => s.avatarLoadout);
   const address = identity?.address ?? guessAddress();
+  return <AccountBackpack key={address ?? "guest"} address={address} />;
+}
 
+function AccountBackpack({ address }: { address: string | null }) {
+  const queryClient = useQueryClient();
+  const identity = useBridgeState((s) => s.identity);
+  const avatarBase = useBridgeState(s => s.avatarBase);
+  const avatarLoadout = useBridgeState((s) => s.avatarLoadout);
   const { wearables, emotes, isLoading, isError, error } =
     useOwnedItems(address);
   const outfitsQuery = useOutfits(address);
@@ -55,7 +62,8 @@ export default function BackpackPanel() {
   const [previewUrns, setPreviewUrns] = useState<string[] | null>(null);
   const [previewBase, setPreviewBase] = useState<PreviewBase | null>(null);
   const [emote, setEmote] = useState({ value: "idle", nonce: 0 });
-  const [previewLoading, setPreviewLoading] = useState(true);
+  const [previewStatus, setPreviewStatus] = useState<AvatarStatus>("loading");
+  const [previewAttempt, setPreviewAttempt] = useState(0);
 
   useEffect(() => {
     setPreviewUrns(null);
@@ -65,16 +73,19 @@ export default function BackpackPanel() {
   const dataProps = useMemo(() => {
     const w = wearables.data;
     const e = emotes.data;
-    const catEquipped = w?.equipped ?? null;
-    const equipped = avatarLoadout?.wearables?.length
+    const catEquipped = avatarBase ? {
+      ...w?.equipped,
+      ...(avatarBase.bodyShapeUrn ? { bodyShape: avatarBase.bodyShapeUrn } : {}),
+      ...(avatarBase.skinColor ? { skinColor: color3ToHex(avatarBase.skinColor) } : {}),
+      ...(avatarBase.hairColor ? { hairColor: color3ToHex(avatarBase.hairColor) } : {}),
+      ...(avatarBase.eyesColor ? { eyeColor: color3ToHex(avatarBase.eyesColor) } : {}),
+    } : w?.equipped ?? null;
+    const equipped = avatarLoadout
       ? {
           ...(catEquipped ?? {}),
           wearables: avatarLoadout.wearables,
           bodyShape: avatarLoadout.bodyShape ?? catEquipped?.bodyShape,
-          emotes:
-            (avatarLoadout.emotes?.length ?? 0) > 0
-              ? avatarLoadout.emotes
-              : catEquipped?.emotes,
+          emotes: avatarLoadout.emotes ?? catEquipped?.emotes,
         }
       : catEquipped;
     return {
@@ -103,12 +114,14 @@ export default function BackpackPanel() {
     outfitsQuery.data,
     address,
     avatarLoadout,
+    avatarBase,
     isLoading,
     isError,
     error,
   ]);
 
   const equipped = dataProps.equipped;
+  const outfitKnown = !wearables.isPending || avatarLoadout != null;
   const outfit = useMemo(
     () => ({
       bodyShape: previewBase?.bodyShape ?? equipped?.bodyShape ?? DEFAULT_BODY,
@@ -140,26 +153,43 @@ export default function BackpackPanel() {
     <Backpack
       avatarPreview={
         <div className="bp__avatar-preview">
-          <WearablePreview
-            outfit={outfit}
-            platform
-            spin={false}
-            controls
-            zoom={1.05}
-            pitch={8}
-            emote={emote.value}
-            emoteNonce={emote.nonce}
-            onStatus={(s) => setPreviewLoading(s === "loading")}
-          />
-          {previewLoading ? (
+          {outfitKnown ? (
+            <WearablePreview
+              key={previewAttempt}
+              base={catalystBase()}
+              outfit={outfit}
+              platform
+              spin={false}
+              controls
+              zoom={1.05}
+              pitch={8}
+              emote={emote.value}
+              emoteNonce={emote.nonce}
+              onStatus={setPreviewStatus}
+            />
+          ) : null}
+          {previewStatus === "loading" || !outfitKnown ? (
             <div className="bp__avatar-loading" role="status" aria-label={"Loading avatar\u{2026}"}>
               <Spinner size={34} color="rgba(255,255,255,0.72)" aria-hidden />
             </div>
           ) : null}
+          {outfitKnown && (previewStatus === "error" || previewStatus === "empty") && (
+            <div className="bp__avatar-loading" role="alert">
+              <p>Avatar preview could not load.</p>
+              <button type="button" onClick={() => { setPreviewStatus("loading"); setPreviewAttempt((n) => n + 1); }}>Retry preview</button>
+            </div>
+          )}
         </div>
       }
       avatarName={identity?.name ?? ""}
-      onOutfitsChange={(next) => saveOutfits(address, next)}
+      outfitsLoading={outfitsQuery.isPending}
+      outfitsError={outfitsQuery.isError}
+      onRetryOutfits={() => { void outfitsQuery.refetch(); }}
+      onOutfitsChange={async (next) => {
+        const result = await saveOutfits(address, next);
+        if (!result.ok) throw new Error(result.reason || "Could not save outfits. Please try again.");
+        queryClient.setQueryData(qk.outfits(address?.toLowerCase() || "anon"), next);
+      }}
       onEquippedChange={setPreviewUrns}
       onBaseChange={(b) =>
         setPreviewBase({

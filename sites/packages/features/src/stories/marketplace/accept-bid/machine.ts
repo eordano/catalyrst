@@ -15,7 +15,7 @@ export type { TrackFn };
 
 export type ApproveFn = (args: { bid: Bid; signal?: AbortSignal }) => Promise<void>;
 
-export type AcceptInput = {
+type AcceptInput = {
   trackCtx: TrackContext;
   bid: Bid;
   approve?: ApproveFn;
@@ -23,7 +23,7 @@ export type AcceptInput = {
   track?: TrackFn;
 };
 
-export type AcceptContext = {
+type AcceptContext = {
   trackCtx: TrackContext;
   bid: Bid;
   approve: ApproveFn;
@@ -33,7 +33,7 @@ export type AcceptContext = {
   error?: string;
 };
 
-export type AcceptEvent =
+type AcceptEvent =
   | { type: "ACCEPT" }
   | { type: "REJECT" }
   | { type: "CONNECT" }
@@ -62,8 +62,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type AcceptStateId = keyof typeof STATE_TO_SLUG;
-export type AcceptStepSlug = (typeof STATE_TO_SLUG)[AcceptStateId];
+type AcceptStateId = keyof typeof STATE_TO_SLUG;
+type AcceptStepSlug = (typeof STATE_TO_SLUG)[AcceptStateId];
 
 export const FIRST_STEP_SLUG: AcceptStepSlug = STATE_TO_SLUG.reviewBid;
 
@@ -222,8 +222,6 @@ export const acceptBidMachine = setup({
     },
   },
 });
-
-export type AcceptBidMachine = typeof acceptBidMachine;
 
 export function resolveAcceptSnapshot(args: {
   step: AcceptStateId;

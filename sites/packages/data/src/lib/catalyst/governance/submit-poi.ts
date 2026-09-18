@@ -1,16 +1,16 @@
 import { z } from "zod";
 
 import staticConfig from "./submit-poi.data.json";
-import { validateCoAuthors as sharedValidateCoAuthors, type FieldErrors } from "./co-authors";
+import { type FieldErrors } from "./co-authors";
 
-export const POI_REQUESTS = ["add", "remove"] as const;
+const POI_REQUESTS = ["add", "remove"] as const;
 export type PoiRequest = (typeof POI_REQUESTS)[number];
 
-export const POI_TYPE = {
+const POI_TYPE = {
   add: "add_poi",
   remove: "remove_poi",
 } as const;
-export type PoiType = (typeof POI_TYPE)[PoiRequest];
+type PoiType = (typeof POI_TYPE)[PoiRequest];
 
 export function toPoiRequest(value: string | null | undefined): PoiRequest | null {
   if (value === "add" || value === "remove") return value;
@@ -23,15 +23,6 @@ export const POI_SCHEMA = {
   description: { min: 20, max: 250 },
   coAuthors: { max: 5, addressLength: 42 },
 } as const;
-
-function coordSchema(axis: "x" | "y") {
-  const { min, max } = POI_SCHEMA[axis];
-  return z
-    .number({ message: `Enter the ${axis.toUpperCase()} coordinate.` })
-    .int("Coordinates must be whole numbers.")
-    .min(min, "These coordinates are outside of the map limits.")
-    .max(max, "These coordinates are outside of the map limits.");
-}
 
 export type { FieldErrors };
 
@@ -65,10 +56,6 @@ export function validateDescription(description: string): FieldErrors {
   return errors;
 }
 
-export function validateCoAuthors(coAuthors: string[]): FieldErrors {
-  return sharedValidateCoAuthors(coAuthors, POI_SCHEMA.coAuthors.max);
-}
-
 const CopyVariantSchema = z.object({
   title: z.string(),
   coordinatesLabel: z.string(),
@@ -88,7 +75,7 @@ const StaticConfigSchema = z.object({
   samples: z.object({ add: SampleSchema, remove: SampleSchema }),
 });
 
-export type Fixture = z.infer<typeof StaticConfigSchema>;
+type Fixture = z.infer<typeof StaticConfigSchema>;
 
 const FIXTURE: Fixture = StaticConfigSchema.parse(staticConfig);
 
@@ -98,7 +85,7 @@ export type PoiAccount = {
   votingPower: number | null;
 };
 
-export type PoiCopyContext = {
+type PoiCopyContext = {
   request: PoiRequest;
   poiType: PoiType;
   title: string;

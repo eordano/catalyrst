@@ -16,7 +16,9 @@ import {
   type MapPin,
   type PinCategory,
 } from "@data/lib/catalyst/overlay/map-jump";
-import { getBridge, sendBridge } from "../../../components/bevy-overlay/bridge";
+import { travelInExplorer } from "@ui/overlay/travel";
+import { useBridgeState } from "@ui/overlay/bridge";
+import { getBridge } from "../../../components/bevy-overlay/bridge";
 import {
   mapJumpMachine,
   resolveMapJumpSnapshot,
@@ -27,21 +29,19 @@ import {
   type TrackFn,
 } from "./machine";
 
-const PARCEL_SIZE = 16;
-
-const bridgeJump: JumpFn = async ({ pin }) => {
+const bridgeJump: JumpFn = async ({ pin, signal }) => {
   const jumpUrl = buildJumpUrl(pin);
-  const bridge = getBridge();
-  if (bridge && !isWorldPin(pin)) {
-    sendBridge("Teleport", {
-      x: pin.x * PARCEL_SIZE + PARCEL_SIZE / 2,
-      z: pin.y * PARCEL_SIZE + PARCEL_SIZE / 2,
-    });
+  if (getBridge()) {
+    const outcome = await travelInExplorer(
+      isWorldPin(pin) && pin.worldName ? { realm: pin.worldName } : { realm: "", parcel: [pin.x, pin.y] },
+      { signal },
+    );
+    return { jumpUrl, outcome: outcome.phase === "degraded" ? "degraded" : "arrived", reason: outcome.reason ?? undefined };
   }
   return { jumpUrl };
 };
 
-export type MapJumpWizardProps = {
+type MapJumpWizardProps = {
   trackCtx: TrackContext;
   data: MapJumpData;
   initialFilter?: string;
@@ -62,11 +62,12 @@ export default function MapJumpWizard(props: MapJumpWizardProps) {
   const filter = normalizePinCategory(urlFilter);
   const selectedPin = findPinByCoords(props.data.pins, urlSelect);
 
-  const effectiveStep = stateId !== "browsing" && !selectedPin ? "browsing" : stateId;
+  const effectiveStep = stateId !== "browsing" && !selectedPin ? "browsing"
+    : stateId === "jumping" && !props.jump ? "selected" : stateId;
 
   return (
     <MapJumpWizardInner
-      key={`${effectiveStep}|${selectedPin?.coords ?? ""}`}
+      key={selectedPin?.coords ?? ""}
       {...props}
       stateId={effectiveStep}
       filter={filter}
@@ -91,6 +92,7 @@ function MapJumpWizardInner({
   track,
 }: InnerProps) {
   const [, setSearchParams] = useSearchParams();
+  const runtimeTravel = useBridgeState((state) => state.lifecycle?.travel ?? null);
   const emit: TrackFn = track ?? defaultTrack;
 
   const effectiveJump: JumpFn = jump ?? bridgeJump;
@@ -148,6 +150,9 @@ function MapJumpWizardInner({
       setHome={state.context.setHome}
       error={state.context.error}
       jumpUrl={state.context.result?.jumpUrl}
+      arrival={state.context.result?.outcome}
+      runtimeTravel={jump ? null : runtimeTravel}
+      arrivalWarning={state.context.result?.outcome === "degraded" ? `Arrived with limited scene readiness. ${state.context.result.reason ?? ""}` : undefined}
       onSelectPin={(pin) => send({ type: "SELECT_PIN", pin })}
       onFilter={(key) => send({ type: "FILTER", filter: normalizePinCategory(key) })}
       onClear={() => send({ type: "CLEAR" })}

@@ -38,6 +38,10 @@ sol! {
     function approve(address spender, uint256 amount) external returns (bool);
 
     function getNonce(address user) external view returns (uint256 nonce);
+
+    function balanceOf(address owner) external view returns (uint256 balance);
+
+    function transfer(address to, uint256 amount) external returns (bool);
 }
 
 pub mod combined_sig {

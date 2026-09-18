@@ -35,9 +35,11 @@
   font: inherit;
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.4px;
+  letter-spacing: .4px;
   text-transform: uppercase;
   padding: 14px 16px;
+  border-radius: 0;
+  text-decoration: none;
   cursor: pointer;
   transition: color 0.12s ease;
 }
@@ -47,16 +49,8 @@
 .nstabs__tab.is-active {
   color: var(--lm-ink);
 }
-.nstabs__tab.is-active::after {
-  content: "";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -1px;
-  height: 3px;
-  border-radius: var(--r-pill);
-  background: var(--brand);
-}
+.nstabs__tab.is-active { box-shadow: inset 0 -3px 0 var(--brand); }
+.nstabs__tab.is-active::after { content: none; }
 
 .nstabs--sub {
   border-bottom: 0;

@@ -87,9 +87,11 @@ pub async fn post_newsletter(
                 "utm_source": source,
                 "utm_medium": "organic",
             }));
-        if let Err(e) = req.send().await {
-            tracing::warn!(error = %e, "newsletter SaaS forward failed (ignored)");
-        }
+        tokio::spawn(async move {
+            if let Err(e) = req.send().await {
+                tracing::warn!(error = %e, "newsletter SaaS forward failed (ignored)");
+            }
+        });
     }
 
     Ok(Json(NewsletterSubscribeOut { ok: true }))

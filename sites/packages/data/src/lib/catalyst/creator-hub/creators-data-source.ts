@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const METRICS_PATH_PREFIX = "/worlds";
-export const METRICS_PATH_SUFFIX = "/metrics";
+const METRICS_PATH_PREFIX = "/worlds";
+const METRICS_PATH_SUFFIX = "/metrics";
 
 export function worldMetricsPath(world: string): string {
   return `${METRICS_PATH_PREFIX}/${encodeURIComponent(world)}${METRICS_PATH_SUFFIX}`;
@@ -12,7 +12,7 @@ const strOrNull = z
   .nullish()
   .transform((v) => v ?? null);
 
-export const MetricsArtifactSchema = z.object({
+const MetricsArtifactSchema = z.object({
   source: strOrNull,
   exportedAt: strOrNull,
   exported_at: strOrNull,
@@ -20,9 +20,8 @@ export const MetricsArtifactSchema = z.object({
   metrics: z.unknown().nullish(),
   data: z.unknown().nullish(),
 });
-export type MetricsArtifact = z.infer<typeof MetricsArtifactSchema>;
 
-export type ArtifactVerdict =
+type ArtifactVerdict =
   | { kind: "snapshot"; exportSource: "metabase"; exportedAt: string; value: unknown }
   | { kind: "unavailable"; reason: string };
 

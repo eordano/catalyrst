@@ -242,17 +242,6 @@
   line-height: 1.5;
   color: var(--ststp-text-2);
 }
-
-.ststp__scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-dialog);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.5);
-}
 .ststp__dialog {
   width: 100%;
   max-width: 444px;

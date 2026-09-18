@@ -1,7 +1,9 @@
+import PanelBoundary from "../../components/PanelBoundary";
 import { siteUrl } from "../../data/site";
-import { Suspense, lazy, useState } from "react";
+import { lazy, useRef, useState } from "react";
 import { Avatar } from "../../atoms/primitives";
 import { Close } from "../../atoms/icons";
+import { useSidebarAnchor } from "./FloatingPanel";
 import "./profilewidget.css";
 
 const SignInFlow = lazy(() => import("../../overlay/SignInFlow"));
@@ -37,6 +39,8 @@ export default function ProfileWidget({
   anchor = "rail",
 }: ProfileWidgetProps) {
   const [signInOpen, setSignInOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useSidebarAnchor("profile", ref, open && anchor === "rail");
   function copyAddress() {
     const value = address || wallet;
     if (!value) return;
@@ -49,7 +53,7 @@ export default function ProfileWidget({
   return (
     <>
     <div className="pw__stage">
-      <div className={"pw" + (anchor === "topbar" ? " pw--topbar" : "")}>
+      <div ref={ref} className={"pw" + (anchor === "topbar" ? " pw--topbar" : "")}>
         <div className="pw__menu">
           <div className="pw__menuhead">
             <Avatar
@@ -75,7 +79,10 @@ export default function ProfileWidget({
             ) : null}
           </div>
 
-          <button className="pw__profile" data-sb-linkto="Explorer/Pages/Passport">VIEW PROFILE</button>
+          <div className="pw__shortcuts">
+            <button className="pw__profile" data-sb-linkto="Explorer/Pages/Passport">VIEW PROFILE</button>
+            <button className="pw__profile" data-sb-linkto="Explorer/Pages/Backpack">BACKPACK</button>
+          </div>
 
           {isGuest && (
             <button
@@ -134,9 +141,9 @@ export default function ProfileWidget({
       </div>
     </div>
     {signInOpen && (
-      <Suspense fallback={null}>
+      <PanelBoundary standalone label="sign in" onClose={() => setSignInOpen(false)}>
         <SignInFlow onClose={() => setSignInOpen(false)} />
-      </Suspense>
+      </PanelBoundary>
     )}
     </>
   );

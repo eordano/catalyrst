@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { getJSON } from "./client";
-import type { GetOptions } from "./client";
 import { placesApiPath } from "./typed";
 import { ApiDataSchema, ApiDataTotalSchema } from "./generated-schemas/places";
 import { parsePlace, parsePlaces, parseCategory, reportSchemaDrift } from "./schema";

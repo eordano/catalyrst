@@ -10,16 +10,18 @@ use serde_json::{json, Value};
 
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use catalyrst_archipelago::ban::BanChecker;
-use catalyrst_archipelago::cluster::{Cluster, ClusterEvent};
 use catalyrst_archipelago::config::{
-    AuthConfig, ClusterConfig, Config, GossipConfig, LivekitConfig, ServerConfig,
+    AuthConfig, ClusterConfig, Config, LivekitConfig, NatsConfig, ServerConfig,
 };
+use catalyrst_archipelago::feed::dispatch;
 use catalyrst_archipelago::livekit::LivekitMinter;
+use catalyrst_archipelago::peers::PeerDirectory;
 use catalyrst_archipelago::proto::archipelago::{
-    client_packet, server_packet, ChallengeRequestMessage, ClientPacket, Heartbeat, KickedReason,
-    ServerPacket, SignedChallengeMessage,
+    client_packet, server_packet, ChallengeRequestMessage, ClientPacket, Heartbeat,
+    IslandChangedMessage, KickedReason, ServerPacket, SignedChallengeMessage,
 };
 use catalyrst_archipelago::proto::Position;
+use catalyrst_archipelago::registry::{PeersRegistry, SocketEvent};
 use catalyrst_archipelago::{api_router, build_state, AppState};
 use futures::{SinkExt, StreamExt};
 use prost::Message as _;
@@ -61,13 +63,15 @@ fn config(gatekeeper_url: String, ban_sweep_interval_secs: u64) -> Config {
             challenge_ttl_secs: 120,
             signature_max_age_secs: 300,
             deny_list_url: None,
+            ..AuthConfig::default()
         },
         livekit: LivekitConfig {
             comms_gatekeeper_url: Some(gatekeeper_url),
             ..LivekitConfig::default()
         },
-        gossip: GossipConfig::default(),
+        nats: NatsConfig::default(),
         content_database_url: None,
+        control_database_url: None,
         content_base_url: String::new(),
         commit_hash: String::new(),
     }
@@ -90,7 +94,12 @@ type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 fn encode(msg: client_packet::Message) -> tokio_tungstenite::tungstenite::Bytes {
-    ClientPacket { message: Some(msg) }.encode_to_vec().into()
+    ClientPacket {
+        request_sequence: 0,
+        message: Some(msg),
+    }
+    .encode_to_vec()
+    .into()
 }
 
 async fn recv_msg(ws: &mut WsStream, timeout: Duration) -> Option<server_packet::Message> {
@@ -111,6 +120,7 @@ async fn handshake(port: u16, wallet: &PrivateKeySigner) -> WsStream {
     let address = format!("{:#x}", wallet.address());
     ws.send(WsMessage::Binary(encode(
         client_packet::Message::ChallengeRequest(ChallengeRequestMessage {
+            offer: None,
             address: address.clone(),
         }),
     )))
@@ -130,6 +140,7 @@ async fn handshake(port: u16, wallet: &PrivateKeySigner) -> WsStream {
     ]);
     ws.send(WsMessage::Binary(encode(
         client_packet::Message::SignedChallenge(SignedChallengeMessage {
+            typed_auth_chain: None,
             auth_chain_json: chain.to_string(),
         }),
     )))
@@ -143,8 +154,19 @@ async fn handshake(port: u16, wallet: &PrivateKeySigner) -> WsStream {
     ws
 }
 
+async fn wait_for_peer(state: &AppState, addr: &str) {
+    for _ in 0..60 {
+        if state.peers.peer(addr).is_some() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the heartbeat never reached the peer directory");
+}
+
 async fn send_heartbeat(ws: &mut WsStream) {
     let hb = Heartbeat {
+        sample_sequence: None,
         position: Some(Position {
             x: 8.0,
             y: 0.0,
@@ -169,17 +191,10 @@ async fn mid_session_ban_sweep_kicks_and_closes_socket() {
     let mut ws = handshake(port, &wallet).await;
 
     send_heartbeat(&mut ws).await;
-    match recv_msg(&mut ws, Duration::from_secs(3)).await {
-        Some(server_packet::Message::IslandChanged(_)) => {}
-        other => panic!("clean peer should get an island, got {other:?}"),
-    }
-    assert!(
-        state.cluster.peer(&addr).is_some(),
-        "clean peer is in the cluster"
-    );
+    wait_for_peer(&state, &addr).await;
 
     ban_set.lock().unwrap().insert(addr.clone());
-    state.cluster.ban_sweep_once().await;
+    state.peers.ban_sweep_once().await;
 
     match recv_msg(&mut ws, Duration::from_secs(3)).await {
         Some(server_packet::Message::Kicked(k)) => {
@@ -192,8 +207,8 @@ async fn mid_session_ban_sweep_kicks_and_closes_socket() {
         "socket is closed after the kick"
     );
     assert!(
-        state.cluster.peer(&addr).is_none(),
-        "banned peer evicted from the cluster"
+        state.peers.peer(&addr).is_none(),
+        "banned peer evicted from the peer directory"
     );
 }
 
@@ -207,10 +222,7 @@ async fn periodic_ban_sweep_evicts_without_manual_trigger() {
     let mut ws = handshake(port, &wallet).await;
 
     send_heartbeat(&mut ws).await;
-    match recv_msg(&mut ws, Duration::from_secs(3)).await {
-        Some(server_packet::Message::IslandChanged(_)) => {}
-        other => panic!("clean peer should get an island, got {other:?}"),
-    }
+    wait_for_peer(&state, &addr).await;
 
     ban_set.lock().unwrap().insert(addr.clone());
 
@@ -218,52 +230,124 @@ async fn periodic_ban_sweep_evicts_without_manual_trigger() {
         Some(server_packet::Message::Kicked(_)) => {}
         other => panic!("the periodic sweep should kick the banned peer, got {other:?}"),
     }
-    assert!(state.cluster.peer(&addr).is_none());
+    assert!(state.peers.peer(&addr).is_none());
 }
 
 #[tokio::test]
-async fn kick_peer_marks_kicked_until_reconnect() {
+async fn the_sweep_kicks_every_session_of_the_banned_wallet_and_drops_it() {
     let (gk_port, ban_set) = start_gatekeeper().await;
     let ban = BanChecker::new(
         Some(format!("http://127.0.0.1:{gk_port}")),
         reqwest::Client::new(),
     );
     let lk = Arc::new(LivekitMinter::new(LivekitConfig::default()));
-    let cluster = Cluster::new(ClusterConfig::default(), lk, ban);
-    let mut rx = cluster.subscribe();
+    let registry = PeersRegistry::new();
+    let peers = PeerDirectory::new(ClusterConfig::default(), lk, ban, Arc::clone(&registry));
+    let (_desktop, mut desktop_events, _) = registry.on_peer_connected("0xabc", "0xsession1");
+    let (_mobile, mut mobile_events, _) = registry.on_peer_connected("0xabc", "0xsession2");
 
-    cluster.upsert_peer("0xabc".into(), [8.0, 0.0, 8.0], [0, 0], "r".into());
-    cluster.recluster_once().await;
-    while rx.try_recv().is_ok() {}
+    peers.upsert_peer("0xabc".into(), [8.0, 0.0, 8.0], [0, 0], "r".into());
 
     ban_set.lock().unwrap().insert("0xabc".into());
-    cluster.ban_sweep_once().await;
+    peers.ban_sweep_once().await;
 
-    let mut saw_kicked = false;
-    while let Ok(evt) = rx.try_recv() {
-        if let ClusterEvent::Kicked { address, reason } = evt {
-            assert_eq!(address, "0xabc");
-            assert_eq!(reason, "banned");
-            saw_kicked = true;
-        }
-    }
-    assert!(saw_kicked, "the sweep emits a Kicked cluster event");
     assert!(
-        cluster.peer("0xabc").is_none(),
+        matches!(desktop_events.try_recv(), Ok(SocketEvent::Kicked)),
+        "every live session of the banned wallet is kicked"
+    );
+    assert!(matches!(mobile_events.try_recv(), Ok(SocketEvent::Kicked)));
+    assert!(
+        peers.peer("0xabc").is_none(),
         "the sweep removes the banned peer"
     );
-    assert!(cluster.is_kicked("0xabc"), "the peer is flagged kicked");
 
-    cluster.upsert_peer("0xabc".into(), [8.0, 0.0, 8.0], [0, 0], "r".into());
+    peers.upsert_peer("0xabc".into(), [8.0, 0.0, 8.0], [0, 0], "r".into());
     assert!(
-        cluster.is_kicked("0xabc"),
-        "a heartbeat re-admission attempt does not clear the kicked flag"
+        peers.peer("0xabc").is_some(),
+        "a later heartbeat re-admits the wallet; the ban gate is the sweep and the handshake, \
+         not a local kicked set"
+    );
+}
+
+#[tokio::test]
+async fn a_wallet_assigned_before_its_first_heartbeat_is_minted_a_token_for_that_room() {
+    let (gk_port, _ban_set) = start_gatekeeper().await;
+    let mut cfg = config(format!("http://127.0.0.1:{gk_port}"), 3600);
+    cfg.livekit.api_key = Some("APIkey".into());
+    cfg.livekit.api_secret = Some("secret".into());
+    let (port, state) = start_server(cfg).await;
+
+    let wallet = PrivateKeySigner::random();
+    let addr = format!("{:#x}", wallet.address());
+    let mut ws = handshake(port, &wallet).await;
+
+    dispatch(
+        &state,
+        &format!("engine.peer.{addr}.island_changed.{addr}"),
+        &IslandChangedMessage {
+            assignment_context: None,
+            island_id: "I7".into(),
+            conn_str: "livekit:wss://example.invalid?access_token=t".into(),
+            from_island_id: None,
+            peers: Default::default(),
+        }
+        .encode_to_vec(),
+    );
+    match recv_msg(&mut ws, Duration::from_secs(3)).await {
+        Some(server_packet::Message::IslandChanged(m)) => assert_eq!(m.island_id, "I7"),
+        other => panic!("expected the island assignment, got {other:?}"),
+    }
+    assert!(
+        state.peers.peer(&addr).is_none(),
+        "no heartbeat has arrived, so the directory holds nothing for this wallet"
     );
 
-    cluster.register_conn("0xabc");
+    let client = reqwest::Client::new();
+    let issued: Value = client
+        .post(format!("http://127.0.0.1:{port}/auth/challenge"))
+        .json(&json!({ "address": addr }))
+        .send()
+        .await
+        .expect("challenge request")
+        .json()
+        .await
+        .expect("challenge json");
+    let challenge = issued["challenge"]
+        .as_str()
+        .expect("challenge string")
+        .to_string();
+
+    let hash = alloy::primitives::eip191_hash_message(challenge.as_bytes());
+    let sig = wallet.sign_hash_sync(&hash).expect("sign");
+    let resp = client
+        .post(format!("http://127.0.0.1:{port}/auth/livekit-token"))
+        .json(&json!({
+            "address": addr,
+            "challenge": challenge,
+            "room": "",
+            "auth_chain": [
+                { "type": "SIGNER", "payload": addr, "signature": "" },
+                {
+                    "type": "ECDSA_SIGNED_ENTITY",
+                    "payload": challenge,
+                    "signature": sig.to_string()
+                }
+            ]
+        }))
+        .send()
+        .await
+        .expect("token request");
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "an assignment the feed made before the first heartbeat still authorizes a token"
+    );
+    let grant: Value = resp.json().await.expect("grant json");
+    assert_eq!(grant["room"], "I7");
+    assert_eq!(grant["identity"], addr);
     assert!(
-        !cluster.is_kicked("0xabc"),
-        "a fresh session clears the kicked flag"
+        grant["token"].as_str().is_some_and(|t| !t.is_empty()),
+        "the grant carries a signed token, got {grant}"
     );
 }
 
@@ -291,8 +375,7 @@ async fn remove_participant_handler(
     Json(json!({}))
 }
 
-#[tokio::test]
-async fn remove_participant_calls_livekit_room_service() {
+async fn start_livekit_mock() -> (u16, Arc<SeenRemoval>) {
     let seen = Arc::new(SeenRemoval::default());
     let app = Router::new()
         .route(
@@ -307,6 +390,12 @@ async fn remove_participant_calls_livekit_room_service() {
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
+    (lk_port, seen)
+}
+
+#[tokio::test]
+async fn remove_participant_calls_livekit_room_service() {
+    let (lk_port, seen) = start_livekit_mock().await;
 
     let minter = LivekitMinter::new(LivekitConfig {
         api_key: Some("APIkey".into()),
@@ -328,5 +417,63 @@ async fn remove_participant_calls_livekit_room_service() {
     assert!(
         auth.starts_with("Bearer "),
         "authorization is a bearer token, got {auth}"
+    );
+}
+
+#[tokio::test]
+async fn the_sweep_evicts_the_livekit_participant_of_a_wallet_that_never_heartbeat() {
+    let (gk_port, ban_set) = start_gatekeeper().await;
+    let (lk_port, seen) = start_livekit_mock().await;
+
+    let mut cfg = config(format!("http://127.0.0.1:{gk_port}"), 3600);
+    cfg.livekit.api_key = Some("APIkey".into());
+    cfg.livekit.api_secret = Some("secret".into());
+    cfg.livekit.ws_url = format!("http://127.0.0.1:{lk_port}");
+    let (port, state) = start_server(cfg).await;
+
+    let wallet = PrivateKeySigner::random();
+    let addr = format!("{:#x}", wallet.address());
+    let mut ws = handshake(port, &wallet).await;
+
+    dispatch(
+        &state,
+        &format!("engine.peer.{addr}.island_changed.{addr}"),
+        &IslandChangedMessage {
+            assignment_context: None,
+            island_id: "I7".into(),
+            conn_str: "livekit:wss://example.invalid?access_token=t".into(),
+            from_island_id: None,
+            peers: Default::default(),
+        }
+        .encode_to_vec(),
+    );
+
+    match recv_msg(&mut ws, Duration::from_secs(3)).await {
+        Some(server_packet::Message::IslandChanged(m)) => assert_eq!(m.island_id, "I7"),
+        other => panic!("expected the island assignment, got {other:?}"),
+    }
+    assert!(
+        state.peers.peer(&addr).is_none(),
+        "no heartbeat has arrived, so the directory holds nothing for this wallet"
+    );
+    assert_eq!(state.peers.island_of(&addr).as_deref(), Some("I7"));
+
+    ban_set.lock().unwrap().insert(addr.clone());
+    state.peers.ban_sweep_once().await;
+
+    for _ in 0..60 {
+        if seen.room.lock().unwrap().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        seen.room.lock().unwrap().as_deref(),
+        Some("I7"),
+        "the banned wallet's media participant is evicted from the room the feed assigned"
+    );
+    assert_eq!(
+        seen.identity.lock().unwrap().as_deref(),
+        Some(addr.as_str())
     );
 }

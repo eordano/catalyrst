@@ -1,0 +1,19 @@
+:root {
+  --ui-canvas: #151417;
+  --ui-shell: #111013;
+  --ui-panel: #1b191e;
+  --ui-raised: #25232b;
+  --ui-hover: #302c36;
+  --ui-border: #ffffff14;
+  --ui-border-strong: #ffffff30;
+  --ui-text: #f4f2f5;
+  --ui-muted: #b6afbf;
+  --ui-accent: #ff829d;
+  --ui-action: #d80029;
+  --ui-selected: #ff6b8714;
+  --ui-radius: 10px;
+  --ui-card-radius: 14px;
+  --ui-font: Inter, Helvetica, Arial, sans-serif;
+  --ui-gap: 16px;
+  --ui-page-pad: clamp(16px, 2.2vw, 32px);
+}

@@ -27,25 +27,7 @@ import {
   type LoadWorldPermissionsResult,
 } from "./world-permissions.server";
 import type { ManagedWorld } from "./manage-worlds";
-import {
-  HISTORY_LIMIT_PEAK_7D,
-  HISTORY_LIMIT_WORLD_PAGE,
-  LIVE_DATA_ZERO_NOTE,
-  NEVER_DEPLOYED_REASON,
-  NEVER_DEPLOYED_TODAY,
-  PlacesWorldRowSchema,
-  RealmAboutSchema,
-  WorldAboutSchema,
-  disagreementSentence,
-  noSampleNote,
-  parsePlacesWorlds,
-  realZeroNote,
-  worldRowKind,
-  type PlacesWorldRow,
-  type RealmAbout,
-  type WorldAbout,
-  type WorldRowKind,
-} from "./activity";
+import { HISTORY_LIMIT_PEAK_7D, HISTORY_LIMIT_WORLD_PAGE, LIVE_DATA_ZERO_NOTE, NEVER_DEPLOYED_REASON, NEVER_DEPLOYED_TODAY, RealmAboutSchema, WorldAboutSchema, disagreementSentence, noSampleNote, parsePlacesWorlds, realZeroNote, worldRowKind, type PlacesWorldRow, type RealmAbout, type WorldAbout, type WorldRowKind } from "./activity";
 import {
   DEFAULT_CADENCE_SECONDS,
   endpointLabel,
@@ -59,14 +41,14 @@ import {
   type Datum,
 } from "./datum.server";
 
-export type ActivityOptions = {
+type ActivityOptions = {
   address?: string | null;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   wcsBase?: string;
 };
 
-export const PEAK_LOOKUP_LIMIT = 50;
+const PEAK_LOOKUP_LIMIT = 50;
 
 function label(path: string, query?: Query): string {
   return endpointLabel("GET", `${catalystBase()}${path}${buildQuery(query)}`);
@@ -141,7 +123,7 @@ async function loadCurrentScenes(
   return sampledAt(res.value, endpoint, takenAt, DEFAULT_CADENCE_SECONDS);
 }
 
-export type JoinSubject = { name: string; deployedScenes: number | null };
+type JoinSubject = { name: string; deployedScenes: number | null };
 
 export function joinWorldPresence(
   world: JoinSubject,
@@ -188,7 +170,7 @@ export function joinLiveUsers(
   return { users: liveNow(users, live.endpoint), note: null };
 }
 
-export type ActivityWorldRow = {
+type ActivityWorldRow = {
   world: ManagedWorld;
   kind: WorldRowKind;
   jumpUrl: string;
@@ -287,7 +269,6 @@ export async function loadActivityIndex(
   const address = (opts.address ?? "").trim().toLowerCase();
   const readAt = new Date().toISOString();
 
-  let aboutAbsent = false;
   const settledResults = await settleAll([
     {
       endpoint: WCS_WORLDS_ENDPOINT,

@@ -14,6 +14,7 @@
     "build": "react-router build",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc --noEmit",
+    "typecheck:scripts": "tsc --noEmit -p scripts/tsconfig.json",
     "test": "vitest run",
     "test:e2e": "scripts/e2e-pg.sh vitest run --config vitest.e2e.config.ts",
     "shot": "node scripts/drive/shot.mts",
@@ -49,15 +50,18 @@
     "check:flowmap": "tsx scripts/check-flowmap-routes.mts",
     "smoke": "node scripts/drive/smoke.mts",
     "gen:seed-catalog": "node scripts/gen-seed-catalog.mjs",
-    "gen:seed-catalog:check": "node scripts/gen-seed-catalog.mjs --check"
+    "gen:seed-catalog:check": "node scripts/gen-seed-catalog.mjs --check",
+    "products:audit": "tsx scripts/product-audit.ts",
+    "products:check": "tsx scripts/product-audit.ts --check"
   },
   "dependencies": {
-    "@react-router/node": "8.3.1",
-    "@react-router/serve": "8.3.1",
-    "@stripe/react-stripe-js": "6.9.0",
-    "@stripe/stripe-js": "9.13.0",
-    "@tanstack/react-query": "5.102.8",
+    "@react-router/node": "8.4.0",
+    "@react-router/serve": "8.4.0",
+    "@stripe/react-stripe-js": "6.10.0",
+    "@stripe/stripe-js": "9.16.0",
+    "@tanstack/react-query": "5.103.1",
     "@xstate/react": "6.1.0",
+    "fflate": "0.8.3",
     "gray-matter": "4.0.3",
     "isbot": "5.2.2",
     "livekit-client": "2.22.3",
@@ -67,16 +71,16 @@
     "qrcode-generator": "2.0.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-router": "8.3.1",
+    "react-router": "8.4.0",
     "three": "0.186.0",
-    "viem": "2.56.3",
-    "xstate": "5.32.6",
-    "zod": "4.6.1"
+    "viem": "2.56.7",
+    "xstate": "5.33.2",
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "@react-router/dev": "8.3.1",
-    "@react-router/fs-routes": "8.3.1",
-    "@types/node": "26.2.0",
+    "@react-router/dev": "8.4.0",
+    "@react-router/fs-routes": "8.4.0",
+    "@types/node": "26.6.1",
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
@@ -86,6 +90,6 @@
     "typescript": "7.0.2",
     "typescript6": "npm:typescript@6.0.3",
     "vite": "8.3.0",
-    "vitest": "5.0.0"
+    "vitest": "5.0.1"
   }
 }

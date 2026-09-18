@@ -143,22 +143,25 @@ pub async fn mana_topup(
         ));
     };
 
-    let verification = verify_mana_payment(
-        &state.economy_http,
-        &state.economy_base_url,
-        token,
-        &tx_hash,
-    )
-    .await?;
+    // The oracle read is memoized and only consulted once the payment is confirmed.
+    let (verification, mana_usd) = tokio::join!(
+        verify_mana_payment(
+            &state.economy_http,
+            &state.economy_base_url,
+            token,
+            &tx_hash,
+        ),
+        state.pricing.fetch_mana_usd()
+    );
 
-    let value_wei = match decide(verification, signer.as_str())? {
+    let value_wei = match decide(verification?, signer.as_str())? {
         TopupDecision::Pending => {
             return Ok((StatusCode::ACCEPTED, Json(json!({ "status": "pending" }))).into_response());
         }
         TopupDecision::Granted { value_wei } => value_wei,
     };
 
-    let mana_usd = state.pricing.fetch_mana_usd().await?;
+    let mana_usd = mana_usd?;
     let credits = credits_for_wei(&state.credits.pool, &value_wei, &mana_usd).await?;
     if !crate::ports::pricing::charge_is_positive(&credits) {
         return Err(ApiError::unprocessable(format!(

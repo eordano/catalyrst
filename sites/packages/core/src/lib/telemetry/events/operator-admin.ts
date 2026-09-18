@@ -72,21 +72,6 @@ export type OperatorAdminEvents = {
   admin_users_unavailable_viewed: {
     reason: string;
   };
-  operator_admin_action_failed: {
-    action?: "add" | "revoke";
-    place_id?: string;
-  };
-  operator_admin_grant_committed: {
-    place_id?: string;
-  };
-  operator_admin_grant_started: {
-    action?: "add" | "revoke";
-    place_id?: string;
-  };
-  operator_admin_revoke_committed: {
-    can_be_removed: boolean;
-    place_id?: string;
-  };
   operator_control_unavailable: {
     control: string;
     reason: string;
@@ -126,28 +111,6 @@ export type OperatorAdminEvents = {
     name?: string;
     parcels?: number;
     target: "land" | "world";
-  };
-  operator_scene_ban_committed: {
-    address?: string;
-    place_id: string;
-    simulated: false;
-  };
-  operator_scene_ban_failed: {
-    action?: "ban" | "unban";
-    place_id: string;
-  };
-  operator_scene_ban_started: {
-    action?: "ban" | "unban";
-    place_id: string;
-  };
-  operator_scene_bans_viewed: {
-    place_id: string;
-    total: number;
-  };
-  operator_scene_unban_committed: {
-    address?: string;
-    place_id: string;
-    simulated: false;
   };
   operator_user_action_selected: {
     action: "ban" | "unban" | "warn";

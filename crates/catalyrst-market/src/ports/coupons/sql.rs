@@ -2,12 +2,23 @@ use std::sync::LazyLock;
 
 use crate::MARKETPLACE_SQUID_SCHEMA;
 
-pub const INSERT_COUPON: &str = "INSERT INTO marketplace.coupons \
-     (network, chain_id, signer, signature, hashed_signature, state_key, coupon_manager, \
-      coupon_address, checks, discount_type, discount_ppm, root, collections, \
-      effective_since, expires_at) \
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
- RETURNING id::text, created_at";
+/// Coupon insert plus its state row in one statement: binds $1-$15 as the coupon,
+/// $16 uses, $17 cancelled, $18 revoked.
+pub const INSERT_COUPON_WITH_STATE: &str = "WITH c AS (\
+       INSERT INTO marketplace.coupons \
+         (network, chain_id, signer, signature, hashed_signature, state_key, coupon_manager, \
+          coupon_address, checks, discount_type, discount_ppm, root, collections, \
+          effective_since, expires_at) \
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
+       RETURNING id, created_at\
+     ), s AS (\
+       INSERT INTO marketplace.coupon_state (coupon_id, uses, cancelled, revoked, checked_at) \
+       SELECT id, $16, $17, $18, now() FROM c \
+       ON CONFLICT (coupon_id) DO UPDATE SET \
+         uses = EXCLUDED.uses, cancelled = EXCLUDED.cancelled, \
+         revoked = EXCLUDED.revoked, checked_at = now()\
+     ) \
+     SELECT id::text, created_at FROM c";
 
 pub const UPSERT_COUPON_STATE: &str =
     "INSERT INTO marketplace.coupon_state (coupon_id, uses, cancelled, revoked, checked_at) \

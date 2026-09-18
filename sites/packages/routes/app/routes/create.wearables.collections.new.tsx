@@ -1,3 +1,8 @@
+import { foundationFetch } from "@data/lib/catalyst/builder/foundation-fetch";
+import { listLinkedProviders, type LinkedProvider } from "@data/lib/catalyst/builder/linked-providers";
+import { parseCollectionType } from "@features/stories/creator-hub/wearable-create-collection/machine";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { collectionDraftWriter } from "@data/lib/catalyst/builder/collection-drafts";
 import { Link } from "react-router";
 import { href } from "@core/lib/router/routes";
 
@@ -6,7 +11,7 @@ import CreatorHubBreadcrumb from "@ui/creatorhub/components/CreatorHubBreadcrumb
 import "@ui/creatorhub/frames/creatorhubchrome.css";
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoader } from "@core/lib/experiments/story-loader";
 
@@ -53,8 +58,33 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function CreateWearableCollection({ loaderData }: Route.ComponentProps) {
   const { sid, step, type, assignment, options } = loaderData;
-  const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const auth = useAuth();
+  const { isConnected, address } = auth;
+  const authRef = useRef(auth);
+  authRef.current = auth;
+  const linked = parseCollectionType(type) === "linked";
+  const [providers, setProviders] = useState<{ owner?: string; rows: LinkedProvider[]; loading: boolean; error?: string }>({ rows: [], loading: false });
+  const [providerId, setProviderId] = useState("");
+  const [reload, setReload] = useState(0);
+  const fetchFoundation = useMemo(() => foundationFetch(() => authRef.current), []);
+  useEffect(() => {
+    setProviderId("");
+    if (!linked || !isConnected || !address) { setProviders({ rows: [], loading: false }); return; }
+    const controller = new AbortController();
+    setProviders({ owner: address, rows: [], loading: true });
+    void listLinkedProviders(address, { fetch: fetchFoundation, signal: controller.signal }).then(rows => {
+      if (!controller.signal.aborted) setProviders({ owner: address, rows, loading: false });
+    }).catch(error => {
+      if (!controller.signal.aborted) setProviders({ owner: address, rows: [], loading: false, error: error instanceof Error ? error.message : "Could not load your providers." });
+    });
+    return () => controller.abort();
+  }, [linked, isConnected, address, reload, fetchFoundation]);
+  const selectedProvider = providers.owner === address && providers.rows.some(row => row.id === providerId) ? providerId : "";
+  const save = useMemo(() => collectionDraftWriter(() => {
+    if (!authRef.current.isConnected) throw new Error("Sign in to save this collection.");
+    return { fetch: fetchFoundation, address: authRef.current.address ?? undefined };
+  }), [address, selectedProvider, fetchFoundation]);
+  const { name } = useChromeAuth();
 
   return (
     <CreatorHubChrome
@@ -74,6 +104,11 @@ export default function CreateWearableCollection({ loaderData }: Route.Component
 
       <main className="cwc-create-collection-route">
         <CreateCollectionWizard
+          key={`${address ?? "anonymous"}:${selectedProvider}`}
+          mint={args => save({ ...args, thirdPartyId: selectedProvider })}
+          provider={linked ? { value: selectedProvider, options: providers.rows, loading: providers.loading,
+            error: !isConnected ? "Sign in with a provider manager wallet." : providers.error,
+            onChange: setProviderId, onRetry: () => !isConnected ? openSignIn() : setReload(value => value + 1) } : undefined}
           trackCtx={{
             sid,
             story: STORY,

@@ -1,7 +1,7 @@
 import { fetchPacks, type Pack } from "./packs";
 import type { GetOptions } from "../client";
 
-export type PacksLoad = {
+type PacksLoad = {
   data: Pack[];
   isFixture: boolean;
   source: "live" | "empty" | "unavailable";

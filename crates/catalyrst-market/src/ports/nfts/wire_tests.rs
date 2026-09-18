@@ -192,6 +192,48 @@ fn outer_filters_move_the_limit_past_the_filter() {
     assert!(!outer.contains("LIMIT"), "{outer}");
 }
 
+#[test]
+fn page_total_is_counted_before_the_inner_limit() {
+    let plain = NftFilters {
+        category: Some(crate::dcl_schemas::NftCategory::Ens),
+        first: Some(24),
+        ..Default::default()
+    };
+    let (sql, binds) = build_nfts_query(&plain, false);
+    assert!(
+        sql.contains("SELECT *, COUNT(*) OVER() AS matched_count FROM squid_marketplace.nft"),
+        "the inner LIMIT would hide rows from an outer window: {sql}"
+    );
+    assert!(sql.contains("nft.matched_count AS count"), "{sql}");
+    assert!(!sql.contains("COUNT(*) OVER() AS count"), "{sql}");
+
+    let on_sale = NftFilters {
+        category: Some(crate::dcl_schemas::NftCategory::Ens),
+        is_on_sale: Some(true),
+        first: Some(24),
+        ..Default::default()
+    };
+    let (sql, _) = build_nfts_query(&on_sale, false);
+    assert!(
+        sql.contains("COUNT(*) OVER() AS count"),
+        "no inner limit, so the outer window sees every filtered row: {sql}"
+    );
+    assert!(!sql.contains("matched_count"), "{sql}");
+
+    let (count_sql, count_binds) = build_nfts_query(&plain, true);
+    assert!(
+        count_sql.starts_with("SELECT COUNT(*)::int8 AS count FROM ("),
+        "the standalone count stays for the empty-page fallback: {count_sql}"
+    );
+    assert!(!count_sql.contains("matched_count"), "{count_sql}");
+    assert!(!count_sql.contains("LIMIT"), "{count_sql}");
+    assert_eq!(
+        count_binds.len(),
+        binds.len() - 2,
+        "no limit/offset binds in the count variant"
+    );
+}
+
 const BROKEN_ESTATE_EXCLUSION: &str = "AND NOT (trades.type = 'public_nft_order'";
 
 fn nfts_sql(filters: &NftFilters) -> String {

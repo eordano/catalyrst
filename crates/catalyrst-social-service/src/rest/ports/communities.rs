@@ -97,6 +97,27 @@ impl CommunitiesComponent {
         Ok(exists)
     }
 
+    /// Existence, privacy and the viewer's membership row in one statement; `None` when the
+    /// community is missing, inactive or suspended.
+    pub async fn members_gate(
+        &self,
+        id: Uuid,
+        viewer: Option<&str>,
+    ) -> Result<Option<(bool, bool)>, ApiError> {
+        let row = sqlx::query_as::<_, (bool, bool)>(
+            "SELECT c.private, \
+                    EXISTS (SELECT 1 FROM community_members m \
+                            WHERE m.community_id = c.id AND m.member_address = $2) \
+             FROM communities c \
+             WHERE c.id = $1 AND c.active = TRUE AND c.suspended = FALSE",
+        )
+        .bind(id)
+        .bind(viewer.map(str::to_lowercase))
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
     pub async fn is_private(&self, id: Uuid) -> Result<bool, ApiError> {
         let row: Option<bool> =
             sqlx::query_scalar("SELECT private FROM communities WHERE id = $1 AND active = TRUE")
@@ -106,40 +127,51 @@ impl CommunitiesComponent {
         Ok(row.unwrap_or(false))
     }
 
-    async fn may_read_private(
-        &self,
-        id: Uuid,
-        viewer: Option<&str>,
-        member_role: Option<&str>,
-    ) -> Result<bool, ApiError> {
-        if member_role.is_some() {
-            return Ok(true);
-        }
-        let Some(address) = viewer else {
-            return Ok(false);
-        };
-        let invited: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM community_requests \
-             WHERE community_id = $1 AND member_address = $2 \
-               AND type = 'invite' AND status = 'pending')",
-        )
-        .bind(id)
-        .bind(address)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(invited)
-    }
-
     pub async fn get_by_id(
         &self,
         id: Uuid,
         as_user: Option<&str>,
     ) -> Result<Option<CommunityDetail>, ApiError> {
-        let row = sqlx::query_as::<_, (Uuid, String, String, String, bool, bool, bool, NaiveDateTime, NaiveDateTime)>(
-            "SELECT id, name, description, owner_address, private, active, unlisted, created_at, updated_at \
-             FROM communities WHERE id = $1 AND active = true AND suspended = false"
+        let viewer = as_user.map(|addr| addr.to_lowercase());
+        // The private gate is the WHERE predicate: a viewer who is neither a member nor a
+        // pending invitee (anonymous included) reads no row at all.
+        let row = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                String,
+                String,
+                bool,
+                bool,
+                bool,
+                NaiveDateTime,
+                NaiveDateTime,
+                Option<String>,
+                Option<bool>,
+                i64,
+                bool,
+                Option<i32>,
+                Option<i32>,
+            ),
+        >(
+            "SELECT c.id, c.name, c.description, c.owner_address, c.private, c.active, c.unlisted, \
+                    c.created_at, c.updated_at, m.role, b.active, \
+                    (SELECT COUNT(*) FROM community_members mc WHERE mc.community_id = c.id), \
+                    COALESCE(crm.has_thumbnail, FALSE), vc.participants, vc.moderators \
+             FROM communities c \
+             LEFT JOIN community_members m ON m.community_id = c.id AND m.member_address = $2 \
+             LEFT JOIN community_bans b ON b.community_id = c.id AND b.banned_address = $2 \
+             LEFT JOIN community_ranking_metrics crm ON crm.community_id = c.id \
+             LEFT JOIN community_voice_chats vc ON vc.community_id = c.id \
+             WHERE c.id = $1 AND c.active = TRUE AND c.suspended = FALSE \
+               AND (c.private = FALSE OR m.role IS NOT NULL OR EXISTS ( \
+                     SELECT 1 FROM community_requests r \
+                     WHERE r.community_id = c.id AND r.member_address = $2 \
+                       AND r.type = 'invite' AND r.status = 'pending'))",
         )
         .bind(id)
+        .bind(viewer.as_deref())
         .fetch_optional(&self.pool)
         .await?;
 
@@ -153,64 +185,19 @@ impl CommunitiesComponent {
             unlisted,
             created_at,
             updated_at,
+            member_role,
+            banned,
+            members_count,
+            has_thumbnail,
+            participants,
+            moderators,
         )) = row
         else {
             return Ok(None);
         };
         let privacy = if private { "private" } else { "public" };
         let visibility = if unlisted { "unlisted" } else { "all" };
-
-        let viewer = as_user.map(|addr| addr.to_lowercase());
-        let mut member_role: Option<String> = None;
-        let mut banned: Option<bool> = None;
-        if let Some(addr) = viewer.as_deref() {
-            member_role = sqlx::query_scalar(
-                "SELECT role FROM community_members WHERE community_id = $1 AND member_address = $2",
-            )
-            .bind(id)
-            .bind(addr)
-            .fetch_optional(&self.pool)
-            .await?;
-            banned = sqlx::query_scalar(
-                "SELECT active FROM community_bans WHERE community_id = $1 AND banned_address = $2",
-            )
-            .bind(id)
-            .bind(addr)
-            .fetch_optional(&self.pool)
-            .await?;
-        }
-
-        if private
-            && !self
-                .may_read_private(id, viewer.as_deref(), member_role.as_deref())
-                .await?
-        {
-            return Ok(None);
-        }
-
-        let members_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM community_members WHERE community_id = $1")
-                .bind(id)
-                .fetch_one(&self.pool)
-                .await
-                .unwrap_or(0);
-
-        let has_thumbnail: bool = sqlx::query_scalar(
-            "SELECT COALESCE(has_thumbnail, FALSE) FROM community_ranking_metrics WHERE community_id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or(false);
-
-        let voice_row: Option<(i32, i32)> = sqlx::query_as(
-            "SELECT participants, moderators FROM community_voice_chats WHERE community_id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let voice_row = participants.zip(moderators);
 
         let mut detail = CommunityDetail {
             id,
@@ -353,7 +340,8 @@ impl CommunitiesComponent {
                     COALESCE(crm.has_thumbnail, FALSE) AS has_thumbnail, \
                     (vc.community_id IS NOT NULL) AS has_voice, \
                     COALESCE(vc.participants, 0) AS vc_participants, \
-                    COALESCE(vc.moderators, 0) AS vc_moderators \
+                    COALESCE(vc.moderators, 0) AS vc_moderators, \
+                    COUNT(*) OVER () AS total \
              FROM communities c \
              LEFT JOIN member_counts mc ON mc.community_id = c.id \
              LEFT JOIN community_ranking_metrics crm ON crm.community_id = c.id \
@@ -381,6 +369,7 @@ impl CommunitiesComponent {
                 bool,
                 i32,
                 i32,
+                i64,
             ),
         >(sqlx::AssertSqlSafe(select_sql));
         for p in &params {
@@ -389,12 +378,18 @@ impl CommunitiesComponent {
         q = q.bind(pagination.limit).bind(pagination.offset);
         let rows = q.fetch_all(&self.pool).await?;
 
-        let count_sql = format!("SELECT COUNT(*) FROM communities c WHERE {where_sql}");
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
-        for p in &params {
-            cq = cq.bind(p);
-        }
-        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.15,
+            None if pagination.offset > 0 => {
+                let count_sql = format!("SELECT COUNT(*) FROM communities c WHERE {where_sql}");
+                let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
+                for p in &params {
+                    cq = cq.bind(p);
+                }
+                cq.fetch_one(&self.pool).await.unwrap_or(0)
+            }
+            None => 0,
+        };
 
         let signed = as_user.is_some();
         let results: Vec<CommunityListItem> = rows
@@ -416,6 +411,7 @@ impl CommunitiesComponent {
                     has_voice,
                     vc_participants,
                     vc_moderators,
+                    _total,
                 )| {
                     let privacy = if private { "private" } else { "public" };
                     let visibility = if unlisted { "unlisted" } else { "all" };
@@ -484,36 +480,45 @@ impl CommunitiesComponent {
         let offset_idx = limit_idx + 1;
 
         let select_sql = format!(
-            "SELECT c.id, c.name, c.owner_address, m.role, m.joined_at \
+            "SELECT c.id, c.name, c.owner_address, m.role, m.joined_at, COUNT(*) OVER () AS total \
              FROM community_members m JOIN communities c ON c.id = m.community_id \
              WHERE {where_sql} AND c.active = TRUE \
              ORDER BY m.joined_at DESC LIMIT ${limit_idx} OFFSET ${offset_idx}"
         );
-        let count_sql = format!(
-            "SELECT COUNT(*) FROM community_members m JOIN communities c ON c.id = m.community_id \
-             WHERE {where_sql} AND c.active = TRUE"
-        );
+        let owned: Option<Vec<String>> = roles
+            .filter(|rs| !rs.is_empty())
+            .map(|rs| rs.iter().map(|s| s.to_string()).collect());
 
-        let mut q = sqlx::query_as::<_, (Uuid, String, String, String, NaiveDateTime)>(
+        let mut q = sqlx::query_as::<_, (Uuid, String, String, String, NaiveDateTime, i64)>(
             sqlx::AssertSqlSafe(select_sql),
         )
         .bind(&lower);
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql)).bind(&lower);
-        if let Some(rs) = roles {
-            if !rs.is_empty() {
-                let owned: Vec<String> = rs.iter().map(|s| s.to_string()).collect();
-                q = q.bind(owned.clone());
-                cq = cq.bind(owned);
-            }
+        if let Some(rs) = &owned {
+            q = q.bind(rs.clone());
         }
         q = q.bind(pagination.limit).bind(pagination.offset);
         let rows = q.fetch_all(&self.pool).await?;
-        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.5,
+            None if pagination.offset > 0 => {
+                let count_sql = format!(
+                    "SELECT COUNT(*) FROM community_members m JOIN communities c ON c.id = m.community_id \
+                     WHERE {where_sql} AND c.active = TRUE"
+                );
+                let mut cq =
+                    sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql)).bind(&lower);
+                if let Some(rs) = owned {
+                    cq = cq.bind(rs);
+                }
+                cq.fetch_one(&self.pool).await.unwrap_or(0)
+            }
+            None => 0,
+        };
 
         let results = rows
             .into_iter()
             .map(
-                |(id, name, owner_address, role, joined_at)| MemberCommunity {
+                |(id, name, owner_address, role, joined_at, _total)| MemberCommunity {
                     id,
                     name,
                     owner_address,
@@ -568,7 +573,8 @@ impl CommunitiesComponent {
             "SELECT c.id, c.name, c.description, c.owner_address, c.private, c.active, \
                     c.unlisted, c.suspended, c.suspended_at, c.suspended_by, c.suspension_reason, \
                     c.created_at, c.updated_at, \
-                    (SELECT COUNT(*) FROM community_members m WHERE m.community_id = c.id) AS members_count \
+                    (SELECT COUNT(*) FROM community_members m WHERE m.community_id = c.id) AS members_count, \
+                    COUNT(*) OVER () AS total \
              FROM communities c \
              WHERE {where_sql} \
              ORDER BY c.created_at DESC \
@@ -592,6 +598,7 @@ impl CommunitiesComponent {
                 NaiveDateTime,
                 NaiveDateTime,
                 i64,
+                i64,
             ),
         >(sqlx::AssertSqlSafe(select_sql));
         for p in &params {
@@ -600,12 +607,18 @@ impl CommunitiesComponent {
         q = q.bind(pagination.limit).bind(pagination.offset);
         let rows = q.fetch_all(&self.pool).await?;
 
-        let count_sql = format!("SELECT COUNT(*) FROM communities c WHERE {where_sql}");
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
-        for p in &params {
-            cq = cq.bind(p);
-        }
-        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.14,
+            None if pagination.offset > 0 => {
+                let count_sql = format!("SELECT COUNT(*) FROM communities c WHERE {where_sql}");
+                let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
+                for p in &params {
+                    cq = cq.bind(p);
+                }
+                cq.fetch_one(&self.pool).await.unwrap_or(0)
+            }
+            None => 0,
+        };
 
         let results: Vec<serde_json::Value> = rows
             .into_iter()
@@ -625,6 +638,7 @@ impl CommunitiesComponent {
                     created_at,
                     updated_at,
                     members_count,
+                    _total,
                 )| {
                     let privacy = if private { "private" } else { "public" };
                     let visibility = if unlisted { "unlisted" } else { "all" };
@@ -761,7 +775,7 @@ impl CommunitiesComponent {
         let select_sql = format!(
             "SELECT c.id, c.name, \
                     (SELECT COUNT(*) FROM community_members m WHERE m.community_id = c.id) AS members_count, \
-                    c.private \
+                    c.private, COUNT(*) OVER () AS total \
              FROM communities c \
              {ban_join} \
              WHERE {where_sql} \
@@ -769,28 +783,38 @@ impl CommunitiesComponent {
              LIMIT ${limit_idx} OFFSET ${offset_idx}"
         );
 
-        let mut q = sqlx::query_as::<_, (Uuid, String, i64, bool)>(sqlx::AssertSqlSafe(select_sql));
+        let mut q =
+            sqlx::query_as::<_, (Uuid, String, i64, bool, i64)>(sqlx::AssertSqlSafe(select_sql));
         for p in &params {
             q = q.bind(p);
         }
         q = q.bind(limit).bind(offset);
         let rows = q.fetch_all(&self.pool).await?;
 
-        let count_sql = format!("SELECT COUNT(*) FROM communities c {ban_join} WHERE {where_sql}");
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
-        for p in &params {
-            cq = cq.bind(p);
-        }
-        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.4,
+            None if offset > 0 => {
+                let count_sql =
+                    format!("SELECT COUNT(*) FROM communities c {ban_join} WHERE {where_sql}");
+                let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
+                for p in &params {
+                    cq = cq.bind(p);
+                }
+                cq.fetch_one(&self.pool).await.unwrap_or(0)
+            }
+            None => 0,
+        };
 
         let results = rows
             .into_iter()
-            .map(|(id, name, members_count, private)| CommunitySearchResult {
-                id,
-                name,
-                members_count,
-                privacy: if private { "private" } else { "public" },
-            })
+            .map(
+                |(id, name, members_count, private, _total)| CommunitySearchResult {
+                    id,
+                    name,
+                    members_count,
+                    privacy: if private { "private" } else { "public" },
+                },
+            )
             .collect();
 
         Ok((results, total))

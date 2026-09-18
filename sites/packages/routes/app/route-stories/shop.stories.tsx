@@ -68,3 +68,11 @@ export const CatalogDown = {
     },
   }),
 };
+
+export const RankingUnavailable = {
+  render: routeStory({
+    Component: MarketplaceShop,
+    path: "/shop",
+    loaderData: { ...base, topCards: [], fallback: true },
+  }),
+};

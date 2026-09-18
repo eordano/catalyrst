@@ -1,7 +1,7 @@
 import MdLite from "./MdLite";
 import "./specdoc.css";
 
-export type SpecDocProps = {
+type SpecDocProps = {
   source: string;
   path?: string;
 };

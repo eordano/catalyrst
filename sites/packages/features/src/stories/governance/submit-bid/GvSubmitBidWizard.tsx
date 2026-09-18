@@ -15,7 +15,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type GvSubmitBidWizardProps = {
+type GvSubmitBidWizardProps = {
   trackCtx: TrackContext;
   data: SubmitBidData;
   initialStep?: string;

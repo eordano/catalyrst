@@ -7,6 +7,8 @@ export type ModerationDecision = (typeof MODERATION_DECISIONS)[number];
 
 export const MAX_NOTE_LENGTH = 1000;
 
+type Tone = "ok" | "warn" | "bad" | "brand";
+
 export type ReportCard = {
   id: string;
   entityId: string | null;
@@ -46,28 +48,38 @@ export function reasonLabel(reasons: Option[], code: string | null): string {
   return code.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const STATUS: Record<ReportStatus, { label: string; tone?: Tone }> = {
+  open: { label: "Open", tone: "warn" },
+  resolved: { label: "Resolved", tone: "ok" },
+  dismissed: { label: "Dismissed" },
+  actioned: { label: "Actioned", tone: "brand" },
+};
+
 export function statusLabel(status: ReportStatus): string {
-  switch (status) {
-    case "open":
-      return "Open";
-    case "resolved":
-      return "Resolved";
-    case "dismissed":
-      return "Dismissed";
-    case "actioned":
-      return "Actioned";
-  }
+  return STATUS[status].label;
 }
 
+export function statusTone(status: ReportStatus): Tone | undefined {
+  return STATUS[status].tone;
+}
+
+const DECISION: Record<ModerationDecision, { label: string; tone?: Tone }> = {
+  resolve: { label: "Resolve", tone: "ok" },
+  dismiss: { label: "Dismiss" },
+  action: { label: "Action", tone: "bad" },
+  reopen: { label: "Reopen" },
+};
+
 export function decisionLabel(decision: ModerationDecision): string {
-  switch (decision) {
-    case "resolve":
-      return "Resolve";
-    case "dismiss":
-      return "Dismiss";
-    case "action":
-      return "Action";
-    case "reopen":
-      return "Reopen";
-  }
+  return DECISION[decision].label;
+}
+
+export function decisionTone(decision: ModerationDecision): Tone | undefined {
+  return DECISION[decision].tone;
+}
+
+export function placeArt(card: ReportCard) {
+  return card.placeImage
+    ? { backgroundImage: `url(${card.placeImage})` }
+    : { background: `hsl(${card.hue} 60% 38%)` };
 }

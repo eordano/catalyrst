@@ -18,6 +18,8 @@ use tokio::sync::Notify;
 const FRIENDSHIP_RATE_LIMIT_PER_ACTOR: u32 = 30;
 const FRIENDSHIP_RATE_LIMIT_PER_PAIR: u32 = 10;
 const FRIENDSHIP_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+/// Idle cadence of the private-voice expiry DELETE when no call started here is pending.
+const PRIVATE_VOICE_SWEEP_FALLBACK_MS: i64 = 30_000;
 
 /// A friendship is symmetric while a block is not: a canonical (sorted) key for
 /// block/unblock would let the account being blocked spend the budget the victim needs,
@@ -226,38 +228,38 @@ impl Context {
     pub async fn fan_connectivity(&self, address: &str, status: ConnectivityStatus) {
         let address = address.to_lowercase();
 
-        if let Ok(friends) = self.0.db.friend_addresses(&address).await {
-            let profile = self.0.profiles.friend_profile(&address).await;
-            for friend in &friends {
-                self.0.pubsub.publish(
-                    friend,
-                    SocialEvent::FriendConnectivity(FriendConnectivityUpdate {
-                        friend: Some(profile.clone()),
-                        status: status as i32,
-                    }),
-                );
+        let (friends, co_members) = tokio::join!(
+            self.0.db.friend_addresses(&address),
+            self.0.db.community_co_members(&address)
+        );
+
+        if let Ok(friends) = friends {
+            if !friends.is_empty() {
+                let profile = self.0.profiles.friend_profile(&address).await;
+                for friend in &friends {
+                    self.0.pubsub.publish(
+                        friend,
+                        SocialEvent::FriendConnectivity(FriendConnectivityUpdate {
+                            friend: Some(profile.clone()),
+                            status: status as i32,
+                        }),
+                    );
+                }
             }
         }
 
-        if let Ok(communities) = self.0.db.communities_for_member(&address).await {
-            for community_id in &communities {
-                if let Ok(members) = self.0.db.community_member_addresses(community_id).await {
-                    for member in &members {
-                        if member == &address {
-                            continue;
-                        }
-                        self.0.pubsub.publish(
-                            member,
-                            SocialEvent::CommunityMember(CommunityMemberConnectivityUpdate {
-                                community_id: community_id.clone(),
-                                member: Some(User {
-                                    address: address.clone(),
-                                }),
-                                status: status as i32,
-                            }),
-                        );
-                    }
-                }
+        if let Ok(co_members) = co_members {
+            for (community_id, member) in &co_members {
+                self.0.pubsub.publish(
+                    member,
+                    SocialEvent::CommunityMember(CommunityMemberConnectivityUpdate {
+                        community_id: community_id.clone(),
+                        member: Some(User {
+                            address: address.clone(),
+                        }),
+                        status: status as i32,
+                    }),
+                );
             }
         }
     }
@@ -266,18 +268,14 @@ impl Context {
     /// call, so the other party keeps ringing until the TTL elapses. The `ENDED` notification is
     /// symmetric, so the still-online party is told regardless of which side dropped.
     pub async fn end_private_voice_chat_on_disconnect(&self, address: &str) {
-        let chat = match self.0.db.get_private_voice_chat_of_user(address).await {
+        let chat = match self.0.db.delete_private_voice_chat_of_user(address).await {
             Ok(Some(c)) => c,
             Ok(None) => return,
             Err(e) => {
-                tracing::warn!(error = %e, %address, "disconnect voice-cleanup lookup failed");
+                tracing::warn!(error = %e, %address, "disconnect voice-cleanup delete failed");
                 return;
             }
         };
-        if let Err(e) = self.0.db.delete_private_voice_chat(chat.id).await {
-            tracing::warn!(error = %e, call_id = %chat.id, "disconnect voice-cleanup delete failed");
-            return;
-        }
         self.0
             .gatekeeper
             .end_private_voice_chat(&chat.id.to_string(), &address.to_lowercase())
@@ -300,6 +298,34 @@ impl Context {
         self.0
             .pubsub
             .publish(&chat.callee_address, SocialEvent::PrivateVoice(update));
+    }
+
+    /// The periodic tick. The DELETE runs only once a call can have expired -- the earliest
+    /// due instant is noted on local starts and re-read from the table after each sweep -- or
+    /// every [`PRIVATE_VOICE_SWEEP_FALLBACK_MS`] for rows another instance wrote, so a call is
+    /// still reclaimed within one tick of its TTL as before.
+    pub async fn sweep_private_voice_chats_if_due(
+        &self,
+        expiration_ms: i64,
+        batch_size: i64,
+    ) -> usize {
+        let now = chrono::Utc::now().timestamp_millis();
+        if !self.0.db.private_voice_sweep_due(now) {
+            return 0;
+        }
+        self.0.db.claim_private_voice_sweep();
+        let total = self
+            .expire_private_voice_chats(expiration_ms, batch_size)
+            .await;
+        let next = match self.0.db.private_voice_next_expiry_ms(expiration_ms).await {
+            Ok(Some(remaining)) => now + remaining.max(0),
+            Ok(None) => now + PRIVATE_VOICE_SWEEP_FALLBACK_MS,
+            Err(_) => now,
+        };
+        self.0
+            .db
+            .note_private_voice_due(next.min(now + PRIVATE_VOICE_SWEEP_FALLBACK_MS));
+        total
     }
 
     pub async fn expire_private_voice_chats(&self, expiration_ms: i64, batch_size: i64) -> usize {

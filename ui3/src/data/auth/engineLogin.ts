@@ -9,7 +9,7 @@ export { IDENTITY_STORAGE_KEY, toStoredIdentity } from "./identity";
 export type { StoredAuthIdentity } from "./identity";
 import { IDENTITY_STORAGE_KEY, toStoredIdentity, type StoredAuthIdentity } from "./identity";
 
-export type EngineAuthStatus = "none" | "pending" | "signedIn";
+type EngineAuthStatus = "none" | "pending" | "signedIn";
 export type EngineAuthState = { status: EngineAuthStatus; address: string | null };
 
 function isStoredIdentity(v: unknown): v is StoredAuthIdentity {
@@ -90,9 +90,10 @@ type IdentityPush = {
   kind?: string;
   isGuest?: boolean | null;
   signerAddress?: string | null;
+  snapshot?: { realm?: { phase?: string } };
 };
 
-export type EngineAuthDeps = {
+type EngineAuthDeps = {
   bridge?: () => ReturnType<typeof getBridge>;
   send?: typeof sendBridge;
   storage?: () => StorageLike | null;
@@ -120,7 +121,7 @@ export function createEngineAuth(deps: EngineAuthDeps = {}) {
 
   let pending: StoredAuthIdentity | null = null;
   let signedInAddress: string | null = null;
-  let engineIdentitySeen = false;
+  let engineReady = false;
   let attempts = 0;
   let lastSendAt = 0;
   let watcherArmed = false;
@@ -189,8 +190,13 @@ export function createEngineAuth(deps: EngineAuthDeps = {}) {
 
   function onPush(push: unknown) {
     const p = push as IdentityPush;
+    if (p?.kind === "lifecycle" && p.snapshot?.realm?.phase === "active") {
+      engineReady = true;
+      deliver();
+      return;
+    }
     if (!p || p.kind !== "identity") return;
-    engineIdentitySeen = true;
+    engineReady = true;
     if (p.isGuest === false && p.signerAddress) {
       const addr = p.signerAddress.toLowerCase();
       if (!pending || identitySigner(pending) === addr) {
@@ -240,7 +246,7 @@ export function createEngineAuth(deps: EngineAuthDeps = {}) {
     persist(stored);
     notify();
     armWatcher();
-    if (engineIdentitySeen) deliver();
+    if (engineReady) deliver();
     return true;
   }
 
@@ -254,7 +260,7 @@ export function createEngineAuth(deps: EngineAuthDeps = {}) {
       notify();
     }
     armWatcher();
-    if (pending && engineIdentitySeen) deliver();
+    if (pending && engineReady) deliver();
   }
 
   function signOut(): void {

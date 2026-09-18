@@ -641,6 +641,47 @@ fn webhook_token_round_trips_and_rejects_tampering() {
 }
 
 #[tokio::test]
+async fn livekit_failures_never_retain_configured_urls_or_response_bodies() {
+    const CANARY: &str = "livekit-server-private-material-canary";
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let host = format!("http://{}/{CANARY}", listener.local_addr().unwrap());
+    drop(listener);
+    let http = reqwest::Client::new();
+    let room_error = RoomServiceClient::new(&http, &host, "devkey", "devsecret")
+        .list_rooms()
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        !room_error.contains(CANARY),
+        "request URL survived in {room_error}"
+    );
+
+    let (host, captured) = capture_once("500 Internal Server Error", CANARY).await;
+    let ingress_error = IngressClient::new(&http, &host, "devkey", "devsecret")
+        .list_ingress("scene:test")
+        .await
+        .unwrap_err()
+        .to_string();
+    captured.await.unwrap();
+    assert!(
+        !ingress_error.contains(CANARY),
+        "response body survived in {ingress_error}"
+    );
+}
+
+#[test]
+fn room_service_token_errors_discard_private_signing_details() {
+    const CANARY: &str = "livekit-signing-private-material-canary";
+    let error = RoomServiceError::Token(catalyrst_livekit::LivekitError::HmacKey(CANARY.into()));
+    assert_eq!(error.to_string(), "livekit token mint failed");
+    assert_eq!(format!("{error:?}"), "RoomServiceError(\"Token\")");
+    assert!(!error.to_string().contains(CANARY));
+    assert!(!format!("{error:?}").contains(CANARY));
+}
+
+#[tokio::test]
 async fn metadata_write_is_noop_for_missing_room() {
     let (host, rx) = capture_seq(vec![r#"{"rooms":[]}"#]).await;
     let http = reqwest::Client::new();

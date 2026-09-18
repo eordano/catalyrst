@@ -1,10 +1,23 @@
 import type { RefObject } from "react";
+import { runEditorEffect } from "./serial-effect";
 import type { EditorBus } from "./editor-bus";
-import type { DeCatalogItem } from "./types";
+import { persistCatalogAsset } from "./project-assets";
+import type { DeCatalogItem, ProjectAssets } from "./types";
 
 const BUILDER_ITEMS_PREFIX = "/builder-items/";
 
-export const PROJECT_CACHE = "ch-project-v1";
+import { PROJECT_CACHE } from "./project-cache-name";
+export { PROJECT_CACHE } from "./project-cache-name";
+
+export const PROJECT_REALM_EFFECT = "project-realm";
+export const PROJECT_PLAY_STATE_EFFECT = "project-play-state";
+
+export function createProjectPlayStateWriter(
+  write: (playing: boolean, debug: boolean) => Promise<void>,
+  key = PROJECT_PLAY_STATE_EFFECT,
+): (playing: boolean, debug?: boolean) => Promise<void> {
+  return (playing, debug = false) => runEditorEffect(key, () => true, () => write(playing, debug));
+}
 
 let _projectContentBase: string | null | undefined;
 export async function projectContentBase(): Promise<string | null> {
@@ -22,7 +35,7 @@ export async function projectContentBase(): Promise<string | null> {
   return _projectContentBase;
 }
 
-export async function setProjectPlayState(playing: boolean, debug = false): Promise<void> {
+export const setProjectPlayState = createProjectPlayStateWriter(async (playing, debug) => {
   if (typeof caches === "undefined") return;
   try {
     const base = await projectContentBase();
@@ -39,7 +52,7 @@ export async function setProjectPlayState(playing: boolean, debug = false): Prom
     );
   } catch {
   }
-}
+});
 
 interface InitAssetResult {
   baseDir?: string;
@@ -144,11 +157,39 @@ export function resolveCompositeAssets(compositeText: string): string {
   }
 }
 
+export interface PlaceAssetOutcome {
+  name: string;
+  mirrored: boolean;
+  warning: string | null;
+}
+
+export async function registerProjectContents(busRef: RefObject<EditorBus | null>, assets?: ProjectAssets): Promise<void> {
+  if (!assets?.preparePreview) return;
+  const bus = busRef.current;
+  if (!bus) throw new Error("The scene is not connected yet.");
+  const contents = await assets.preparePreview();
+  if (busRef.current !== bus) throw new Error("The editor reconnected while preparing assets. Try again.");
+  const count = Object.keys(contents).length;
+  if (count && await bus.rpc("registerContent", [contents], 30000) !== count) {
+    throw new Error("The renderer did not register every project asset. Reconnect and try again.");
+  }
+}
+
 export async function placeAssetOnBus(
   busRef: RefObject<EditorBus | null>,
   asset: DeCatalogItem,
   drop?: { x: number; y: number } | null,
-): Promise<void> {
+  projectAssets?: ProjectAssets,
+): Promise<PlaceAssetOutcome> {
+  const bus = busRef.current;
+  if (!bus) throw new Error("the scene is not connected yet");
+  if (projectAssets) {
+    const src = await persistCatalogAsset(projectAssets, asset);
+    await registerProjectContents(busRef, projectAssets);
+    if (busRef.current !== bus) throw new Error("The editor reconnected during the import. Place the item again.");
+    await createPlacedEntity(bus, asset.name || "Item", { GltfContainer: { src } }, drop ?? null);
+    return { name: asset.name || "Item", mirrored: true, warning: null };
+  }
   const glb = asset?.glbUrl || asset?.src;
   let absUrl: string | null = null;
   if (typeof glb === "string" && glb) {
@@ -162,11 +203,16 @@ export async function placeAssetOnBus(
   const contents =
     asset?.contents && typeof asset.contents === "object" ? asset.contents : null;
   let persisted: InitAssetResult | null = null;
+  let warning: string | null = null;
   if (asset?.id && contents && busRef.current && typeof busRef.current.rpc === "function") {
     try {
       persisted = (await busRef.current.rpc("initAsset", [asset.id, contents], 15000)) as InitAssetResult;
-    } catch {
+    } catch (e) {
       persisted = null;
+      const reason = e instanceof Error ? e.message : String(e);
+      warning = absUrl
+        ? `its files could not be copied into the project (${reason}); the model links to the catalog instead`
+        : `its files could not be copied into the project (${reason})`;
     }
   }
 
@@ -191,5 +237,14 @@ export async function placeAssetOnBus(
   }
 
   const components = src ? { GltfContainer: { src } } : null;
-  busRef.current?.addEntity(asset?.name || "Item", 0, components, drop ?? null);
+  if (!components && !warning) warning = "it has no model file, so an empty item was placed";
+  const name = asset?.name || "Item";
+  if (busRef.current !== bus) throw new Error("The editor reconnected during the import. Place the item again.");
+  await createPlacedEntity(bus, name, components, drop ?? null);
+  return { name, mirrored: persisted !== null, warning };
+}
+
+async function createPlacedEntity(bus: EditorBus, name: string, components: Record<string, unknown> | null, drop: { x: number; y: number } | null): Promise<void> {
+  const entity = await bus.rpc("addEntity", [name, 0, components, drop]);
+  if (typeof entity !== "string" || !Number.isSafeInteger(Number(entity)) || Number(entity) < 512) throw new Error("The scene did not acknowledge a placed entity. Reconnect and try again.");
 }

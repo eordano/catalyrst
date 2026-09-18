@@ -12,7 +12,7 @@ import "@ui/creatorhub/components/chmodaldeleteproject.css";
 import CreatorHubBreadcrumb from "@ui/creatorhub/components/CreatorHubBreadcrumb";
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import {
   parcelCount,
   type DeleteCopy,
@@ -61,15 +61,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const localFiles = url.searchParams.get("local")?.trim() || null;
   const creator = url.searchParams.get("creator")?.trim() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const { data: ds, source } = await loadDeleteProjectData({
+  const [{ sid, wrap }, { data: ds, source }] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    loadDeleteProjectData({
     creator: creator || undefined,
-  });
+  }),
+  ]);
 
   const projects = deletedParam
     ? ds.projects.filter((p) => p.id !== deletedParam)
@@ -129,7 +126,7 @@ export default function DeleteProjectRoute({ loaderData }: Route.ComponentProps)
 
 function ScenesStep({ d }: { d: LoaderData }) {
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
   const [, setSearchParams] = useSearchParams();
   const isDeleted = d.step === "deleted";
 

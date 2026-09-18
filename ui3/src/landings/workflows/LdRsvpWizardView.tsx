@@ -2,7 +2,7 @@ import Button from "../../atoms/Button";
 import EventDetail from "../../explorer/pages/EventDetail";
 import "./ldrsvpwizardview.css";
 
-export type LdRsvpEventInfo = {
+type LdRsvpEventInfo = {
   title: string;
   when: string;
   host: string;

@@ -1,5 +1,6 @@
 import { CreatorHubChromeMaybe, type CreatorHubNavId } from "../frames/CreatorHubChrome";
 import "./chlearn.css";
+import { docsUrl } from "../../data/docs";
 
 const VideosArt = () => (
   <svg className="chl__art" viewBox="0 0 150 100" aria-hidden="true">
@@ -88,22 +89,22 @@ const VIDEOS = [
 type Resource = { url: string; title: string };
 
 const DOCS: Resource[] = [
-  { url: "https://docs.decentraland.org/creator/", title: "Let's build the metaverse together" },
-  { url: "https://docs.decentraland.org/creator/scenes-sdk7/getting-started/sdk-101", title: "About SDK" },
-  { url: "https://docs.decentraland.org/creator/scenes-sdk7/getting-started/dev-workflow", title: "Development Workflow" },
-  { url: "https://docs.decentraland.org/creator/wearables/wearables-overview/", title: "Wearable Overview" },
-  { url: "https://docs.decentraland.org/creator/emotes/emotes-overview/", title: "Emotes Overview" },
-  { url: "https://docs.decentraland.org/creator/wearables-and-emotes/manage-collections/creating-a-collection", title: "Creating a Collection" },
+  { url: docsUrl("creator"), title: "Let's build the metaverse together" },
+  { url: docsUrl("creator/sdk7/getting-started/sdk-101"), title: "About SDK" },
+  { url: docsUrl("creator/sdk7/getting-started/dev-workflow"), title: "Development Workflow" },
+  { url: docsUrl("creator/wearables-and-emotes/wearables"), title: "Wearable Overview" },
+  { url: docsUrl("creator/wearables-and-emotes/emotes"), title: "Emotes Overview" },
+  { url: docsUrl("creator/wearables-and-emotes/manage-collections/creating-a-collection"), title: "Creating a Collection" },
 ];
 
 const MORE: Resource[] = [
-  { url: "https://docs.decentraland.org/contributor/", title: "Open Protocol Docs" },
+  { url: docsUrl("contributor"), title: "Open Protocol Docs" },
   { url: "/creator-hub/map", title: "Creator Hub flow map" },
   { url: "/explorer-map", title: "Explorer flow map" },
 ];
 
 const VIDEOS_PLAYLIST_URL = `https://www.youtube.com/playlist?list=${VIDEOS[0].list}`;
-const DOCS_URL = "https://docs.decentraland.org/creator/";
+const DOCS_URL = docsUrl("creator");
 
 type ChLearnProps = {
   active?: CreatorHubNavId;

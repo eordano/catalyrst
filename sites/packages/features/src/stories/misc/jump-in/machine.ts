@@ -24,7 +24,7 @@ export type JumpInPlace = {
 
 export type { TrackFn };
 
-export type JumpInInput = {
+type JumpInInput = {
   place: JumpInPlace;
   trackCtx: TrackContext;
   confirmStep: boolean;
@@ -32,7 +32,7 @@ export type JumpInInput = {
   track?: TrackFn;
 };
 
-export type JumpInContext = {
+type JumpInContext = {
   place: JumpInPlace;
   trackCtx: TrackContext;
   confirmStep: boolean;
@@ -42,7 +42,7 @@ export type JumpInContext = {
   error?: string;
 };
 
-export type JumpInEvent =
+type JumpInEvent =
   | { type: "START" }
   | { type: "CONFIRM" }
   | { type: "CANCEL" }
@@ -57,7 +57,7 @@ export const JUMP_IN_EVENTS = {
 
 type AboutRealm = { configurations?: { realmName?: string } };
 
-export function buildLaunchUrl(place: JumpInPlace, realm?: string): string {
+function buildLaunchUrl(place: JumpInPlace, realm?: string): string {
   const params = new URLSearchParams();
   if (place.world && place.world_name) {
     params.set("realm", place.world_name);
@@ -69,7 +69,7 @@ export function buildLaunchUrl(place: JumpInPlace, realm?: string): string {
   return `https://catalyst.example.com/play/?${params.toString()}`;
 }
 
-export const resolveLaunch: LaunchFn = async ({ place, signal }) => {
+const resolveLaunch: LaunchFn = async ({ place, signal }) => {
   let realm: string | undefined;
   try {
     const res = await fetch(`${catalystBase()}/about`, {
@@ -193,4 +193,3 @@ export const jumpInMachine = setup({
   },
 });
 
-export type JumpInMachine = typeof jumpInMachine;

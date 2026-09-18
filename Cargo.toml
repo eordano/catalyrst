@@ -18,6 +18,7 @@ members = [
     "crates/catalyrst-preview-tunnel",
     "crates/catalyrst-tunnel-protocol",
     "crates/dcl-one-sdk",
+    "crates/dcl-social-api",
     "crates/catalyrst-server",
     "crates/catalyrst-market",
     "crates/catalyrst-fed",
@@ -62,6 +63,7 @@ members = [
 exclude = [
     "crates/catalyrst-fuzz/fuzz",
     "third_party/rusty_enet",
+    "third_party/web_transport",
 ]
 
 # rusty_enet, patched to the decentraland-pulse ENet header-flag variant (crates.io 0.4.0 + the
@@ -70,6 +72,9 @@ exclude = [
 # third_party/README.md.
 [patch.crates-io]
 rusty_enet = { path = "third_party/rusty_enet" }
+
+[patch."https://github.com/decentraland/rust-web-transport"]
+web_transport = { path = "third_party/web_transport" }
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }

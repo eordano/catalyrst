@@ -13,7 +13,7 @@ interface RawCategory {
   subcategories: string[]
 }
 
-export interface EmojiGroup {
+interface EmojiGroup {
   name: string
   icon: string
   emojis: Emoji[]

@@ -1,14 +1,34 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
+use tokio::sync::Mutex;
+use tokio::time::Instant;
+
+/// Snapshots land every collector tick (300 s by default), so the `/current*` trio is
+/// served from one memo that the collector refreshes on commit; the TTL only covers a
+/// `serve` process whose snapshots are written elsewhere.
+const CURRENT_TTL: Duration = Duration::from_secs(30);
+
+type CurrentCache = Arc<Mutex<Option<(Instant, Arc<CurrentBundle>)>>>;
 
 #[derive(Clone)]
 pub struct QueriesComponent {
     pool: PgPool,
+    current: CurrentCache,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Default)]
+pub struct CurrentBundle {
+    pub current: Option<CurrentSnapshot>,
+    pub scenes: Vec<SceneOccupancyRow>,
+    pub worlds: Vec<WorldHeadcountRow>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "presence/"))]
 pub struct CurrentSnapshot {
     #[cfg_attr(feature = "ts", ts(type = "number"))]
@@ -26,7 +46,7 @@ pub struct CurrentSnapshot {
     pub worlds_live_total: Option<i32>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "presence/"))]
 pub struct SceneOccupancyRow {
     #[cfg_attr(feature = "ts", ts(type = "string"))]
@@ -37,7 +57,7 @@ pub struct SceneOccupancyRow {
     pub count: i32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "presence/"))]
 pub struct WorldHeadcountRow {
     #[cfg_attr(feature = "ts", ts(type = "string"))]
@@ -49,7 +69,40 @@ pub struct WorldHeadcountRow {
 
 impl QueriesComponent {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            current: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// The latest snapshot with its scene and world rows, memoized for `CURRENT_TTL`;
+    /// concurrent misses coalesce onto one load.
+    pub async fn current_bundle(&self) -> Result<Arc<CurrentBundle>, sqlx::Error> {
+        let mut slot = self.current.lock().await;
+        if let Some((at, bundle)) = slot.as_ref() {
+            if at.elapsed() < CURRENT_TTL {
+                return Ok(bundle.clone());
+            }
+        }
+        let bundle = Arc::new(self.load_current_bundle().await?);
+        *slot = Some((Instant::now(), bundle.clone()));
+        Ok(bundle)
+    }
+
+    pub async fn refresh_current(&self) -> Result<(), sqlx::Error> {
+        let bundle = Arc::new(self.load_current_bundle().await?);
+        *self.current.lock().await = Some((Instant::now(), bundle));
+        Ok(())
+    }
+
+    async fn load_current_bundle(&self) -> Result<CurrentBundle, sqlx::Error> {
+        let (current, scenes, worlds) =
+            tokio::try_join!(self.current(), self.current_scenes(), self.current_worlds())?;
+        Ok(CurrentBundle {
+            current,
+            scenes,
+            worlds,
+        })
     }
 
     pub async fn current(&self) -> Result<Option<CurrentSnapshot>, sqlx::Error> {

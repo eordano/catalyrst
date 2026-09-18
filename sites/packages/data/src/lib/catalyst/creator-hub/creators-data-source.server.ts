@@ -12,7 +12,7 @@ import {
   type Datum,
 } from "./datum.server";
 
-export type CreatorsDataOptions = {
+type CreatorsDataOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;

@@ -1,8 +1,8 @@
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { memo, useCallback, useMemo, useState } from "react";
 import type { ShouldRevalidateFunctionArgs } from "react-router";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { getJSON } from "@data/lib/catalyst/client";
 import {
   RealmAboutSchema,
   type RealmAbout,
@@ -13,8 +13,9 @@ import {
   normalizeAddress,
   type BackpackEmotesData,
 } from "@data/lib/catalyst/overlay/backpack-emotes";
+import { loadRealmAbout } from "@data/lib/catalyst/realm-about.server";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import ClientStage from "@ui/overlay/panels/ClientStage";
 import Sidebar from "@ui/explorer/frames/Sidebar";
 import Minimap from "@ui/explorer/frames/Minimap";
@@ -28,7 +29,9 @@ import EngineToasts from "@ui/explorer/components/EngineToasts";
 import LoginCodeModal from "@ui/explorer/components/LoginCodeModal";
 import PermissionPrompt from "@ui/explorer/components/PermissionPrompt";
 import { useBridgeState, sendBridge } from "@ui/overlay/bridge";
+import { hudLinkPath } from "@features/components/bevy-overlay/hudLinks";
 import { MinimapVisibilityProvider } from "@ui/overlay/minimapVisibility";
+import OverlayQueryProvider from "@ui/overlay/OverlayQueryProvider";
 import "@ui/overlay/overlay.css";
 
 import type { Route } from "./+types/bevy-overlay.hud";
@@ -56,24 +59,24 @@ export async function loader({ request }: Route.LoaderArgs) {
   const address =
     rawAddr && isEthAddress(rawAddr) ? normalizeAddress(rawAddr) : null;
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
+  const {
+    sid,
+    assignment,
+    wrap,
+    data: [realm, emotes],
+  } = await storyLoaderWith(request, STORY, FALLBACK, () =>
+    Promise.all([
+      loadRealmAbout({ signal: request.signal })
+        .then((raw): RealmAbout | null => {
+          const parsed = RealmAboutSchema.safeParse(raw);
+          return parsed.success ? parsed.data : null;
+        })
+        .catch(() => null),
+      loadBackpackEmotes(address, { signal: request.signal }).catch(() =>
+        loadBackpackEmotes(null),
+      ),
+    ]),
   );
-
-  let realm: RealmAbout | null = null;
-  try {
-    const raw = await getJSON<unknown>("/about", { signal: request.signal });
-    const parsed = RealmAboutSchema.safeParse(raw);
-    realm = parsed.success ? parsed.data : null;
-  } catch {
-    realm = null;
-  }
-
-  const emotes = await loadBackpackEmotes(address, {
-    signal: request.signal,
-  }).catch(() => loadBackpackEmotes(null));
 
   const payload = { sid, widget, assignment, realm, emotes };
 
@@ -97,7 +100,11 @@ export function shouldRevalidate({
 
 export default function HudRoute({ loaderData }: Route.ComponentProps) {
   const d = loaderData;
-  return <HudStage realm={d.realm} emotes={d.emotes} />;
+  return (
+    <OverlayQueryProvider>
+      <HudStage realm={d.realm} emotes={d.emotes} />
+    </OverlayQueryProvider>
+  );
 }
 
 type LeftPanelId = "voice" | "skybox";
@@ -190,6 +197,16 @@ function HudStage({ realm, emotes }: StageProps) {
     );
   }, [address, navigate]);
 
+  const onLink = useCallback(
+    (e: ReactMouseEvent) => {
+      const to = hudLinkPath(e.target, address);
+      if (!to) return;
+      e.preventDefault();
+      navigate(to);
+    },
+    [address, navigate],
+  );
+
   const realmName = scene.realm ?? realm?.configurations?.realmName ?? null;
   const health =
     connection == null
@@ -201,7 +218,7 @@ function HudStage({ realm, emotes }: StageProps) {
   return (
     <ClientStage nojs="Enable JavaScript to use the in-world HUD.">
       <MinimapVisibilityProvider>
-        <div className="ui3-overlay" data-live={live ? "true" : "false"}>
+        <div className="ui3-overlay" data-live={live ? "true" : "false"} onClickCapture={onLink}>
           <div className="ui3-overlay__widget ui3-overlay__sidebar">
             <Sidebar
               avatarPreview={avatarPreview}

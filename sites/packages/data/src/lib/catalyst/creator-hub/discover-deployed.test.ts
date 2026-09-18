@@ -72,68 +72,53 @@ describe("isLandPointer", () => {
 });
 
 describe("normalizeDeployment", () => {
-  it("classifies a land composite scene as editable land with the right href + thumbnail", () => {
-    const s = normalizeDeployment(landComposite, BASE)!;
-    expect(s).not.toBeNull();
-    expect(s.kind).toBe("land");
-    expect(s.editable).toBe(true);
-    expect(s.republishable).toBe(true);
-    expect(s.title).toBe("UAP");
-    expect(s.baseParcel).toBe("-86,78");
-    expect(s.worldName).toBeNull();
-    expect(s.deployedAt).toBe(300);
-    expect(s.openHref).toBe("/creator-hub/scene-editor?pointer=-86%2C78&from=discovery");
-    expect(s.thumbnailUrl).toBe(`${BASE}/content/contents/bafthumb1`);
-  });
+  it("classifies land and world composite scenes as editable with the right href + thumbnail", () => {
+    const land = normalizeDeployment(landComposite, BASE)!;
+    expect(land).not.toBeNull();
+    expect(land.kind).toBe("land");
+    expect(land.editable).toBe(true);
+    expect(land.republishable).toBe(true);
+    expect(land.title).toBe("UAP");
+    expect(land.baseParcel).toBe("-86,78");
+    expect(land.worldName).toBeNull();
+    expect(land.deployedAt).toBe(300);
+    expect(land.openHref).toBe("/creator-hub/scene-editor?pointer=-86%2C78&from=discovery");
+    expect(land.thumbnailUrl).toBe(`${BASE}/content/contents/bafthumb1`);
 
-  it("classifies a world scene: kind=world, baseParcel=worldName, world=1 in href", () => {
-    const s = normalizeDeployment(worldScene, BASE)!;
-    expect(s.kind).toBe("world");
-    expect(s.worldName).toBe("mycoolworld.dcl.eth");
-    expect(s.baseParcel).toBe("mycoolworld.dcl.eth");
-    expect(s.editable).toBe(true);
-    expect(s.republishable).toBe(true);
-    expect(s.openHref).toBe(
+    const world = normalizeDeployment(worldScene, BASE)!;
+    expect(world.kind).toBe("world");
+    expect(world.worldName).toBe("mycoolworld.dcl.eth");
+    expect(world.baseParcel).toBe("mycoolworld.dcl.eth");
+    expect(world.editable).toBe(true);
+    expect(world.republishable).toBe(true);
+    expect(world.openHref).toBe(
       "/creator-hub/scene-editor?pointer=mycoolworld.dcl.eth&world=1&from=discovery",
     );
-    expect(s.thumbnailUrl).toBeNull();
+    expect(world.thumbnailUrl).toBeNull();
   });
 
-  it("marks a code-only scene (no main.composite) as not editable", () => {
-    const s = normalizeDeployment(codeOnly, BASE)!;
-    expect(s.kind).toBe("land");
-    expect(s.editable).toBe(false);
-    expect(s.title).toBe("Code Scene");
-  });
-
-  it("drops non-scene (profile) deployments", () => {
+  it("marks code-only scenes not editable, drops profiles and entityId-less rows, and falls back to Untitled scene", () => {
+    const code = normalizeDeployment(codeOnly, BASE)!;
+    expect(code.kind).toBe("land");
+    expect(code.editable).toBe(false);
+    expect(code.title).toBe("Code Scene");
     expect(normalizeDeployment(profileJunk, BASE)).toBeNull();
-  });
-
-  it("drops deployments with no entityId", () => {
     expect(normalizeDeployment({ entityType: "scene", pointers: ["0,0"] }, BASE)).toBeNull();
-  });
-
-  it("falls back to 'Untitled scene' when no title is present", () => {
-    const s = normalizeDeployment(
+    const untitled = normalizeDeployment(
       { entityId: "x", entityType: "scene", pointers: ["1,1"], content: [] },
       BASE,
     )!;
-    expect(s.title).toBe("Untitled scene");
+    expect(untitled.title).toBe("Untitled scene");
   });
 });
 
 describe("normalizeDeployments (dedup + sort)", () => {
-  const scenes = normalizeDeployments(
-    [codeOnly, worldScene, landComposite, landCompositeDup, profileJunk],
-    BASE,
-  );
-
-  it("drops the profile and dedups by entityId", () => {
+  it("drops the profile, dedups by entityId, and sorts editable-first then newest deployedAt", () => {
+    const scenes = normalizeDeployments(
+      [codeOnly, worldScene, landComposite, landCompositeDup, profileJunk],
+      BASE,
+    );
     expect(scenes.map((s) => s.entityId)).toEqual(["bafkland1", "bafworld1", "bafcode1"]);
-  });
-
-  it("sorts editable-first, then newest deployedAt", () => {
     expect(scenes.map((s) => s.title)).toEqual(["UAP", "My World", "Code Scene"]);
   });
 });
@@ -170,18 +155,15 @@ describe("discoverDeployedScenes (mocked transport)", () => {
     expect(scenes.map((s) => s.entityId)).toEqual(["bafkland1", "bafworld1", "bafcode1"]);
   });
 
-  it("returns [] on a total network failure (never throws)", async () => {
-    const fetchImpl = vi.fn(async () => {
+  it("returns [] on a total network failure and for a blank address without fetching", async () => {
+    const failing = vi.fn(async () => {
       throw new Error("connection refused");
     });
-    vi.stubGlobal("fetch", fetchImpl);
+    vi.stubGlobal("fetch", failing);
     await expect(discoverDeployedScenes("0xabc")).resolves.toEqual([]);
-  });
-
-  it("returns [] for a blank address without fetching", async () => {
-    const fetchImpl = vi.fn();
-    vi.stubGlobal("fetch", fetchImpl);
+    const untouched = vi.fn();
+    vi.stubGlobal("fetch", untouched);
     await expect(discoverDeployedScenes("   ")).resolves.toEqual([]);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(untouched).not.toHaveBeenCalled();
   });
 });

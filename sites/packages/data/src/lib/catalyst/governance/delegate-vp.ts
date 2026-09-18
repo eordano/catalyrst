@@ -1,4 +1,3 @@
-import { z } from "zod";
 
 import { shortAddress } from "../format/address";
 import { EngagementPayloadSchema } from "../generated-schemas/governance";
@@ -15,10 +14,11 @@ import {
   type DelegationScope,
 } from "./delegate-registry";
 import { fetchVpDistributions, type VpDistribution } from "./snapshot-vp";
+import { z } from "zod";
 import type { EngagementPayload as RsEngagementPayload } from "@ui/generated/catalyst/governance/EngagementPayload";
 
-export const DEFAULT_SNAPSHOT_SPACE = "snapshot.dcl.eth";
-export const SNAPSHOT_SPACE_ENV = "SNAPSHOT_SPACE";
+const DEFAULT_SNAPSHOT_SPACE = "snapshot.dcl.eth";
+const SNAPSHOT_SPACE_ENV = "SNAPSHOT_SPACE";
 
 export type Candidate = {
   id: string;
@@ -32,7 +32,7 @@ export type Candidate = {
   archiveVotes: number;
 };
 
-export type CandidateCard = {
+type CandidateCard = {
   id: string;
   name: string;
   addressShort: string;
@@ -59,7 +59,9 @@ export type DelegateData = {
 };
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftEngagement = Assert<
   AssignableTo<RsEngagementPayload, z.input<typeof EngagementPayloadSchema>>
 >;
@@ -68,7 +70,7 @@ type Env = GovernanceEnv;
 
 const processEnv = governanceProcessEnv;
 
-export function snapshotSpace(override?: string, env: Env = processEnv()): string {
+function snapshotSpace(override?: string, env: Env = processEnv()): string {
   return (override ?? env[SNAPSHOT_SPACE_ENV] ?? DEFAULT_SNAPSHOT_SPACE).trim();
 }
 
@@ -95,9 +97,9 @@ function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal |
   return typeof AbortSignal.any === "function" ? AbortSignal.any([signal, deadline]) : signal;
 }
 
-export type RosterEntry = { address: string; votes: number };
+type RosterEntry = { address: string; votes: number };
 
-export async function fetchDelegateRoster(args: {
+async function fetchDelegateRoster(args: {
   base?: string;
   days: number;
   limit: number;
@@ -129,7 +131,7 @@ function toCard(c: Candidate, days: number): CandidateCard {
   };
 }
 
-export type LoadDelegateOptions = {
+type LoadDelegateOptions = {
   address?: string | null;
   space?: string;
   base?: string;
@@ -245,7 +247,7 @@ export async function loadDelegateData(
   };
 }
 
-export type DelegateStatus = "confirmed" | "pending";
+type DelegateStatus = "confirmed" | "pending";
 
 export type DelegateReceipt = {
   space: string;

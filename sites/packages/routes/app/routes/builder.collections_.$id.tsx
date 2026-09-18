@@ -1,7 +1,7 @@
-import { redirect } from "react-router";
+import { builderRedirect } from "@features/lib/creator/builder-redirect";
 
 import type { Route } from "./+types/builder.collections_.$id";
 
-export async function loader({ params }: Route.LoaderArgs) {
-  return redirect(`/create/wearables/collections/${params.id}`, 308);
+export async function loader({ request, params }: Route.LoaderArgs) {
+  return builderRedirect("collection-detail", request, params);
 }

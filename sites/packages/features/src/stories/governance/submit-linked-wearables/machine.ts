@@ -25,13 +25,13 @@ export type CreateFn = (args: {
   signal?: AbortSignal;
 }) => Promise<CreatedProposal>;
 
-export type SubmitLwInput = {
+type SubmitLwInput = {
   trackCtx: TrackContext;
   create?: CreateFn;
   track?: TrackFn;
 };
 
-export type SubmitLwContext = {
+type SubmitLwContext = {
   trackCtx: TrackContext;
   create: CreateFn;
   track: TrackFn;
@@ -44,7 +44,7 @@ export type SubmitLwContext = {
   error?: string;
 };
 
-export type SubmitLwEvent =
+type SubmitLwEvent =
   | { type: "FILL_IDENTITY"; identity: IdentityInput }
   | { type: "FILL_COLLECTION"; collection: CollectionInput }
   | { type: "FILL_TECHNICAL"; technical: TechnicalInput; coAuthors?: string[] }
@@ -74,8 +74,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type LwStateId = keyof typeof STATE_TO_SLUG;
-export type LwStepSlug = (typeof STATE_TO_SLUG)[LwStateId];
+type LwStateId = keyof typeof STATE_TO_SLUG;
+type LwStepSlug = (typeof STATE_TO_SLUG)[LwStateId];
 
 export const FIRST_STEP_SLUG: LwStepSlug = STATE_TO_SLUG.identity;
 
@@ -87,13 +87,13 @@ export const stateToSlug: (value: string) => LwStepSlug = stepSlugs.toSlug;
 
 export const slugToState: (slug: string | null | undefined) => LwStateId = stepSlugs.toState;
 
-export const EMPTY_IDENTITY: IdentityInput = { name: "", marketplaceLink: "", links: [""] };
-export const EMPTY_COLLECTION: CollectionInput = {
+const EMPTY_IDENTITY: IdentityInput = { name: "", marketplaceLink: "", links: [""] };
+const EMPTY_COLLECTION: CollectionInput = {
   imagePreviews: [""],
   nftCollections: "",
   items: "1",
 };
-export const EMPTY_TECHNICAL: TechnicalInput = {
+const EMPTY_TECHNICAL: TechnicalInput = {
   smartContracts: [""],
   managers: [""],
   programmaticallyGenerated: false,
@@ -317,8 +317,6 @@ export const submitLwMachine = setup({
     },
   },
 });
-
-export type SubmitLwMachine = typeof submitLwMachine;
 
 export function resolveLwSnapshot(args: {
   step: LwStateId;

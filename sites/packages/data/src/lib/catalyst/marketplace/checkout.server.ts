@@ -1,6 +1,6 @@
 import type { Balance } from "./checkout";
 
-export type CheckoutLoad = {
+type CheckoutLoad = {
   balance: Balance | null;
   isFixture: boolean;
 };

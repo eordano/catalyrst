@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import "./viewport.css";
 import "./layout.css";
 
-export type ResponsivePanelSizing = {
+type ResponsivePanelSizing = {
   portraitWidth: number;
   portraitMaxHeight: number;
   portraitMinHeight: number;
@@ -11,7 +11,7 @@ export type ResponsivePanelSizing = {
   landscapeMinHeight: number;
 };
 
-export const RESPONSIVE_PANEL_DEFAULTS: ResponsivePanelSizing = {
+const RESPONSIVE_PANEL_DEFAULTS: ResponsivePanelSizing = {
   portraitWidth: 0.9,
   portraitMaxHeight: 0.8,
   portraitMinHeight: 0,
@@ -20,7 +20,7 @@ export const RESPONSIVE_PANEL_DEFAULTS: ResponsivePanelSizing = {
   landscapeMinHeight: 0,
 };
 
-export const RESPONSIVE_PANEL_PRESETS = {
+const RESPONSIVE_PANEL_PRESETS = {
   modal: {
     portraitWidth: 0.72,
     portraitMaxHeight: 0.8,
@@ -55,9 +55,9 @@ export const RESPONSIVE_PANEL_PRESETS = {
   },
 } as const satisfies Record<string, ResponsivePanelSizing>;
 
-export type ResponsivePanelPreset = keyof typeof RESPONSIVE_PANEL_PRESETS;
+type ResponsivePanelPreset = keyof typeof RESPONSIVE_PANEL_PRESETS;
 
-export type ResponsivePanelProps = Partial<ResponsivePanelSizing> & {
+type ResponsivePanelProps = Partial<ResponsivePanelSizing> & {
   children?: ReactNode;
   preset?: ResponsivePanelPreset;
   centerHorizontal?: boolean;

@@ -4,15 +4,7 @@ import type { AuthLink } from "../auth/identity";
 import { loadStoredIdentity } from "../auth/signedFetchLocal";
 import { getJSON, catalystBase, type RequestOpts } from "./client";
 import { isRecord, keepRow, keepRows } from "./rows";
-import {
-  CategorySchema,
-  EmoteSchema,
-  EquippedSchema,
-  OwnedElementSchema,
-  OwnedEmoteElementSchema,
-  SlotBindingSchema,
-  WearableSchema,
-} from "./schemas/backpack";
+import { EmoteSchema, EquippedSchema, OwnedElementSchema, OwnedEmoteElementSchema, SlotBindingSchema, WearableSchema } from "./schemas/backpack";
 import type {
   EmoteWire,
   EquippedWire,
@@ -21,18 +13,6 @@ import type {
   WearableCategory,
 } from "./schemas/backpack";
 import { bucketEmoteCategory, SLOT_ORDER } from "./taxonomy";
-
-export {
-  CategorySchema,
-  EmoteSchema,
-  EquippedSchema,
-  OwnedElementSchema,
-  OwnedEmoteElementSchema,
-  SlotBindingSchema,
-  WearableSchema,
-};
-export type { WearableCategory };
-export { EMOTE_CATEGORIES, RARITIES, SLOT_ORDER, WEARABLE_CATEGORIES } from "./taxonomy";
 
 export function normalizeWearable(w: WearableWire) {
   return {
@@ -44,7 +24,7 @@ export function normalizeWearable(w: WearableWire) {
   };
 }
 
-export type Wearable = ReturnType<typeof normalizeWearable>;
+type Wearable = ReturnType<typeof normalizeWearable>;
 
 export function normalizeSlotBinding(b: SlotBindingWire) {
   return { ...b, name: b.name ?? null };
@@ -52,7 +32,7 @@ export function normalizeSlotBinding(b: SlotBindingWire) {
 
 export type SlotBinding = ReturnType<typeof normalizeSlotBinding>;
 
-export function normalizeEquipped(e: EquippedWire) {
+function normalizeEquipped(e: EquippedWire) {
   return {
     ...e,
     bodyShape: e.bodyShape ?? null,
@@ -66,7 +46,7 @@ export function normalizeEquipped(e: EquippedWire) {
   };
 }
 
-export type Equipped = ReturnType<typeof normalizeEquipped>;
+type Equipped = ReturnType<typeof normalizeEquipped>;
 
 export function normalizeEmote(e: EmoteWire) {
   return {
@@ -85,7 +65,7 @@ export function normalizeAddress(addr?: string | null): string {
   return (addr ?? "").trim().toLowerCase();
 }
 
-export function isEthAddress(addr?: string | null): boolean {
+function isEthAddress(addr?: string | null): boolean {
   return /^0x[0-9a-fA-F]{40}$/.test((addr ?? "").trim());
 }
 
@@ -96,7 +76,7 @@ export function baseItemUrn(urn: string): string {
     : urn;
 }
 
-export function isSlotNumber(n: unknown): boolean {
+function isSlotNumber(n: unknown): boolean {
   return typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 9;
 }
 
@@ -271,10 +251,6 @@ export function parseLoadout(raw: unknown): SlotBinding[] {
   return keepRows(raw, SlotBindingSchema, isUsableSlotBinding, normalizeSlotBinding);
 }
 
-export function findWearable(catalog: Wearable[], urn: string): Wearable | undefined {
-  return catalog.find((w) => w.urn === urn);
-}
-
 export function byCategory(catalog: Wearable[]): Record<string, Wearable[]> {
   const out: Record<string, Wearable[]> = {};
   for (const w of catalog) {
@@ -321,7 +297,7 @@ function looksLikeRawWearableName(name: unknown): boolean {
   return s !== "" && !/\s/.test(s) && (/[_-]/.test(s) || s === s.toLowerCase());
 }
 
-export function mapExplorerWearable(el: unknown, base?: string): Wearable | null {
+function mapExplorerWearable(el: unknown, base?: string): Wearable | null {
   const element = (el ?? {}) as RawElement;
   const ent = element.entity ?? {};
   const md = ent.metadata ?? {};
@@ -373,10 +349,13 @@ function deriveCategories(catalog: Wearable[]): WearableCategory[] {
   return out;
 }
 
-function color3ToHex(c: unknown): string | undefined {
+export function color3ToHex(c: unknown): string | undefined {
   if (!c || typeof c !== "object") return undefined;
   const col = c as { r?: number; g?: number; b?: number };
-  const to255 = (n?: number) => Math.max(0, Math.min(255, Math.round((n ?? 0) * 255)));
+  const to255 = (n = 0) => {
+    const linear = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
+    return Math.round(255 * (linear <= 0.0031308 ? 12.92 * linear : 1.055 * linear ** (1 / 2.4) - 0.055));
+  };
   const hx = (n: number) => n.toString(16).padStart(2, "0");
   return `#${hx(to255(col.r))}${hx(to255(col.g))}${hx(to255(col.b))}`;
 }
@@ -386,17 +365,17 @@ export function hexToColor3(hex: unknown): { r: number; g: number; b: number } {
   if (typeof hex !== "string") return fallback;
   let s = hex.trim().replace(/^#/, "");
   if (s.length === 3) s = s.split("").map((ch) => ch + ch).join("");
-  if (s.length !== 6) return fallback;
+  if (!/^[0-9a-f]{6}$/i.test(s)) return fallback;
   const n = parseInt(s, 16);
   if (!Number.isFinite(n)) return fallback;
-  return {
-    r: ((n >> 16) & 255) / 255,
-    g: ((n >> 8) & 255) / 255,
-    b: (n & 255) / 255,
+  const linear = (byte: number) => {
+    const srgb = byte / 255;
+    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
   };
+  return { r: linear((n >> 16) & 255), g: linear((n >> 8) & 255), b: linear(n & 255) };
 }
 
-async function fetchEquipped(address?: string | null, opts: RequestOpts = {}): Promise<Equipped> {
+export async function fetchEquipped(address?: string | null, opts: RequestOpts = {}): Promise<Equipped> {
   try {
     const addr = normalizeAddress(address);
     if (!addr) return UNKNOWN_EQUIPPED;
@@ -453,9 +432,9 @@ async function fetchAllExplorerWearables(
   return all;
 }
 
-export const BASE_EMOTE_COLLECTION = "urn:decentraland:off-chain:base-emotes";
+const BASE_EMOTE_COLLECTION = "urn:decentraland:off-chain:base-emotes";
 
-export const BASE_EMOTE_IDS = [
+const BASE_EMOTE_IDS = [
   "handsair",
   "wave",
   "fistpump",
@@ -479,7 +458,7 @@ export const BASE_EMOTE_IDS = [
   "confettipopper",
 ];
 
-export const DEFAULT_EMOTE_BELT = [
+const DEFAULT_EMOTE_BELT = [
   "wave",
   "clap",
   "dance",
@@ -533,7 +512,7 @@ function projectEmoteEntity(
   });
 }
 
-export function mapExplorerEmote(el: unknown, base?: string): Emote | null {
+function mapExplorerEmote(el: unknown, base?: string): Emote | null {
   const element = (el ?? {}) as RawElement;
   const e = projectEmoteEntity(element.entity, {
     urn: element.urn || element.entity?.metadata?.id,
@@ -636,29 +615,41 @@ async function fetchAllExplorerEmotes(
   return all;
 }
 
+async function readOutfitEntries(addr: string, opts: RequestOpts): Promise<RawOutfitEntry[]> {
+  const base = catalystBase(opts.base);
+  const res = await (opts.fetchImpl ?? fetch)(`${base}/content/entities/active`, {
+    method: "POST",
+    signal: opts.signal,
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ pointers: [`${addr}:outfits`] }),
+  });
+  if (!res.ok) throw new Error(`Could not load saved outfits (${res.status})`);
+  const entities: unknown = await res.json();
+  if (!Array.isArray(entities)) throw new Error("Saved outfits returned an unexpected response");
+  return entities.flatMap((entity: RawOutfitsEnv | null) => {
+    const outfits = entity?.metadata?.outfits;
+    if (outfits == null) return [];
+    if (!Array.isArray(outfits)) throw new Error("Saved outfits returned an unexpected response");
+    return outfits;
+  });
+}
+
+export async function hasOutfitsEntity(addr: string, opts: RequestOpts = {}): Promise<boolean> {
+  return (await readOutfitEntries(addr, opts)).length > 0;
+}
+
 export async function loadOutfits(address?: string | null, opts: RequestOpts = {}) {
   const addr = normalizeAddress(address);
   if (!isEthAddress(addr)) return [];
-  try {
-    const env = await getJSON<RawOutfitsEnv>(
-      `/lambdas/outfits/${encodeURIComponent(addr)}`,
-      opts,
-    );
-    const list = env?.metadata?.outfits || env?.outfits || [];
-    return list
-      .map((o) => ({
-        slot: Number(o.slot),
-        bodyShape: o.outfit?.bodyShape,
-        wearables: asStringArray(o.outfit?.wearables),
-        skinColor: color3ToHex(o.outfit?.skin?.color),
-        hairColor: color3ToHex(o.outfit?.hair?.color),
-        eyeColor: color3ToHex(o.outfit?.eyes?.color),
-      }))
-      .filter((o) => Number.isInteger(o.slot));
-  } catch (err) {
-    if (opts.signal?.aborted) throw err;
-    return [];
-  }
+  const entries = await readOutfitEntries(addr, opts);
+  return entries.map((o) => ({
+    slot: Number(o.slot),
+    bodyShape: o.outfit?.bodyShape,
+    wearables: asStringArray(o.outfit?.wearables),
+    skinColor: color3ToHex(o.outfit?.skin?.color),
+    hairColor: color3ToHex(o.outfit?.hair?.color),
+    eyeColor: color3ToHex(o.outfit?.eyes?.color),
+  })).filter((o) => Number.isInteger(o.slot));
 }
 
 export async function loadRecentOutfits(count = 4, opts: RequestOpts = {}) {
@@ -709,13 +700,18 @@ export async function loadRecentOutfits(count = 4, opts: RequestOpts = {}) {
   }
 }
 
-export async function loadBackpack(address?: string | null, opts: RequestOpts = {}) {
+type BackpackOptions = RequestOpts & { equipped?: Promise<Equipped> };
+
+export async function loadBackpack(address?: string | null, opts: BackpackOptions = {}) {
   const addr = normalizeAddress(address);
   const fetchAddr = isEthAddress(addr)
     ? addr
     : "0x0000000000000000000000000000000000000000";
 
-  const elements = await fetchAllExplorerWearables(fetchAddr, opts);
+  const [elements, equipped] = await Promise.all([
+    fetchAllExplorerWearables(fetchAddr, opts),
+    opts.equipped ?? fetchEquipped(addr, opts),
+  ]);
 
   const catalog: Wearable[] = [];
   const ownedUrns: string[] = [];
@@ -728,7 +724,6 @@ export async function loadBackpack(address?: string | null, opts: RequestOpts = 
   }
 
   const categories = deriveCategories(catalog);
-  const equipped = await fetchEquipped(addr, opts);
 
   const ownedSet = new Set(ownedUrns);
   const owned = catalog.filter((w) => ownedSet.has(w.urn));
@@ -745,31 +740,26 @@ export async function loadBackpack(address?: string | null, opts: RequestOpts = 
   };
 }
 
-export async function loadBackpackEmotes(address?: string | null, opts: RequestOpts = {}) {
+export async function loadBackpackEmotes(address?: string | null, opts: BackpackOptions = {}) {
   const addr = normalizeAddress(address);
-
-  const baseEmotes = await fetchBaseEmotes(opts);
-
-  let ownedEmotes: Emote[] = [];
-  let equippedSlots: SlotBinding[] | null = null;
-  if (isEthAddress(addr)) {
-    try {
-      const [els, equipped] = await Promise.all([
+  const ownedRequest = isEthAddress(addr)
+    ? Promise.all([
         fetchAllExplorerEmotes(addr, opts),
-        fetchEquipped(addr, opts),
-      ]);
-      equippedSlots = equipped.emoteSlots;
-      const seen = new Set<string>();
-      for (const el of els) {
-        const e = mapExplorerEmote(el, opts.base);
-        if (!e || seen.has(e.urn)) continue;
-        seen.add(e.urn);
-        ownedEmotes.push(e);
-      }
-    } catch (err) {
-      if (opts.signal?.aborted) throw err;
-      ownedEmotes = [];
-    }
+        opts.equipped ?? fetchEquipped(addr, opts),
+      ]).catch((err) => {
+        if (opts.signal?.aborted) throw err;
+        return null;
+      })
+    : Promise.resolve(null);
+  const [baseEmotes, ownedResult] = await Promise.all([fetchBaseEmotes(opts), ownedRequest]);
+  const ownedEmotes: Emote[] = [];
+  const equippedSlots = ownedResult?.[1].emoteSlots ?? null;
+  const seen = new Set<string>();
+  for (const el of ownedResult?.[0] ?? []) {
+    const emote = mapExplorerEmote(el, opts.base);
+    if (!emote || seen.has(emote.urn)) continue;
+    seen.add(emote.urn);
+    ownedEmotes.push(emote);
   }
 
   const catalog: Emote[] = [];
@@ -820,7 +810,7 @@ export type OutfitInput = {
   eyeColor?: string;
 };
 
-export const MAX_BASE_OUTFIT_SLOTS = 5;
+const MAX_BASE_OUTFIT_SLOTS = 5;
 
 export function buildOutfitsMetadata(outfits: OutfitInput[]) {
   const seen = new Set<number>();
@@ -850,7 +840,7 @@ export function buildOutfitsMetadata(outfits: OutfitInput[]) {
   };
 }
 
-export type SaveOutfitsResult =
+type SaveOutfitsResult =
   | { ok: true; entityId: string }
   | { ok: false; reason: string };
 

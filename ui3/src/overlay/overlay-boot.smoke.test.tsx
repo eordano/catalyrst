@@ -18,20 +18,20 @@ function Composition() {
   );
 }
 
-test("overlay boots to the lobby with Continue as guest, deferring the engine", async () => {
+test("overlay boots to the guest/login landing, deferring the engine", async () => {
   render(<Composition />);
 
-  const jump = await screen.findByText("Continue as guest");
-  expect(jump).toBeTruthy();
+  const guest = await screen.findByRole("button", { name: "Play as a guest" });
+  expect(screen.getByRole("button", { name: "Login or sign up" })).toBeTruthy();
   expect(screen.queryByLabelText("Main menu")).toBeNull();
 
   expect(window.dclDeferStart).toBe(true);
 
+  await userEvent.click(guest);
   await userEvent.click(screen.getByRole("checkbox"));
-  await userEvent.click(jump.closest("button") ?? jump);
-  expect(screen.queryByText("Continue as guest")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Let\u2019s go" }));
+  expect(screen.queryByText("Pick Your Name")).toBeNull();
 
-  const skip = await screen.findByText("Skip to Genesis Plaza");
-  await userEvent.click(skip.closest("button") ?? skip);
-  expect(document.querySelector(".boot")).toBeTruthy();
+  expect(screen.queryByText("Skip to Genesis Plaza")).toBeNull();
+  expect(await screen.findByRole("main", { name: "Decentraland lobby" })).toBeInTheDocument();
 });

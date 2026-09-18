@@ -1,6 +1,6 @@
 import { getJSON, worldsBase, type GetOptions } from "../client";
 
-export type WorldScene = {
+type WorldScene = {
   entityId: string;
   parcels: string[];
   baseParcel: string;

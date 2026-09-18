@@ -72,7 +72,7 @@ const SUBTITLE = {
       Unleash your creativity. Start building scenes for your LANDs and Worlds and share with the
       community.{" "}
       <a
-        href="https://docs.decentraland.org/creator/scenes-sdk7/getting-started/sdk-101"
+        href="/docs/creator/sdk7/getting-started/sdk-101/"
         target="_blank"
         rel="noopener noreferrer"
       >

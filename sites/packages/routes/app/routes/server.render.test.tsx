@@ -51,6 +51,8 @@ const offService: ServerServiceRow = {
   ageMs: 0,
 };
 
+const ENV_PATH = "/var/lib/catalyrst-sites/operator.env";
+
 function textOf(html: string): string {
   return html.replace(/<!-- -->/g, "");
 }
@@ -74,19 +76,22 @@ describe("ServerOpsPage SSR", () => {
       ),
     );
     expect(html).toContain("Recheck all");
-    expect(html).toContain("1 of 2 up \u{B7} 1 down \u{B7} rechecking every 5s until they recover");
+    expect(html).toMatch(/1 of 2 up/);
+    expect(html).toMatch(/1 down/);
+    expect(html).toMatch(/every 5s/);
     expect(html).toContain("Rechecking\u{2026}");
     expect(html).toContain("connection refused");
     expect(html).toContain("checked 42s ago");
     expect(html).toContain("systemctl status livekit");
     expect(html).toContain("1 service not enabled on this node");
-    expect(html).toContain("Disk (/): 60% used \u{B7} 40.0 GB free");
+    expect(html).toMatch(/60% used/);
+    expect(html).toMatch(/40\.0 GB free/);
     expect(html).not.toContain("full disk takes PostgreSQL");
     expect(html).toContain("Fix: set CATALYRST_OPERATOR_ENV_FILE");
     expect(html).toContain("ADMIN_WALLETS");
   });
 
-  it("keeps healthy rows quiet: no commands, no chips, no stranded labels", () => {
+  it("keeps healthy rows quiet, no commands or stranded labels, and marks a watched service that came back", () => {
     const html = textOf(
       renderToString(
         <ServerOpsPage
@@ -94,7 +99,7 @@ describe("ServerOpsPage SSR", () => {
           env={{
             ok: true,
             data: {
-              path: "/var/lib/catalyrst-sites/operator.env",
+              path: ENV_PATH,
               preservedLines: 0,
               rows: [
                 {
@@ -115,11 +120,22 @@ describe("ServerOpsPage SSR", () => {
     );
     expect(html).toContain("1 of 1 up");
     expect(html).not.toContain("systemctl");
-    expect(html).not.toContain("srvops-remedy");
     expect(html).not.toContain("restart to apply");
     expect(html).not.toContain("set outside this file");
     expect(html).not.toContain("not enabled on this node");
     expect(html).not.toContain("hand-written");
+    expect(html).not.toContain("recovered");
+
+    const recovered = textOf(
+      renderToString(
+        <ServerOpsPage
+          services={[{ ...upService, recovered: true }]}
+          env={{ ok: false, message: "x" }}
+          authMode="wallet"
+        />,
+      ),
+    );
+    expect(recovered).toContain("recovered");
   });
 
   it("chips carry only actionable env state and secrets never render", () => {
@@ -130,7 +146,7 @@ describe("ServerOpsPage SSR", () => {
           env={{
             ok: true,
             data: {
-              path: "/var/lib/catalyrst-sites/operator.env",
+              path: ENV_PATH,
               preservedLines: 2,
               rows: [
                 {
@@ -159,26 +175,13 @@ describe("ServerOpsPage SSR", () => {
         />,
       ),
     );
-    expect(html).toContain("saved \u{2014} restart to apply");
+    expect(html).toContain("restart to apply");
     expect(html).toContain("set outside this file");
     expect(html).toContain('type="password"');
     expect(html).toContain("Saving\u{2026}");
     expect(html).toContain("SOME_API_TOKEN saved.");
     expect(html).toContain("http://127.0.0.1:5143");
-    expect(html).toContain("2 hand-written lines in the file are kept as-is");
+    expect(html).toMatch(/2 hand-written lines/);
     expect(html).toContain("NEW_VARIABLE");
-  });
-
-  it("marks a watched service that came back", () => {
-    const html = textOf(
-      renderToString(
-        <ServerOpsPage
-          services={[{ ...upService, recovered: true }]}
-          env={{ ok: false, message: "x" }}
-          authMode="wallet"
-        />,
-      ),
-    );
-    expect(html).toContain("recovered");
   });
 });

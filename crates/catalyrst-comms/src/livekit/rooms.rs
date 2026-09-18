@@ -1,6 +1,23 @@
 pub const WORLD_ROOM_PREFIX: &str = "world-";
+/// The room a Pulse cluster is published as. A literal no other room shape in this service
+/// produces, so a classifier may match it ahead of every other prefix without reclassifying one.
+pub const ISLAND_ROOM_PREFIX: &str = "island-";
 pub const PRIVATE_VOICE_CHAT_ROOM_PREFIX: &str = "voice-chat-private-";
 pub const COMMUNITY_VOICE_CHAT_ROOM_PREFIX: &str = "voice-chat-community";
+
+pub fn island_room_name(cluster_id: &str) -> String {
+    format!("{}{}", ISLAND_ROOM_PREFIX, cluster_id)
+}
+
+pub fn is_island_room(room_name: &str) -> bool {
+    room_name.starts_with(ISLAND_ROOM_PREFIX)
+}
+
+pub fn island_name_from_room_name(room_name: &str) -> &str {
+    room_name
+        .strip_prefix(ISLAND_ROOM_PREFIX)
+        .unwrap_or(room_name)
+}
 
 pub fn private_voice_chat_room_name(room_id: &str) -> String {
     format!("{}{}", PRIVATE_VOICE_CHAT_ROOM_PREFIX, room_id)

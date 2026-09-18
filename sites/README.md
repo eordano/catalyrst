@@ -54,14 +54,18 @@ npm run sample-size -- --baseline 0.18 --mde 0.02
 ```bash
 npm run dev          # SSR dev server with HMR
 npm run typecheck    # react-router typegen + tsc --noEmit (strict)
-npm run test         # vitest (machine + lib tests)
+npm run test         # vitest (all surviving contract tests)
 ```
 
-To sanity-check or force an arm: read the deterministic local-hash assignment for a given `sid`, or edit `story.md` variant weights. No kill-switch - see step 4.
+The unit run executes every surviving test. Presentation-only render checks are
+not tests: keep those examples as stories, and add a test only for a durable
+security, data-integrity, accessibility, cross-runtime, or user-visible contract.
+
+To sanity-check assignment, use a fixed `sid`. To force an arm, use the runtime overrides described below or edit `story.md` variant weights.
 ### 4. Launch / ramp
 `story.md` is the durable definition of the split (`experiment.variants`/`weight`); ramp by editing weights. Assignment is the deterministic local hash of `(sid + experiment.key)`, bucketed by the `story.md` variant weights.
 
-> No instant kill-switch today. `resolveAssignment` checks catalyrst-telemetry `GET /dash/flags` for a per-experiment override, but that endpoint is a global EXPLORER feature-flag boolean map (keys like `explorer-alfa-*`) proxied from the feature-flags service - it has no entry keyed by a sites story `experiment.key`, so the override layer always misses and assignment uses the local hash. A real kill-switch / forced-variant would require a per-experiment override store + endpoint in catalyrst-telemetry (e.g. `GET /dash/experiment/{key}` returning `{killed?, variant?, flags?}`); `getRuntimeFlags` already knows how to consume that shape.
+Runtime controls are implemented. `resolveAssignment` first applies explicit dashboard flag overrides from `GET /dash/flags`, then per-experiment controls from `GET /dash/experiments?key=<experiment.key>`, then the local hash. Experiment controls accept `killed`, `variant` and `flags`; `killed` pins assignment to the selected or default variant rather than removing the surface. Runtime responses are cached for 15 seconds. If the probe fails, assignment falls back to the local definition.
 ### 5. Measure + decide
 Exposure + metric events flow to catalyrst-telemetry; readouts (dashboards, funnels) are built in Metabase over the telemetry store. Fixed-horizon verdict via CLI:
 
@@ -71,7 +75,7 @@ npm run story:readout -- <id> --json     # machine-readable
 npm run story:readout -- <id> --alpha 0.01
 ```
 
-`story:readout` pulls per-variant counts from catalyrst-telemetry (grouped by the `variant` property), computes the primary metric + guardrails per variant, runs a two-proportion z-test (control vs each treatment), checks `min_sample`, and prints SHIP / KILL / KEEP RUNNING against `decision.rule`. With `TELEMETRY_URL` unset it prints a clear message and exits 0. Apply the verdict by editing `story.md` (`status`, weights); there is no telemetry override to flip.
+`story:readout` pulls per-variant counts from catalyrst-telemetry (grouped by the `variant` property), computes the primary metric + guardrails per variant, runs a two-proportion z-test (control vs each treatment), checks `min_sample`, and prints SHIP / KILL / KEEP RUNNING against `decision.rule`. With `TELEMETRY_URL` unset it prints a clear message and exits 0. Apply the verdict deliberately through runtime overrides or by editing `story.md` (`status`, weights); the readout does not apply it automatically.
 ## CLI reference
 | Command | What it does |
 | --- | --- |
@@ -81,23 +85,42 @@ npm run story:readout -- <id> --alpha 0.01
 | `npm run dev` / `npm run build` / `npm run start` | React Router dev / production build / serve. |
 | `npm run typecheck` / `npm run test` | `tsc --noEmit` (strict) / vitest. |
 ## Configuration (env vars)
-All vars are optional; the app degrades gracefully and never throws if any are unset or unreachable. See `.env.example`.
+Defaults and failure behavior vary by capability. Assignment and telemetry tolerate unavailable services; writes must report missing authentication or unavailable backends without claiming success. See `.env.example`.
 
 | Var | Used by | When unset |
 | --- | --- | --- |
 | `CATALYST_URL` | Catalyst Places fetches (`packages/data/src/lib/catalyst/*`) | Defaults to `https://catalyst.example.com`. |
-| `TELEMETRY_URL` | catalyrst-telemetry sink (`track` -> `/v1/track`), the runtime-flag probe (`resolveAssignment` -> `/dash/flags`, currently a no-op override layer), and `story:readout`. | Sink + flag probe become safe no-ops; `story:readout` prints a clear message and exits 0. |
+| `TELEMETRY_URL` | catalyrst-telemetry sink (`track` -> `/v1/track`), runtime controls (`resolveAssignment` -> `/dash/flags` and `/dash/experiments`), and `story:readout`. | Sink + flag probe become safe no-ops; `story:readout` prints a clear message and exits 0. |
 ## Flag-eval + telemetry - roles
-One backend: catalyrst-telemetry - the authoritative event store and the source the readouts query. Flag evaluation has two layers, but the override layer is currently inert (see step 4 note).
+One backend: catalyrst-telemetry - the authoritative event store and the source the readouts query. Flag evaluation combines runtime overrides with the local story definition (see step 4).
 
 | Concern | catalyrst-telemetry (`TELEMETRY_URL`) |
 | --- | --- |
 | Event capture | `POST /v1/track` (Segment `track` shape), `Authorization: Basic dcl-sites` |
-| Assignment precedence | (1) highest - per-experiment override from `GET /dash/flags` (today: never matches) |
-| Instant kill-switch / ramp without redeploy | no - not implemented in catalyrst-telemetry |
+| Assignment precedence | Explicit dashboard flag override, then per-experiment override, then local hash |
+| Runtime control without redeploy | Pin a variant or override flags; `killed` pins the selected/default variant. Cached for 15 seconds. |
 | Experiment definition / variants | `story.md` (variant weights drive the local hash) |
 | Readout source | `story:readout` CLI (`/dash/sql` filtered by `exp_key` + grouped by `variant`/`event`); `/dash/breakdown` / `/dash/events` as JSON drill-downs |
 | Identity | `anonymousId` = `sid` cookie |
 | When unset/unreachable | sink + flag probe are no-ops; assignment falls back to local hash |
 
-`GET /dash/flags` returns `{config:{flags:{"explorer-...":bool},variants:{...}}}` - no key for a sites `experiment.key`, so (2) the local hash (formula in step 4) always decides; the app never breaks.
+
+## Product capabilities and assumptions
+
+The product review applies the same five questions
+(identity, availability, persistence, completion and measurement) to every story
+family. It distinguishes implemented paths, partial integrations, previews and
+unavailable actions, with source evidence. It is a code audit, not a live uptime
+or end-to-end certification.
+
+```bash
+npm run products:audit          # audit product coverage and evidence paths
+npm run products:audit -- --write # refresh the readable report
+npm run products:check          # reject missing groups or a stale report
+```
+
+Edit `docs/product-capabilities.json` when capabilities or prerequisites change.
+A story hypothesis is not a verified capability. Keep a one-arm flow separate
+from comparative experiments, and do not fill missing owners or measured
+baselines with invented values. Demo steps and signatures are not evidence of
+persisted writes or completed transactions.

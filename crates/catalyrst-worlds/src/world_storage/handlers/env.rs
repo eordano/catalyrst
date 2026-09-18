@@ -12,7 +12,7 @@ use crate::world_storage::handlers::common::{
 };
 use crate::world_storage::http::errors::ApiError;
 use crate::world_storage::storage::value_size_bytes;
-use crate::world_storage::{authorize, resolve_scene_context, signed_path, AppState, AuthPolicy};
+use crate::world_storage::{resolve_authorized, signed_path, AppState, AuthPolicy};
 
 pub async fn get(
     State(state): State<AppState>,
@@ -21,10 +21,11 @@ pub async fn get(
     uri: axum::http::Uri,
 ) -> Result<Json<Value>, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(
+    let ctx = resolve_authorized(
         &state,
-        &ctx,
+        &headers,
+        "get",
+        &path,
         AuthPolicy::AUTHORIZED_ADDRESSES_OR_SCOPED_DELEGATION,
     )
     .await?;
@@ -50,8 +51,14 @@ pub async fn upsert(
 ) -> Result<StatusCode, ApiError> {
     let (parts, body) = req.into_parts();
     let path = signed_path(&parts.uri);
-    let ctx = resolve_scene_context(&state, &parts.headers, "put", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
+    let ctx = resolve_authorized(
+        &state,
+        &parts.headers,
+        "put",
+        &path,
+        AuthPolicy::OWNERS_DEPLOYERS_ONLY,
+    )
+    .await?;
     validate_key(&key)?;
     check_content_length(&parts.headers, state.cfg.env_limits.max_value_size_bytes)?;
 
@@ -81,8 +88,14 @@ pub async fn delete(
     uri: axum::http::Uri,
 ) -> Result<StatusCode, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
+    let ctx = resolve_authorized(
+        &state,
+        &headers,
+        "delete",
+        &path,
+        AuthPolicy::OWNERS_DEPLOYERS_ONLY,
+    )
+    .await?;
     validate_key(&key)?;
 
     state
@@ -99,23 +112,25 @@ pub async fn list_keys(
     uri: axum::http::Uri,
 ) -> Result<Json<KeyListResponse>, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
+    let ctx = resolve_authorized(
+        &state,
+        &headers,
+        "get",
+        &path,
+        AuthPolicy::OWNERS_DEPLOYERS_ONLY,
+    )
+    .await?;
 
     let p = parse_pagination(&params)?;
-    let keys = state
+    let (keys, total) = state
         .storage
-        .env_list_keys(
+        .env_list_keys_page(
             &ctx.world_name,
             &ctx.place_id,
             p.limit,
             p.offset,
             p.prefix.as_deref(),
         )
-        .await?;
-    let total = state
-        .storage
-        .env_count(&ctx.world_name, &ctx.place_id, p.prefix.as_deref())
         .await?;
 
     Ok(Json(KeyListResponse {
@@ -134,8 +149,14 @@ pub async fn clear(
     uri: axum::http::Uri,
 ) -> Result<StatusCode, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
+    let ctx = resolve_authorized(
+        &state,
+        &headers,
+        "delete",
+        &path,
+        AuthPolicy::OWNERS_DEPLOYERS_ONLY,
+    )
+    .await?;
 
     require_confirm_delete_all(&headers)?;
 

@@ -38,6 +38,31 @@ impl SceneBansComponent {
         Ok(rows)
     }
 
+    /// Page plus total in one statement; an empty page past the start falls back
+    /// to a COUNT so the total stays exact.
+    pub async fn list_addresses_page_with_total(
+        &self,
+        place_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<String>, i64), ApiError> {
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT banned_address, count(*) OVER () FROM scene_bans WHERE place_id = $1 \
+             ORDER BY banned_at DESC LIMIT $2 OFFSET $3",
+        )
+        .bind(place_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let total = match rows.first() {
+            Some((_, total)) => *total,
+            None if offset == 0 => 0,
+            None => self.count(place_id).await?,
+        };
+        Ok((rows.into_iter().map(|(addr, _)| addr).collect(), total))
+    }
+
     pub async fn ban(
         &self,
         place_id: &str,

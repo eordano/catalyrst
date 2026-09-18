@@ -1,5 +1,16 @@
 # third_party
 
+## web_transport
+
+`web_transport/` is the crate from Decentraland rust-web-transport at the revision in
+`web_transport/UPSTREAM`, plus `web_transport.patch`. The workspace Git patch keeps
+the original revision pinned. `Host::send_stream_bytes` retains an owned `Bytes`
+buffer through the async write, allowing Pulse's application queue permits to cover
+both dispatch queues and blocked writes. Connection close cancels a blocked stream
+accept/write and releases queued owners; stream failure closes the session.
+The existing byte-slice API and wire framing are unchanged. Reapply the patch when
+refreshing the upstream crate; the bundled Apache-2.0 license is retained.
+
 ## rusty_enet
 
 `rusty_enet/` is **crates.io `rusty_enet` 0.4.0, verbatim, plus the single 3-constant patch in

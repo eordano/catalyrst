@@ -6,6 +6,7 @@ import Modal from "../../components/Modal";
 import Button from "../../atoms/Button";
 import ManaMark from "../../atoms/ManaMark";
 import "./mkclaimnamepage.css";
+import { docsUrl } from "../../data/docs";
 
 const MAX_NAME_SIZE = 15;
 const PLACEHOLDER_NAME = "yourName";
@@ -138,7 +139,7 @@ const WHY_CARDS: WhyCard[] = [
       <>
         Shape the future of Decentraland&#x2014;each NAME grants you{" "}
         <b className="mkclaimnamepage__voting">100 Voting Power</b> when voting on DAO proposals.{" "}
-        <a className="mkclaimnamepage__learnmore" href="https://docs.decentraland.org/dao/dao/what-is-the-dao">
+        <a className="mkclaimnamepage__learnmore" href={docsUrl("player/dao/what-is-the-dao")}>
           Learn more
         </a>
       </>
@@ -158,6 +159,9 @@ const WHY_CARDS: WhyCard[] = [
 ];
 
 type MkClaimNamePageProps = {
+  onNameEdited?: () => void;
+  checkOnSubmit?: boolean;
+  checking?: boolean;
   initialName?: string;
   forceStatus?: MkNameStatus;
   initialFocused?: boolean;
@@ -170,6 +174,9 @@ type MkClaimNamePageProps = {
 };
 
 export default function MkClaimNamePage({
+  onNameEdited,
+  checkOnSubmit = false,
+  checking = false,
   initialName = PLACEHOLDER_NAME,
   forceStatus,
   initialFocused,
@@ -197,7 +204,7 @@ export default function MkClaimNamePage({
     return classifyName(name, takenSet);
   }, [forceStatus, name, takenSet]);
 
-  const canClaim = status.kind === "available" && !insufficientMana;
+  const canClaim = status.kind === "available" && !insufficientMana && !checking;
   const charCount = name === PLACEHOLDER_NAME ? 0 : name.length;
 
   function onClaim() {
@@ -233,13 +240,14 @@ export default function MkClaimNamePage({
                 >
                   <input
                     className="mkclaimnamepage__input"
+                    aria-label="NAME"
                     value={name === PLACEHOLDER_NAME ? "" : name}
                     placeholder="Your NAME goes here"
                     onFocus={() => {
                       setFocused(true);
                       if (name === PLACEHOLDER_NAME) setName("");
                     }}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => { setName(e.target.value); onNameEdited?.(); }}
                     onKeyDown={(e) => e.key === "Enter" && onClaim()}
                   />
                   <span className="mkclaimnamepage__suffix">.dcl.eth</span>
@@ -253,15 +261,15 @@ export default function MkClaimNamePage({
                   disabled={!canClaim}
                   onClick={onClaim}
                 >
-                  Claim NAME
+                  {checking ? "Checking availability\u2026" : checkOnSubmit ? "Check availability" : "Claim NAME"}
                 </Button>
 
                 {focused && status.kind === "available" ? (
                   <div className="mkclaimnamepage__availability">
-                    <span className="mkclaimnamepage__ok">&#x2713;</span> NAME available
+                    <span className="mkclaimnamepage__ok">&#x2713;</span> {checkOnSubmit ? "Valid NAME format" : "NAME available"}
                   </div>
                 ) : null}
-                {focused && status.kind === "unavailable" ? (
+                {status.kind === "unavailable" ? (
                   <div className="mkclaimnamepage__availability">
                     <span className="mkclaimnamepage__no">&#x2715;</span> Unavailable NAME.{" "}
                     <a className="mkclaimnamepage__resoldlink" href={`/marketplace/names?search=${encodeURIComponent(name)}`}>

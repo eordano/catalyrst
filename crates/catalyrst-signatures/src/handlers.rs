@@ -250,27 +250,30 @@ pub async fn refresh_rentals_listing(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
-    let listing = state
-        .db
-        .get_listing_by_id(&id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Rental listing was not found"))?;
+    let not_found = || ApiError::not_found("Rental listing was not found");
 
     let Some(squid) = &state.squid else {
+        let listing = state
+            .db
+            .get_listing_by_id(&id)
+            .await?
+            .ok_or_else(not_found)?;
         return Ok(Ok2(StatusCode::OK, listing));
     };
 
+    let (contract_address, token_id) = state.db.listing_asset(&id).await?.ok_or_else(not_found)?;
+
     match squid
-        .nft_by_contract_token(&listing.contract_address, &listing.token_id)
+        .nft_by_contract_token(&contract_address, &token_id)
         .await?
     {
         Some(nft) => {
             let updated = chrono::DateTime::<chrono::Utc>::from_timestamp(nft.updated_at, 0)
                 .map(|d| d.naive_utc())
                 .unwrap_or_else(|| chrono::Utc::now().naive_utc());
-            state
+            if let Some(refreshed) = state
                 .db
-                .update_metadata_for_rental(
+                .refresh_metadata_for_rental(
                     &id,
                     &nft.category,
                     &nft.search_text,
@@ -279,7 +282,10 @@ pub async fn refresh_rentals_listing(
                     nft.estate_size,
                     updated,
                 )
-                .await?;
+                .await?
+            {
+                return Ok(Ok2(StatusCode::OK, refreshed));
+            }
         }
         None => {
             tracing::debug!(rental_id = %id, "NFT not found in squid during refresh; metadata unchanged");

@@ -94,23 +94,24 @@ LIMIT $2 OFFSET 0
             return Ok(Vec::new());
         }
 
-        let mut owned_items: Vec<Item> = Vec::new();
+        // One `ids` query for every distinct (contract, item) pair, re-sequenced in `order`.
+        let item_filters = ItemFilters {
+            ids: order.iter().map(|(c, i)| format!("{c}-{i}")).collect(),
+            first: Some(order.len() as i64),
+            include_social_emotes: filters.include_social_emotes,
+            ..Default::default()
+        };
+        let (got, _) = items.get_items(&item_filters).await?;
+        let mut fetched: HashMap<(String, String), Item> = got
+            .into_iter()
+            .map(|it| ((it.contract_address.clone(), it.item_id.clone()), it))
+            .collect();
+        let mut owned_items: Vec<Item> = Vec::with_capacity(fetched.len());
         let mut item_index: HashMap<(String, String), usize> = HashMap::new();
         for key in &order {
-            let (contract, item_id) = key;
-            let filters = ItemFilters {
-                contract_addresses: vec![contract.clone()],
-                item_id: Some(item_id.clone()),
-                include_social_emotes: filters.include_social_emotes,
-                ..Default::default()
-            };
-            let (got, _) = items.get_items(&filters).await?;
-            for it in got {
-                let k = (it.contract_address.clone(), it.item_id.clone());
-                if let std::collections::hash_map::Entry::Vacant(e) = item_index.entry(k) {
-                    e.insert(owned_items.len());
-                    owned_items.push(it);
-                }
+            if let Some(it) = fetched.remove(key) {
+                item_index.insert(key.clone(), owned_items.len());
+                owned_items.push(it);
             }
         }
 

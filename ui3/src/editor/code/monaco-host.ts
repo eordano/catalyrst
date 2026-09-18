@@ -46,8 +46,8 @@ async function boot(typesUrl?: string): Promise<MonacoBoot> {
     },
   };
 
-  const ts = monaco.languages.typescript;
-  const compilerOptions: import("monaco-editor").languages.typescript.CompilerOptions = {
+  const ts = monaco.typescript;
+  const compilerOptions: import("monaco-editor").typescript.CompilerOptions = {
     target: ts.ScriptTarget.ES2020,
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.NodeJs,

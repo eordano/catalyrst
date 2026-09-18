@@ -4,7 +4,7 @@ import type React from "react";
 import "../../explorer/components/notifications.css";
 import "./notificationspanel.css";
 
-export const NOTIFICATION_CATEGORIES = [
+const NOTIFICATION_CATEGORIES = [
   "friends",
   "badge",
   "gift",
@@ -12,7 +12,7 @@ export const NOTIFICATION_CATEGORIES = [
   "marketplace",
   "system",
 ] as const;
-export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 const CATEGORY_LABEL: Record<NotificationCategory, string> = {
   friends: "Friends",
@@ -23,7 +23,7 @@ const CATEGORY_LABEL: Record<NotificationCategory, string> = {
   system: "System",
 };
 
-export type Notification = {
+type Notification = {
   id: string;
   type: string;
   timestamp: string;
@@ -70,7 +70,7 @@ function notificationBody(n: Notification): string {
   return typeof d === "string" ? d : "";
 }
 
-export function notificationLink(n: Notification): string | null {
+function notificationLink(n: Notification): string | null {
   const l = n.metadata?.["link"];
   return typeof l === "string" && /^https?:\/\//.test(l) ? l : null;
 }
@@ -179,7 +179,7 @@ const TINT: Record<NotificationCategory, string> = {
   system: "linear-gradient(135deg,#3a6dff,#6a2da8)",
 };
 
-export type NotificationsPanelProps = {
+type NotificationsPanelProps = {
   notifications: Notification[];
   filter: string;
   now: number;
@@ -191,7 +191,7 @@ export type NotificationsPanelProps = {
   onMarkAll: (count: number) => void;
 };
 
-export default function NotificationsPanel({
+function NotificationsPanel({
   notifications,
   filter,
   now,
@@ -341,7 +341,7 @@ function FilterPill({ label, active, onSelect }: FilterPillProps) {
   );
 }
 
-export type NotificationsStageProps = NotificationsPanelProps & {
+type NotificationsStageProps = NotificationsPanelProps & {
   open: boolean;
   onBell: () => void;
 };

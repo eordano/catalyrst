@@ -1,17 +1,19 @@
+import ChromeLink from "../../web/frames/ChromeLink";
 import type { ReactNode } from "react";
 import { CreatorHubChromeMaybe } from "../frames/CreatorHubChrome";
 import { useChromeAuth } from "../../web/frames/chrome-auth";
 import EmptyState from "../../components/EmptyState";
 import Spinner from "../../atoms/Spinner";
 import { asset } from "../../asset";
+import { docsUrl } from "../../data/docs";
 import "./creatorhubhome.css";
 
 type LearnResource = { title: string; href: string; kind: "doc" | "video" };
 
 const LEARN_RESOURCES: LearnResource[] = [
-  { title: "Let's build the metaverse together", href: "https://docs.decentraland.org/creator/", kind: "doc" },
-  { title: "Scene Editor About", href: "https://docs.decentraland.org/creator/scene-editor/get-started/about-editor", kind: "doc" },
-  { title: "Development Workflow", href: "https://docs.decentraland.org/creator/scenes-sdk7/getting-started/dev-workflow", kind: "doc" },
+  { title: "Let's build the metaverse together", href: docsUrl("creator"), kind: "doc" },
+  { title: "Scene Editor About", href: docsUrl("creator/scene-editor/get-started/about-editor"), kind: "doc" },
+  { title: "Development Workflow", href: docsUrl("creator/sdk7/getting-started/dev-workflow"), kind: "doc" },
   { title: "Product Updates", href: "https://www.youtube.com/playlist?list=PLAcRraQmr_GMJw77zKvN84LX_OLyn-lVz", kind: "video" },
   { title: "SDK Tutorials", href: "https://www.youtube.com/playlist?list=PLAcRraQmr_GP_K8WN7csnKnImK4R2TgMA", kind: "video" },
 ];
@@ -184,16 +186,12 @@ function CardItem({ title, icon, href, external, builder, badge }: CardItemProps
       ? { "aria-label": `${title} (opens in new tab)`, title: `${title} (opens in new tab)` }
       : {};
     return (
-      <a className="chh__item" href={href} {...ext} {...labelAttrs}>
+      <ChromeLink className="chh__item" href={href} {...ext} {...labelAttrs}>
         {inner}
-      </a>
+      </ChromeLink>
     );
   }
   return <span className="chh__item chh__item--inert" aria-disabled="true">{inner}</span>;
-}
-
-function shortAddress(addr: string): string {
-  return addr && addr.length > 12 ? `${addr.slice(0, 6)}\u{2026}${addr.slice(-4)}` : addr;
 }
 
 type ChScene = { id: string; title: string; href?: string | null };
@@ -212,13 +210,13 @@ type ScenesCardProps = {
 function PublishedScenesFooter() {
   return (
     <div className="chh__cardactions">
-      <a
+      <ChromeLink
         className="chh__seeall"
         href="/creator-hub/my-scenes"
         aria-label="Find scenes you've already published"
       >
         Your published scenes
-      </a>
+      </ChromeLink>
     </div>
   );
 }
@@ -281,7 +279,7 @@ function ScenesCard({ scenes, scenesError, rescoping, signedIn, onSignIn, onScen
             </div>
           </div>
           <div className="chh__cardactions">
-            <a className="chh__seeall" href="/create/scenes" onClick={onScenes} aria-label="See all scenes">See All</a>
+            <ChromeLink className="chh__seeall" href="/create/scenes" onClick={onScenes} aria-label="See all scenes">See All</ChromeLink>
           </div>
         </>
       )}
@@ -335,14 +333,14 @@ function LearnCard({ onLearn }: LearnCardProps) {
               key={i}
               title={r.title}
               href={r.href}
-              external
+              external={r.kind === "video"}
               icon={r.kind === "video" ? <VideoIcon /> : <BookmarkIcon />}
             />
           ))}
         </div>
       </div>
       <div className="chh__cardactions">
-        <a className="chh__seeall" href="/create/learn" onClick={onLearn} aria-label="See all learning resources">See All</a>
+        <ChromeLink className="chh__seeall" href="/create/learn" onClick={onLearn} aria-label="See all learning resources">See All</ChromeLink>
       </div>
     </article>
   );
@@ -386,9 +384,9 @@ function StripHeader({ title, linkLabel, href, onLink }: StripHeaderProps) {
   return (
     <div className="chh__stripheader">
       <h2 className="chh__striptitle">{title}</h2>
-      <a className="chh__striplink" href={href} onClick={onLink}>
+      <ChromeLink className="chh__striplink" href={href} onClick={onLink}>
         {linkLabel}
-      </a>
+      </ChromeLink>
     </div>
   );
 }
@@ -404,7 +402,7 @@ function LiveStrip({ scenes, onCardClick }: { scenes: ChNetworkScene[]; onCardCl
       />
       <div className="chh__striprow">
         {scenes.map((s) => (
-          <a key={s.id} className="chh__scenecard" href={s.href} onClick={() => onCardClick?.(`network:${s.id}`)}>
+          <ChromeLink key={s.id} className="chh__scenecard" href={s.href} onClick={() => onCardClick?.(`network:${s.id}`)}>
             <span className="chh__scenecardmedia">
               {s.image ? (
                 <img className="chh__scenecardimg" src={s.image} alt="" loading="lazy" />
@@ -417,7 +415,7 @@ function LiveStrip({ scenes, onCardClick }: { scenes: ChNetworkScene[]; onCardCl
               </span>
             </span>
             <span className="chh__scenecardtitle u-truncate">{s.title}</span>
-          </a>
+          </ChromeLink>
         ))}
       </div>
     </section>
@@ -435,7 +433,7 @@ function TemplatesStrip({ templates, onCardClick }: { templates: ChTemplateCard[
       />
       <div className="chh__striprow">
         {templates.map((t) => (
-          <a key={t.id} className="chh__templatecard" href={t.href} onClick={() => onCardClick?.(`template:${t.id}`)}>
+          <ChromeLink key={t.id} className="chh__templatecard" href={t.href} onClick={() => onCardClick?.(`template:${t.id}`)}>
             <span className="chh__scenecardmedia">
               {t.thumb ? (
                 <img className="chh__scenecardimg" src={t.thumb} alt="" loading="lazy" />
@@ -445,7 +443,7 @@ function TemplatesStrip({ templates, onCardClick }: { templates: ChTemplateCard[
               {t.difficulty ? <span className="chh__diffchip">{t.difficulty}</span> : null}
             </span>
             <span className="chh__scenecardtitle u-truncate">{t.title}</span>
-          </a>
+          </ChromeLink>
         ))}
       </div>
     </section>
@@ -463,7 +461,7 @@ function HappeningsStrip({ happenings, onCardClick }: { happenings: ChHappening[
       />
       <div className="chh__striprow">
         {happenings.map((h) => (
-          <a
+          <ChromeLink
             key={`${h.kind}:${h.id}`}
             className="chh__happeningcard"
             href={h.href}
@@ -488,7 +486,7 @@ function HappeningsStrip({ happenings, onCardClick }: { happenings: ChHappening[
             </span>
             <span className="chh__happeningmeta">{h.meta}</span>
             <span className="chh__scenecardtitle chh__scenecardtitle--wrap">{h.title}</span>
-          </a>
+          </ChromeLink>
         ))}
       </div>
     </section>
@@ -540,8 +538,8 @@ export default function CreatorHubHome({
   const isCommittee = committee ?? auth.committee;
   const hasScenes = scenes.length > 0;
   const greeting =
-    signedIn && (name || account)
-      ? `Welcome back, ${name || shortAddress(account)}`
+    signedIn
+      ? <>Welcome back{name ? `, ${name}` : ""}</>
       : "Welcome to Creator Hub";
   return (
     <CreatorHubChromeMaybe chrome={chrome} active="home" signedIn={signedIn} account={account} name={name} committee={isCommittee} onSignIn={onSignIn}>

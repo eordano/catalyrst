@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 
+import EmptyState from "../../components/EmptyState";
 import type {
   AdminLinkProps,
   AdminSystemsPageProps,
@@ -10,6 +11,7 @@ import type {
   SystemProbe,
   SystemUnit,
 } from "./AdminSystemsTypes";
+import "../admin.css";
 import "./adminsystems.css";
 
 function PlainLink({ to, children, className }: AdminLinkProps) {
@@ -22,10 +24,13 @@ function PlainLink({ to, children, className }: AdminLinkProps) {
 
 function Unavailable({ message, fix }: { message: string; fix?: string }) {
   return (
-    <div className="adsys-empty" role="status">
-      <p className="adsys-empty-msg">{message}</p>
-      {fix ? <p className="adsys-empty-fix">Fix: {fix}</p> : null}
-    </div>
+    <EmptyState
+      variant="inline"
+      titleAs="p"
+      title={message}
+      subtitle={fix ? `Fix: ${fix}` : undefined}
+      role="status"
+    />
   );
 }
 
@@ -39,8 +44,8 @@ function Section<T>({
   children: (data: T) => React.ReactNode;
 }) {
   return (
-    <section className="adsys-section">
-      <h2 className="adsys-h2">{title}</h2>
+    <section className="adm-card">
+      <h2 className="adm__h2">{title}</h2>
       {panel.ok ? (
         children(panel.data)
       ) : (
@@ -50,10 +55,10 @@ function Section<T>({
   );
 }
 
-function unitTone(state: string): string {
+function unitTone(state: string): "ok" | "warn" | "bad" | undefined {
   if (state === "active") return "ok";
   if (state === "activating" || state === "reloading") return "warn";
-  if (state === "inactive") return "muted";
+  if (state === "inactive") return undefined;
   return "bad";
 }
 
@@ -73,35 +78,35 @@ function Units({ units, now }: { units: SystemUnit[]; now: number }) {
   const down = units.filter((u) => u.active_state !== "active").length;
   return (
     <>
-      <p className="adsys-note">
+      <p className="adm-card__text">
         {units.length} units &#xB7; {units.length - down} active &#xB7; {down} not active
       </p>
-      <div className="adsys-scroll">
-        <table className="adsys-table">
+      <div className="adm-scroll">
+        <table className="adm-table">
           <thead>
             <tr>
               <th>Unit</th>
               <th>State</th>
-              <th className="adsys-num">Restarts</th>
+              <th className="is-num">Restarts</th>
               <th>Active since</th>
             </tr>
           </thead>
           <tbody>
             {units.map((u) => (
               <tr key={u.unit}>
-                <td className="adsys-mono">{u.unit.replace(/\.service$/, "")}</td>
+                <td className="adm-mono">{u.unit.replace(/\.service$/, "")}</td>
                 <td>
-                  <span className={`adsys-badge adsys-${unitTone(u.active_state)}`}>
+                  <span className="adm-status" data-tone={unitTone(u.active_state)}>
                     {u.active_state}
                     {u.sub_state ? ` \u{B7} ${u.sub_state}` : ""}
                   </span>
                 </td>
-                <td className="adsys-num">
-                  <span className={u.n_restarts > 0 ? "adsys-warn-text" : ""}>
+                <td className="is-num">
+                  <span className={u.n_restarts > 0 ? "adm-warn" : undefined}>
                     {u.n_restarts}
                   </span>
                 </td>
-                <td className="adsys-dim">
+                <td className="adm-dim is-nowrap">
                   {u.active_state === "active" ? relTime(u.active_since, now) : "\u{2014}"}
                 </td>
               </tr>
@@ -116,17 +121,17 @@ function Units({ units, now }: { units: SystemUnit[]; now: number }) {
 function Probes({ probes }: { probes: SystemProbe[] }) {
   if (probes.length === 0) return null;
   return (
-    <div className="adsys-probes">
+    <div className="adm-pills">
       {probes.map((p) => (
         <a
           key={p.name}
-          className={`adsys-probe adsys-${p.ok ? "ok" : "bad"}`}
+          className="adm-status adm-status--dot"
+          data-tone={p.ok ? "ok" : "bad"}
           href={p.url}
           title={`${p.url} \u{2192} ${p.http_status || "no answer"}`}
         >
-          <span className="adsys-dot" aria-hidden="true" />
           {p.name}
-          <span className="adsys-probe-code">{p.http_status || "\u{D7}"}</span>
+          <span className="adm-dim">{p.http_status || "\u{D7}"}</span>
         </a>
       ))}
     </div>
@@ -142,24 +147,24 @@ function Links({
 }) {
   const scopes: ("public" | "operator")[] = ["public", "operator"];
   return (
-    <div className="adsys-links">
+    <div className="adm-grid">
       {scopes.map((scope) => {
         const group = links.filter((l) => l.scope === scope);
         if (group.length === 0) return null;
         return (
-          <div key={scope} className="adsys-linkgroup">
-            <h3 className="adsys-h3">{scope}</h3>
-            <ul className="adsys-linklist">
+          <div key={scope} className="adm-stack">
+            <h3 className="adm__h3">{scope}</h3>
+            <ul className="adm-list">
               {group.map((l) => {
                 const external = /^https?:\/\//.test(l.href);
                 return (
                   <li key={l.href}>
                     {external ? (
-                      <a href={l.href} className="adsys-link">
+                      <a href={l.href} className="adm-link">
                         {l.label}
                       </a>
                     ) : (
-                      <LinkComponent to={l.href} className="adsys-link">
+                      <LinkComponent to={l.href} className="adm-link">
                         {l.label}
                       </LinkComponent>
                     )}
@@ -176,11 +181,11 @@ function Links({
 
 function Actions({ actions, now }: { actions: DeployAction[]; now: number }) {
   if (actions.length === 0) {
-    return <p className="adsys-note">No deployments recorded.</p>;
+    return <p className="adm-card__text">No deployments recorded.</p>;
   }
   return (
-    <div className="adsys-scroll">
-      <table className="adsys-table">
+    <div className="adm-scroll">
+      <table className="adm-table">
         <thead>
           <tr>
             <th>Type</th>
@@ -193,9 +198,9 @@ function Actions({ actions, now }: { actions: DeployAction[]; now: number }) {
           {actions.map((a) => (
             <tr key={a.entityId}>
               <td>{a.entityType}</td>
-              <td className="adsys-mono adsys-ellipsis">{a.entityId}</td>
-              <td className="adsys-mono adsys-ellipsis">{a.deployer}</td>
-              <td className="adsys-dim">{relTime(a.at, now)}</td>
+              <td className="adm-mono u-truncate adm-systems__id">{a.entityId}</td>
+              <td className="adm-mono u-truncate adm-systems__id">{a.deployer}</td>
+              <td className="adm-dim is-nowrap">{relTime(a.at, now)}</td>
             </tr>
           ))}
         </tbody>
@@ -213,34 +218,36 @@ function Experiments({ readable, unreadable }: { readable: ExperimentRow[]; unre
   return (
     <>
       {readable.length === 0 ? (
-        <p className="adsys-note">No experiment has recorded exposures yet.</p>
+        <p className="adm-card__text">No experiment has recorded exposures yet.</p>
       ) : (
-        <ul className="adsys-exps">
+        <ul className="adm-list">
           {readable.map((e) => (
-            <li key={e.exp_key} className="adsys-exp">
-              <div className="adsys-exp-head">
-                <span className="adsys-mono">{e.exp_key}</span>
-                <span className="adsys-badge adsys-ok">{e.exposures} exposed</span>
-              </div>
-              <div className="adsys-exp-meta">
-                <span>
-                  {e.variants.length} variants: {e.variants.join(", ")}
-                  {e.control ? ` (control: ${e.control})` : ""}
+            <li key={e.exp_key} className="adm-card">
+              <div className="adm-card__head">
+                <span className="adm-mono">{e.exp_key}</span>
+                <span className="adm-status" data-tone="ok">
+                  {e.exposures} exposed
                 </span>
-                <span className="adsys-dim">{metricLine(e)}</span>
               </div>
+              <p className="adm-card__text">
+                {e.variants.length} variants: {e.variants.join(", ")}
+                {e.control ? ` (control: ${e.control})` : ""}
+              </p>
+              <p className="adm-card__text adm-dim">{metricLine(e)}</p>
             </li>
           ))}
         </ul>
       )}
       {unreadable.length > 0 ? (
-        <details className="adsys-details">
+        <details className="adm-card__text adm-dim">
           <summary>{unreadable.length} not yet readable</summary>
-          <ul className="adsys-exps">
+          <ul className="adm-list">
             {unreadable.map((e) => (
-              <li key={e.exp_key} className="adsys-exp adsys-exp-muted">
-                <span className="adsys-mono">{e.exp_key}</span>
-                <span className="adsys-dim">{e.reason ?? "unreadable"}</span>
+              <li key={e.exp_key} className="adm-card">
+                <div className="adm-card__head">
+                  <span className="adm-mono">{e.exp_key}</span>
+                  <span className="adm-dim">{e.reason ?? "unreadable"}</span>
+                </div>
               </li>
             ))}
           </ul>
@@ -259,39 +266,43 @@ export default function AdminSystemsPage({
   LinkComponent,
 }: AdminSystemsPageProps) {
   return (
-    <main className="adsys">
-      <header className="adsys-header">
-        <h1 className="adsys-h1">Operations</h1>
-        {systems.ok ? (
-          <p className={`adsys-freshness ${systems.data.stale ? "adsys-stale" : ""}`}>
-            Snapshot {relTime(systems.data.collectedAt, now)}
-            {systems.data.stale ? " \u{B7} stale" : ""}
-          </p>
-        ) : null}
-      </header>
+    <main className="adm">
+      <div className="adm__page">
+        <div className="adm__inner adm__inner--mid">
+          <header className="adm__head">
+            <h1 className="adm__title">Operations</h1>
+            {systems.ok ? (
+              <p className={systems.data.stale ? "adm__sub adm-warn" : "adm__sub"}>
+                Snapshot {relTime(systems.data.collectedAt, now)}
+                {systems.data.stale ? " \u{B7} stale" : ""}
+              </p>
+            ) : null}
+          </header>
 
-      <Section title="Live health" panel={systems}>
-        {(data) => <Probes probes={data.probes} />}
-      </Section>
+          <Section title="Live health" panel={systems}>
+            {(data) => <Probes probes={data.probes} />}
+          </Section>
 
-      <Section title="Systemd units" panel={systems}>
-        {(data) => <Units units={data.units} now={now} />}
-      </Section>
+          <Section title="Systemd units" panel={systems}>
+            {(data) => <Units units={data.units} now={now} />}
+          </Section>
 
-      <section className="adsys-section">
-        <h2 className="adsys-h2">Deployed surfaces</h2>
-        <Links links={links} LinkComponent={LinkComponent} />
-      </section>
+          <section className="adm-card">
+            <h2 className="adm__h2">Deployed surfaces</h2>
+            <Links links={links} LinkComponent={LinkComponent} />
+          </section>
 
-      <Section title="Latest deployments" panel={actions}>
-        {(rows) => <Actions actions={rows} now={now} />}
-      </Section>
+          <Section title="Latest deployments" panel={actions}>
+            {(rows) => <Actions actions={rows} now={now} />}
+          </Section>
 
-      <Section title="Experiments" panel={experiments}>
-        {(data) => (
-          <Experiments readable={data.readable} unreadable={data.unreadable} />
-        )}
-      </Section>
+          <Section title="Experiments" panel={experiments}>
+            {(data) => (
+              <Experiments readable={data.readable} unreadable={data.unreadable} />
+            )}
+          </Section>
+        </div>
+      </div>
     </main>
   );
 }

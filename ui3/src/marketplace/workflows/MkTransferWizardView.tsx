@@ -7,7 +7,7 @@ import AssetPreviewTile from "../components/AssetPreviewTile";
 import Button from "../../atoms/Button";
 import "./mktransferwizardview.css";
 
-export type MkTransferWizardAsset = {
+type MkTransferWizardAsset = {
   id: string;
   name: string;
   category: string;
@@ -16,7 +16,7 @@ export type MkTransferWizardAsset = {
   image?: string | null;
 };
 
-export type MkTransferWizardViewProps = {
+type MkTransferWizardViewProps = {
   value: string;
   step: string;
   source: "catalyst" | "fixture";

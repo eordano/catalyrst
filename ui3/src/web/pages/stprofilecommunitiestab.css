@@ -509,17 +509,6 @@
 }
 .spc__emptycta:hover { background: var(--brand-hover); }
 .spc__emptyctaicon { display: inline-flex; align-items: center; }
-
-.spc__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1300;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, .8);
-}
 .spc__dialog {
   position: relative;
   width: 100%;

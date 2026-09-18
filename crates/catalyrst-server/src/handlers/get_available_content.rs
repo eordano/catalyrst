@@ -15,6 +15,7 @@ pub async fn get_available_content(
     State(state): State<Arc<AppState>>,
     request: Request,
 ) -> AppResult<impl IntoResponse> {
+    let started = std::time::Instant::now();
     let query_string = request.uri().query().unwrap_or("");
     let params = parse_query_string(query_string);
     let cids = qs_get_array(&params, "cid");
@@ -45,6 +46,7 @@ pub async fn get_available_content(
         })
         .collect();
 
+    tracing::debug!(target: "catalyrst_perf", phase="availability", count=result.len(), elapsed_us=started.elapsed().as_micros() as u64);
     Ok(Json(result))
 }
 

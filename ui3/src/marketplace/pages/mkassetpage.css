@@ -115,8 +115,6 @@
   filter: drop-shadow(0 14px 32px rgba(0, 0, 0, 0.45));
 }
 
-
-
 .mkassetpage__info {
   display: flex;
   flex-direction: column;
@@ -266,11 +264,6 @@
 .mkassetpage__pricemana { display: inline-flex; color: var(--brand); }
 .mkassetpage__pricemana svg { margin-bottom: 2px; }
 .mkassetpage__priceval { color: var(--mkasset-text); }
-.mkassetpage__pricefiat {
-  font-size: 20px;
-  font-weight: 500;
-  color: var(--mkasset-secondary-text);
-}
 .mkassetpage__pricemananote {
   flex-basis: 100%;
   font-size: 13px;

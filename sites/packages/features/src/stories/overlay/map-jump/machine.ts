@@ -7,14 +7,14 @@ import { buildJumpUrl, type MapPin, type PinCategory } from "@data/lib/catalyst/
 
 export type { TrackFn };
 
-export type JumpResult = { jumpUrl: string };
+export type JumpResult = { jumpUrl: string; outcome?: "arrived" | "degraded"; reason?: string };
 
 export type JumpFn = (args: {
   pin: MapPin;
   signal?: AbortSignal;
 }) => Promise<JumpResult>;
 
-export type MapJumpInput = {
+type MapJumpInput = {
   trackCtx: TrackContext;
   filter?: PinCategory;
   pin?: MapPin | null;
@@ -22,7 +22,7 @@ export type MapJumpInput = {
   track?: TrackFn;
 };
 
-export type MapJumpContext = {
+type MapJumpContext = {
   trackCtx: TrackContext;
   filter: PinCategory;
   pin?: MapPin | null;
@@ -33,7 +33,7 @@ export type MapJumpContext = {
   error?: string;
 };
 
-export type MapJumpEvent =
+type MapJumpEvent =
   | { type: "FILTER"; filter: PinCategory }
   | { type: "SELECT_PIN"; pin: MapPin }
   | { type: "CLEAR" }
@@ -61,8 +61,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type MapJumpStateId = keyof typeof STATE_TO_SLUG;
-export type MapJumpStepSlug = (typeof STATE_TO_SLUG)[MapJumpStateId];
+type MapJumpStateId = keyof typeof STATE_TO_SLUG;
+type MapJumpStepSlug = (typeof STATE_TO_SLUG)[MapJumpStateId];
 
 export const FIRST_STEP_SLUG: MapJumpStepSlug = STATE_TO_SLUG.browsing;
 
@@ -132,7 +132,8 @@ export const mapJumpMachine = setup({
           coords: context.pin?.coords,
           jump_url: context.result?.jumpUrl,
           set_home: context.setHome,
-          simulated: true,
+          simulated: context.result?.outcome === undefined,
+          outcome: context.result?.outcome,
         },
         context.trackCtx,
       ),
@@ -145,6 +146,7 @@ export const mapJumpMachine = setup({
   },
   guards: {
     hasPin: ({ context }) => Boolean(context.pin),
+    travelCancelled: (_, params: { error: unknown }) => params.error instanceof Error && params.error.name === "TravelCancelledError",
   },
 }).createMachine({
   id: "mapJump",
@@ -194,13 +196,16 @@ export const mapJumpMachine = setup({
           target: "done",
           actions: [assign({ result: ({ event }) => event.output }), "trackJump"],
         },
-        onError: {
+        onError: [{
+          target: "selected",
+          guard: { type: "travelCancelled", params: ({ event }) => ({ error: event.error }) },
+        }, {
           target: "error",
           actions: assign({
             error: ({ event }) =>
               toErrorMessage(event.error, "teleport failed"),
           }),
-        },
+        }],
       },
     },
     done: {
@@ -214,8 +219,6 @@ export const mapJumpMachine = setup({
     },
   },
 });
-
-export type MapJumpMachine = typeof mapJumpMachine;
 
 export function resolveMapJumpSnapshot(args: {
   step: MapJumpStateId;

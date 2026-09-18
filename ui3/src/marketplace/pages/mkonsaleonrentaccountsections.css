@@ -234,7 +234,6 @@
   justify-content: center;
   color: var(--undefined-secondary-text);
 }
-.mkosr__emptytitle { color: var(--lm-ink); font-size: 16px; font-weight: 700; }
 
 .mkosr__overlay {
   position: absolute;

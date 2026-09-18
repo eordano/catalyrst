@@ -3,17 +3,19 @@ import { useEffect, useRef, useState } from "react";
 
 import LobbyNew from "../explorer/workflows/LobbyNew";
 import Loading from "../explorer/workflows/Loading";
-import PlacesPicker from "../explorer/workflows/PlacesPicker";
 import FpsMeter from "../explorer/components/FpsMeter";
-import type { PickedDestination } from "../explorer/workflows/PlacesPicker";
 import type { OverlayPush } from "../generated/bridge/OverlayPush";
 import { hexToColor3 } from "../data/catalyst/backpack";
 import {
   IDENTITY_STORAGE_KEY,
   initEngineAuth,
   shouldAutoJumpIn,
+  getEngineAuthState,
+  subscribeEngineAuth,
 } from "../data/auth/engineLogin";
 import { randomName } from "../data/randomIdentity";
+import { subscribeLifecycle } from "../overlay/bridge";
+import { WorldEntryContext, type EntryDestination } from "./WorldEntry";
 import "./bootgate.css";
 
 function bootWin(): Window | null {
@@ -24,10 +26,8 @@ if (typeof window !== "undefined") {
   window.dclDeferStart = true;
 }
 
-const MIN_LOADING_MS = 2200;
 const ANTI_STRAND_MS = 75000;
 const LOADING_TIMEOUT_MS = 20000;
-const PARCEL_SIZE = 16;
 const MAX_NAME_REASSERTS = 3;
 
 const ONBOARD_BODY_SHAPE = {
@@ -86,7 +86,7 @@ export function buildJumpInAvatarPayload(pending: PendingAvatar): {
   return payload;
 }
 
-export function destinationFromSearch(search: string): PickedDestination {
+export function destinationFromSearch(search: string): EntryDestination {
   let params: URLSearchParams;
   try {
     params = new URLSearchParams(search);
@@ -94,23 +94,15 @@ export function destinationFromSearch(search: string): PickedDestination {
     return null;
   }
   const realm = params.get("realm")?.trim();
-  if (realm && realm.startsWith("/") && !realm.startsWith("//")) {
-    return { kind: "world", realm: window.location.origin + realm };
-  }
-  if (realm) return { kind: "world", realm };
   const position = params.get("position")?.trim();
   const coords = position ? /^(-?\d{1,4}),(-?\d{1,4})$/.exec(position) : null;
+  if (realm) return {
+    kind: "world",
+    realm: realm.startsWith("/") && !realm.startsWith("//") ? window.location.origin + realm : realm,
+    ...(coords ? { parcel: [Number(coords[1]), Number(coords[2])] as [number, number] } : {}),
+  };
   if (coords) return { kind: "parcel", x: Number(coords[1]), y: Number(coords[2]) };
   return null;
-}
-
-export function primeBootPosition(dest: PickedDestination): boolean {
-  if (dest?.kind !== "parcel") return false;
-  const input =
-    typeof document !== "undefined" ? document.getElementById("position") : null;
-  if (!(input instanceof HTMLInputElement)) return false;
-  input.value = `${dest.x},${dest.y}`;
-  return true;
 }
 
 type BootGateProps = { children: ReactNode };
@@ -132,7 +124,9 @@ export default function BootGate({ children }: BootGateProps) {
 }
 
 function BootPhases({ children }: BootGateProps) {
-  const [autoJump] = useState(() => {
+  const [auth, setAuth] = useState(getEngineAuthState);
+  useEffect(() => subscribeEngineAuth(setAuth), []);
+  const [hasIdentity] = useState(() => {
     let raw: string | null = null;
     try {
       raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
@@ -141,12 +135,13 @@ function BootPhases({ children }: BootGateProps) {
     }
     return shouldAutoJumpIn(raw);
   });
-  const [deepLink] = useState<PickedDestination>(() => {
+  const [deepLink] = useState<EntryDestination>(() => {
     const w = bootWin();
     return w ? destinationFromSearch(w.location.search) : null;
   });
-  const [phase, setPhase] = useState<"lobby" | "picking" | "loading" | "world" | "stalled">(
-    autoJump ? "loading" : "lobby",
+  const autoEnter = useRef(!!deepLink && (deepLink.kind === "parcel" || !!deepLink.parcel));
+  const [phase, setPhase] = useState<"onboarding" | "lobby" | "loading" | "world" | "stalled">(
+    hasIdentity ? (autoEnter.current ? "loading" : "lobby") : "onboarding",
   );
   useEffect(() => {
     document.documentElement.dataset.dclBootPhase = phase;
@@ -157,20 +152,35 @@ function BootPhases({ children }: BootGateProps) {
   });
   const [scenePct, setScenePct] = useState(0);
   const [ready, setReady] = useState(false);
+  const [degraded, setDegraded] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [startupTimedOut, setStartupTimedOut] = useState(false);
   const [pendingAssets, setPendingAssets] = useState(0);
   const [avatarReady, setAvatarReady] = useState(false);
   const [engineAlive, setEngineAlive] = useState(false);
+  const [destinationSettled, setDestinationSettled] = useState(true);
+  const lifecycleSeenRef = useRef(false);
+  const startGeneration = useRef(0);
+  const startListener = useRef<(() => void) | null>(null);
   const engineAliveAt = useRef(0);
   const jumpedAt = useRef(0);
   const pendingAvatarRef = useRef<PendingAvatar | null>(null);
   const avatarAppliedRef = useRef(false);
+  const guestRequestedRef = useRef(false);
   const appliedAvatarRef = useRef<ReturnType<typeof buildJumpInAvatarPayload> | null>(
     null,
   );
   const nameReassertsRef = useRef(0);
   const avatarSignalSeenRef = useRef(false);
-  const pendingDestinationRef = useRef<PickedDestination>(null);
-  const destinationAppliedRef = useRef(false);
+  const initialDestinationRef = useRef<EntryDestination>(null);
+
+  const ensureGuestIdentity = () => {
+    if (!pendingAvatarRef.current || guestRequestedRef.current || getEngineAuthState().address) return;
+    const bridge = bootWin()?.dclBridge;
+    if (!bridge) return;
+    guestRequestedRef.current = true;
+    bridge.send("LoginGuest", {});
+  };
 
   const applyPendingAvatar = () => {
     const pending = pendingAvatarRef.current;
@@ -196,33 +206,63 @@ function BootPhases({ children }: BootGateProps) {
     }
   };
 
-  const applyPendingDestination = () => {
-    const dest = pendingDestinationRef.current;
-    if (!dest || destinationAppliedRef.current) return;
-    destinationAppliedRef.current = true;
-    try {
-      if (dest.kind === "world") {
-        bootWin()?.dclBridge?.send?.("ChangeRealm", { realm: dest.realm });
-      } else {
-        bootWin()?.dclBridge?.send?.("Teleport", {
-          x: dest.x * PARCEL_SIZE + PARCEL_SIZE / 2,
-          z: dest.y * PARCEL_SIZE + PARCEL_SIZE / 2,
-        });
-      }
-    } catch {
-    }
-  };
-
-  const startEngine = () => {
+  const startEngine = (lobby: boolean) => {
     const bw = bootWin();
-    if (bw?.dclEngineReady) bw.dclEngineStart?.();
+    if (startListener.current) window.removeEventListener("dcl-engine-ready", startListener.current);
+    const generation = ++startGeneration.current;
+    const fail = (error: unknown) => {
+      if (generation === startGeneration.current) {
+        setStartupTimedOut(false);
+        setFailure(error instanceof Error ? error.message : "Engine startup failed.");
+        setPhase("stalled");
+      }
+    };
+    const apply = () => {
+      if (generation !== startGeneration.current) return;
+      if (!lobby) setDestinationSettled(true);
+    };
+    const start = () => {
+      if (generation !== startGeneration.current) return;
+      try {
+        const dest = initialDestinationRef.current;
+        const destination = dest?.kind === "world" ? { realm: dest.realm, parcel: dest.parcel }
+          : dest?.kind === "parcel" ? { realm: "", parcel: [dest.x, dest.y] as [number, number] } : undefined;
+        const running = lobby ? bootWin()?.dclEngineConnectLobby?.() : bootWin()?.dclEngineStart?.(destination);
+        if (running) void running.then(apply, fail);
+        else apply();
+      } catch (error) { fail(error); }
+    };
+    startListener.current = start;
+    if (bw?.dclEngineReady) start();
     else
       window.addEventListener(
         "dcl-engine-ready",
-        () => bootWin()?.dclEngineStart?.(),
+        start,
         { once: true },
       );
   };
+
+  useEffect(() => () => {
+    startGeneration.current++;
+    if (startListener.current) window.removeEventListener("dcl-engine-ready", startListener.current);
+  }, []);
+
+  useEffect(() => subscribeLifecycle((snapshot) => {
+    lifecycleSeenRef.current = true;
+    if (engineAliveAt.current === 0) engineAliveAt.current = Date.now();
+    setEngineAlive(true);
+    ensureGuestIdentity();
+    setReady(snapshot.readiness.canExplore);
+    setDegraded(snapshot.readiness.placement === "degraded" || snapshot.travel?.phase === "degraded");
+    setPendingAssets(snapshot.readiness.pendingAssets);
+    avatarSignalSeenRef.current = true;
+    setAvatarReady(snapshot.readiness.avatarReady);
+    if (snapshot.realm.phase === "failed" || snapshot.travel?.phase === "failed") {
+      setStartupTimedOut(false);
+      setFailure(snapshot.realm.error ?? snapshot.travel?.blockingReason ?? "The destination could not load.");
+      setPhase((current) => current === "loading" ? "stalled" : current);
+    }
+  }), []);
 
   useEffect(() => {
     const onLoading = (e: Event) => {
@@ -243,14 +283,11 @@ function BootPhases({ children }: BootGateProps) {
   }, []);
 
   useEffect(() => {
-    if (!autoJump) return;
-    if (deepLink) {
+    if (phase === "loading" && autoEnter.current) {
+      autoEnter.current = false;
       handleDestinationChosen(deepLink);
-      return;
-    }
-    jumpedAt.current = Date.now();
-    startEngine();
-  }, [autoJump]);
+    } else if (phase === "lobby") startEngine(true);
+  }, [phase]);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -265,20 +302,21 @@ function BootPhases({ children }: BootGateProps) {
           if (push.kind === "loading") {
             if (engineAliveAt.current === 0) engineAliveAt.current = Date.now();
             setEngineAlive(true);
+            ensureGuestIdentity();
             if (typeof push.percent === "number") setScenePct(push.percent);
-            if (push.ready) setReady(true);
-            if (typeof push.pendingAssets === "number") setPendingAssets(push.pendingAssets);
-            if (typeof push.avatarLoaded === "boolean") {
+            if (!lifecycleSeenRef.current) setReady(push.ready);
+            if (!lifecycleSeenRef.current && typeof push.pendingAssets === "number") setPendingAssets(push.pendingAssets);
+            if (!lifecycleSeenRef.current && typeof push.avatarLoaded === "boolean") {
               avatarSignalSeenRef.current = true;
               if (push.avatarLoaded) setAvatarReady(true);
             }
           } else if (push.kind === "identity") {
+            ensureGuestIdentity();
             if (push.name) {
               if (avatarAppliedRef.current) {
                 reassertChosenName(push.name);
               } else {
                 applyPendingAvatar();
-                applyPendingDestination();
               }
             }
           }
@@ -295,26 +333,31 @@ function BootPhases({ children }: BootGateProps) {
   }, []);
 
   useEffect(() => {
+    if (phase !== "loading" && !(phase === "stalled" && startupTimedOut)) return undefined;
+    const avatarGateSatisfied = !avatarSignalSeenRef.current || avatarReady;
+    if (destinationSettled && ready && (degraded || (pendingAssets === 0 && avatarGateSatisfied))) {
+      setStartupTimedOut(false);
+      setFailure(null);
+      setPhase("world");
+      return;
+    }
     if (phase !== "loading") return undefined;
     const deadline =
       engineAliveAt.current > 0
         ? jumpedAt.current + ANTI_STRAND_MS
         : jumpedAt.current + LOADING_TIMEOUT_MS;
     const fallback = setTimeout(
-      () => setPhase(engineAliveAt.current > 0 ? "world" : "stalled"),
+      () => {
+        setStartupTimedOut(true);
+        setFailure("The explorer did not report readiness in time.");
+        setPhase("stalled");
+      },
       Math.max(0, deadline - Date.now()),
     );
-    let revealT: ReturnType<typeof setTimeout> | undefined;
-    const avatarGateSatisfied = !avatarSignalSeenRef.current || avatarReady;
-    if (ready && pendingAssets === 0 && avatarGateSatisfied) {
-      const minDone = jumpedAt.current + MIN_LOADING_MS;
-      revealT = setTimeout(() => setPhase("world"), Math.max(0, minDone - Date.now()));
-    }
     return () => {
       clearTimeout(fallback);
-      if (revealT) clearTimeout(revealT);
     };
-  }, [phase, ready, engineAlive, avatarReady, pendingAssets]);
+  }, [phase, ready, degraded, engineAlive, avatarReady, pendingAssets, destinationSettled, startupTimedOut]);
 
   const handleAvatarChosen = ({ name, body, base, wearables }: JumpInArg = {}) => {
     const trimmed = (name ?? "").trim();
@@ -329,30 +372,38 @@ function BootPhases({ children }: BootGateProps) {
       wearables: Array.isArray(wearables) ? wearables : null,
     };
     avatarAppliedRef.current = false;
-    if (deepLink) {
+    if (engineAliveAt.current > 0) ensureGuestIdentity();
+    if (autoEnter.current) {
+      autoEnter.current = false;
       handleDestinationChosen(deepLink);
-      return;
-    }
-    setPhase("picking");
+    } else setPhase("lobby");
   };
 
-  const handleDestinationChosen = (dest: PickedDestination) => {
-    pendingDestinationRef.current = primeBootPosition(dest) ? null : dest;
-    destinationAppliedRef.current = false;
+  const handleDestinationChosen = (dest: EntryDestination) => {
+    initialDestinationRef.current = dest ?? deepLink;
+    setDestinationSettled(false);
+    setStartupTimedOut(false);
+    setFailure(null);
     jumpedAt.current = Date.now();
     setPhase("loading");
-    startEngine();
+    startEngine(false);
   };
 
-  if (phase === "lobby") {
+  useEffect(() => {
+    if (phase !== "onboarding" || !auth.address) return;
+    pendingAvatarRef.current = null;
+    if (autoEnter.current) {
+      autoEnter.current = false;
+      handleDestinationChosen(deepLink);
+    } else setPhase("lobby");
+  }, [phase, auth.address]);
+
+  if (phase === "onboarding") {
     return (
       <div className="boot">
         <LobbyNew onJumpIn={handleAvatarChosen} />
       </div>
     );
-  }
-  if (phase === "picking") {
-    return <PlacesPicker onPick={handleDestinationChosen} />;
   }
   if (phase === "loading") {
     const pct =
@@ -371,9 +422,7 @@ function BootPhases({ children }: BootGateProps) {
         <div className="boot__stalled" role="alert">
           <h1 className="boot__stalled-title">The world couldn&#x2019;t start</h1>
           <p className="boot__stalled-body">
-            The 3D engine didn&#x2019;t come up. This usually means the browser
-            couldn&#x2019;t access the GPU &#x2014; check that hardware acceleration is
-            enabled, or try another Chrome-based browser.
+            {failure ?? "The explorer could not finish starting. Try again or choose another destination."}
           </p>
           <div className="boot__stalled-actions">
             <button
@@ -386,7 +435,10 @@ function BootPhases({ children }: BootGateProps) {
             <button
               type="button"
               className="boot__stalled-btn"
-              onClick={() => setPhase("lobby")}
+              onClick={() => {
+                startGeneration.current++;
+                setPhase("lobby");
+              }}
             >
               Back to lobby
             </button>
@@ -395,5 +447,7 @@ function BootPhases({ children }: BootGateProps) {
       </div>
     );
   }
-  return children;
+  return <WorldEntryContext.Provider value={{ pending: phase === "lobby", destination: deepLink, enter: handleDestinationChosen }}>
+    {children}
+  </WorldEntryContext.Provider>;
 }

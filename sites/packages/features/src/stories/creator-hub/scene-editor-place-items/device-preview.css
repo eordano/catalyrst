@@ -1,0 +1,10 @@
+.device-preview { display: flex; flex-direction: column; gap: 16px; max-height: 80dvh; color: var(--text); }
+.device-preview header, .device-preview__launch, .device-preview__controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.device-preview header { justify-content: space-between; }
+.device-preview h2, .device-preview p { margin: 0; }
+.device-preview__launch figure { display: flex; align-items: center; gap: 12px; margin: 0; }
+.device-preview__launch figcaption { max-width: 180px; color: var(--ink-7); }
+.device-preview__controls label { display: flex; align-items: center; gap: 8px; }
+.device-preview__controls select { background: var(--panel); color: var(--text); border: 1px solid var(--line); padding: 8px; }
+.device-preview__logs { overflow: auto; min-height: 160px; max-height: 40dvh; border: 1px solid var(--line); padding: 12px; }
+.device-preview__logs pre { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; border-bottom: 1px solid var(--line); padding-block-end: 12px; }

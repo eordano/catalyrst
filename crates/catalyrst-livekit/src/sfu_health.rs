@@ -48,15 +48,18 @@ impl SfuHealth {
         let health = Self {
             alive: Arc::new(AtomicBool::new(true)),
             down_since_secs: Arc::new(AtomicU64::new(0)),
-            target: Arc::from(target.as_str()),
+            target: Arc::from(diagnostic_target(&target)),
             enabled: true,
         };
         if tokio::runtime::Handle::try_current().is_err() {
             tracing::warn!(
-                target = %target,
+                target = %health.target,
                 "SFU health probe started outside a Tokio runtime; comms will always be advertised as up"
             );
-            return Self::always_alive();
+            return Self {
+                enabled: false,
+                ..health
+            };
         }
         let probe = health.clone();
         tokio::spawn(async move { probe.run(target).await });
@@ -96,14 +99,14 @@ impl SfuHealth {
             if reachable {
                 strikes = 0;
                 if !self.alive.swap(true, Ordering::Relaxed) {
-                    tracing::info!(target = %target, "SFU is answering again; comms restored");
+                    tracing::info!(target = %self.target, "SFU is answering again; comms restored");
                 }
             } else {
                 strikes = strikes.saturating_add(1);
                 if strikes >= STRIKES_TO_DOWN && self.alive.swap(false, Ordering::Relaxed) {
                     self.down_since_secs.store(now_secs(), Ordering::Relaxed);
                     tracing::warn!(
-                        target = %target,
+                        target = %self.target,
                         strikes,
                         "SFU unreachable: /about now advertises fixed-adapter:offline:offline so visitors can still enter, with comms off"
                     );
@@ -112,6 +115,14 @@ impl SfuHealth {
             tokio::time::sleep(PROBE_INTERVAL).await;
         }
     }
+}
+
+fn diagnostic_target(target: &str) -> String {
+    reqwest::Url::parse(target)
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
+        .map(|url| url.origin().ascii_serialization())
+        .unwrap_or_else(|| "configured-sfu".to_string())
 }
 
 fn now_secs() -> u64 {
@@ -150,6 +161,22 @@ pub fn probe_target(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use std::sync::Mutex;
+
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn maps_signalling_schemes_onto_http() {
@@ -197,5 +224,31 @@ mod tests {
         let h = SfuHealth::always_alive();
         assert!(h.is_alive());
         assert!(h.down_for_secs().is_none());
+    }
+
+    #[test]
+    fn diagnostics_never_retain_private_probe_url_material() {
+        const CANARY: &str = "sfu-health-private-material-canary";
+        let buffer = LogBuffer::default();
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let health = SfuHealth::spawn(format!(
+            "https://user:{CANARY}@sfu.example.invalid/private/{CANARY}?token={CANARY}"
+        ));
+
+        let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+        assert!(logs.contains("SFU health probe started outside a Tokio runtime"));
+        assert_eq!(health.target(), "https://sfu.example.invalid");
+        assert!(
+            !logs.contains(CANARY),
+            "private probe URL survived in {logs}"
+        );
     }
 }

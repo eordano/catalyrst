@@ -3,6 +3,7 @@ use sqlx::Row;
 
 use crate::dcl_schemas::NftCategory;
 use crate::http::response::ApiError;
+use crate::logic::sql_filters::clamp_skip;
 
 use super::query::{build_nfts_query, Bind};
 use super::rows::from_db_nft_to_nft;
@@ -77,17 +78,23 @@ impl NftsComponent {
         }
         let rows: Vec<DbNft> = q.fetch_all(&self.pool).await?;
 
-        let (count_sql, count_binds) = build_nfts_query(&effective, true);
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
-        for b in &count_binds {
-            cq = match b {
-                Bind::Text(s) => cq.bind(s.clone()),
-                Bind::TextArray(v) => cq.bind(v.clone()),
-                Bind::Int(i) => cq.bind(*i),
-                Bind::Float(f) => cq.bind(*f),
-            };
-        }
-        let total: i64 = cq.fetch_one(&self.pool).await?;
+        let total: i64 = match rows.first() {
+            Some(r) => r.count,
+            None if clamp_skip(effective.skip) > 0 => {
+                let (count_sql, count_binds) = build_nfts_query(&effective, true);
+                let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
+                for b in &count_binds {
+                    cq = match b {
+                        Bind::Text(s) => cq.bind(s.clone()),
+                        Bind::TextArray(v) => cq.bind(v.clone()),
+                        Bind::Int(i) => cq.bind(*i),
+                        Bind::Float(f) => cq.bind(*f),
+                    };
+                }
+                cq.fetch_one(&self.pool).await?
+            }
+            None => 0,
+        };
 
         let nft_ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
         let orders_by_nft = if nft_ids.is_empty() {

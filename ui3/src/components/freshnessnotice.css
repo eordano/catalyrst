@@ -1,0 +1,24 @@
+.freshness-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 20px;
+  color: var(--text);
+  background: var(--panel-2);
+  font-family: var(--font-sans);
+}
+.freshness-notice button {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.freshness-notice button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}

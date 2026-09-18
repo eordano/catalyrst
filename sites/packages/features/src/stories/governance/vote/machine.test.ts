@@ -39,52 +39,25 @@ const graphOpts = {
   serializeState: (s: { value: unknown }) => JSON.stringify(s.value),
 };
 
-describe("voteMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("control (guided:false): never visits reasoning or snapshotFallback", () => {
+describe("voteMachine \u{2014} control variant", () => {
+  it("never visits reasoning; choosing -> casting -> registered fires started + completed, SUBSCRIBE ends the flow", async () => {
     const paths = getShortestPaths(voteMachine, {
       ...graphOpts,
       input: inputFor(false, okCast, () => {}),
     });
-
     const ends = new Set<string>();
     for (const p of paths) {
-      const value = p.state.value as string;
-      ends.add(value);
-      const events = p.steps.map((s) => s.event.type);
-      expect(events).not.toContain("REASON");
+      ends.add(p.state.value as string);
+      expect(p.steps.map((s) => s.event.type)).not.toContain("REASON");
     }
     expect(ends.has("reasoning")).toBe(false);
     expect(ends.has("snapshotFallback")).toBe(false);
     expect(ends.has("registered") || ends.has("done")).toBe(true);
-  });
 
-  it("guided (guided:true): reaches reasoning and a completed terminal", () => {
-    const paths = getShortestPaths(voteMachine, {
-      ...graphOpts,
-      input: inputFor(true, okCast, () => {}),
-    });
-
-    const ends = new Set<string>();
-    for (const p of paths) ends.add(p.state.value as string);
-
-    expect(ends.has("reasoning")).toBe(true);
-    expect(ends.has("registered") || ends.has("done")).toBe(true);
-
-    const registered = paths.find((p) => (p.state.value as string) === "registered");
-    expect(registered).toBeDefined();
-    const events = registered!.steps.map((s) => s.event.type);
-    expect(events).toContain("START");
-    expect(events).toContain("CAST");
-  });
-});
-
-describe("voteMachine \u{2014} telemetry events (control)", () => {
-  it("choosing -> casting -> registered fires started + completed (no reasoned)", async () => {
     const track = vi.fn();
     const actor = createActor(voteMachine, {
       input: inputFor(false, okCast, track),
     }).start();
-
     actor.send({ type: "START" });
     await waitFor(actor, (s) => s.matches("registered"));
 
@@ -92,7 +65,6 @@ describe("voteMachine \u{2014} telemetry events (control)", () => {
     expect(events).toContain(VOTE_EVENTS.started);
     expect(events).toContain(VOTE_EVENTS.completed);
     expect(events).not.toContain(VOTE_EVENTS.reasoned);
-
     const startedCall = track.mock.calls.find((c) => c[0] === VOTE_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-xyz",
@@ -100,53 +72,58 @@ describe("voteMachine \u{2014} telemetry events (control)", () => {
       variant: "control",
     });
     expect(actor.getSnapshot().context.receipt).toBe(RECEIPT.receipt);
-  });
 
-  it("SUBSCRIBE from registered terminates the flow (done)", async () => {
-    const track = vi.fn();
-    const actor = createActor(voteMachine, {
-      input: inputFor(false, okCast, track),
-    }).start();
-
-    actor.send({ type: "START" });
-    await waitFor(actor, (s) => s.matches("registered"));
     actor.send({ type: "SUBSCRIBE" });
-
     expect(actor.getSnapshot().matches("done")).toBe(true);
   });
 });
 
-describe("voteMachine \u{2014} telemetry events (guided)", () => {
-  it("choosing -> reasoning -> casting -> registered fires started + reasoned + completed", async () => {
+describe("voteMachine \u{2014} guided variant", () => {
+  it("reaches reasoning; choosing -> reasoning -> casting -> registered fires started + reasoned + completed", async () => {
+    const paths = getShortestPaths(voteMachine, {
+      ...graphOpts,
+      input: inputFor(true, okCast, () => {}),
+    });
+    const ends = new Set(paths.map((p) => p.state.value as string));
+    expect(ends.has("reasoning")).toBe(true);
+    expect(ends.has("registered") || ends.has("done")).toBe(true);
+    const registered = paths.find((p) => (p.state.value as string) === "registered");
+    const pathEvents = registered!.steps.map((s) => s.event.type);
+    expect(pathEvents).toContain("START");
+    expect(pathEvents).toContain("CAST");
+
     const track = vi.fn();
     const actor = createActor(voteMachine, {
       input: inputFor(true, okCast, track),
     }).start();
-
     actor.send({ type: "START" });
     expect(actor.getSnapshot().matches("reasoning")).toBe(true);
-
     actor.send({ type: "REASON", reason: "I support this grant proposal." });
     actor.send({ type: "CAST" });
     await waitFor(actor, (s) => s.matches("registered"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toEqual([
+    expect(track.mock.calls.map((c) => c[0])).toEqual([
       VOTE_EVENTS.started,
       VOTE_EVENTS.reasoned,
       VOTE_EVENTS.completed,
     ]);
   });
 
-  it("repeated cast failures route to snapshotFallback and fire snapshot_redirect", async () => {
+  it("CANCEL leaves reasoning without casting; repeated cast failures escalate to snapshotFallback", async () => {
     const track = vi.fn();
+    const castVote = vi.fn(failCast);
     const actor = createActor(voteMachine, {
-      input: inputFor(true, failCast, track),
+      input: inputFor(true, castVote, track),
     }).start();
 
     actor.send({ type: "START" });
-    actor.send({ type: "CAST" });
+    expect(actor.getSnapshot().matches("reasoning")).toBe(true);
+    actor.send({ type: "CANCEL" });
+    expect(actor.getSnapshot().matches("choosing")).toBe(true);
+    expect(castVote).not.toHaveBeenCalled();
 
+    actor.send({ type: "START" });
+    actor.send({ type: "CAST" });
     await waitFor(actor, (s) => s.matches("castError"), { timeout: 2000 });
     expect(actor.getSnapshot().context.attempts).toBe(1);
 
@@ -158,7 +135,6 @@ describe("voteMachine \u{2014} telemetry events (guided)", () => {
         { timeout: 2000 },
       );
     }
-
     expect(actor.getSnapshot().context.attempts).toBeGreaterThanOrEqual(
       MAX_ERRORS_BEFORE_SNAPSHOT,
     );
@@ -166,20 +142,5 @@ describe("voteMachine \u{2014} telemetry events (guided)", () => {
     expect(events).toContain(VOTE_EVENTS.started);
     expect(events).toContain(VOTE_EVENTS.snapshotRedirect);
     expect(events).not.toContain(VOTE_EVENTS.completed);
-  });
-
-  it("CANCEL from reasoning returns to choosing without casting", () => {
-    const track = vi.fn();
-    const castVote = vi.fn(okCast);
-    const actor = createActor(voteMachine, {
-      input: inputFor(true, castVote, track),
-    }).start();
-
-    actor.send({ type: "START" });
-    expect(actor.getSnapshot().matches("reasoning")).toBe(true);
-
-    actor.send({ type: "CANCEL" });
-    expect(actor.getSnapshot().matches("choosing")).toBe(true);
-    expect(castVote).not.toHaveBeenCalled();
   });
 });

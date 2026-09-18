@@ -20,7 +20,11 @@ import {
 } from "@data/lib/catalyst/marketplace/index";
 import { experimentActive } from "@core/lib/experiments/flags";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { parseVariantOverride, storyLoader } from "@core/lib/experiments/story-loader";
+import {
+  parseVariantOverride,
+  sidLoader,
+  storyLoader,
+} from "@core/lib/experiments/story-loader";
 import {
   WHATSON_SHOP_ENTRY_ARMS,
   WHATSON_SHOP_ENTRY_EXPERIMENT_KEY,
@@ -96,39 +100,21 @@ export async function loader({ request }: Route.LoaderArgs) {
   const filter: FilterId = (FILTERS.some((f) => f.id === rawFilter) ? rawFilter : "") as FilterId;
   const search = url.searchParams.get("search")?.trim() ?? "";
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const shop = await storyLoader(request, SHOP_ENTRY_STORY, SHOP_ENTRY_FALLBACK, {
-    skipExposure: true,
-  });
-  const shopActive = await experimentActive(WHATSON_SHOP_ENTRY_EXPERIMENT_KEY, {
-    envActive:
-      activeWhatsOnShopEntryExperiment(
-        typeof process !== "undefined"
-          ? process.env?.WHATSON_SHOP_ENTRY_EXPERIMENT
-          : undefined,
-      ) !== null,
-    user: shop.userKey,
-  });
-  let shopAssignment = shopActive ? shop.assignment : SHOP_ENTRY_FALLBACK;
-  const forcedShop = forcedShopArm(url);
-  if (forcedShop) {
-    shopAssignment = {
-      variant: forcedShop,
-      flags: { shopEntry: forcedShop },
-      experimentKey: WHATSON_SHOP_ENTRY_EXPERIMENT_KEY,
-    };
-  }
-  const shopArm: WhatsOnShopEntryArm =
-    whatsOnShopEntryFromFlags(shopAssignment.flags) ?? "base";
-
-  const now = new Date();
-
-  const [live, active, railItems] = await Promise.all([
+  const { userKey } = sidLoader(request);
+  const [{ sid, wrap }, shop, shopActive, live, active] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    storyLoader(request, SHOP_ENTRY_STORY, SHOP_ENTRY_FALLBACK, {
+      skipExposure: true,
+    }),
+    experimentActive(WHATSON_SHOP_ENTRY_EXPERIMENT_KEY, {
+      envActive:
+        activeWhatsOnShopEntryExperiment(
+          typeof process !== "undefined"
+            ? process.env?.WHATSON_SHOP_ENTRY_EXPERIMENT
+            : undefined,
+        ) !== null,
+      user: userKey,
+    }),
     fetchEvents({
       list: "live",
       search: search || undefined,
@@ -143,8 +129,24 @@ export async function loader({ request }: Route.LoaderArgs) {
     })
       .then((r) => r.data)
       .catch(() => [] as Event[]),
+  ]);
+  let shopAssignment = shopActive ? shop.assignment : SHOP_ENTRY_FALLBACK;
+  const forcedShop = forcedShopArm(url);
+  if (forcedShop) {
+    shopAssignment = {
+      variant: forcedShop,
+      flags: { shopEntry: forcedShop },
+      experimentKey: WHATSON_SHOP_ENTRY_EXPERIMENT_KEY,
+    };
+  }
+  const shopArm: WhatsOnShopEntryArm =
+    whatsOnShopEntryFromFlags(shopAssignment.flags) ?? "base";
+
+  const now = new Date();
+
+  const railItems =
     shopArm === "rail"
-      ? fetchCatalog({
+      ? await fetchCatalog({
           first: 8,
           category: "emote",
           isOnSale: true,
@@ -157,8 +159,7 @@ export async function loader({ request }: Route.LoaderArgs) {
               .map((it) => toCollectibleCard(it)),
           )
           .catch(() => null)
-      : Promise.resolve(null),
-  ]);
+      : null;
 
   if (shopActive && !forcedShop) {
     trackExposure({
@@ -177,7 +178,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const upcoming = applyFilter(sorted, filter, now).slice(0, UPCOMING_LIMIT);
 
   const liveIds = new Set(live.map((e) => e.id));
-  const { allDays, dayLabels } = groupEventsByDay(sorted, liveIds, 7, now);
+  const { allDays, dayLabels } = groupEventsByDay(sorted, liveIds, 28, now);
 
   const payload = {
     sid,

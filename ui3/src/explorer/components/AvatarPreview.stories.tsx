@@ -2,6 +2,8 @@ import type { CSSProperties } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import WearablePreview from "../../wearable-preview/WearablePreview";
 
+import { expectLiveAvatar, LIVE_CATALYST } from "../../test/live-avatar";
+
 const PROFILE = "0xf12c21d3edb2c0e68935a3bbe5d68ae4bf9dcd7c";
 
 const BODY = "urn:decentraland:off-chain:base-avatars:BaseMale";
@@ -31,7 +33,9 @@ const meta = {
     controls: { control: "boolean" },
     background: { control: "color" },
   },
+  play: ({ canvasElement }) => expectLiveAvatar(canvasElement),
   args: {
+    base: LIVE_CATALYST,
     profile: PROFILE,
     emote: "dance",
     zoom: 1,
@@ -105,7 +109,7 @@ export const AssetList: Story = {
   render: () => (
     <div style={wrap}>
       <div style={box}>
-        <WearablePreview body={BODY} urns={OUTFIT_URNS} emote="wave" />
+        <WearablePreview base={LIVE_CATALYST} body={BODY} urns={OUTFIT_URNS} emote="wave" />
       </div>
     </div>
   ),
@@ -116,7 +120,7 @@ export const SavedOutfit: Story = {
   render: () => (
     <div style={wrap}>
       <div style={box}>
-        <WearablePreview outfit={{ address: "0x4274c2545f2263f820f4e5dc19cca999c955238c", slot: 0 }} emote="wave" />
+        <WearablePreview base={LIVE_CATALYST} outfit={{ address: "0x4274c2545f2263f820f4e5dc19cca999c955238c", slot: 0 }} emote="wave" />
       </div>
     </div>
   ),

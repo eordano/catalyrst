@@ -46,91 +46,68 @@ afterEach(() => {
 });
 
 describe("wcsBase", () => {
-  it("defaults to worlds-content-server.decentraland.org", () => {
+  it("defaults upstream, honours an override without its trailing slash, and never lands on a catalyst.example.com subdomain", () => {
     expect(wcsBase()).toBe("https://worlds-content-server.decentraland.org");
-  });
-
-  it("never resolves to a worlds. subdomain of catalyst.example.com", () => {
+    expect(wcsBase("https://wcs.example.test/")).toBe("https://wcs.example.test");
     vi.stubEnv("CATALYST_URL", "https://catalyst.example.com");
     const host = new URL(wcsBase()).hostname;
     expect(host).not.toBe("worlds.example.com");
     expect(host.endsWith("catalyst.example.com")).toBe(false);
   });
-
-  it("honours an explicit override and strips its trailing slash", () => {
-    expect(wcsBase("https://wcs.example.test/")).toBe("https://wcs.example.test");
-  });
 });
 
 describe("the wcs world row is snake_case and must be adapted, not coerced", () => {
-  it("keeps deployed_scenes, last_deployed_at and blocked_since", () => {
-    const row = WcsWorldRowSchema.parse(WORLD_ROW);
-    const world = toManagedWorld(row, BASE);
+  it("adapts deployed_scenes, last_deployed_at and blocked_since, and drops only the rows that do not parse", () => {
+    const world = toManagedWorld(WcsWorldRowSchema.parse(WORLD_ROW), BASE);
     expect(world.deployedScenes).toBe(1);
     expect(world.lastDeployedAt).toBe("2023-09-06T20:13:48.672Z");
     expect(world.blockedSince).toBeNull();
     expect(world.thumbnail).toBe(`${BASE}/contents/bafkreidj26`);
-  });
-
-  it("drops only the rows that do not parse", () => {
-    const worlds = parseWcsWorlds(
-      { total: 2, worlds: [WORLD_ROW, { nope: true }] },
-      BASE,
-    );
+    const worlds = parseWcsWorlds({ total: 2, worlds: [WORLD_ROW, { nope: true }] }, BASE);
     expect(worlds.map((w) => w.name)).toEqual(["041.dcl.eth"]);
   });
 });
 
 describe("loadMyWorlds", () => {
-  it("a 200 with no rows is a real answer: live with an empty list", async () => {
-    const d = await loadMyWorlds("0xabc", {
-      base: BASE,
-      fetchImpl: jsonFetch(200, { worlds: [], total: 0 }),
-    });
+  it("asks for the sort and page size the screen claims; a 200 with no rows is a real empty answer", async () => {
+    const seen: string[] = [];
+    const spy = (async (url: string) => {
+      seen.push(url);
+      return new Response(JSON.stringify({ worlds: [], total: 0 }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const d = await loadMyWorlds("0xABC", { base: BASE, fetchImpl: spy });
+    expect(seen[0]).toContain("authorized_deployer=0xabc");
+    expect(seen[0]).toContain("limit=100");
+    expect(seen[0]).toContain("sort=last_deployed_at");
+    expect(seen[0]).toContain("order=desc");
     expect(d.state).toBe("live");
     if (d.state !== "live") throw new Error("unreachable");
     expect(d.value.worlds).toEqual([]);
     expect(d.value.total).toBe(0);
   });
 
-  it("a 500 yields unavailable with the endpoint in the reason and NO value key", async () => {
-    const d = await loadMyWorlds("0xabc", {
+  it("a 500 or an unreachable host yields unavailable with the endpoint in the reason and NO value key", async () => {
+    const failed = await loadMyWorlds("0xabc", {
       base: BASE,
       fetchImpl: jsonFetch(500, { message: "boom" }),
     });
-    expect(d.state).toBe("unavailable");
-    expect(Object.keys(d)).not.toContain("value");
-    if (d.state !== "unavailable") throw new Error("unreachable");
-    expect(d.status).toBe(500);
-    expect(d.reason).toContain("worlds-content-server.example.test/worlds");
-    expect(d.reason).toContain("authorized_deployer=0xabc");
-    expect(d.reason).toContain("Showing no value rather than a guess.");
-  });
+    expect(failed.state).toBe("unavailable");
+    expect(Object.keys(failed)).not.toContain("value");
+    if (failed.state !== "unavailable") throw new Error("unreachable");
+    expect(failed.status).toBe(500);
+    expect(failed.reason).toContain("worlds-content-server.example.test/worlds");
+    expect(failed.reason).toContain("authorized_deployer=0xabc");
 
-  it("an unreachable host yields unavailable with a null status, never []", async () => {
-    const d = await loadMyWorlds("0xabc", {
+    const down = await loadMyWorlds("0xabc", {
       base: BASE,
       fetchImpl: (async () => {
         throw new Error("ECONNREFUSED");
       }) as unknown as typeof fetch,
     });
-    expect(d.state).toBe("unavailable");
-    if (d.state !== "unavailable") throw new Error("unreachable");
-    expect(d.status).toBeNull();
-    expect(d.reason).toContain("did not respond");
-  });
-
-  it("asks for the sort and page size the screen claims", async () => {
-    const seen: string[] = [];
-    const spy = (async (url: string) => {
-      seen.push(url);
-      return new Response(JSON.stringify({ worlds: [], total: 0 }), { status: 200 });
-    }) as unknown as typeof fetch;
-    await loadMyWorlds("0xABC", { base: BASE, fetchImpl: spy });
-    expect(seen[0]).toContain("authorized_deployer=0xabc");
-    expect(seen[0]).toContain("limit=100");
-    expect(seen[0]).toContain("sort=last_deployed_at");
-    expect(seen[0]).toContain("order=desc");
+    expect(down.state).toBe("unavailable");
+    if (down.state !== "unavailable") throw new Error("unreachable");
+    expect(down.status).toBeNull();
+    expect(down.reason).toContain("worlds-content-server.example.test");
   });
 });
 
@@ -143,37 +120,28 @@ describe("loadWalletStats", () => {
     maxAllowedSpace: "104857600",
   };
 
-  it("returns live and keeps the byte counts as strings for BigInt parsing", async () => {
-    const d = await loadWalletStats("0x37b3", {
-      base: BASE,
-      fetchImpl: jsonFetch(200, STATS),
-    });
+  it("returns live with the byte counts as strings for BigInt parsing, and degrades a 404 to unavailable", async () => {
+    const d = await loadWalletStats("0x37b3", { base: BASE, fetchImpl: jsonFetch(200, STATS) });
     expect(d.state).toBe("live");
     if (d.state !== "live") throw new Error("unreachable");
     expect(bytesFromString(d.value.usedSpace)).toBe(6460699n);
     expect(findWorldSize(d.value, "041.DCL.ETH")).toBe(6460699n);
-  });
 
-  it("degrades a 404 to unavailable", async () => {
-    const d = await loadWalletStats("0x0", {
+    const missing = await loadWalletStats("0x0", {
       base: BASE,
       fetchImpl: jsonFetch(404, { message: "nope" }),
     });
-    expect(d.state).toBe("unavailable");
+    expect(missing.state).toBe("unavailable");
   });
 });
 
 describe("byte handling", () => {
-  it("parses past Number.MAX_SAFE_INTEGER", () => {
+  it("parses past Number.MAX_SAFE_INTEGER, returns null for junk rather than 0, and formats", () => {
     expect(bytesFromString("9007199254740993")).toBe(9007199254740993n);
-  });
-  it("returns null for junk rather than 0", () => {
     expect(bytesFromString("")).toBeNull();
     expect(bytesFromString("1.5")).toBeNull();
     expect(bytesFromString(null)).toBeNull();
     expect(formatBytes(null)).toBeNull();
-  });
-  it("formats", () => {
     expect(formatBytes(512n)).toBe("512 B");
     expect(formatBytes(6460699n)).toBe("6.2 MB");
   });
@@ -191,45 +159,37 @@ describe("loadLiveData / loadPlatformStatus", () => {
     lastUpdated: "2026-08-01T09:52:30.775Z",
   };
 
-  it("parses the live-data envelope", async () => {
-    const d = await loadLiveData({ base: BASE, fetchImpl: jsonFetch(200, LIVE) });
-    expect(d.state).toBe("live");
-    if (d.state !== "live") throw new Error("unreachable");
-    expect(d.value.data.totalUsers).toBe(5);
-    expect(liveUsersFor(d.value, "PETBARN.DCL.ETH")).toBe(3);
-    expect(liveUsersFor(d.value, "elsewhere.dcl.eth")).toBeNull();
-  });
+  it("parses the live-data and status envelopes", async () => {
+    const live = await loadLiveData({ base: BASE, fetchImpl: jsonFetch(200, LIVE) });
+    expect(live.state).toBe("live");
+    if (live.state !== "live") throw new Error("unreachable");
+    expect(live.value.data.totalUsers).toBe(5);
+    expect(liveUsersFor(live.value, "PETBARN.DCL.ETH")).toBe(3);
+    expect(liveUsersFor(live.value, "elsewhere.dcl.eth")).toBeNull();
 
-  it("refuses a missing perWorld array instead of inventing an empty one", () => {
-    const r = LiveDataSchema.safeParse({ data: { totalUsers: 0 }, lastUpdated: null });
-    expect(r.success).toBe(false);
-  });
-
-  it("degrades a live-data body whose perWorld array is missing", async () => {
-    const d = await loadLiveData({
-      base: BASE,
-      fetchImpl: jsonFetch(200, { data: { totalUsers: 0 }, lastUpdated: null }),
-    });
-    expect(d.state).toBe("unavailable");
-  });
-
-  it("degrades a status read that returns HTML", async () => {
-    const html = (async () =>
-      new Response("<!doctype html><html></html>", { status: 200 })) as unknown as typeof fetch;
-    const d = await loadPlatformStatus({ base: BASE, fetchImpl: html });
-    expect(d.state).toBe("unavailable");
-  });
-
-  it("parses the status envelope", async () => {
-    const d = await loadPlatformStatus({
+    const status = await loadPlatformStatus({
       base: BASE,
       fetchImpl: jsonFetch(200, {
         content: { commitHash: "66fe4f", worldsCount: { ens: 119, dcl: 1432 } },
         comms: { adapterType: "livekit", rooms: 3, users: 5 },
       }),
     });
-    expect(d.state).toBe("live");
-    if (d.state !== "live") throw new Error("unreachable");
-    expect(d.value.content.worldsCount.dcl).toBe(1432);
+    expect(status.state).toBe("live");
+    if (status.state !== "live") throw new Error("unreachable");
+    expect(status.value.content.worldsCount.dcl).toBe(1432);
+  });
+
+  it("degrades a live-data body missing perWorld and a status read that returns HTML, inventing nothing", async () => {
+    expect(LiveDataSchema.safeParse({ data: { totalUsers: 0 }, lastUpdated: null }).success).toBe(false);
+    const live = await loadLiveData({
+      base: BASE,
+      fetchImpl: jsonFetch(200, { data: { totalUsers: 0 }, lastUpdated: null }),
+    });
+    expect(live.state).toBe("unavailable");
+
+    const html = (async () =>
+      new Response("<!doctype html><html></html>", { status: 200 })) as unknown as typeof fetch;
+    const status = await loadPlatformStatus({ base: BASE, fetchImpl: html });
+    expect(status.state).toBe("unavailable");
   });
 });

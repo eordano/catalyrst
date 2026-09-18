@@ -1,84 +1,38 @@
+import { COMPONENT_SCHEMAS, componentFields } from "../authoring-schema";
+import { DeSchemaFields } from "./DeSchemaFields";
 import type { ReactNode } from "react";
-import { useEffect, useId, useMemo, useState } from "react";
-import Toggle from "../../atoms/Toggle";
-import type {
-  AuthorComponentFn,
-  DeleteComponentFn,
-  EditorTransform,
-  EditorVec,
-} from "../types";
-import { nudgeFromKey } from "../transform-nudge";
+import { useId, useMemo, useState } from "react";
+import type { AuthorComponentFn, AuthorComponentsFn, DeleteComponentFn, EditorTransform, ProjectAssets } from "../types";
+import { DeGltfNodeModifiers } from "./DeGltfNodeModifiers";
+import { DeMaterialEditor } from "./DeMaterialEditor";
+import { DeMaterialSelection } from "./DeMaterialSelection";
+import type { AuthorMaterialSelection, MaterialSelection } from "../material-selection";
 import Modal from "../../components/Modal";
 import DeInteractionsPanel, { type DeInteractionsPreset } from "./DeInteractionsPanel";
 import { IconBolt, IconPlus, IconTrash } from "./DeIcons";
 import { useOneShot } from "../use-one-shot";
+import ComponentClipboardControls, { type ComponentClipboard } from "./ComponentClipboardControls";
+import {
+  AxisRow,
+  BoolField,
+  NumField,
+  PropRow,
+  TextField,
+  atPath,
+  withPath,
+  type CompValue,
+  type NudgeFieldFn,
+  type WriteComp,
+} from "./DeInspectorFields";
+import {
+  ACTION_TYPE_OPTIONS,
+  ActionEntry,
+  EntryListShell,
+  TriggerEntry,
+  entryList,
+} from "./DeInspectorSmartItems";
 
-type NudgeAxisFn = (axis: keyof EditorVec, delta: number) => void;
-
-interface AxisRowProps {
-  label: string;
-  v: EditorVec;
-  axes?: readonly (keyof EditorVec)[];
-  readOnly?: boolean;
-  onNudge?: NudgeAxisFn;
-}
-
-function AxisRow({ label, v, axes = ["x", "y", "z"], readOnly = false, onNudge }: AxisRowProps) {
-  return (
-    <div className="eui-prop">
-      <span className="plabel">{label}</span>
-      <span className="pvalue">
-        {axes.map((ax) => (
-          <span className="eui-axis" key={ax}>
-            <span
-              className="ax"
-              title={onNudge ? "\u{2191}/\u{2193} nudge \u{B1}1 \u{B7} shift \u{B1}0.01" : "drag to scrub \u{B7} shift for fine"}
-            >
-              {ax.toUpperCase()}
-            </span>
-            <input
-              className="eui-num"
-              aria-label={`${label} ${ax.toUpperCase()}`}
-              {...(onNudge ? { value: v[ax] } : { defaultValue: v[ax] })}
-              readOnly={readOnly}
-              spellCheck={false}
-              onKeyDown={
-                onNudge
-                  ? (e) => {
-                      const delta = nudgeFromKey(0, e.key, e.shiftKey);
-                      if (delta !== null) {
-                        e.preventDefault();
-                        onNudge(ax, delta);
-                      }
-                    }
-                  : undefined
-              }
-            />
-          </span>
-        ))}
-      </span>
-    </div>
-  );
-}
-
-interface PropRowProps {
-  label: string;
-  htmlFor?: string;
-  children?: ReactNode;
-}
-
-function PropRow({ label, htmlFor, children }: PropRowProps) {
-  return (
-    <div className="eui-prop">
-      {htmlFor ? (
-        <label className="plabel" htmlFor={htmlFor}>{label}</label>
-      ) : (
-        <span className="plabel">{label}</span>
-      )}
-      <span className="pvalue">{children}</span>
-    </div>
-  );
-}
+export type { NudgeFieldFn } from "./DeInspectorFields";
 
 interface ComponentJsonModalProps {
   name: string;
@@ -138,6 +92,7 @@ function ComponentJsonModal({ name, value, onClose, onSave }: ComponentJsonModal
 }
 
 interface CompCardProps {
+  clipboard?: ComponentClipboard;
   ns?: string | null;
   name: string;
   rawName?: string | null;
@@ -153,6 +108,7 @@ interface CompCardProps {
 }
 
 function CompCard({
+  clipboard,
   ns = null,
   name,
   rawName = null,
@@ -181,6 +137,7 @@ function CompCard({
           {name}
         </span>
         <span className="spacer" />
+        {clipboard && rawName && entityId != null && !readonly && <ComponentClipboardControls entity={entityId} name={rawName} actions={clipboard} />}
         {open && !readonly && hasJson && (
           <button
             className="eui-link"
@@ -233,7 +190,6 @@ const HIDDEN_COMPONENTS = new Set<string>([
   "composite::root",
   "core-schema::Name",
   "core-schema::Network-Entity",
-  "core-schema::Sync-Components",
   "core-schema::Tags",
   "inspector::Selection",
   "inspector::Nodes",
@@ -267,603 +223,25 @@ function splitComp(name: string): { nsLabel: string | null; label: string } {
   return { nsLabel, label };
 }
 
-export type NudgeFieldFn = (
-  field: "position" | "rotation" | "scale",
-  axis: keyof EditorVec,
-  delta: number,
-) => void;
+const CANONICAL_COMPONENT: Record<string, string> = {
+  GltfContainer: "core::GltfContainer",
+  GltfContainerLoadingState: "core::GltfContainerLoadingState",
+  Material: "core::Material",
+  MeshRenderer: "core::MeshRenderer",
+  MeshCollider: "core::MeshCollider",
+  VisibilityComponent: "core::VisibilityComponent",
+  VideoPlayer: "core::VideoPlayer",
+  Actions: "asset-packs::Actions",
+  Triggers: "asset-packs::Triggers",
+};
 
-type CompValue = Record<string, unknown>;
-type WriteComp = (next: CompValue) => void;
-
-function atPath(v: unknown, path: string[]): unknown {
-  let cur: unknown = v;
-  for (const k of path) {
-    if (cur === null || typeof cur !== "object") return undefined;
-    cur = (cur as Record<string, unknown>)[k];
-  }
-  return cur;
-}
-
-function withPath(v: CompValue, path: string[], leaf: unknown): CompValue {
-  if (path.length === 0) return v;
-  const head = path[0];
-  if (head === undefined) return v;
-  const rest = path.slice(1);
-  const child = v[head];
-  const base = child !== null && typeof child === "object" ? (child as CompValue) : {};
-  return { ...v, [head]: rest.length === 0 ? leaf : withPath(base, rest, leaf) };
-}
-
-function rgbToHex(c: unknown): string {
-  const o = c !== null && typeof c === "object" ? (c as Record<string, unknown>) : {};
-  const ch = (k: string) => {
-    const n = o[k];
-    const f = typeof n === "number" ? n : 1;
-    return Math.max(0, Math.min(255, Math.round(f * 255)))
-      .toString(16)
-      .padStart(2, "0");
-  };
-  return `#${ch("r")}${ch("g")}${ch("b")}`;
-}
-
-function hexToRgb(hex: string, a: number): Record<string, number> {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m || m[1] === undefined) return { r: 1, g: 1, b: 1, a };
-  const n = parseInt(m[1], 16);
-  return {
-    r: ((n >> 16) & 255) / 255,
-    g: ((n >> 8) & 255) / 255,
-    b: (n & 255) / 255,
-    a,
-  };
-}
-
-function NumField({
-  id,
-  value,
-  onCommit,
-}: {
-  id: string;
-  value: number;
-  onCommit?: (n: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => setDraft(String(value)), [value]);
-  const commit = () => {
-    const n = Number(draft);
-    if (Number.isFinite(n) && n !== value) onCommit?.(n);
-    else setDraft(String(value));
-  };
-  return (
-    <input
-      id={id}
-      className="eui-num"
-      value={draft}
-      readOnly={onCommit === undefined}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") commit();
-        if (e.key === "Escape") setDraft(String(value));
-      }}
-    />
-  );
-}
-
-function TextField({
-  id,
-  value,
-  placeholder,
-  onCommit,
-  list,
-}: {
-  id: string;
-  value: string;
-  placeholder?: string;
-  onCommit?: (s: string) => void;
-  list?: string;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  return (
-    <input
-      id={id}
-      className="eui-input"
-      value={draft}
-      placeholder={placeholder}
-      spellCheck={false}
-      list={list}
-      readOnly={onCommit === undefined}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => draft !== value && onCommit?.(draft)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        if (e.key === "Escape") setDraft(value);
-      }}
-    />
-  );
-}
-
-function BoolField({
-  checked,
-  label,
-  onCommit,
-}: {
-  checked: boolean;
-  label: string;
-  onCommit?: (b: boolean) => void;
-}) {
-  return (
-    <Toggle
-      checked={checked}
-      ariaLabel={label}
-      disabled={onCommit === undefined}
-      onChange={(next) => onCommit?.(next)}
-    />
-  );
-}
-
-const ACTION_TYPE_OPTIONS: readonly string[] = [
-  "play_animation", "stop_animation", "set_state", "start_tween", "set_counter",
-  "increment_counter", "decrease_counter", "play_sound", "stop_sound", "set_visibility",
-  "attach_to_player", "detach_from_player", "play_video_stream", "stop_video_stream",
-  "play_audio_stream", "stop_audio_stream", "teleport_player", "move_player",
-  "play_default_emote", "play_custom_emote", "open_link", "show_text", "hide_text",
-  "start_delay", "stop_delay", "start_loop", "stop_loop", "clone_entity", "remove_entity",
-  "show_image", "hide_image", "damage", "move_player_here", "player_face_item",
-  "place_on_player", "rotate_as_player", "place_on_camera", "rotate_as_camera",
-  "set_position", "set_rotation", "set_scale", "follow_player", "stop_following_player",
-  "random", "batch", "heal_player", "claim_airdrop", "lights_on", "lights_off",
-  "lights_modify", "change_camera", "change_text", "stop_tween", "slide_texture",
-  "freeze_player", "unfreeze_player", "change_collisions", "change_skybox",
-  "reset_skybox", "call_script_method", "log_to_console", "delete",
-];
-
-const TRIGGER_TYPE_OPTIONS: readonly { value: string; label: string }[] = [
-  { value: "on_click", label: "on_click (item clicked)" },
-  { value: "on_input_action", label: "on_input_action (E pressed)" },
-  { value: "on_state_change", label: "on_state_change" },
-  { value: "on_spawn", label: "on_spawn" },
-  { value: "on_tween_end", label: "on_tween_end" },
-  { value: "on_counter_change", label: "on_counter_change" },
-  { value: "on_player_enters_area", label: "on_player_enters_area" },
-  { value: "on_player_leaves_area", label: "on_player_leaves_area" },
-  { value: "on_delay", label: "on_delay" },
-  { value: "on_loop", label: "on_loop" },
-  { value: "on_clone", label: "on_clone" },
-  { value: "on_click_image", label: "on_click_image" },
-  { value: "on_damage", label: "on_damage" },
-  { value: "on_global_click", label: "on_global_click" },
-  { value: "on_global_primary", label: "on_global_primary" },
-  { value: "on_global_secondary", label: "on_global_secondary" },
-  { value: "on_tick", label: "on_tick" },
-  { value: "on_heal_player", label: "on_heal_player" },
-  { value: "on_player_spawn", label: "on_player_spawn" },
-];
-
-const CONDITION_TYPE_OPTIONS: readonly string[] = [
-  "when_state_is", "when_state_is_not", "when_counter_equals", "when_counter_is_greater_than",
-  "when_counter_is_less_than", "when_distance_to_player_less_than",
-  "when_distance_to_player_greater_than", "when_previous_state_is",
-  "when_previous_state_is_not",
-];
-
-function entryList(v: CompValue, key = "value"): Record<string, unknown>[] {
-  const val = v[key];
-  if (!Array.isArray(val)) return [];
-  return val.filter((e): e is Record<string, unknown> => e !== null && typeof e === "object");
-}
-
-function payloadText(raw: unknown): string {
-  if (typeof raw === "string") {
-    try {
-      return JSON.stringify(JSON.parse(raw), null, 2);
-    } catch {
-      return raw;
-    }
-  }
-  if (raw !== null && typeof raw === "object") return JSON.stringify(raw, null, 2);
-  return "{}";
-}
-
-function PayloadField({
-  id,
-  raw,
-  onCommit,
-}: {
-  id: string;
-  raw: unknown;
-  onCommit?: (s: string) => void;
-}) {
-  const canonical = payloadText(raw);
-  const [draft, setDraft] = useState(canonical);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    setDraft(canonical);
-    setError(null);
-  }, [canonical]);
-  const readOnly = onCommit === undefined;
-  const commit = () => {
-    if (readOnly) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(draft);
-    } catch (e) {
-      setError("Invalid JSON \u{2014} " + (e instanceof Error ? e.message : "parse error"));
-      setDraft(canonical);
-      return;
-    }
-    setError(null);
-    const next = JSON.stringify(parsed);
-    if (next.replace(/\s/g, "") === canonical.replace(/\s/g, "")) return;
-    onCommit(next);
-  };
-  return (
-    <PropRow label="payload" htmlFor={id}>
-      <span className="pvalue" style={{ flexDirection: "column", alignItems: "stretch", width: "100%" }}>
-        <textarea
-          id={id}
-          className="eui-input"
-          spellCheck={false}
-          rows={3}
-          readOnly={readOnly}
-          value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            if (error) setError(null);
-          }}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commit();
-            if (e.key === "Escape") {
-              setDraft(canonical);
-              setError(null);
-            }
-          }}
-          style={{ width: "100%", fontFamily: "monospace", fontSize: 11, resize: "vertical", minHeight: 54 }}
-        />
-        {error && (
-          <p role="alert" style={{ color: "var(--error, #e5484d)", fontSize: 11, margin: "4px 0 0" }}>
-            {error}
-          </p>
-        )}
-      </span>
-    </PropRow>
-  );
-}
-
-interface EntryListShellProps {
-  title: string;
-  emptyHint: string;
-  count: number;
-  addLabel: string;
-  disabled?: boolean;
-  onAdd: () => void;
-  children?: ReactNode;
-}
-
-function EntryListShell({ title, emptyHint, count, addLabel, disabled, onAdd, children }: EntryListShellProps) {
-  return (
-    <>
-      <div className="eui-group-label">{title}</div>
-      {count === 0 ? <div className="eui-comp-note">{emptyHint}</div> : null}
-      {children}
-      <div className="eui-prop">
-        <span className="plabel" />
-        <span className="pvalue" style={{ display: "flex", justifyContent: "flex-start" }}>
-          <button
-            className="eui-btn"
-            style={{ height: 24 }}
-            disabled={disabled}
-            onClick={onAdd}
-          >
-            <span style={{ marginRight: 4 }}><IconPlus /></span>
-            {addLabel}
-          </button>
-        </span>
-      </div>
-    </>
-  );
-}
-
-interface ActionEntryProps {
-  entry: Record<string, unknown>;
-  uid: string;
-  readonly: boolean;
-  onPatch: (next: Record<string, unknown>) => void;
-  onRemove: () => void;
-}
-
-function ActionEntry({ entry, uid, readonly, onPatch, onRemove }: ActionEntryProps) {
-  const name = typeof entry.name === "string" ? entry.name : "";
-  const type = typeof entry.type === "string" ? entry.type : "";
-  const setField = (k: string, val: unknown) => onPatch({ ...entry, [k]: val });
-  const setF = readonly ? undefined : (val: unknown) => setField("name", val);
-  const setTypeF = readonly ? undefined : (val: unknown) => setField("type", val);
-  return (
-    <div className="eui-group">
-      <div className="eui-prop">
-        <span className="plabel">name</span>
-        <span className="pvalue">
-          <TextField
-            id={uid + "-name"}
-            value={name}
-            placeholder="Action name"
-            list={uid + "-names"}
-            onCommit={setF}
-          />
-          <button
-            className="eui-btn icon"
-            style={{ width: 20, height: 20 }}
-            title="Remove action"
-            aria-label="Remove action"
-            disabled={readonly}
-            onClick={onRemove}
-          >
-            <IconTrash />
-          </button>
-        </span>
-      </div>
-      <PropRow label="type" htmlFor={uid + "-type"}>
-        <TextField
-          id={uid + "-type"}
-          value={type}
-          placeholder="set_visibility"
-          list={uid + "-types"}
-          onCommit={setTypeF}
-        />
-      </PropRow>
-      <PayloadField
-        id={uid + "-payload"}
-        raw={entry["jsonPayload"]}
-        onCommit={readonly ? undefined : (s) => setField("jsonPayload", s)}
-      />
-    </div>
-  );
-}
-
-interface ConditionItemProps {
-  cond: Record<string, unknown>;
-  uid: string;
-  readonly: boolean;
-  onPatch: (next: Record<string, unknown>) => void;
-  onRemove: () => void;
-}
-
-function ConditionItem({ cond, uid, readonly, onPatch, onRemove }: ConditionItemProps) {
-  const ctype = typeof cond.type === "string" ? cond.type : "";
-  const value = typeof cond.value === "string" ? cond.value : "";
-  const cid = cond.id;
-  const numId = typeof cid === "number" ? cid : 0;
-  const known = CONDITION_TYPE_OPTIONS.slice();
-  const op = (k: string, val: unknown) => onPatch({ ...cond, [k]: val });
-  return (
-    <div style={{ paddingLeft: 4 }}>
-      <div className="eui-prop">
-        <span className="plabel">condition</span>
-        <span className="pvalue">
-          <select
-            className="eui-select"
-            aria-label="Condition type"
-            value={ctype}
-            disabled={readonly}
-            onChange={(e) => op("type", e.target.value)}
-          >
-            {known.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-            {ctype && !known.includes(ctype) ? <option value={ctype}>{ctype}</option> : null}
-          </select>
-        </span>
-      </div>
-      <PropRow label="value" htmlFor={uid + "-cval"}>
-        <TextField
-          id={uid + "-cval"}
-          value={value}
-          placeholder="__state__ / number (as string)"
-          onCommit={readonly ? undefined : (s) => op("value", s)}
-        />
-      </PropRow>
-      <PropRow label="entity id" htmlFor={uid + "-cid"}>
-        <span className="eui-axis">
-          <span className="ax">N</span>
-          <NumField
-            id={uid + "-cid"}
-            value={numId}
-            onCommit={readonly ? undefined : (n) => op("id", Math.trunc(n))}
-          />
-        </span>
-      </PropRow>
-      <div className="eui-prop">
-        <span className="plabel" />
-        <span className="pvalue" style={{ display: "flex", justifyContent: "flex-start" }}>
-          <button
-            className="eui-btn"
-            style={{ height: 22, fontSize: 11 }}
-            disabled={readonly}
-            onClick={onRemove}
-          >
-            <span style={{ marginRight: 4 }}><IconTrash /></span>
-            remove condition
-          </button>
-        </span>
-      </div>
-    </div>
-  );
-}
-
-interface RefActionItemProps {
-  ref: Record<string, unknown>;
-  uid: string;
-  readonly: boolean;
-  onPatch: (next: Record<string, unknown>) => void;
-  onRemove: () => void;
-}
-
-function RefActionItem({ ref: refEntry, uid, readonly, onPatch, onRemove }: RefActionItemProps) {
-  const value = typeof refEntry.name === "string" ? refEntry.name : "";
-  const rid = refEntry.id;
-  const numId = typeof rid === "number" ? rid : 0;
-  const op = (k: string, val: unknown) => onPatch({ ...refEntry, [k]: val });
-  return (
-    <div className="eui-prop">
-      <span className="plabel">runs action</span>
-      <span className="pvalue">
-        <TextField
-          id={uid + "-ref"}
-          value={value}
-          placeholder="Action name"
-          list={uid + "-names"}
-          onCommit={readonly ? undefined : (s) => op("name", s)}
-        />
-        <NumField
-          id={uid + "-refid"}
-          value={numId}
-          onCommit={readonly ? undefined : (n) => op("id", Math.trunc(n))}
-        />
-        <button
-          className="eui-btn icon"
-          style={{ width: 20, height: 20 }}
-          title="Remove reference"
-          aria-label="Remove action reference"
-          disabled={readonly}
-          onClick={onRemove}
-        >
-          <IconTrash />
-        </button>
-      </span>
-    </div>
-  );
-}
-
-interface TriggerEntryProps {
-  entry: Record<string, unknown>;
-  uid: string;
-  readonly: boolean;
-  onPatch: (next: Record<string, unknown>) => void;
-  onRemove: () => void;
-}
-
-function TriggerEntry(props: TriggerEntryProps) {
-  const { entry, uid, readonly, onPatch, onRemove } = props;
-  const type = typeof entry.type === "string" ? entry.type : "";
-  const known = TRIGGER_TYPE_OPTIONS.filter((t) => t.value).map((t) => t.value as string);
-  const conditions = entryList(entry, "conditions");
-  const refActions = entryList(entry, "actions");
-  const operation = typeof entry.operation === "string" ? entry.operation : "";
-  const condOp = (i: number, next: Record<string, unknown>) =>
-    onPatch({ ...entry, conditions: conditions.map((c, j) => (j === i ? next : c)) });
-  const refOp = (i: number, next: Record<string, unknown>) =>
-    onPatch({ ...entry, actions: refActions.map((r, j) => (j === i ? next : r)) });
-  return (
-    <div className="eui-group">
-      <div className="eui-prop">
-        <span className="plabel">when</span>
-        <span className="pvalue">
-          <select
-            className="eui-select"
-            aria-label="Trigger type"
-            value={type}
-            disabled={readonly}
-            style={{ flex: 1 }}
-            onChange={(e) => onPatch({ ...entry, type: e.target.value })}
-          >
-            {TRIGGER_TYPE_OPTIONS.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-            {type && !known.includes(type) ? <option value={type}>{type}</option> : null}
-          </select>
-          <button
-            className="eui-btn icon"
-            style={{ width: 20, height: 20 }}
-            title="Remove trigger"
-            aria-label="Remove trigger"
-            disabled={readonly}
-            onClick={onRemove}
-          >
-            <IconTrash />
-          </button>
-        </span>
-      </div>
-
-      {conditions.length > 0 && (
-        <>
-          <div className="eui-group-label">conditions {operation ? "(" + operation + ")" : ""}</div>
-          {conditions.map((c, i) => (
-            <ConditionItem
-              key={i}
-              cond={c}
-              uid={uid + "-c" + i}
-              readonly={readonly}
-              onPatch={(next) => condOp(i, next)}
-              onRemove={() => onPatch({ ...entry, conditions: conditions.filter((_, j) => j !== i) })}
-            />
-          ))}
-          {conditions.length >= 2 && (
-            <PropRow label="combine" htmlFor={uid + "-op"}>
-              <select
-                id={uid + "-op"}
-                className="eui-select"
-                value={operation || "and"}
-                disabled={readonly}
-                onChange={(e) => onPatch({ ...entry, operation: e.target.value })}
-              >
-                <option value="and">and (all must hold)</option>
-                <option value="or">or (any may hold)</option>
-              </select>
-            </PropRow>
-          )}
-          <div className="eui-prop">
-            <span className="plabel" />
-            <span className="pvalue" style={{ display: "flex", justifyContent: "flex-start" }}>
-              <button
-                className="eui-btn"
-                style={{ height: 22, fontSize: 11 }}
-                disabled={readonly}
-                onClick={() => onPatch({ ...entry, conditions: [...conditions, { type: "when_state_is", value: "" }] })}
-              >
-                <span style={{ marginRight: 4 }}><IconPlus /></span>
-                add condition
-              </button>
-            </span>
-          </div>
-        </>
-      )}
-
-      <div className="eui-group-label">runs</div>
-      {refActions.length === 0 && <div className="eui-comp-note">No actions referenced yet.</div>}
-      {refActions.map((r, i) => (
-        <RefActionItem
-          key={i}
-          ref={r}
-          uid={uid + "-r" + i}
-          readonly={readonly}
-          onPatch={(next) => refOp(i, next)}
-          onRemove={() => onPatch({ ...entry, actions: refActions.filter((_, j) => j !== i) })}
-        />
-      ))}
-      <div className="eui-prop">
-        <span className="plabel" />
-        <span className="pvalue" style={{ display: "flex", justifyContent: "flex-start" }}>
-          <button
-            className="eui-btn"
-            style={{ height: 22, fontSize: 11 }}
-            disabled={readonly}
-            onClick={() => onPatch({ ...entry, actions: [...refActions, { name: "" }] })}
-          >
-            <span style={{ marginRight: 4 }}><IconPlus /></span>
-            add action reference
-          </button>
-        </span>
-      </div>
-    </div>
-  );
-}
+const GLTF_LOADING_STATE: Record<number, string> = {
+  0: "Unknown",
+  1: "Loading\u{2026}",
+  2: "Not found \u{2014} the model file is missing",
+  3: "Failed to load",
+  4: "Loaded",
+};
 
 function bodyFor(
   name: string,
@@ -905,7 +283,7 @@ function bodyFor(
       ))}
     </select>
   );
-  switch (name) {
+  switch (CANONICAL_COMPONENT[name] ?? name) {
     case "Transform":
     case "core::Transform":
       return (
@@ -930,55 +308,6 @@ function bodyFor(
           />
         </>
       );
-    case "core::Material": {
-      const pbr = ["material", "pbr"];
-      return (
-        <>
-          <div className="eui-group-label">pbr</div>
-          <PropRow label="albedo color" htmlFor={uid + "-albedo"}>
-            <input
-              id={uid + "-albedo"}
-              type="color"
-              className="eui-color-swatch"
-              value={rgbToHex(atPath(v, [...pbr, "albedoColor"]))}
-              disabled={onWrite === undefined}
-              onChange={(e) => set([...pbr, "albedoColor"])?.(hexToRgb(e.target.value, num([...pbr, "albedoColor", "a"], 1)))}
-            />
-            <span className="eui-axis">
-              <span className="ax">A</span>
-              <NumField
-                id={uid + "-albedo-a"}
-                value={num([...pbr, "albedoColor", "a"], 1)}
-                onCommit={set([...pbr, "albedoColor", "a"])}
-              />
-            </span>
-          </PropRow>
-          <PropRow label="metallic" htmlFor={uid + "-metallic"}>
-            <span className="eui-axis">
-              <span className="ax">N</span>
-              <NumField id={uid + "-metallic"} value={num([...pbr, "metallic"], 0.5)} onCommit={set([...pbr, "metallic"])} />
-            </span>
-          </PropRow>
-          <PropRow label="roughness" htmlFor={uid + "-roughness"}>
-            <span className="eui-axis">
-              <span className="ax">N</span>
-              <NumField id={uid + "-roughness"} value={num([...pbr, "roughness"], 0.5)} onCommit={set([...pbr, "roughness"])} />
-            </span>
-          </PropRow>
-          <PropRow label="cast shadows">
-            <BoolField checked={bool([...pbr, "castShadows"], true)} label="cast shadows" onCommit={set([...pbr, "castShadows"])} />
-          </PropRow>
-          <PropRow label="texture" htmlFor={uid + "-tex"}>
-            <TextField
-              id={uid + "-tex"}
-              value={str([...pbr, "texture", "tex", "texture", "src"])}
-              placeholder="texture.png"
-              onCommit={set([...pbr, "texture", "tex", "texture", "src"])}
-            />
-          </PropRow>
-        </>
-      );
-    }
     case "core::MeshRenderer":
       return (
         <>
@@ -1031,6 +360,12 @@ function bodyFor(
             placeholder="model.glb"
             onCommit={set(["src"])}
           />
+        </PropRow>
+      );
+    case "core::GltfContainerLoadingState":
+      return (
+        <PropRow label="Model">
+          {GLTF_LOADING_STATE[num(["currentState"], 0)] ?? "Unknown"}
         </PropRow>
       );
     case "asset-packs::Actions": {
@@ -1119,12 +454,21 @@ function bodyFor(
         </>
       );
     }
-    default:
-      return null;
+    default: {
+      const canonical = CANONICAL_COMPONENT[name] ?? (name.includes("::") ? name : `core::${name}`);
+      const schema = componentFields(canonical, v);
+      return schema ? <DeSchemaFields schema={schema} value={v} onChange={onWrite ? value => onWrite(value as CompValue) : undefined} /> : null;
+    }
   }
 }
 
 interface RealComponentCardsProps {
+  writableComponents?: ReadonlySet<string>;
+  assets?: ProjectAssets;
+  materialSelection?: MaterialSelection[];
+  onAuthorMaterialSelection?: AuthorMaterialSelection;
+  onAuthorComponents?: AuthorComponentsFn;
+  clipboard?: ComponentClipboard;
   componentValues?: Record<string, unknown>;
   components?: string[] | null;
   transform?: EditorTransform | null;
@@ -1136,6 +480,12 @@ interface RealComponentCardsProps {
 }
 
 function RealComponentCards({
+  writableComponents,
+  assets,
+  materialSelection,
+  onAuthorMaterialSelection,
+  onAuthorComponents,
+  clipboard,
   componentValues,
   components,
   transform,
@@ -1158,35 +508,57 @@ function RealComponentCards({
       {ordered.map((cname) => {
         const { nsLabel, label } = splitComp(cname);
         const isTransform = isTransformName(cname);
+        const coreName = cname.startsWith("core::") ? cname.slice(6) : COMPONENT_SCHEMAS[`core::${cname}`] ? cname : null;
+        const readOnly = coreName !== null && writableComponents !== undefined && !writableComponents.has(coreName);
         const raw = componentValues?.[cname];
         const compValue =
           raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
-        const body = bodyFor(
+        const loading = componentValues?.GltfContainerLoadingState ?? componentValues?.["core::GltfContainerLoadingState"];
+        const nodePaths = loading && typeof loading === "object" && "nodePaths" in loading && Array.isArray(loading.nodePaths) ? loading.nodePaths.filter((path): path is string => typeof path === "string") : [];
+        const body = cname === "GltfNodeModifiers" || cname === "core::GltfNodeModifiers" ? <DeGltfNodeModifiers
+          key={`${entityId}/${cname}`}
+          value={compValue}
+          nodePaths={nodePaths}
+          assets={assets}
+          onApply={!readOnly && onAuthorComponents && entityId != null ? next => onAuthorComponents(entityId, [{ name: cname, json: JSON.stringify(next) }]) : undefined}
+        /> : cname === "Material" || cname === "core::Material" ? materialSelection && materialSelection.length > 1 ? <DeMaterialSelection
+          key="material-selection"
+          selection={materialSelection}
+          assets={assets}
+          onApply={onAuthorMaterialSelection}
+        /> : <DeMaterialEditor
+          key={`${entityId}/${cname}`}
+          value={compValue}
+          assets={assets}
+          onApply={!readOnly && onAuthorComponents && entityId != null ? next => onAuthorComponents(entityId, [{ name: cname, json: JSON.stringify(next) }]) : undefined}
+        /> : bodyFor(
           cname,
           transform,
           live,
           uid + cname.replace(/[^a-zA-Z0-9]+/g, "-"),
-          isTransform ? onNudgeTransform : undefined,
+          isTransform && !readOnly ? onNudgeTransform : undefined,
           compValue,
-          onAuthorComponent && entityId != null
+          !readOnly && onAuthorComponent && entityId != null
             ? (next) => onAuthorComponent(entityId, cname, JSON.stringify(next))
             : undefined,
           componentValues ?? {},
         );
         return (
           <CompCard
+            clipboard={clipboard}
             key={cname}
             ns={nsLabel}
             name={label}
             rawName={cname}
             entityId={entityId}
-            value={isTransform ? transform : undefined}
-            expanded={isTransform}
+            value={isTransform ? transform : raw}
+            expanded={isTransform || body !== null}
             hasJson={!isTransform}
             live={live}
-            onAuthorComponent={onAuthorComponent}
+            readonly={readOnly}
+            onAuthorComponent={readOnly ? undefined : onAuthorComponent}
             onDelete={
-              onDeleteComponent && entityId != null
+              !readOnly && onDeleteComponent && entityId != null
                 ? () => onDeleteComponent(entityId, cname)
                 : undefined
             }
@@ -1224,7 +596,12 @@ function RealComponentCards({
   );
 }
 
-export interface DeInspectorPanelProps {
+interface DeInspectorPanelProps {
+  writableComponents?: ReadonlySet<string>;
+  assets?: ProjectAssets;
+  materialSelection?: MaterialSelection[];
+  onAuthorMaterialSelection?: AuthorMaterialSelection;
+  clipboard?: ComponentClipboard;
   componentValues?: Record<string, unknown>;
   name?: string;
   id?: string | number;
@@ -1233,6 +610,7 @@ export interface DeInspectorPanelProps {
   transform?: EditorTransform | null;
   live?: boolean;
   onAuthorComponent?: AuthorComponentFn;
+  onAuthorComponents?: AuthorComponentsFn;
   onDeleteComponent?: DeleteComponentFn;
   onNudgeTransform?: NudgeFieldFn;
   interactionsOpen?: boolean;
@@ -1241,6 +619,11 @@ export interface DeInspectorPanelProps {
 }
 
 export function DeInspectorPanel({
+  writableComponents,
+  assets,
+  materialSelection,
+  onAuthorMaterialSelection,
+  clipboard,
   name = "",
   id = "",
   addOpen = false,
@@ -1249,6 +632,7 @@ export function DeInspectorPanel({
   transform = null,
   live = false,
   onAuthorComponent = undefined,
+  onAuthorComponents = undefined,
   onDeleteComponent = undefined,
   onNudgeTransform = undefined,
   interactionsOpen = false,
@@ -1257,7 +641,7 @@ export function DeInspectorPanel({
 }: DeInspectorPanelProps) {
   const [interOpen, setInterOpen] = useState(interactionsOpen);
   const [localAddOpen, setLocalAddOpen] = useState(addOpen);
-  const addPickerOpen = addOpen || localAddOpen;
+  const addPickerOpen = localAddOpen;
   useOneShot(revealNonce, () => {
     if (interactionsOpen) setInterOpen(true);
     if (addOpen) setLocalAddOpen(true);
@@ -1306,7 +690,10 @@ export function DeInspectorPanel({
             onPick={
               onAuthorComponent
                 ? (compName) => {
-                    onAuthorComponent(id, compName, "{}");
+                    const definition = COMPONENT_SCHEMAS[compName.includes("::") ? compName : `core::${compName}`];
+                    const defaults = structuredClone(definition?.defaults ?? {}) as Record<string, unknown>;
+                    if (["asset-packs::Actions", "asset-packs::States", "asset-packs::Counter"].includes(compName)) defaults.id = Number(id);
+                    onAuthorComponent(id, compName, JSON.stringify(defaults));
                     setLocalAddOpen(false);
                   }
                 : undefined
@@ -1315,8 +702,12 @@ export function DeInspectorPanel({
         )}
         {interOpen && (
           <DeInteractionsPanel
+            key={id}
             entityId={id}
+            existingActions={componentValues?.["asset-packs::Actions"] as { id?: number; value?: unknown[] } | undefined}
+            existingTriggers={componentValues?.["asset-packs::Triggers"] as { value?: unknown[] } | undefined}
             entityName={name}
+            onWriteBatch={onAuthorComponents ? changes => onAuthorComponents(id, changes) : undefined}
             onWrite={
               onAuthorComponent ? (cname, json) => onAuthorComponent(id, cname, json) : null
             }
@@ -1325,6 +716,12 @@ export function DeInspectorPanel({
         )}
 
         <RealComponentCards
+          writableComponents={writableComponents}
+          assets={assets}
+          materialSelection={materialSelection}
+          onAuthorMaterialSelection={onAuthorMaterialSelection}
+          onAuthorComponents={onAuthorComponents}
+          clipboard={clipboard}
           componentValues={componentValues}
           components={components ?? []}
           transform={transform}
@@ -1339,7 +736,7 @@ export function DeInspectorPanel({
   );
 }
 
-type AddComponentGroup = "3D Content" | "Interaction";
+type AddComponentGroup = "3D Content" | "Interaction" | "Smart item";
 
 interface AddComponentDef {
   name: string;
@@ -1349,18 +746,30 @@ interface AddComponentDef {
 
 const ADD_COMPONENTS: readonly AddComponentDef[] = [
   { name: "GltfContainer", label: "3D model", group: "3D Content" },
+  { name: "GltfNodeModifiers", label: "Swap model materials", group: "3D Content" },
   { name: "VisibilityComponent", label: "Show / hide", group: "3D Content" },
   { name: "Animator", label: "Animation", group: "3D Content" },
   { name: "Billboard", label: "Always face the player", group: "3D Content" },
   { name: "NftShape", label: "NFT picture frame", group: "3D Content" },
+  { name: "LightSource", label: "Light", group: "3D Content" },
+  { name: "ParticleSystem", label: "Particles", group: "3D Content" },
+  { name: "VirtualCamera", label: "Virtual camera", group: "3D Content" },
+  { name: "AvatarAttach", label: "Avatar attachment", group: "3D Content" },
+  { name: "asset-packs::States", label: "States", group: "Smart item" },
+  { name: "asset-packs::Counter", label: "Counter", group: "Smart item" },
+  { name: "asset-packs::Actions", label: "Actions", group: "Smart item" },
+  { name: "asset-packs::Triggers", label: "Triggers", group: "Smart item" },
+  { name: "asset-packs::Rewards", label: "Rewards", group: "Smart item" },
+  { name: "asset-packs::Script", label: "Scripts", group: "Smart item" },
+  { name: "core-schema::Sync-Components", label: "Synchronized components", group: "Smart item" },
   { name: "PointerEvents", label: "Clickable", group: "Interaction" },
   { name: "AudioSource", label: "Sound", group: "Interaction" },
   { name: "TextShape", label: "Text label", group: "Interaction" },
 ];
 
-const ADD_GROUP_ORDER: readonly AddComponentGroup[] = ["3D Content", "Interaction"];
+const ADD_GROUP_ORDER: readonly AddComponentGroup[] = ["3D Content", "Interaction", "Smart item"];
 
-export function DeAddComponentPicker({ onPick = undefined }: { onPick?: (name: string) => void }) {
+function DeAddComponentPicker({ onPick = undefined }: { onPick?: (name: string) => void }) {
   return (
     <div className="eui-pop">
       <div className="eui-pop-list">

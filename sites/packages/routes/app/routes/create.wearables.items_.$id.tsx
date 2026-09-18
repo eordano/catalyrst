@@ -12,9 +12,9 @@ import { type BuilderItem } from "@data/lib/catalyst/builder/items";
 import { loadCreatorItem } from "@data/lib/catalyst/creator-hub/wearable-item-detail.server";
 import { useAuth } from "@data/lib/auth/context";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
@@ -39,13 +39,12 @@ const FALLBACK: Assignment = {
 export async function loader({ request, params }: Route.LoaderArgs) {
   const { id } = params;
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap, data: { item, fallback } } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () => loadCreatorItem(id, { signal: request.signal }),
   );
-
-  const { item, fallback } = await loadCreatorItem(id, { signal: request.signal });
 
   const payload = { sid, id, item, fallback };
 
@@ -74,7 +73,7 @@ function ItemDetailView({
 }) {
   const navigate = useNavigate();
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
 
   const last = useRef<string | null>(null);
   useEffect(() => {

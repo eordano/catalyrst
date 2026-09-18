@@ -606,9 +606,9 @@ impl SyncOrchestratorRefs {
             self.config.from_timestamp,
         );
 
-        for hash in &newly_marked {
-            self.processed_store.mark_processed(hash).await?;
-        }
+        self.processed_store
+            .mark_processed_many(&newly_marked)
+            .await?;
 
         let mut time_ranges_to_deploy: Vec<TimeRange> = Vec::new();
         let mut snapshots_to_process: Vec<(String, HashSet<String>)> = Vec::new();
@@ -750,10 +750,8 @@ impl SyncOrchestratorRefs {
             (held, to_mark)
         };
 
-        for hash in &to_mark {
-            if let Err(e) = self.processed_store.mark_processed(hash).await {
-                warn!(snapshot_hash = %hash, error = %e, "Failed to mark snapshot as processed");
-            }
+        if let Err(e) = self.processed_store.mark_processed_many(&to_mark).await {
+            warn!(snapshots = to_mark.len(), error = %e, "Failed to mark snapshots as processed");
         }
 
         let mut advanced = Vec::new();

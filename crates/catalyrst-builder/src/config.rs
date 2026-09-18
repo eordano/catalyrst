@@ -1,14 +1,18 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use catalyrst_envcfg::{get_port, required, required_endpoint};
 use std::env;
+use std::path::PathBuf;
 
 pub struct Config {
     pub http_host: String,
     pub http_port: u16,
     pub database_url: String,
+    pub polygon_rpc_url: Option<String>,
 
     pub marketplace_database_url: Option<String>,
     pub content_bucket_url: String,
+    pub catalog_dir: Option<PathBuf>,
+    pub catalog_pull_cache_bytes: u64,
     pub admin_addresses: Vec<String>,
     pub newsletter_service_url: Option<String>,
     pub newsletter_publication_id: Option<String>,
@@ -28,10 +32,21 @@ impl Config {
             http_host: env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             http_port: get_port("HTTP_SERVER_PORT", 5145)?,
             database_url: required("BUILDER_PG_CONNECTION_STRING")?,
+            polygon_rpc_url: env::var("BUILDER_POLYGON_RPC_URL")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(|_| required_endpoint("BUILDER_POLYGON_RPC_URL"))
+                .transpose()?,
             marketplace_database_url: env::var("BUILDER_MARKETPLACE_PG_CONNECTION_STRING")
                 .ok()
                 .filter(|s| !s.is_empty()),
             content_bucket_url: required_endpoint("BUILDER_CONTENT_BUCKET_URL")?,
+            catalog_dir: env::var("BUILDER_CATALOG_DIR")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from),
+            catalog_pull_cache_bytes: pull_cache_bytes()?,
             admin_addresses,
             newsletter_service_url: env::var("NEWSLETTER_SERVICE_URL")
                 .ok()
@@ -47,4 +62,14 @@ impl Config {
                 .filter(|s| !s.is_empty()),
         })
     }
+}
+
+fn pull_cache_bytes() -> Result<u64> {
+    let raw = env::var("BUILDER_CATALOG_PULL_CACHE_BYTES").unwrap_or_default();
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(0);
+    }
+    raw.parse::<u64>()
+        .with_context(|| format!("invalid BUILDER_CATALOG_PULL_CACHE_BYTES: {raw:?}"))
 }

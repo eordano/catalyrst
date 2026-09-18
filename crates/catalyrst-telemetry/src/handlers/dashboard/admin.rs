@@ -4,6 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::handlers::admin::audited;
 use crate::handlers::db_err;
 use crate::AppState;
 
@@ -33,21 +34,12 @@ pub async fn sql_query(
     let wrapped = format!("SELECT to_jsonb(t) AS row FROM ( {raw} ) t LIMIT 1000");
     let mut tx = st
         .pool
-        .begin()
+        .begin_with("BEGIN READ ONLY; SET LOCAL statement_timeout = 15000")
         .await
         .map_err(|e| db_err("telemetry dashboard", e))?;
-    let run = async {
-        sqlx::query("SET TRANSACTION READ ONLY")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("SET LOCAL statement_timeout = 15000")
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(wrapped))
-            .fetch_all(&mut *tx)
-            .await
-    }
-    .await;
+    let run = sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(wrapped))
+        .fetch_all(&mut *tx)
+        .await;
     let _ = tx.rollback().await;
     let rows = run.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     let truncated = rows.len() >= 1000;
@@ -141,24 +133,39 @@ pub async fn experiments_get(
 ) -> Result<Json<Value>, (StatusCode, String)> {
     if let Some(key) = p.key.filter(|v| !v.is_empty()) {
         let user_key = p.user.unwrap_or_default();
-        if !user_key.is_empty() {
-            let groups = crate::handlers::groups::groups_for_user(&st.pool, &user_key).await;
-            if let Some((killed, variant, flags)) =
-                crate::handlers::groups::experiment_target_for(&st.pool, &key, &groups).await
-            {
+        let (groups, targets, row): (Value, Value, Option<Value>) =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT CASE WHEN $2::text = '' THEN '[]'::jsonb ELSE {groups_json} END AS groups, \
+                   (SELECT COALESCE(jsonb_agg(jsonb_build_array(group_name, killed, forced_variant, flags)), '[]'::jsonb) \
+                      FROM telemetry.experiment_group_targets WHERE exp_key = $1 AND $2::text <> '') AS targets, \
+                   (SELECT jsonb_build_array(killed, forced_variant, flags) \
+                      FROM telemetry.experiment_overrides WHERE exp_key = $1) AS override",
+                groups_json = crate::handlers::groups::GROUPS_JSON,
+            )))
+            .bind(&key)
+            .bind(&user_key)
+            .fetch_one(&st.pool)
+            .await
+            .map_err(|e| db_err("telemetry dashboard", e))?;
+        let decode_err =
+            |e: serde_json::Error| db_err("telemetry dashboard", sqlx::Error::decode(e));
+        let groups = crate::handlers::groups::groups_for(
+            serde_json::from_value(groups).map_err(decode_err)?,
+            &user_key,
+        );
+        let targets: Vec<(String, bool, Option<String>, Value)> =
+            serde_json::from_value(targets).map_err(decode_err)?;
+        for name in &groups {
+            if let Some((_, killed, variant, flags)) = targets.iter().find(|r| &r.0 == name) {
                 return Ok(Json(
                     json!({ "killed": killed, "variant": variant, "flags": flags }),
                 ));
             }
         }
-        let row = sqlx::query_as::<_, (bool, Option<String>, Value)>(
-            "SELECT killed, forced_variant, flags \
-             FROM telemetry.experiment_overrides WHERE exp_key = $1",
-        )
-        .bind(&key)
-        .fetch_optional(&st.pool)
-        .await
-        .map_err(|e| db_err("telemetry dashboard", e))?;
+        let row: Option<(bool, Option<String>, Value)> = match row {
+            Some(v) => Some(serde_json::from_value(v).map_err(decode_err)?),
+            None => None,
+        };
         Ok(Json(match row {
             Some((killed, variant, flags)) => {
                 json!({ "killed": killed, "variant": variant, "flags": flags })
@@ -208,28 +215,6 @@ pub async fn experiment_set(
     if b.exp_key.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "exp_key required".into()));
     }
-    if b.clear {
-        sqlx::query("DELETE FROM telemetry.experiment_overrides WHERE exp_key = $1")
-            .bind(&b.exp_key)
-            .execute(&st.pool)
-            .await
-            .map_err(|e| db_err("telemetry dashboard", e))?;
-    } else {
-        let flags = b.flags.clone().unwrap_or_else(|| json!({}));
-        sqlx::query(
-            "INSERT INTO telemetry.experiment_overrides (exp_key, killed, forced_variant, flags, updated_at) \
-             VALUES ($1, $2, $3, $4, now()) \
-             ON CONFLICT (exp_key) DO UPDATE SET \
-               killed = $2, forced_variant = $3, flags = $4, updated_at = now()",
-        )
-        .bind(&b.exp_key)
-        .bind(b.killed)
-        .bind(&b.variant)
-        .bind(flags)
-        .execute(&st.pool)
-        .await
-        .map_err(|e| db_err("telemetry dashboard", e))?;
-    }
     let action = if b.clear {
         "experiment.clear"
     } else {
@@ -242,6 +227,37 @@ pub async fn experiment_set(
         "flags": b.flags,
         "clear": b.clear,
     });
-    crate::handlers::admin::audit(&st, "loopback", action, detail).await;
+    if b.clear {
+        sqlx::query(sqlx::AssertSqlSafe(audited(
+            "DELETE FROM telemetry.experiment_overrides WHERE exp_key = $1",
+            1,
+        )))
+        .bind(&b.exp_key)
+        .bind("loopback")
+        .bind(action)
+        .bind(detail)
+        .execute(&st.pool)
+        .await
+        .map_err(|e| db_err("telemetry dashboard", e))?;
+    } else {
+        let flags = b.flags.clone().unwrap_or_else(|| json!({}));
+        sqlx::query(sqlx::AssertSqlSafe(audited(
+            "INSERT INTO telemetry.experiment_overrides (exp_key, killed, forced_variant, flags, updated_at) \
+             VALUES ($1, $2, $3, $4, now()) \
+             ON CONFLICT (exp_key) DO UPDATE SET \
+               killed = $2, forced_variant = $3, flags = $4, updated_at = now()",
+            4,
+        )))
+        .bind(&b.exp_key)
+        .bind(b.killed)
+        .bind(&b.variant)
+        .bind(flags)
+        .bind("loopback")
+        .bind(action)
+        .bind(detail)
+        .execute(&st.pool)
+        .await
+        .map_err(|e| db_err("telemetry dashboard", e))?;
+    }
     Ok(Json(json!({ "ok": true, "exp_key": b.exp_key })))
 }

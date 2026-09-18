@@ -3,8 +3,6 @@ import { z } from "zod";
 import governanceFixture from "../../../fixtures/governance.json";
 import { getJSON, catalystBase, CatalystError } from "../client";
 import type { GetOptions } from "../client";
-import type { ProjectRow as RsProjectRow } from "@ui/generated/catalyst/governance/ProjectRow";
-import type { ProjectsEnvelope as RsProjectsEnvelope } from "@ui/generated/catalyst/governance/ProjectsEnvelope";
 import { shortAddress, ETH_ADDRESS_RE } from "../format/address";
 import {
   ProjectRowSchema,
@@ -13,6 +11,8 @@ import {
 } from "../generated-schemas/governance";
 import { governanceApiBase } from "./api-base";
 import { newestTimestamp } from "./freshness";
+import type { ProjectsEnvelope as RsProjectsEnvelope } from "@ui/generated/catalyst/governance/ProjectsEnvelope";
+import type { ProjectRow as RsProjectRow } from "@ui/generated/catalyst/governance/ProjectRow";
 
 export type ProposalCard = {
   id: string;
@@ -69,7 +69,7 @@ type GovernanceFixture = {
 
 const FIXTURE = governanceFixture as unknown as GovernanceFixture;
 
-export function getProposalAuthorAddress(id: string): string | null {
+function getProposalAuthorAddress(id: string): string | null {
   const p = FIXTURE.proposals.find((x) => x.id === id);
   return p ? p.author : null;
 }
@@ -198,7 +198,7 @@ function mapLiveProposal(live: LiveProposal, now: number): ProposalCard {
   };
 }
 
-export type ProposalsResult = {
+type ProposalsResult = {
   proposals: ProposalCard[];
   source: "live" | "error";
   fallback: boolean;
@@ -314,7 +314,7 @@ export async function loadProposals(
   }
 }
 
-function synthDetailFromLiveProposal(live: LiveProposal, now: number): ProposalDetail {
+function synthDetailFromLiveProposal(live: LiveProposal): ProposalDetail {
   const type = (live.type ?? "").toLowerCase();
   const status = (live.status ?? "").toLowerCase();
   const catMeta = CATEGORY_META[type] ?? { label: titleCase(type), tone: "neutral" };
@@ -504,7 +504,7 @@ function synthProposalFromProject(live: ProposalLiveProject): ProposalDetail {
   };
 }
 
-export type ProposalLoadOptions = {
+type ProposalLoadOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -530,7 +530,7 @@ export async function loadProposalDetail(
     if (live) {
       return {
         source: "live",
-        proposal: synthDetailFromLiveProposal(live, now),
+        proposal: synthDetailFromLiveProposal(live),
         authorAddress: live.user ?? null,
       };
     }
@@ -585,8 +585,6 @@ const AvatarSchema = z.object({
 const ProfileSchema = z.object({
   avatars: z.array(AvatarSchema).nullish(),
 });
-
-export type Profile = z.infer<typeof ProfileSchema>;
 
 export type AuthorProfile = {
   address: string;
@@ -675,10 +673,14 @@ export function applyAuthorLabels(
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftProposalProjectRow = Assert<
   AssignableTo<RsProjectRow, z.input<typeof ProjectRowSchema>>
 >;
+
 export type _DriftProjectsEnvelope = Assert<
   AssignableTo<RsProjectsEnvelope, z.input<typeof ProposalProjectsListSchema>>
 >;
+

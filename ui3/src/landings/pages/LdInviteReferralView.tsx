@@ -2,7 +2,7 @@ import StInvite from "../../web/pages/StInvite";
 import StProfileReferralRewardsTab from "../../web/pages/StProfileReferralRewardsTab";
 import "./ldinvitereferralview.css";
 
-export type LdInviteStep = "view" | "download" | "rewards" | "faqs";
+type LdInviteStep = "view" | "download" | "rewards" | "faqs";
 
 type LdInviteReferralViewProps = {
   step?: LdInviteStep;

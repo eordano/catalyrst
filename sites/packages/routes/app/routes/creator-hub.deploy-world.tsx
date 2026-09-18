@@ -9,10 +9,9 @@ import CreatorHubBreadcrumb from "@ui/creatorhub/components/CreatorHubBreadcrumb
 import ChPublishWizardPublishToWorld from "@ui/creatorhub/workflows/ChPublishWizardPublishToWorld";
 
 import { resolveBreadcrumbOrigin, type BreadcrumbOrigin } from "@features/components/creator-hub/breadcrumbOrigins";
-import { loadDeployWorld } from "@data/lib/catalyst/creator-hub/deploy-world.server";
+import { fallbackDeployWorld, loadDeployWorld } from "@data/lib/catalyst/creator-hub/deploy-world.server";
 import {
   landJumpUrl,
-  shortAddress,
   worldJumpUrl,
   type DeployFile,
   type DeployWorldData,
@@ -46,9 +45,9 @@ import { handleStore, ensureHandlePermission } from "@data/lib/fs/handle-store";
 import { getIdentity, useAuth } from "@data/lib/auth/index";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import DeployWorldWizard, {
   claimNameUrl,
@@ -66,6 +65,15 @@ const STORY: StoryId = "creator-hub/deploy-scene";
 const CLAIM_TEST_MODE_NOTE =
   "NAME registration isn't connected on this realm yet \u{2014} no real NAME can be " +
   "bought here. You can publish to a NAME you already own.";
+
+const CLAIM_TEST_MODE_NOTE_PERSONAL =
+  "NAME registration isn't connected on this realm yet \u{2014} no real NAME can be " +
+  "bought here. Publish to your personal test world (your wallet address as a " +
+  ".dcl.eth name) or to a NAME you already own.";
+
+function claimNoteFor(deploy: DeployWorldData): string {
+  return deploy.personalWorlds ? CLAIM_TEST_MODE_NOTE_PERSONAL : CLAIM_TEST_MODE_NOTE;
+}
 
 async function reuseProjectDir(): Promise<FileSystemDirectoryHandle | null> {
   if (typeof window === "undefined") return null;
@@ -109,34 +117,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const forceEmpty = url.searchParams.get("empty") === "1";
   const from = url.searchParams.get("from")?.trim() || null;
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: deployData } = await storyLoaderWith<DeployWorldData>(
     request,
     STORY,
     FALLBACK,
+    () => loadDeployWorld(address, { signal: request.signal }).catch(() => fallbackDeployWorld(address)),
   );
-
-  let deployData: DeployWorldData;
-  try {
-    deployData = await loadDeployWorld(address, { signal: request.signal });
-  } catch {
-    deployData = {
-      address: address ?? "",
-      names: [],
-      liveEmpty: true,
-      worldsOnline: null,
-      project: { title: "Your scene", size: "", grad: "#222" },
-      files: [],
-      maxFileSizeMb: 50,
-      owner: {
-        network: "Mainnet",
-        address: address ? shortAddress(address) : "0x\u{2026}",
-        username: "",
-        verified: false,
-        role: "Owner",
-      },
-      source: "empty",
-    };
-  }
   const namesEmpty = forceEmpty || deployData.liveEmpty;
 
   const payload = {
@@ -158,7 +144,7 @@ export default function CreatorHubDeployWorld({ loaderData }: Route.ComponentPro
   const navigate = useNavigate();
 
   const { address: walletAddress, isConnected } = useAuth();
-  const name = useProfileName(walletAddress, isConnected);
+  const { name } = useChromeAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const origin = useMemo<BreadcrumbOrigin>(() => {
     if (from !== "scene-editor") return resolveBreadcrumbOrigin(from);
@@ -491,7 +477,7 @@ export default function CreatorHubDeployWorld({ loaderData }: Route.ComponentPro
           <ChPublishWizardPublishToWorld
             state="signedOut"
             inline
-            claimNote={CLAIM_TEST_MODE_NOTE}
+            claimNote={claimNoteFor(deploy)}
             onSignIn={() => openSignIn()}
             onClaimName={() => navigate(claimNameUrl(searchParams))}
             onClose={() => {
@@ -518,7 +504,7 @@ export default function CreatorHubDeployWorld({ loaderData }: Route.ComponentPro
             }}
             names={deploy.names}
             namesEmpty={namesEmpty}
-            claimNote={CLAIM_TEST_MODE_NOTE}
+            claimNote={claimNoteFor(deploy)}
             land={land}
             landNotice={landNotice}
             files={localProject?.files ?? draftPack?.list ?? deploy.files}

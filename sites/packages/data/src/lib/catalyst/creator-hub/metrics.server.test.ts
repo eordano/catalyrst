@@ -71,63 +71,60 @@ beforeEach(() => {
 });
 
 describe("loadCreatorMetrics \u{2014} failure must not masquerade as emptiness", () => {
-  it("collections source down (503) \u{2192} null count, and NOT the empty state", async () => {
+  it("a single source down (collections 503, items 500) \u{2192} null count, and NOT the empty state", async () => {
     mockCollections.mockRejectedValue(
       new CatalystError("Catalyst returned 503", "/v1/x/collections", 503),
     );
     mockCreations.mockResolvedValue(creations([]));
     mockGetJSON.mockResolvedValue(NO_PLACES);
 
-    const res = await loadCreatorMetrics(ADDRESS);
+    const collectionsDown = await loadCreatorMetrics(ADDRESS);
+    expect(collectionsDown.summary.publishedCollections).toBeNull();
+    expect(collectionsDown.summary.salesUnavailable).toBe(true);
+    expect(collectionsDown.empty).toBe(false);
+    expect(collectionsDown.loadError).toBe(false);
 
-    expect(res.summary.publishedCollections).toBeNull();
-    expect(res.summary.salesUnavailable).toBe(true);
-    expect(res.empty).toBe(false);
-    expect(res.loadError).toBe(false);
-  });
-
-  it("items source down \u{2192} null count, not empty", async () => {
+    vi.resetAllMocks();
     mockCollections.mockResolvedValue([]);
     mockCreations.mockRejectedValue(
       new CatalystError("Catalyst returned 500", "/market/v1/items", 500),
     );
     mockGetJSON.mockResolvedValue(NO_PLACES);
 
-    const res = await loadCreatorMetrics(ADDRESS);
-    expect(res.summary.onSaleItems).toBeNull();
-    expect(res.empty).toBe(false);
-    expect(res.loadError).toBe(false);
+    const itemsDown = await loadCreatorMetrics(ADDRESS);
+    expect(itemsDown.summary.onSaleItems).toBeNull();
+    expect(itemsDown.empty).toBe(false);
+    expect(itemsDown.loadError).toBe(false);
   });
 
-  it("sales source down while collections exist \u{2192} salesUnavailable, not empty", async () => {
+  it("sales down while collections exist \u{2192} salesUnavailable; all sources down \u{2192} loadError, never empty", async () => {
     mockCollections.mockResolvedValue([collection({})]);
     mockCreations.mockResolvedValue(creations([{ price: "1000000000000000000" }]));
     mockGetJSON.mockResolvedValue(NO_PLACES);
     mockSales.mockRejectedValue(new Error("db down"));
 
-    const res = await loadCreatorMetrics(ADDRESS);
-    expect(res.summary.salesUnavailable).toBe(true);
-    expect(res.summary.sales7d).toBeNull();
-    expect(res.summary.publishedCollections).toBe(1);
-    expect(res.empty).toBe(false);
-  });
+    const salesDown = await loadCreatorMetrics(ADDRESS);
+    expect(salesDown.summary.salesUnavailable).toBe(true);
+    expect(salesDown.summary.sales7d).toBeNull();
+    expect(salesDown.summary.publishedCollections).toBe(1);
+    expect(salesDown.empty).toBe(false);
 
-  it("all sources down \u{2192} loadError, never empty", async () => {
+    vi.resetAllMocks();
     mockCollections.mockRejectedValue(new Error("down"));
     mockCreations.mockRejectedValue(new Error("down"));
     mockGetJSON.mockRejectedValue(new Error("down"));
 
-    const res = await loadCreatorMetrics(ADDRESS);
-    expect(res.loadError).toBe(true);
-    expect(res.empty).toBe(false);
-    expect(res.summary.publishedCollections).toBeNull();
-    expect(res.summary.onSaleItems).toBeNull();
-    expect(res.summary.scenes).toBeNull();
+    const allDown = await loadCreatorMetrics(ADDRESS);
+    expect(allDown.loadError).toBe(true);
+    expect(allDown.empty).toBe(false);
+    expect(allDown.summary.publishedCollections).toBeNull();
+    expect(allDown.summary.onSaleItems).toBeNull();
+    expect(allDown.summary.scenes).toBeNull();
   });
 });
 
 describe("loadCreatorMetrics \u{2014} real data and genuine emptiness still work", () => {
-  it("a creator with data gets real numbers", async () => {
+  it("a creator with data gets real numbers; one with nothing published is empty (all sources OK)", async () => {
     mockCollections.mockResolvedValue([
       collection({ id: "a", status: "synced" }),
       collection({ id: "b", status: "unsynced", contract_address: undefined }),
@@ -153,25 +150,24 @@ describe("loadCreatorMetrics \u{2014} real data and genuine emptiness still work
       total: 3,
     });
 
-    const res = await loadCreatorMetrics(ADDRESS);
-    expect(res.summary.publishedCollections).toBe(1);
-    expect(res.summary.onSaleItems).toBe(2);
-    expect(res.summary.sales7d).toBe(3);
-    expect(res.summary.salesVolumeMana7d).toBe(2);
-    expect(res.summary.scenes).toEqual({ places: 2, visits30d: 15, liveNow: 2 });
-    expect(res.empty).toBe(false);
-    expect(res.loadError).toBe(false);
-  });
+    const withData = await loadCreatorMetrics(ADDRESS);
+    expect(withData.summary.publishedCollections).toBe(1);
+    expect(withData.summary.onSaleItems).toBe(2);
+    expect(withData.summary.sales7d).toBe(3);
+    expect(withData.summary.salesVolumeMana7d).toBe(2);
+    expect(withData.summary.scenes).toEqual({ places: 2, visits30d: 15, liveNow: 2 });
+    expect(withData.empty).toBe(false);
+    expect(withData.loadError).toBe(false);
 
-  it("a creator with genuinely nothing published is empty (all sources OK)", async () => {
+    vi.resetAllMocks();
     mockCollections.mockResolvedValue([]);
     mockCreations.mockResolvedValue(creations([]));
     mockGetJSON.mockResolvedValue(NO_PLACES);
 
-    const res = await loadCreatorMetrics(ADDRESS);
-    expect(res.empty).toBe(true);
-    expect(res.loadError).toBe(false);
-    expect(res.summary.publishedCollections).toBe(0);
-    expect(res.summary.sales7d).toBe(0);
+    const nothing = await loadCreatorMetrics(ADDRESS);
+    expect(nothing.empty).toBe(true);
+    expect(nothing.loadError).toBe(false);
+    expect(nothing.summary.publishedCollections).toBe(0);
+    expect(nothing.summary.sales7d).toBe(0);
   });
 });

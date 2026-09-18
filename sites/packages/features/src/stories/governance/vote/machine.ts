@@ -18,7 +18,7 @@ export type CastFn = (args: {
 
 export type { TrackFn };
 
-export type VoteInput = {
+type VoteInput = {
   proposalId: string;
   choice: string;
   totalVp: string;
@@ -28,7 +28,7 @@ export type VoteInput = {
   track?: TrackFn;
 };
 
-export type VoteContext = {
+type VoteContext = {
   proposalId: string;
   choice: string;
   totalVp: string;
@@ -42,7 +42,7 @@ export type VoteContext = {
   error?: string;
 };
 
-export type VoteEvent =
+type VoteEvent =
   | { type: "START" }
   | { type: "REASON"; reason: string }
   | { type: "CAST" }
@@ -213,4 +213,3 @@ export const voteMachine = setup({
   },
 });
 
-export type VoteMachine = typeof voteMachine;

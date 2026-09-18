@@ -5,6 +5,7 @@ import { href } from "@core/lib/router/routes";
 import Button from "@ui/atoms/Button";
 import EmptyState from "@ui/components/EmptyState";
 import StStorageSelect from "@ui/web/pages/StStorageSelect";
+import { docsUrl } from "@ui/data/docs";
 import StStorageScene from "@ui/web/pages/StStorageScene";
 import StStorageEnvironment from "@ui/web/pages/StStorageEnvironment";
 import StStoragePlayers from "@ui/web/pages/StStoragePlayers";
@@ -14,7 +15,7 @@ import CreatorHubBreadcrumb from "@ui/creatorhub/components/CreatorHubBreadcrumb
 import "@ui/creatorhub/frames/creatorhubchrome.css";
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import {
   clearEnvKeys,
   clearValues,
@@ -47,6 +48,8 @@ export const meta = () => creatorHubMeta("Worlds storage");
 
 const STORY: StoryId = "creator-hub/worlds-storage";
 
+const WORLDS_DOCS_HREF = docsUrl("creator/sdk7/publishing/publishing-options#decentraland-worlds");
+
 const NAMESPACES = ["scene", "env", "players"] as const;
 type Namespace = (typeof NAMESPACES)[number];
 
@@ -72,15 +75,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const key = url.searchParams.get("key")?.trim() ?? "";
   const quotaOpen = url.searchParams.get("quota") === "1";
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const d = await loadWorldsStorage(address, { signal: request.signal }).catch(
+  const [{ sid, wrap }, d] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    loadWorldsStorage(address, { signal: request.signal }).catch(
     () => null,
-  );
+  ),
+  ]);
 
   const worlds = d?.worlds ?? [];
   const selected =
@@ -133,7 +133,7 @@ export default function CreatorHubWorldsStorage({
 }: Route.ComponentProps) {
   const d = loaderData;
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
   const [, setSearchParams] = useSearchParams();
 
   const rescoping = isConnected && Boolean(address) && !d.address;
@@ -255,7 +255,7 @@ function WorldsStorageView({ data: d }: { data: LoaderData }) {
       manaHref="https://account.decentraland.org/"
       landHref="https://decentraland.org/marketplace/lands"
       nameHref="/creator-hub/claim-name"
-      learnMoreHref="https://docs.decentraland.org/creator/worlds/about/"
+      learnMoreHref={WORLDS_DOCS_HREF}
       onClose={() => setParams({ quota: "" })}
     />
   ) : (
@@ -282,7 +282,7 @@ function WorldsStorageView({ data: d }: { data: LoaderData }) {
         published scenes are not affected. Storage grows with the MANA, LAND,
         and NAMEs you own &#x2014;{" "}
         <a
-          href="https://docs.decentraland.org/creator/worlds/about/"
+          href={WORLDS_DOCS_HREF}
           target="_blank"
           rel="noreferrer"
           style={{ color: "inherit", textDecoration: "underline" }}

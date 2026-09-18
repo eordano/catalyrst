@@ -1,5 +1,6 @@
 
 import { normalizeCameraPrefs } from "./camera-prefs";
+import { isTypingTarget } from "./shortcuts";
 
 const ORBIT_GAIN = 0.005;
 const PAN_GAIN = 0.01;
@@ -63,6 +64,7 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
   const prefs = () => normalizeCameraPrefs(typeof getPrefs === "function" ? getPrefs() : null);
   const ctx = () =>
     typeof getCtx === "function" ? getCtx() || {} : {};
+  const enabled = () => ctx().playing !== true;
 
   let gesture = null;
   let lastX = 0;
@@ -75,7 +77,7 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
     flushScheduled = false;
     const d = pendingDelta;
     pendingDelta = null;
-    if (!detached && d) bus.setCameraInput(d);
+    if (!detached && enabled() && d) bus.setCameraInput(d);
   };
   const queueCameraInput = (d) => {
     if (!pendingDelta) pendingDelta = {};
@@ -96,6 +98,7 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
   };
 
   const onPointerDown = (e) => {
+    if (!enabled()) return;
     const g = classifyGesture(prefs().preset, e.button, {
       alt: e.altKey,
       shift: e.shiftKey,
@@ -111,6 +114,7 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
   };
 
   const onPointerMove = (e) => {
+    if (!enabled()) { resetGesture(); return; }
     if (!gesture) return;
     e.preventDefault();
     e.stopPropagation();
@@ -136,6 +140,7 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
   };
 
   const onPointerUp = (e) => {
+    if (!enabled()) { resetGesture(); return; }
     if (!gesture) return;
     e.preventDefault();
     e.stopPropagation();
@@ -143,6 +148,7 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
   };
 
   const onWheel = (e) => {
+    if (!enabled()) return;
     e.preventDefault();
     e.stopPropagation();
     const p = prefs();
@@ -152,6 +158,7 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
   };
 
   const onDblClick = (e) => {
+    if (!enabled()) return;
     const { activeId } = ctx();
     if (activeId == null) return;
     e.preventDefault();
@@ -161,6 +168,7 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
 
   let lastPrimaryUp = null;
   const onPrimaryUpForDbl = (e) => {
+    if (!enabled()) { lastPrimaryUp = null; return; }
     if (e.button !== 0 || gesture) return;
     const now = Date.now();
     const prev = lastPrimaryUp;
@@ -177,6 +185,8 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
   };
 
   const onKeyDown = (e) => {
+    if (!enabled() || isTypingTarget(e)) return;
+    if ((e.ctrlKey || e.metaKey || e.altKey) && !e.code.startsWith("Numpad")) return;
     const code = e.code;
     const ctrl = e.ctrlKey || e.metaKey;
     if (code === "KeyF") {
@@ -221,9 +231,14 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
   contentWindow.addEventListener("keydown", onKeyDown, opts);
   contentWindow.addEventListener("blur", resetGesture, opts);
   const hostUp = () => resetGesture();
+  const hostBlur = () => {
+    queueMicrotask(() => {
+      if (!window.document.hasFocus()) resetGesture();
+    });
+  };
   if (typeof window !== "undefined") {
     window.addEventListener("pointerup", hostUp, true);
-    window.addEventListener("blur", hostUp, true);
+    window.addEventListener("blur", hostBlur);
   }
 
   return () => {
@@ -240,7 +255,7 @@ export function attachCameraInput(contentWindow, bus, getPrefs, getCtx) {
     }
     if (typeof window !== "undefined") {
       window.removeEventListener("pointerup", hostUp, true);
-      window.removeEventListener("blur", hostUp, true);
+      window.removeEventListener("blur", hostBlur);
     }
     detached = true;
     pendingDelta = null;

@@ -74,11 +74,35 @@ pub fn run(packs_dir: &str, out_dir: &str) -> Result<()> {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        let pack_id = pack_data
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                pack_dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            });
 
         let assets_dir = pack_dir.join("assets");
         if !assets_dir.is_dir() {
             continue;
         }
+
+        let pack_thumbnail = match fs::read(pack_dir.join("thumbnail.png")) {
+            Ok(bytes) => {
+                let hash = catalyrst_hashing::hash_bytes_v1(&bytes);
+                let dest = out.join(&hash);
+                if !dest.exists() {
+                    fs::write(&dest, &bytes)
+                        .with_context(|| format!("write content {}", dest.display()))?;
+                    stored += 1;
+                }
+                Value::String(hash)
+            }
+            Err(_) => Value::Null,
+        };
 
         let mut assets_json: Vec<Value> = Vec::new();
         for asset_dir in subdirs_with_data(&assets_dir)? {
@@ -116,9 +140,10 @@ pub fn run(packs_dir: &str, out_dir: &str) -> Result<()> {
             };
 
             let mut asset = data.as_object().cloned().unwrap_or_default();
+            asset.insert("asset_pack_id".into(), json!(pack_id));
             asset.insert("model".into(), json!(model));
-            if contents.contains_key("thumbnail.png") {
-                asset.insert("thumbnail".into(), json!("thumbnail.png"));
+            if let Some(thumb) = contents.get("thumbnail.png") {
+                asset.insert("thumbnail".into(), json!(thumb));
             }
             asset.insert("contents".into(), json!(contents));
             if !composite.is_null() {
@@ -128,10 +153,16 @@ pub fn run(packs_dir: &str, out_dir: &str) -> Result<()> {
         }
 
         total_assets += assets_json.len();
-        packs_json.push(json!({ "title": title, "assets": assets_json }));
+        packs_json.push(json!({
+            "id": pack_id,
+            "title": title,
+            "thumbnail": pack_thumbnail,
+            "eth_address": Value::Null,
+            "assets": assets_json,
+        }));
     }
 
-    let catalog = json!({ "data": packs_json });
+    let catalog = json!({ "ok": true, "data": packs_json });
     let catalog_path = out.join("catalog.json");
     fs::write(&catalog_path, serde_json::to_vec_pretty(&catalog)?)
         .with_context(|| format!("write {}", catalog_path.display()))?;

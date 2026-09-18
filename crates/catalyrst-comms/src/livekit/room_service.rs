@@ -14,8 +14,11 @@ pub async fn list_room_participant_identities(
 ) -> Vec<String> {
     let token = match room_admin_token(api_key, api_secret, room) {
         Ok(t) => t,
-        Err(e) => {
-            tracing::warn!(error = %e, "failed to mint room-admin token for participants list");
+        Err(_) => {
+            tracing::warn!(
+                reason = "token mint failed",
+                "failed to mint room-admin token for participants list"
+            );
             return Vec::new();
         }
     };
@@ -35,8 +38,8 @@ pub async fn list_room_participant_identities(
             tracing::debug!(status = %r.status(), room, "ListParticipants non-success");
             return Vec::new();
         }
-        Err(e) => {
-            tracing::debug!(error = %e, room, "ListParticipants request failed");
+        Err(_) => {
+            tracing::debug!(room, "ListParticipants request failed");
             return Vec::new();
         }
     };
@@ -56,25 +59,57 @@ pub async fn list_room_participant_identities(
 
 #[derive(Debug, Clone)]
 pub struct ParticipantInfo {
+    pub sid: String,
     pub identity: String,
     pub name: Option<String>,
     pub state: i64,
     pub metadata: Option<String>,
     pub is_publisher: bool,
+    pub can_update_metadata: Option<bool>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Error)]
 pub enum RoomServiceError {
     #[error("livekit not configured")]
     NotConfigured,
-    #[error("token mint failed: {0}")]
-    Token(#[from] LivekitError),
-    #[error("livekit request failed: {0}")]
-    Request(String),
+    #[error("livekit token mint failed")]
+    Token(
+        #[from]
+        #[source]
+        LivekitError,
+    ),
+    #[error("livekit request failed")]
+    Request,
+    #[error("livekit returned an invalid response")]
+    InvalidResponse,
     #[error("livekit returned status {0}")]
     Status(u16),
     #[error("livekit room not found")]
     NotFound,
+}
+
+impl std::fmt::Debug for RoomServiceError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let class = match self {
+            Self::NotConfigured => "NotConfigured",
+            Self::Token(_) => "Token",
+            Self::Request => "Request",
+            Self::InvalidResponse => "InvalidResponse",
+            Self::Status(_) => "Status",
+            Self::NotFound => "NotFound",
+        };
+        formatter
+            .debug_tuple("RoomServiceError")
+            .field(&class)
+            .finish()
+    }
+}
+
+/// What a removal found in the room.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Removal {
+    Removed,
+    Absent,
 }
 
 pub const BANNED_ADDRESSES_FIELD: &str = "bannedAddresses";
@@ -175,7 +210,7 @@ impl<'a> RoomServiceClient<'a> {
             .json(&body)
             .send()
             .await
-            .map_err(|e| RoomServiceError::Request(e.to_string()))?;
+            .map_err(|_| RoomServiceError::Request)?;
         let status = resp.status();
         if status.as_u16() == 404 {
             return Err(RoomServiceError::NotFound);
@@ -189,7 +224,7 @@ impl<'a> RoomServiceClient<'a> {
         }
         resp.json::<serde_json::Value>()
             .await
-            .map_err(|e| RoomServiceError::Request(e.to_string()))
+            .map_err(|_| RoomServiceError::InvalidResponse)
     }
 
     pub async fn delete_room(&self, room: &str) -> Result<(), RoomServiceError> {
@@ -218,6 +253,52 @@ impl<'a> RoomServiceClient<'a> {
             Ok(_) | Err(RoomServiceError::NotFound) => Ok(()),
             Err(e) => Err(e),
         }
+    }
+
+    /// Removes a participant and requests a token cutoff. Only LiveKit Cloud enforces this
+    /// revocation; self-hosted LiveKit accepts the field but old tokens remain usable.
+    ///
+    /// Unlike [`RoomServiceClient::remove_participant`], an absent participant is reported rather
+    /// than folded into success: the takeover path counts "had already left" apart from "removed",
+    /// and only the second means a live session was ended.
+    ///
+    /// The boundary goes on the wire in seconds, matching the `nbf` unit LiveKit compares it
+    /// against, and as a string because that is proto3 JSON's canonical encoding for an int64.
+    pub async fn remove_participant_with_cutoff(
+        &self,
+        room: &str,
+        identity: &str,
+        revoke_tokens_minted_before: Option<i64>,
+    ) -> Result<Removal, RoomServiceError> {
+        let mut body = serde_json::json!({ "room": room, "identity": identity });
+        if let Some(boundary) = revoke_tokens_minted_before {
+            body["revokeTokenTs"] = serde_json::Value::String(boundary.to_string());
+        }
+        match self.call("RemoveParticipant", room, body).await {
+            Ok(_) => Ok(Removal::Removed),
+            Err(RoomServiceError::NotFound) => Ok(Removal::Absent),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Whether the identity is currently in the room, compared case-insensitively.
+    ///
+    /// A room or participant that is absent answers `false`; every other failure propagates. A
+    /// caller that must fail closed on "could not tell" can only do so if the two are distinct.
+    pub async fn holds_participant(
+        &self,
+        room: &str,
+        identity: &str,
+    ) -> Result<bool, RoomServiceError> {
+        let participants = match self.list_participants(room).await {
+            Ok(participants) => participants,
+            Err(RoomServiceError::NotFound) => return Ok(false),
+            Err(e) => return Err(e),
+        };
+        let target = identity.to_lowercase();
+        Ok(participants
+            .iter()
+            .any(|p| p.identity.to_lowercase() == target))
     }
 
     pub async fn get_participant(
@@ -323,6 +404,30 @@ impl<'a> RoomServiceClient<'a> {
         identity: &str,
         patch: serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), RoomServiceError> {
+        let metadata = self.merged_metadata(room, identity, patch).await;
+        self.update_participant(room, identity, Some(&metadata), None)
+            .await
+    }
+
+    /// One UpdateParticipant carrying both the merged metadata and the permission.
+    pub async fn merge_participant_metadata_with_permission(
+        &self,
+        room: &str,
+        identity: &str,
+        patch: serde_json::Map<String, serde_json::Value>,
+        permission: serde_json::Value,
+    ) -> Result<(), RoomServiceError> {
+        let metadata = self.merged_metadata(room, identity, patch).await;
+        self.update_participant(room, identity, Some(&metadata), Some(permission))
+            .await
+    }
+
+    async fn merged_metadata(
+        &self,
+        room: &str,
+        identity: &str,
+        patch: serde_json::Map<String, serde_json::Value>,
+    ) -> String {
         let existing = self
             .get_participant(room, identity)
             .await
@@ -336,9 +441,7 @@ impl<'a> RoomServiceClient<'a> {
         for (k, v) in patch {
             merged.insert(k, v);
         }
-        let metadata = serde_json::Value::Object(merged).to_string();
-        self.update_participant(room, identity, Some(&metadata), None)
-            .await
+        serde_json::Value::Object(merged).to_string()
     }
 
     pub async fn list_rooms(&self) -> Result<Vec<String>, RoomServiceError> {
@@ -433,6 +536,11 @@ fn parse_participant(p: &serde_json::Value) -> ParticipantInfo {
         .map(|a| !a.is_empty())
         .unwrap_or(false);
     ParticipantInfo {
+        sid: p
+            .get("sid")
+            .and_then(|s| s.as_str())
+            .unwrap_or_default()
+            .into(),
         identity: p
             .get("identity")
             .and_then(|i| i.as_str())
@@ -442,5 +550,51 @@ fn parse_participant(p: &serde_json::Value) -> ParticipantInfo {
         state: p.get("state").and_then(|s| s.as_i64()).unwrap_or(0),
         metadata: p.get("metadata").and_then(|m| m.as_str()).map(String::from),
         is_publisher: permission_publish || has_tracks,
+        can_update_metadata: p
+            .get("permission")
+            .and_then(|p| p.as_object())
+            .and_then(
+                |p| match (p.get("canUpdateMetadata"), p.get("can_update_metadata")) {
+                    (Some(a), Some(b)) if a != b => None,
+                    (Some(value), _) | (_, Some(value)) => value.as_bool(),
+                    (None, None) => Some(false),
+                },
+            ),
+    }
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::*;
+
+    #[test]
+    fn metadata_permissions_accept_both_proto_json_spellings_and_fail_closed_on_conflicts() {
+        for (permission, expected) in [
+            (serde_json::json!({"can_update_metadata": true}), Some(true)),
+            (serde_json::json!({"canUpdateMetadata": true}), Some(true)),
+            (
+                serde_json::json!({"can_update_metadata": false}),
+                Some(false),
+            ),
+            (serde_json::json!({"canUpdateMetadata": false}), Some(false)),
+            (serde_json::json!({}), Some(false)),
+            (serde_json::Value::Null, None),
+            (serde_json::json!({"can_update_metadata": "false"}), None),
+            (
+                serde_json::json!({"canUpdateMetadata": false, "can_update_metadata": true}),
+                None,
+            ),
+            (
+                serde_json::json!({"canUpdateMetadata": true, "can_update_metadata": false}),
+                None,
+            ),
+        ] {
+            let participant = parse_participant(&serde_json::json!({"permission": permission}));
+            assert_eq!(participant.can_update_metadata, expected);
+        }
+        assert_eq!(
+            parse_participant(&serde_json::json!({})).can_update_metadata,
+            None
+        );
     }
 }

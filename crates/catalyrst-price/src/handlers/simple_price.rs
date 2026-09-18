@@ -115,7 +115,7 @@ pub async fn simple_price(
 ) -> Result<Response, PriceError> {
     let q = parse_query(pairs)?;
 
-    let snapshot = state.prices.latest_coingecko().await.map_err(|err| {
+    let snapshot = state.prices.latest().await.map_err(|err| {
         tracing::error!(%err, "failed to read latest price snapshot");
         PriceError::Internal
     })?;

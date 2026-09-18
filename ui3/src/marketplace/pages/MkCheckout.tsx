@@ -10,12 +10,14 @@ export function MkCheckoutFrame({
   topbar,
   back,
   wide = false,
+  navigation,
   children,
 }: {
   title?: string;
   topbar?: ReactNode;
   back?: { href: string; label: string };
   wide?: boolean;
+  navigation?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -25,6 +27,7 @@ export function MkCheckoutFrame({
       subnav={false}
       topbar={topbar ?? <DclTopBar variant="sites" active="shop" />}
     >
+      {navigation && <nav className="mkco__navigation" aria-label="Marketplace sections">{navigation}</nav>}
       <div className={"mkco" + (wide ? " mkco--wide" : "")}>
         <div className="mkco__titlerow">
           {back ? (
@@ -56,7 +59,7 @@ export function MkCheckoutCard({
   return (
     <div
       className={"mkco__card" + (tone !== "default" ? ` mkco__card--${tone}` : "")}
-      role={busy ? "status" : undefined}
+      role={busy ? "status" : tone === "error" ? "alert" : undefined}
       aria-busy={busy || undefined}
     >
       {children}
@@ -78,7 +81,7 @@ export function MkCheckoutActions({
   );
 }
 
-export type MkCheckoutLine = {
+type MkCheckoutLine = {
   key: string;
   name: string;
   qty?: number;

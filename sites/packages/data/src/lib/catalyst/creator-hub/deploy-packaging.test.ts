@@ -38,54 +38,49 @@ function compositeWith(srcs: string[]): string {
 }
 
 describe("packageSceneAssets", () => {
-  it("rewrites absolute builder srcs to seeded relative paths and fetches the bytes", async () => {
-    const out = await packageSceneAssets({
+  it("rewrites absolute builder srcs to seeded relative paths and fetches seeded srcs missing from disk", async () => {
+    const seeded = `${SEEDED_ASSET_DIR}/${CID}.glb`;
+    const absolute = await packageSceneAssets({
       compositeText: compositeWith([`https://catalyst.example.com/builder-items/${CID}`]),
       fileKeys: ["scene.json"],
       fetchImpl: stubFetch({ "/builder-items/": GLB_BYTES }),
     });
-    expect(out.changed).toBe(true);
-    expect(out.missing).toEqual([]);
-    const expected = `${SEEDED_ASSET_DIR}/${CID}.glb`;
-    expect(out.extra.map((f) => f.file)).toEqual([expected]);
-    expect(out.compositeText).toContain(expected);
-    expect(out.compositeText).not.toContain("https://");
-  });
+    expect(absolute.changed).toBe(true);
+    expect(absolute.missing).toEqual([]);
+    expect(absolute.extra.map((f) => f.file)).toEqual([seeded]);
+    expect(absolute.compositeText).toContain(seeded);
+    expect(absolute.compositeText).not.toContain("https://");
 
-  it("fetches seeded relative srcs that are not on disk, without rewriting", async () => {
-    const src = `${SEEDED_ASSET_DIR}/${CID}.glb`;
-    const out = await packageSceneAssets({
-      compositeText: compositeWith([src]),
+    const relative = await packageSceneAssets({
+      compositeText: compositeWith([seeded]),
       fileKeys: ["scene.json"],
       fetchImpl: stubFetch({ "/builder-items/": GLB_BYTES }),
     });
-    expect(out.changed).toBe(false);
-    expect(out.missing).toEqual([]);
-    expect(out.extra.map((f) => f.file)).toEqual([src]);
+    expect(relative.changed).toBe(false);
+    expect(relative.missing).toEqual([]);
+    expect(relative.extra.map((f) => f.file)).toEqual([seeded]);
   });
 
-  it("leaves present files alone and flags unknown relative srcs as missing", async () => {
-    const src = `${SEEDED_ASSET_DIR}/${CID}.glb`;
-    const out = await packageSceneAssets({
-      compositeText: compositeWith([src, "models/custom.glb"]),
-      fileKeys: ["scene.json", src],
+  it("leaves present files alone and flags unknown relative srcs and unfetchable builder assets as missing", async () => {
+    const seeded = `${SEEDED_ASSET_DIR}/${CID}.glb`;
+    const present = await packageSceneAssets({
+      compositeText: compositeWith([seeded, "models/custom.glb"]),
+      fileKeys: ["scene.json", seeded],
       fetchImpl: stubFetch({}),
     });
-    expect(out.extra).toEqual([]);
-    expect(out.missing).toEqual(["models/custom.glb"]);
-  });
+    expect(present.extra).toEqual([]);
+    expect(present.missing).toEqual(["models/custom.glb"]);
 
-  it("reports builder assets it cannot fetch as missing", async () => {
-    const out = await packageSceneAssets({
+    const unfetchable = await packageSceneAssets({
       compositeText: compositeWith([`/builder-items/${CID}`]),
       fileKeys: [],
       fetchImpl: stubFetch({}),
     });
-    expect(out.changed).toBe(false);
-    expect(out.missing).toEqual([`/builder-items/${CID}`]);
+    expect(unfetchable.changed).toBe(false);
+    expect(unfetchable.missing).toEqual([`/builder-items/${CID}`]);
   });
 
-  it("resolves imported catalog items through the asset-packs catalog", async () => {
+  it("resolves imported catalog items through the asset-packs catalog, flags unknown ones, and skips ones already on disk", async () => {
     const itemId = "a2f47727-3f6c-4313-ae76-8034fafa2e5b";
     const src = `assets/imported/${itemId}/pebbles.glb`;
     const packs = new TextEncoder().encode(
@@ -99,25 +94,19 @@ describe("packageSceneAssets", () => {
         ],
       }),
     );
-    const out = await packageSceneAssets({
+    const resolved = await packageSceneAssets({
       compositeText: compositeWith([src]),
       fileKeys: ["scene.json"],
-      fetchImpl: stubFetch({
-        "/builder-api/v1/assetPacks": packs,
-        "/builder-items/": GLB_BYTES,
-      }),
+      fetchImpl: stubFetch({ "/builder-api/v1/assetPacks": packs, "/builder-items/": GLB_BYTES }),
     });
-    expect(out.changed).toBe(false);
-    expect(out.missing).toEqual([]);
-    expect(out.extra.map((f) => f.file).sort()).toEqual([
+    expect(resolved.changed).toBe(false);
+    expect(resolved.missing).toEqual([]);
+    expect(resolved.extra.map((f) => f.file).sort()).toEqual([
       src,
       `assets/imported/${itemId}/thumbnail.png`,
     ]);
-  });
 
-  it("flags imported items the catalog does not know as missing", async () => {
-    const src = "assets/imported/a2f47727-3f6c-4313-ae76-8034fafa2e5b/pebbles.glb";
-    const out = await packageSceneAssets({
+    const unknown = await packageSceneAssets({
       compositeText: compositeWith([src]),
       fileKeys: ["scene.json"],
       fetchImpl: stubFetch({
@@ -125,39 +114,33 @@ describe("packageSceneAssets", () => {
         "/builder-items/": GLB_BYTES,
       }),
     });
-    expect(out.missing).toEqual([src]);
-  });
+    expect(unknown.missing).toEqual([src]);
 
-  it("skips imported items already present in the project files", async () => {
-    const src = "assets/imported/a2f47727-3f6c-4313-ae76-8034fafa2e5b/pebbles.glb";
-    const out = await packageSceneAssets({
+    const onDisk = await packageSceneAssets({
       compositeText: compositeWith([src]),
       fileKeys: ["scene.json", src],
       fetchImpl: stubFetch({}),
     });
-    expect(out.extra).toEqual([]);
-    expect(out.missing).toEqual([]);
+    expect(onDisk.extra).toEqual([]);
+    expect(onDisk.missing).toEqual([]);
   });
 
-  it("counts empty GltfContainer srcs so the deploy gate can reject stripped composites", async () => {
-    const out = await packageSceneAssets({
+  it("counts empty GltfContainer srcs so the deploy gate can reject stripped composites, zero for a healthy one", async () => {
+    const stripped = await packageSceneAssets({
       compositeText: compositeWith(["", "  ", "models/real.glb"]),
       fileKeys: ["scene.json", "models/real.glb"],
       fetchImpl: stubFetch({}),
     });
-    expect(out.emptySrc).toBe(2);
-    expect(out.missing).toEqual([]);
+    expect(stripped.emptySrc).toBe(2);
+    expect(stripped.missing).toEqual([]);
     expect(EMPTY_SRC_ERROR(2)).toContain("2 placed items");
     expect(EMPTY_SRC_ERROR(2)).toContain("empty GltfContainer src");
-  });
-
-  it("reports zero empty srcs for a healthy composite", async () => {
-    const out = await packageSceneAssets({
+    const healthy = await packageSceneAssets({
       compositeText: compositeWith(["models/real.glb"]),
       fileKeys: ["models/real.glb"],
       fetchImpl: stubFetch({}),
     });
-    expect(out.emptySrc).toBe(0);
+    expect(healthy.emptySrc).toBe(0);
   });
 });
 
@@ -167,7 +150,7 @@ describe("buildDraftDeployFiles", () => {
     "/template-bundles/games.js": RUNTIME_BYTES,
   });
 
-  it("packages a template draft with composite, code edits, assets and the game runtime", async () => {
+  it("packages a template draft with composite, code edits, assets and the game runtime; sceneMainOf falls back to bin/index.js", async () => {
     const pack = await buildDraftDeployFiles(
       {
         title: "My Tower",
@@ -194,24 +177,18 @@ describe("buildDraftDeployFiles", () => {
     const scene = pack.metadata.scene as { parcels?: string[]; base?: string };
     expect(scene.parcels).toEqual(["0,0"]);
     expect((pack.metadata.tags as string[])[0]).toBe("tower-defense");
+    expect(sceneMainOf({})).toBe("bin/index.js");
+    expect(sceneMainOf({ main: "bin/game.js" })).toBe("bin/game.js");
   });
 
-  it("packages an empty draft with the idle runtime and no template tag", async () => {
+  it("packages an empty draft with the idle runtime and no template tag, and throws when the runtime cannot be fetched", async () => {
     const pack = await buildDraftDeployFiles({ title: "Blank" }, { fetchImpl });
     expect(pack.runtimeInjected).toBe(true);
     expect(pack.metadata.tags).toEqual([]);
     const bin = pack.files.find((f) => f.file === "bin/index.js")!;
     expect(new TextDecoder().decode(bin.content)).toBe("game-runtime");
-  });
-
-  it("throws when the runtime bundle cannot be fetched", async () => {
     await expect(
       buildDraftDeployFiles({ title: "Blank" }, { fetchImpl: stubFetch({}) }),
     ).rejects.toThrow(/runtime/i);
-  });
-
-  it("sceneMainOf falls back to bin/index.js", () => {
-    expect(sceneMainOf({})).toBe("bin/index.js");
-    expect(sceneMainOf({ main: "bin/game.js" })).toBe("bin/game.js");
   });
 });

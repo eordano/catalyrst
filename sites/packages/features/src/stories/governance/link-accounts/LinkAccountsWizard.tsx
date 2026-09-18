@@ -21,7 +21,7 @@ import {
   type LinkStateId,
 } from "./machine";
 
-export type LinkAccountsWizardProps = {
+type LinkAccountsWizardProps = {
   trackCtx: TrackContext;
   account: Provider;
   data: LinkAccountsData;

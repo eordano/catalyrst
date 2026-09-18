@@ -116,8 +116,9 @@ pub async fn get_about(
         )));
     }
 
-    let world = state.worlds.get_world(&world_name).await?;
-    let scenes = state.worlds.get_scenes(&world_name).await?;
+    let about = state.worlds.world_about(&world_name).await?;
+    let world = &about.world;
+    let scenes = &about.scenes;
 
     if scenes.is_empty() {
         return Err(ApiError::not_found(format!(
@@ -126,7 +127,7 @@ pub async fn get_about(
         )));
     }
 
-    if let Some(w) = &world {
+    if let Some(w) = world {
         if let Some(since) = w.blocked_since {
             return Err(ApiError::unauthorized(format!(
                 "World \"{}\" has been blocked since {} as it exceeded its allowed storage space.",
@@ -156,10 +157,10 @@ pub async fn get_about(
             .as_ref()
             .and_then(|w| w.realm_name_override.as_deref()),
         cfg.realm_name_strip_ens,
-        is_locally_published(&scenes),
+        is_locally_published(scenes),
     );
 
-    if let Some(w) = &world {
+    if let Some(w) = world {
         if let Some(t) = w.skybox_time {
             rt.skybox_fixed_time = Some(t as f64);
         }
@@ -194,20 +195,18 @@ pub async fn get_about(
         }
     };
     let data_image = if rt.minimap_visible || rt.minimap_data_image.is_some() {
-        let data_default = std::env::var("MAP_PARCEL_VIEW_URL")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "http://127.0.0.1:5162/v1/minimap.png".to_string());
-        Some(url_for_file(&rt.minimap_data_image, &data_default))
+        Some(url_for_file(
+            &rt.minimap_data_image,
+            &cfg.map_parcel_view_url,
+        ))
     } else {
         None
     };
     let estate_image = if rt.minimap_visible || rt.minimap_estate_image.is_some() {
-        let estate_default = std::env::var("MAP_ESTATE_VIEW_URL")
-            .ok()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "http://127.0.0.1:5162/v1/estatemap.png".to_string());
-        Some(url_for_file(&rt.minimap_estate_image, &estate_default))
+        Some(url_for_file(
+            &rt.minimap_estate_image,
+            &cfg.map_estate_view_url,
+        ))
     } else {
         None
     };
@@ -315,10 +314,7 @@ pub struct ServerAboutResponse {
     responses((status = 200, body = ServerAboutResponse))
 )]
 pub async fn get_server_about(State(state): State<AppState>) -> Json<ServerAboutResponse> {
-    let db_ok = sqlx::query_scalar::<_, i32>("SELECT 1")
-        .fetch_one(state.worlds.pool())
-        .await
-        .is_ok();
+    let db_ok = crate::handlers::status::db_ok(state.worlds.pool()).await;
     let cfg = &state.cfg;
     Json(server_about(
         &cfg.http_base_url,

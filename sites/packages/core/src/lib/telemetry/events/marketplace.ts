@@ -198,7 +198,7 @@ export type MarketplaceEvents = {
   };
   mk_claim_name_completed: {
     name: string;
-    stub: true;
+    stub: boolean;
     token_id?: string;
     tx_hash?: string;
   };
@@ -209,14 +209,14 @@ export type MarketplaceEvents = {
   mk_claim_name_mana_approved: {
     name: string;
     price_mana: string;
-    simulated: true;
+    simulated: boolean;
   };
   mk_claim_name_started: {
     name: string;
   };
   mk_claim_name_submitted: {
     name: string;
-    simulated: true;
+    simulated: boolean;
   };
   mk_claim_name_unavailable: {
     name: string;

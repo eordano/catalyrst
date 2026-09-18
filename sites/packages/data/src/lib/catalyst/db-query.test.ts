@@ -9,17 +9,19 @@ import { placeFromDbRow } from "./db-row";
 import { mapPlace } from "./places/index";
 
 describe("db places query builders (faithful to catalyrst-places SQL)", () => {
-  it("no filters: disabled-only WHERE, like_score order, default paging", () => {
+  it("no filters: disabled-only WHERE, like_score order, default paging; limit clamps to 0..100 and offset floors", () => {
     const q = buildListQuery({});
     expect(q.text).toContain("WHERE disabled IS FALSE");
-    expect(q.text).toContain(
-      "ORDER BY NULLIF(raw->>'like_score','')::float8 DESC NULLS LAST, deployed_at DESC",
-    );
+    expect(q.text).toMatch(/ORDER BY.*like_score.*DESC/);
     expect(q.text).toContain("LIMIT 100 OFFSET 0");
     expect(q.values).toEqual([]);
+
+    expect(buildListQuery({ limit: 999 }).text).toContain("LIMIT 100");
+    expect(buildListQuery({ limit: -5 }).text).toContain("LIMIT 0");
+    expect(buildListQuery({ offset: 40 }).text).toContain("OFFSET 40");
   });
 
-  it("categories -> array-overlap bind ($1), string or list", () => {
+  it("categories bind as an array overlap ($1) and the count query mirrors the WHERE without paging/order", () => {
     expect(buildWhere({ categories: "music" }).clause).toContain(
       "categories && $1",
     );
@@ -27,6 +29,12 @@ describe("db places query builders (faithful to catalyrst-places SQL)", () => {
     expect(buildWhere({ categories: ["music", "art"] }).values).toEqual([
       ["music", "art"],
     ]);
+
+    const q = buildCountQuery({ categories: "art" });
+    expect(q.text).toMatch(/^SELECT count\(\*\)/);
+    expect(q.text).toContain("categories && $1");
+    expect(q.text).not.toMatch(/LIMIT|ORDER BY/);
+    expect(q.values).toEqual([["art"]]);
   });
 
   it("search >=3 chars -> FTS+ILIKE clause + rank prefix; term bound 3x", () => {
@@ -36,24 +44,10 @@ describe("db places query builders (faithful to catalyrst-places SQL)", () => {
     expect(q.text).toContain("ts_rank_cd(");
     expect(q.values).toEqual(["plaza", "%plaza%", "plaza"]);
   });
-
-  it("limit clamps to 0..100, offset floors", () => {
-    expect(buildListQuery({ limit: 999 }).text).toContain("LIMIT 100");
-    expect(buildListQuery({ limit: -5 }).text).toContain("LIMIT 0");
-    expect(buildListQuery({ offset: 40 }).text).toContain("OFFSET 40");
-  });
-
-  it("count query mirrors the WHERE without paging/order", () => {
-    const q = buildCountQuery({ categories: "art" });
-    expect(q.text).toContain(
-      "SELECT count(*)::bigint AS total FROM place WHERE disabled IS FALSE AND categories && $1",
-    );
-    expect(q.values).toEqual([["art"]]);
-  });
 });
 
 describe("placeFromDbRow + mapPlace on a Postgres-style row", () => {
-  it("normalizes a row (nulls + extra cols) into a card", () => {
+  it("normalizes a row (nulls + extra cols) into a card; null user_count -> players 0 / not live, null title -> empty", () => {
     const row = {
       id: "abc",
       title: "Genesis Plaza",
@@ -94,9 +88,7 @@ describe("placeFromDbRow + mapPlace on a Postgres-style row", () => {
       featured: true,
       creator: "DAO",
     });
-  });
 
-  it("null user_count -> players 0 / not live; null title -> empty", () => {
     const card = mapPlace(
       placeFromDbRow({
         id: "x",

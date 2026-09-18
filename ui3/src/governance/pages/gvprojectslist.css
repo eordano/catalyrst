@@ -683,19 +683,6 @@
   line-height: 18px;
 }
 
-.gvpl__loadmore {
-  height: 40px;
-  width: 100%;
-  border: 2px solid var(--gv-line);
-  border-radius: var(--r-control);
-  background: transparent;
-  color: var(--brand);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.gvpl__loadmore:hover { background: var(--gv-wash); }
-
 .gvpl__empty {
   display: flex;
   flex-direction: column;

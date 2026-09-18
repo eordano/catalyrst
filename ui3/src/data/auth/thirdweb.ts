@@ -2,9 +2,9 @@ import { check } from "../../validate";
 
 import { SignProxyOkSchema, ThirdwebAuthResultSchema } from "./thirdwebSchema";
 
-export const THIRDWEB_API_BASE = "https://api.thirdweb.com";
+const THIRDWEB_API_BASE = "https://api.thirdweb.com";
 
-export const LOGIN_CHAIN_ID = 1;
+const LOGIN_CHAIN_ID = 1;
 
 function viteEnv(name: string): string {
   try {
@@ -54,7 +54,7 @@ export type ThirdwebAuthResult = {
   type: string;
 };
 
-export type ThirdwebSocialProvider =
+type ThirdwebSocialProvider =
   | "google"
   | "apple"
   | "discord"
@@ -63,7 +63,7 @@ export type ThirdwebSocialProvider =
   | "telegram"
   | "x";
 
-export type Eip712TypedData = {
+type Eip712TypedData = {
   domain: Record<string, unknown>;
   types: Record<string, Array<{ name: string; type: string }>>;
   primaryType: string;
@@ -197,7 +197,7 @@ async function proxySign(body: Record<string, unknown>): Promise<string> {
   return check(SignProxyOkSchema, parsed, "external-http/thirdweb/sign-proxy").signature;
 }
 
-export type InAppSigner = {
+type InAppSigner = {
   address: string;
   token: string;
   personalSign: (message: string) => Promise<string>;

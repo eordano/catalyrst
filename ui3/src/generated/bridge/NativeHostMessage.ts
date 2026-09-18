@@ -3,4 +3,4 @@
 /**
  * Page -> host.
  */
-export type NativeHostMessage = { "t": "bridge", action: string, payload: string, } | { "t": "engineStart" } | { "t": "pointerRegions", w: number, h: number, rects: Array<[number, number, number, number]>, } | { "t": "keyboardFocus", want: boolean, } | { "t": "openExternal", url: string, } | { "t": "clipboardWrite", text: string, } | { "t": "fullscreen", on: boolean, } | { "t": "console", id: number, line: string, } | { "t": "log", level: string, msg: string, };
+export type NativeHostMessage = { "t": "bridge", action: string, payload: string, } | { "t": "engineStart", realm?: string | null, parcel?: [number, number] | null, } | { "t": "pointerRegions", w: number, h: number, rects: Array<[number, number, number, number]>, } | { "t": "keyboardFocus", want: boolean, } | { "t": "openExternal", url: string, } | { "t": "clipboardWrite", text: string, } | { "t": "fullscreen", on: boolean, } | { "t": "console", id: number, line: string, } | { "t": "log", level: string, msg: string, };

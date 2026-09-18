@@ -1,17 +1,17 @@
 import type { MovementCode } from "./engineInput";
 
-export const DESIGN_WIDTH = 1600;
-export const DESIGN_HEIGHT = 720;
+const DESIGN_WIDTH = 1600;
+const DESIGN_HEIGHT = 720;
 
 export const CLAMP_RADIUS = 75;
 export const FIXED_BASE_RADIUS = 25;
-export const RESTING_BASE_X = 160;
-export const RESTING_BASE_Y = 165;
+const RESTING_BASE_X = 160;
+const RESTING_BASE_Y = 165;
 export const REVEAL_DELAY_MS = 250;
 export const SPRINT_MAGNITUDE = 0.95;
 export const SPRINT_DWELL_MS = 500;
-export const ACTIVE_AREA_FRACTION = 0.352;
-export const ACTIVE_AREA_OFFSET = 171.458;
+const ACTIVE_AREA_FRACTION = 0.352;
+const ACTIVE_AREA_OFFSET = 171.458;
 
 export const MOVEMENT_DEADZONE = 0.5;
 export const AXIS_THRESHOLD = Math.sin(Math.PI / 8);

@@ -26,9 +26,9 @@ export const at = (msAgo: number): string =>
 
 const READ_AT = at(0);
 
-export const PRESENCE_ENDPOINT =
+const PRESENCE_ENDPOINT =
   "GET catalyst.example.com/presence/current/worlds";
-export const LIVE_DATA_ENDPOINT =
+const LIVE_DATA_ENDPOINT =
   "GET worlds-content-server.decentraland.org/live-data";
 
 export const datumFixtures = {
@@ -78,7 +78,7 @@ export const datumFixtures = {
   ),
 } satisfies Record<string, Datum<number | string>>;
 
-export type DatumFixtureKey = keyof typeof datumFixtures;
+type DatumFixtureKey = keyof typeof datumFixtures;
 
 export const DATUM_FIXTURE_KEYS = Object.keys(
   datumFixtures,

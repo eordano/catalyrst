@@ -29,6 +29,7 @@ function get(search = "") {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network is down"));
 });
 
 afterEach(() => {
@@ -36,15 +37,10 @@ afterEach(() => {
 });
 
 describe("GET /creator-hub/activity", () => {
-  it("fails closed: every upstream down yields 503 and no showable datum", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(
-      new Error("network is down"),
-    );
-
+  it("fails closed: every upstream down yields 503, no showable datum and no value key on a failed reading", async () => {
     const res = await loader(
       get("?address=0x1111111111111111111111111111111111111111") as never,
     );
-
     expect(res.init?.status).toBe(503);
 
     const payload = res.data as Record<string, unknown>;
@@ -52,17 +48,7 @@ describe("GET /creator-hub/activity", () => {
 
     const datums = collectDatums(payload);
     expect(datums.length).toBeGreaterThan(0);
-    const showable = datums.filter((d) => SHOWABLE.has(d.state));
-    expect(showable).toEqual([]);
-  });
-
-  it("never hands a value-carrying key to a failed reading", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network is down"));
-
-    const res = await loader(
-      get("?address=0x1111111111111111111111111111111111111111") as never,
-    );
-    const payload = res.data as Record<string, unknown>;
+    expect(datums.filter((d) => SHOWABLE.has(d.state))).toEqual([]);
 
     for (const key of [
       "peopleInYourWorlds",
@@ -72,17 +58,13 @@ describe("GET /creator-hub/activity", () => {
       "busiestWorlds",
     ]) {
       const d = payload[key] as Record<string, unknown>;
-      expect(SHOWABLE.has(d.state as string)).toBe(false);
-      expect(Object.hasOwn(d, "value")).toBe(false);
+      expect(SHOWABLE.has(d.state as string), key).toBe(false);
+      expect(Object.hasOwn(d, "value"), key).toBe(false);
     }
   });
 
   it("renders the no-address state rather than someone else's data", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network is down"));
-
     const res = await loader(get() as never);
-    const payload = res.data as Record<string, unknown>;
-
-    expect(payload.address).toBeNull();
+    expect((res.data as Record<string, unknown>).address).toBeNull();
   });
 });

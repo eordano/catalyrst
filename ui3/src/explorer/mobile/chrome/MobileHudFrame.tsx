@@ -26,6 +26,9 @@ export type MobileHudFrameProps = {
   children?: ReactNode;
   onMenu?: () => void;
   onChat?: () => void;
+  onProfile?: () => void;
+  avatarSrc?: string | null;
+  user?: string;
   onTab?: (id: string) => void;
   onExpandMap?: () => void;
   onToggleMap?: () => void;
@@ -55,6 +58,9 @@ export default function MobileHudFrame({
   children,
   onMenu,
   onChat,
+  onProfile,
+  avatarSrc,
+  user,
   onTab,
   onExpandMap,
   onToggleMap,
@@ -91,6 +97,9 @@ export default function MobileHudFrame({
               onMenu={onMenu}
               onChat={onChat}
               onHideHud={onHideHud}
+              onProfile={onProfile}
+              avatarSrc={avatarSrc}
+              user={user}
             />
 
             <MobileMinimapPuck

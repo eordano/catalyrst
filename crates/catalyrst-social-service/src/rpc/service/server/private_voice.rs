@@ -36,17 +36,28 @@ impl SocialServiceImpl {
                 "Cannot start a private voice chat with yourself",
             ));
         }
-        if db.is_friendship_blocked(&me, &callee).await? {
+        // One DB read and the four gatekeeper reads run together; the checks below keep the
+        // original precedence so the first refusal is unchanged.
+        let expiration_ms = ctx.cfg().private_voice_chat_expiration_ms;
+        let (pre, caller_community, callee_community, caller_voice, callee_voice) = tokio::join!(
+            db.private_voice_preflight(&me, &callee, expiration_ms),
+            gk.is_user_in_community_voice_chat(&me),
+            gk.is_user_in_community_voice_chat(&callee),
+            gk.is_user_in_a_voice_chat(&me),
+            gk.is_user_in_a_voice_chat(&callee),
+        );
+        let pre = pre?;
+        if pre.blocked {
             return Ok(start_voice_forbidden(
                 "This action is not allowed because either you blocked this user or this user blocked you",
             ));
         }
 
-        let is_caller_in_community = match gk.is_user_in_community_voice_chat(&me).await {
+        let is_caller_in_community = match caller_community {
             Ok(v) => v,
             Err(e) => return Ok(start_voice_internal(format!("community voice status: {e}"))),
         };
-        let is_callee_in_community = match gk.is_user_in_community_voice_chat(&callee).await {
+        let is_callee_in_community = match callee_community {
             Ok(v) => v,
             Err(e) => return Ok(start_voice_internal(format!("community voice status: {e}"))),
         };
@@ -61,45 +72,25 @@ impl SocialServiceImpl {
             ));
         }
 
-        let callee_privacy = db
-            .get_social_settings(&callee)
-            .await?
-            .map(|s| s.private_messages_privacy)
-            .unwrap_or_else(|| "all".into());
-        let caller_privacy = db
-            .get_social_settings(&me)
-            .await?
-            .map(|s| s.private_messages_privacy)
-            .unwrap_or_else(|| "all".into());
-        if callee_privacy != "all" || caller_privacy != "all" {
-            let is_active = db
-                .friendship_is_active(&me, &callee)
-                .await?
-                .unwrap_or(false);
-            if !is_active {
-                return Ok(start_voice_forbidden(
-                    "The callee or the caller are not accepting voice calls from users that are not friends",
-                ));
-            }
+        if (pre.callee_privacy != "all" || pre.caller_privacy != "all")
+            && !pre.friends.unwrap_or(false)
+        {
+            return Ok(start_voice_forbidden(
+                "The callee or the caller are not accepting voice calls from users that are not friends",
+            ));
         }
 
-        if db
-            .are_users_being_called_or_calling_someone(
-                &[me.clone(), callee.clone()],
-                ctx.cfg().private_voice_chat_expiration_ms,
-            )
-            .await?
-        {
+        if pre.busy {
             return Ok(start_voice_conflict(
                 "One of the users is busy calling someone else",
             ));
         }
 
-        let is_caller_in_voice = match gk.is_user_in_a_voice_chat(&me).await {
+        let is_caller_in_voice = match caller_voice {
             Ok(v) => v,
             Err(e) => return Ok(start_voice_internal(format!("voice status: {e}"))),
         };
-        let is_callee_in_voice = match gk.is_user_in_a_voice_chat(&callee).await {
+        let is_callee_in_voice = match callee_voice {
             Ok(v) => v,
             Err(e) => return Ok(start_voice_internal(format!("voice status: {e}"))),
         };
@@ -115,11 +106,7 @@ impl SocialServiceImpl {
         }
 
         match db
-            .start_private_voice_chat_if_free(
-                &me,
-                &callee,
-                ctx.cfg().private_voice_chat_expiration_ms,
-            )
+            .start_private_voice_chat_if_free(&me, &callee, expiration_ms)
             .await
         {
             Ok(Some(id)) => {
@@ -249,7 +236,7 @@ impl SocialServiceImpl {
             }
         };
         let ctx = &context.server_context;
-        let chat = match ctx.db().get_private_voice_chat(id).await? {
+        let chat = match ctx.db().delete_private_voice_chat_returning(id).await? {
             Some(c) => c,
             None => {
                 return Ok(RejectPrivateVoiceChatResponse {
@@ -262,7 +249,6 @@ impl SocialServiceImpl {
             }
         };
         let _ = me;
-        ctx.db().delete_private_voice_chat(id).await?;
         ctx.pubsub().publish(
             &chat.caller_address,
             SocialEvent::PrivateVoice(PrivateVoiceChatUpdate {
@@ -305,7 +291,7 @@ impl SocialServiceImpl {
             }
         };
         let ctx = &context.server_context;
-        let chat = match ctx.db().get_private_voice_chat(id).await? {
+        let chat = match ctx.db().delete_private_voice_chat_returning(id).await? {
             Some(c) => c,
             None => {
                 return Ok(EndPrivateVoiceChatResponse {
@@ -317,7 +303,6 @@ impl SocialServiceImpl {
                 })
             }
         };
-        ctx.db().delete_private_voice_chat(id).await?;
 
         ctx.gatekeeper()
             .end_private_voice_chat(&request.call_id, &me)

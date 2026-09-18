@@ -40,11 +40,11 @@ const SelfSchema = z.object({
   isGuest: z.boolean(),
 });
 
-export type Friend = z.infer<typeof FriendSchema>;
-export type FriendRequest = z.infer<typeof RequestSchema>;
-export type BlockedUser = z.infer<typeof BlockedSchema>;
-export type FriendCandidate = z.infer<typeof CandidateSchema>;
-export type FriendSelf = z.infer<typeof SelfSchema>;
+type Friend = z.infer<typeof FriendSchema>;
+type FriendRequest = z.infer<typeof RequestSchema>;
+type BlockedUser = z.infer<typeof BlockedSchema>;
+type FriendCandidate = z.infer<typeof CandidateSchema>;
+type FriendSelf = z.infer<typeof SelfSchema>;
 
 export type FriendRequestData = {
   self: FriendSelf;

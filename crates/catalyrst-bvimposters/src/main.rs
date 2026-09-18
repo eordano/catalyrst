@@ -18,6 +18,10 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "LRU byte budget for the store (default 21474836480 = 20 GiB)",
     ),
     (
+        "BVIMPOSTERS_MEM_CACHE_BYTES",
+        "in-memory LRU budget for served zips (default 268435456 = 256 MiB)",
+    ),
+    (
         "BVIMPOSTERS_CDN_BASE",
         "read-through upstream base (REQUIRED; no default)",
     ),

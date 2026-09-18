@@ -19,9 +19,9 @@ export type PutDraftInput = {
   title?: string;
 };
 
-export const WALLET_RE = /^0x[0-9a-f]{40}$/;
+const WALLET_RE = /^0x[0-9a-f]{40}$/;
 
-export const DRAFT_ID_RE = /^[a-z0-9_.,-]{1,200}$/i;
+const DRAFT_ID_RE = /^[a-z0-9_.,-]{1,200}$/i;
 
 export function normalizeWallet(wallet: string): string {
   return typeof wallet === "string" ? wallet.trim().toLowerCase() : "";

@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import SkyboxHUD from "./SkyboxHUD";
+import SkyboxHUD, { SkyboxControls } from "./SkyboxHUD";
+import FloatingPanel from "./FloatingPanel";
+import { HudPanelScene } from "./FloatingPanel.stories";
 
 const meta = {
   title: "Explorer/Components/SkyboxHUD",
@@ -15,5 +17,15 @@ export const Default: Story = {
     <div style={{ minHeight: "100vh", background: "#1a1a1f" }}>
       <SkyboxHUD />
     </div>
+  ),
+};
+
+export const Floating: Story = {
+  render: () => (
+    <HudPanelScene panel="skybox">
+      <FloatingPanel id="skybox" onClose={() => {}}>
+        <SkyboxControls />
+      </FloatingPanel>
+    </HudPanelScene>
   ),
 };

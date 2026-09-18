@@ -12,7 +12,6 @@ import type { ProfileVM } from "../catalyst/overlay/profile";
 import type { CommunityDetail } from "../catalyst/overlay/communities";
 import { heroEventCards, hotspotCards, ritualCards, type HomeContent } from "../catalyst/landings/home";
 
-
 export function wantsMarkdown(request: Request): boolean {
   let url: URL;
   try {
@@ -34,7 +33,7 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-export type MarkdownResponseInit = {
+type MarkdownResponseInit = {
   status?: number;
   cacheControl?: string;
   headers?: HeadersInit;
@@ -49,7 +48,6 @@ export function markdownResponse(md: string, opts: MarkdownResponseInit = {}): R
   if (opts.cacheControl) headers.set("Cache-Control", opts.cacheControl);
   return new Response(md, { status: opts.status ?? 200, headers });
 }
-
 
 const HEADING = ["", "# ", "## ", "### ", "#### ", "##### ", "###### "] as const;
 
@@ -77,7 +75,6 @@ function joinBlocks(blocks: Array<string | null | undefined>): string {
     .trim();
 }
 
-
 type ElementLike = { type?: unknown; props?: { href?: unknown; children?: unknown } };
 
 function isElementLike(node: unknown): node is ElementLike {
@@ -103,7 +100,6 @@ export function reactNodeToMarkdown(node: unknown): string {
 
   return "";
 }
-
 
 function blogBlockToMarkdown(block: BlogBlock): string {
   switch (block.type) {
@@ -161,8 +157,7 @@ function joinInline(parts: Array<string | null | undefined>): string {
   return joined ? `_${joined}_` : "";
 }
 
-
-export type AgentLegalBlock =
+type AgentLegalBlock =
   | string
   | {
       type?: string;
@@ -172,7 +167,7 @@ export type AgentLegalBlock =
       items?: unknown[];
     };
 
-export type AgentLegalSection = {
+type AgentLegalSection = {
   id?: string;
   heading: string;
   body: AgentLegalBlock[];
@@ -211,7 +206,6 @@ export function legalDocToMarkdown(doc: AgentLegalDoc): string {
     ...sections,
   ]);
 }
-
 
 function placeCreator(place: Place): string {
   return (place.contact_name || place.owner || "Decentraland").trim() || "Decentraland";
@@ -276,14 +270,12 @@ export function placesIndexToMarkdown(list: Place[]): string {
   ]);
 }
 
-
 function inlineParts(parts: Array<string | null | undefined>): string {
   return parts
     .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
     .map(clean)
     .join(" \u{B7} ");
 }
-
 
 export function homeToMarkdown(story: LandingStory): string {
   const beats = (story.beats ?? []).map((b) =>
@@ -302,8 +294,7 @@ export function homeToMarkdown(story: LandingStory): string {
   ]);
 }
 
-
-export type AgentGovEndingSoon = {
+type AgentGovEndingSoon = {
   id: string;
   title: string;
   author?: string;
@@ -335,8 +326,7 @@ export function governanceLandingToMarkdown(items: AgentGovEndingSoon[]): string
   ]);
 }
 
-
-export type AgentGovProposalsData = {
+type AgentGovProposalsData = {
   proposals: ProposalCard[];
   page?: number;
   pageCount?: number;
@@ -401,8 +391,7 @@ export function proposalDetailToMarkdown(p: ProposalDetail): string {
   ]);
 }
 
-
-export type AgentWhatsOnData = {
+type AgentWhatsOnData = {
   live?: Event[];
   upcoming?: Event[];
   filter?: string;
@@ -467,13 +456,12 @@ export function eventDetailToMarkdown(e: Event): string {
   ]);
 }
 
-
 function money(n: number | null | undefined, token = ""): string | null {
   if (typeof n !== "number" || !Number.isFinite(n)) return null;
   return `${n.toLocaleString("en-US")}${token ? ` ${token}` : ""}`;
 }
 
-export type AgentProjectsData = {
+type AgentProjectsData = {
   projects?: ProjectCard[];
   stats?: ProjectStats;
   total?: number;
@@ -658,7 +646,6 @@ export function assetDetailToMarkdown(nft: AssetDetail, listings: AssetListing[]
   ]);
 }
 
-
 export function profileToMarkdown(p: ProfileVM): string {
   const facts: Array<[string, string | number | null | undefined]> = [
     ["Address", p.address],
@@ -698,7 +685,6 @@ export function profileToMarkdown(p: ProfileVM): string {
   ]);
 }
 
-
 export function discoverToMarkdown(content: HomeContent): string {
   const events = heroEventCards(content) ?? [];
   const hotspots = hotspotCards(content) ?? [];
@@ -730,7 +716,7 @@ export function discoverToMarkdown(content: HomeContent): string {
   return joinBlocks(blocks);
 }
 
-export type AgentCollectionData = {
+type AgentCollectionData = {
   header?: CollectionHeader | null;
   items?: CollectionItemRow[];
   stats?: CollectionStats | null;
@@ -810,7 +796,6 @@ export function communityToMarkdown(detail: CommunityDetail): string {
     eventsBlock,
   ]);
 }
-
 
 export type AgentMarkdownKey =
   | "blogIndex"

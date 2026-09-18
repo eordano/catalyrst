@@ -20,7 +20,7 @@ export type Store = {
   discord: string;
 };
 
-export const AuthorizationSchema = z.object({
+const AuthorizationSchema = z.object({
   id: z.string(),
   contract: z.string(),
   address: nullableStr.optional(),
@@ -29,9 +29,8 @@ export const AuthorizationSchema = z.object({
   granted: z.boolean(),
   pending: z.boolean(),
 });
-export type Authorization = z.infer<typeof AuthorizationSchema>;
 
-export const AuthorizationsSchema = z.object({
+const AuthorizationsSchema = z.object({
   buying: z.array(AuthorizationSchema),
   bidding: z.array(AuthorizationSchema),
   renting: z.array(AuthorizationSchema),
@@ -47,7 +46,7 @@ export const StoreEntitySchema = z.object({
   images: z.array(z.object({ name: z.string(), file: z.string() })),
   version: z.number().nullish().transform((v) => v ?? null),
 });
-export type StoreEntity = z.infer<typeof StoreEntitySchema>;
+type StoreEntity = z.infer<typeof StoreEntitySchema>;
 
 export function emptyStore(owner = ""): Store {
   return {

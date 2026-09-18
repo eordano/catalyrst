@@ -6,13 +6,13 @@ import { submitProposal } from "./submit-client";
 import type { AuthIdentity } from "../../auth/types";
 import { MembersEnvelopeSchema } from "../generated-schemas/governance";
 import { governanceApiBase } from "./api-base";
-import { validateCoAuthors as sharedValidateCoAuthors, type FieldErrors } from "./co-authors";
+import { type FieldErrors } from "./co-authors";
 import { ETH_ADDRESS_RE } from "../format/address";
 
-export const HIRING_REQUESTS = ["add", "remove"] as const;
+const HIRING_REQUESTS = ["add", "remove"] as const;
 export type HiringRequest = (typeof HIRING_REQUESTS)[number];
 
-export const HIRING_TYPE: Record<HiringRequest, string> = {
+const HIRING_TYPE: Record<HiringRequest, string> = {
   add: "hiring_add",
   remove: "hiring_remove",
 };
@@ -100,10 +100,10 @@ const SubmitHiringSchema = z.object({
   samples: z.object({ add: SampleSchema, remove: SampleSchema }),
 });
 
-export type RequestCopy = z.infer<typeof RequestCopySchema>;
+type RequestCopy = z.infer<typeof RequestCopySchema>;
 export type CommitteeMember = z.infer<typeof MemberSchema>;
-export type Committee = z.infer<typeof CommitteeSchema>;
-export type HiringSample = z.infer<typeof SampleSchema>;
+type Committee = z.infer<typeof CommitteeSchema>;
+type HiringSample = z.infer<typeof SampleSchema>;
 export type SubmitHiringData = z.infer<typeof SubmitHiringSchema>;
 
 const STATIC_CONFIG: SubmitHiringData = {
@@ -281,9 +281,9 @@ async function resolveProfileName(
   }
 }
 
-export type CommitteeMembership = Record<string, CommitteeMember[]>;
+type CommitteeMembership = Record<string, CommitteeMember[]>;
 
-export async function fetchCommitteeMembership(
+async function fetchCommitteeMembership(
   opts: GetOptions = {},
 ): Promise<CommitteeMembership> {
   const envelope = await getJSON<unknown>("/members", {
@@ -344,7 +344,7 @@ export type { FieldErrors };
 
 const SCHEMA = STATIC_CONFIG.schema;
 
-export function isEthAddress(addr: string): boolean {
+function isEthAddress(addr: string): boolean {
   return ETH_ADDRESS_RE.test(addr.trim());
 }
 
@@ -382,11 +382,7 @@ export function validateReasons(args: {
   return errors;
 }
 
-export function validateCoAuthors(coAuthors: string[]): FieldErrors {
-  return sharedValidateCoAuthors(coAuthors, SCHEMA.coAuthors.max);
-}
-
-export type NewProposalHiring = {
+type NewProposalHiring = {
   request: HiringRequest;
   type: string;
   committee: string;

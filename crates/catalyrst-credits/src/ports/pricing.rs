@@ -1,7 +1,14 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use catalyrst_commons::cache::TtlMap;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 
 use crate::http::ApiError;
+
+mod orders;
 
 const ALLOWED_CATEGORIES: [&str; 2] = ["wearable", "emote"];
 
@@ -72,9 +79,14 @@ const MARKETPLACE_V2_POLYGON: &str = "0x480a0f4e360e8964e68858dd231c2922f1df45ef
 
 pub const TRADE_CONTRACT_POLYGON: &str = "0x540fb08edb56aae562864b390542c97f562825ba";
 
+pub const ORDER_SCAN_PAGE: usize = 100;
+
 pub const ORDER_SCAN_MAX_PAGES: usize = 20;
 
 pub const QUOTE_ORDER_SCAN_MAX_PAGES: usize = 5;
+
+/// One oracle read serves every quote/cart/checkout/authorize/topup/outbox caller for this long.
+pub const MANA_USD_MEMO_TTL: Duration = Duration::from_secs(20);
 
 #[derive(Clone)]
 pub struct PricingClient {
@@ -83,6 +95,8 @@ pub struct PricingClient {
     price_base_url: String,
     markup_bps: i64,
     max_staleness_secs: i64,
+    quote_pages: orders::OrdersPageMemo,
+    mana_usd: Arc<TtlMap<(), String>>,
 }
 
 impl PricingClient {
@@ -99,7 +113,13 @@ impl PricingClient {
             price_base_url,
             markup_bps,
             max_staleness_secs,
+            quote_pages: orders::new_memo(),
+            mana_usd: Arc::new(TtlMap::new("credits-mana-usd", MANA_USD_MEMO_TTL)),
         }
+    }
+
+    pub fn markup_bps(&self) -> i64 {
+        self.markup_bps
     }
 
     pub async fn fetch_item(&self, collection: &str, item_id: &str) -> Result<ItemInfo, ApiError> {
@@ -143,55 +163,90 @@ impl PricingClient {
             }
         };
 
-        let category = item
-            .get("category")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ApiError::Internal("catalog item missing category".into()))?
-            .to_string();
-        if !ALLOWED_CATEGORIES.contains(&category.as_str()) {
-            return Err(ApiError::bad_request(format!(
-                "item category '{category}' is not purchasable (wearable/emote only)"
+        parse_item_info(item, item_id)
+    }
+
+    /// [`Self::fetch_item`] for many `(collection, item_id)` pairs in ONE `/v1/items?id=..`
+    /// round trip; element `i` answers `pairs[i]` exactly as the single lookup would
+    /// (not-found, ambiguous, category gate), so callers keep the per-item error semantics.
+    pub async fn fetch_items_batch(
+        &self,
+        pairs: &[(String, String)],
+    ) -> Result<Vec<Result<ItemInfo, ApiError>>, ApiError> {
+        if pairs.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut keys: Vec<(String, String)> = Vec::new();
+        let mut query: Vec<(&str, String)> = Vec::new();
+        for (collection, item_id) in pairs {
+            let key = (collection.to_ascii_lowercase(), item_id.clone());
+            if !keys.contains(&key) {
+                query.push(("id", format!("{}-{}", key.0, key.1)));
+                keys.push(key);
+            }
+        }
+        // Twice the key count so a duplicated key still shows up as ambiguous.
+        query.push(("first", (keys.len() * 2).to_string()));
+
+        let url = format!("{}/v1/items", self.market_base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .query(&query)
+            .send()
+            .await
+            .map_err(|e| ApiError::Internal(format!("market request failed: {e}")))?;
+        let status = resp.status();
+        if !status.is_success() {
+            if status.as_u16() == 404 {
+                return Ok(pairs
+                    .iter()
+                    .map(|_| Err(ApiError::not_found("item not found in catalog")))
+                    .collect());
+            }
+            return Err(ApiError::Internal(format!(
+                "market returned status {}",
+                status.as_u16()
             )));
         }
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| ApiError::Internal(format!("market response parse failed: {e}")))?;
+        let items = body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .ok_or_else(|| ApiError::Internal("market response missing data array".into()))?;
 
-        let price_wei = match item.get("price") {
-            Some(serde_json::Value::String(s)) => s.clone(),
-            Some(serde_json::Value::Number(n)) => n.to_string(),
-            _ => return Err(ApiError::Internal("catalog item missing price".into())),
-        };
-
-        let urn = item
-            .get("urn")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ApiError::Internal("catalog item missing urn".into()))?
-            .to_string();
-
-        let contract_address = item
-            .get("contractAddress")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| ApiError::Internal("catalog item missing contractAddress".into()))?
-            .to_string();
-
-        let is_on_sale = item
-            .get("isOnSale")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let has_open_trade = item
-            .get("tradeId")
-            .and_then(|v| v.as_str())
-            .is_some_and(|s| !s.trim().is_empty());
-
-        Ok(ItemInfo {
-            item_id: item_id.to_string(),
-            urn,
-            category,
-            price_wei,
-            contract_address,
-            store_mintable: is_on_sale && !has_open_trade,
-        })
+        let mut by_key: HashMap<(String, String), Vec<&serde_json::Value>> = HashMap::new();
+        for item in items {
+            if let Some(key) = item_key(item) {
+                by_key.entry(key).or_default().push(item);
+            }
+        }
+        Ok(pairs
+            .iter()
+            .map(|(collection, item_id)| {
+                let key = (collection.to_ascii_lowercase(), item_id.clone());
+                match by_key.get(&key).map(|v| v.as_slice()) {
+                    None | Some([]) => Err(ApiError::not_found("item not found in catalog")),
+                    Some([item]) => parse_item_info(item, item_id),
+                    Some(v) => Err(ApiError::Internal(format!(
+                        "catalog returned {} items for contractAddress={collection}&itemId={item_id} (ambiguous)",
+                        v.len()
+                    ))),
+                }
+            })
+            .collect())
     }
 
     pub async fn fetch_mana_usd(&self) -> Result<String, ApiError> {
+        self.mana_usd
+            .get_or_fetch((), || self.fetch_mana_usd_uncached())
+            .await
+    }
+
+    async fn fetch_mana_usd_uncached(&self) -> Result<String, ApiError> {
         let url = format!("{}/api/v3/simple/price", self.price_base_url);
         let resp = self
             .http
@@ -318,9 +373,31 @@ impl PricingClient {
         mode: &str,
         max_pages: usize,
     ) -> Result<ChargeBasis, ApiError> {
+        self.charge_basis(collection, item_id, mode, max_pages, false)
+            .await
+    }
+
+    pub async fn fetch_charge_basis_quote(
+        &self,
+        collection: &str,
+        item_id: &str,
+        mode: &str,
+    ) -> Result<ChargeBasis, ApiError> {
+        self.charge_basis(collection, item_id, mode, QUOTE_ORDER_SCAN_MAX_PAGES, true)
+            .await
+    }
+
+    async fn charge_basis(
+        &self,
+        collection: &str,
+        item_id: &str,
+        mode: &str,
+        max_pages: usize,
+        memo: bool,
+    ) -> Result<ChargeBasis, ApiError> {
         let info = self.fetch_item(collection, item_id).await?;
         let open_listing = if mode == "secondary" || mode == "auto" {
-            self.fetch_open_listing_scanning(&info.contract_address, item_id, max_pages, true)
+            self.scan_open_listing(&info.contract_address, item_id, max_pages, true, memo)
                 .await?
         } else {
             None
@@ -340,16 +417,99 @@ impl PricingClient {
         item_id: &str,
         mode: &str,
     ) -> Result<PricedItem, ApiError> {
-        let basis = self.fetch_charge_basis(collection, item_id, mode).await?;
-        let mana_usd = self.fetch_mana_usd().await?;
-        let credit_price = self
-            .compute_credit_price(pool, &basis.basis_wei, &mana_usd)
+        let pairs = [(collection.to_string(), item_id.to_string())];
+        self.price_items_for_mode(pool, &pairs, mode, ORDER_SCAN_MAX_PAGES)
+            .await?
+            .pop()
+            .unwrap_or_else(|| Err(ApiError::Internal("empty price batch".into())))
+    }
+
+    /// [`Self::fetch_charge_basis_scanning`] for many pairs with the market calls collapsed:
+    /// one catalog batch and one `/v1/orders/open-by-items` call. Element `i` answers
+    /// `pairs[i]`; a batch-level failure (market unreachable) is the outer error.
+    pub async fn fetch_charge_bases_batch(
+        &self,
+        pairs: &[(String, String)],
+        mode: &str,
+        max_pages: usize,
+    ) -> Result<Vec<Result<ChargeBasis, ApiError>>, ApiError> {
+        let infos = self.fetch_items_batch(pairs).await?;
+        let wants_listing = mode == "secondary" || mode == "auto";
+        let listing_pairs: Vec<(String, String)> = infos
+            .iter()
+            .zip(pairs)
+            .filter_map(|(info, (_, item_id))| {
+                info.as_ref()
+                    .ok()
+                    .map(|info| (info.contract_address.clone(), item_id.clone()))
+            })
+            .collect();
+        let listings = if wants_listing && !listing_pairs.is_empty() {
+            self.fetch_open_listings_batch(&listing_pairs, max_pages, true)
+                .await?
+        } else {
+            HashMap::new()
+        };
+        Ok(infos
+            .into_iter()
+            .zip(pairs)
+            .map(|(info, (_, item_id))| {
+                let info = info?;
+                let open_listing = if wants_listing {
+                    let key = (info.contract_address.to_ascii_lowercase(), item_id.clone());
+                    listings.get(&key).cloned().flatten()
+                } else {
+                    None
+                };
+                let resolved = resolve_basis(mode, &info, open_listing)?;
+                Ok(ChargeBasis {
+                    info,
+                    basis_wei: resolved.basis_wei,
+                    kind: resolved.kind,
+                })
+            })
+            .collect())
+    }
+
+    /// [`Self::price_item_for_mode`] for many pairs: the two market batches, one (memoized)
+    /// oracle read and one batched credit conversion. Element `i` answers `pairs[i]`.
+    pub async fn price_items_for_mode(
+        &self,
+        pool: &PgPool,
+        pairs: &[(String, String)],
+        mode: &str,
+        max_pages: usize,
+    ) -> Result<Vec<Result<PricedItem, ApiError>>, ApiError> {
+        let bases = self
+            .fetch_charge_bases_batch(pairs, mode, max_pages)
             .await?;
-        ensure_charge_covers_payment(&basis.basis_wei, &credit_price)?;
-        Ok(PricedItem {
-            basis,
-            credit_price,
-        })
+        let weis: Vec<String> = bases
+            .iter()
+            .filter_map(|b| b.as_ref().ok())
+            .map(|b| b.basis_wei.clone())
+            .collect();
+        let mut prices = if weis.is_empty() {
+            Vec::new()
+        } else {
+            let mana_usd = self.fetch_mana_usd().await?;
+            self.compute_credit_prices_batch(pool, &weis, &mana_usd)
+                .await?
+        }
+        .into_iter();
+        Ok(bases
+            .into_iter()
+            .map(|basis| {
+                let basis = basis?;
+                let credit_price = prices.next().ok_or_else(|| {
+                    ApiError::Internal("price batch shorter than its input".into())
+                })?;
+                ensure_charge_covers_payment(&basis.basis_wei, &credit_price)?;
+                Ok(PricedItem {
+                    basis,
+                    credit_price,
+                })
+            })
+            .collect())
     }
 
     pub async fn fetch_open_order(
@@ -376,61 +536,63 @@ impl PricingClient {
         max_pages: usize,
         include_trades: bool,
     ) -> Result<Option<OpenListing>, ApiError> {
-        const PAGE: usize = 100;
+        self.scan_open_listing(collection, item_id, max_pages, include_trades, false)
+            .await
+    }
 
-        let url = format!("{}/v1/orders", self.market_base_url);
-        let now = chrono::Utc::now().timestamp();
-
-        for page in 0..max_pages {
-            let first = PAGE.to_string();
-            let skip = (page * PAGE).to_string();
-            let resp = self
-                .http
-                .get(&url)
-                .query(&[
-                    ("contractAddress", collection),
-                    ("status", "open"),
-                    ("sortBy", "cheapest"),
-                    ("first", first.as_str()),
-                    ("skip", skip.as_str()),
-                ])
-                .send()
-                .await
-                .map_err(|e| ApiError::Internal(format!("market orders request failed: {e}")))?;
-
-            if !resp.status().is_success() {
-                return Err(ApiError::Internal(format!(
-                    "market orders returned status {}",
-                    resp.status().as_u16()
-                )));
+    /// [`Self::fetch_open_listing_scanning`] for many `(collection, item_id)` pairs in one
+    /// market round trip (`/v1/orders/open-by-items`). The market ranks each collection's open
+    /// orders cheapest-first and cuts the first `max_pages * ORDER_SCAN_PAGE` of them, the same
+    /// rows the page walk would have fetched, so [`select_cheapest_listing`] sees what it
+    /// would have seen; pairs whose item id is not decimal never match a token and resolve to
+    /// `None` without asking. Every requested pair is present in the result.
+    pub async fn fetch_open_listings_batch(
+        &self,
+        pairs: &[(String, String)],
+        max_pages: usize,
+        include_trades: bool,
+    ) -> Result<HashMap<(String, String), Option<OpenListing>>, ApiError> {
+        let mut out: HashMap<(String, String), Option<OpenListing>> = HashMap::new();
+        let mut query: Vec<(&str, String)> = Vec::new();
+        for (collection, item_id) in pairs {
+            let key = (collection.to_ascii_lowercase(), item_id.clone());
+            if is_decimal_item_id(item_id) && !out.contains_key(&key) {
+                query.push(("item", format!("{}-{}", key.0, key.1)));
             }
-
-            let body: serde_json::Value = resp
-                .json()
-                .await
-                .map_err(|e| ApiError::Internal(format!("market orders parse failed: {e}")))?;
-
-            let orders = body.get("data").and_then(|d| d.as_array()).ok_or_else(|| {
-                ApiError::Internal("market orders response missing data array".into())
-            })?;
-
-            if let Some(listing) = select_cheapest_listing(orders, item_id, now, include_trades) {
-                return Ok(Some(listing));
-            }
-
-            if orders.len() < PAGE {
-                return Ok(None);
-            }
+            out.entry(key).or_insert(None);
         }
+        if query.is_empty() {
+            return Ok(out);
+        }
+        query.push(("perContract", (max_pages * ORDER_SCAN_PAGE).to_string()));
 
-        tracing::warn!(
-            collection,
-            item_id,
-            scanned = max_pages * PAGE,
-            "fetch_open_listing: page cap hit with no item-matching listing; \
-             failing CLOSED (collection may have more open orders than scanned)"
-        );
-        Ok(None)
+        let url = format!("{}/v1/orders/open-by-items", self.market_base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .query(&query)
+            .send()
+            .await
+            .map_err(|e| ApiError::Internal(format!("market orders request failed: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(ApiError::Internal(format!(
+                "market orders returned status {}",
+                resp.status().as_u16()
+            )));
+        }
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| ApiError::Internal(format!("market orders parse failed: {e}")))?;
+        let orders = body.get("data").and_then(|d| d.as_array()).ok_or_else(|| {
+            ApiError::Internal("market orders response missing data array".into())
+        })?;
+
+        let now = chrono::Utc::now().timestamp();
+        for (key, slot) in out.iter_mut() {
+            *slot = select_listing_for_pair(orders, &key.0, &key.1, now, include_trades);
+        }
+        Ok(out)
     }
 
     pub async fn fetch_trade(&self, trade_id: &str) -> Result<serde_json::Value, ApiError> {
@@ -660,6 +822,32 @@ fn select_cheapest_listing(
     best.map(|(_, listing)| listing)
 }
 
+/// One pair's answer out of a mixed-collection order list: only the orders of `collection`
+/// are candidates, then [`select_cheapest_listing`] decides exactly as it does for a page.
+fn select_listing_for_pair(
+    orders: &[serde_json::Value],
+    collection: &str,
+    item_id: &str,
+    now: i64,
+    include_trades: bool,
+) -> Option<OpenListing> {
+    let mine: Vec<serde_json::Value> = orders
+        .iter()
+        .filter(|o| {
+            o.get("contractAddress")
+                .and_then(|v| v.as_str())
+                .is_some_and(|c| c.eq_ignore_ascii_case(collection))
+        })
+        .cloned()
+        .collect();
+    select_cheapest_listing(&mine, item_id, now, include_trades)
+}
+
+fn is_decimal_item_id(item_id: &str) -> bool {
+    let s = item_id.trim();
+    !s.is_empty() && s.len() <= 77 && s.bytes().all(|b| b.is_ascii_digit())
+}
+
 fn token_matches_item(token_id: &str, item_id: &str) -> bool {
     use alloy_primitives::U256;
     const ISSUED_ID_BITS: usize = 216;
@@ -674,6 +862,76 @@ fn token_matches_item(token_id: &str, item_id: &str) -> bool {
         return false;
     };
     (tok >> ISSUED_ID_BITS) == item
+}
+
+fn parse_item_info(item: &serde_json::Value, item_id: &str) -> Result<ItemInfo, ApiError> {
+    let category = item
+        .get("category")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::Internal("catalog item missing category".into()))?
+        .to_string();
+    if !ALLOWED_CATEGORIES.contains(&category.as_str()) {
+        return Err(ApiError::bad_request(format!(
+            "item category '{category}' is not purchasable (wearable/emote only)"
+        )));
+    }
+
+    let price_wei = match item.get("price") {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Number(n)) => n.to_string(),
+        _ => return Err(ApiError::Internal("catalog item missing price".into())),
+    };
+
+    let urn = item
+        .get("urn")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::Internal("catalog item missing urn".into()))?
+        .to_string();
+
+    let contract_address = item
+        .get("contractAddress")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::Internal("catalog item missing contractAddress".into()))?
+        .to_string();
+
+    let is_on_sale = item
+        .get("isOnSale")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let has_open_trade = item
+        .get("tradeId")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.trim().is_empty());
+
+    Ok(ItemInfo {
+        item_id: item_id.to_string(),
+        urn,
+        category,
+        price_wei,
+        contract_address,
+        store_mintable: is_on_sale && !has_open_trade,
+    })
+}
+
+/// `(lowercased contractAddress, itemId)` of a catalog row; `itemId` falls back to the
+/// `<contract>-<itemId>` suffix of `id` for rows that omit it.
+fn item_key(item: &serde_json::Value) -> Option<(String, String)> {
+    let contract = item
+        .get("contractAddress")
+        .and_then(|v| v.as_str())?
+        .to_ascii_lowercase();
+    let item_id = match item.get("itemId").and_then(|v| v.as_str()) {
+        Some(id) if !id.is_empty() => id.to_string(),
+        _ => {
+            let id = item.get("id").and_then(|v| v.as_str())?;
+            let (prefix, rest) = id.split_at_checked(contract.len() + 1)?;
+            if !prefix[..contract.len()].eq_ignore_ascii_case(&contract) || !prefix.ends_with('-') {
+                return None;
+            }
+            rest.to_string()
+        }
+    };
+    Some((contract, item_id))
 }
 
 fn item_query_params<'a>(collection: &'a str, item_id: &'a str) -> [(&'static str, &'a str); 2] {
@@ -717,529 +975,7 @@ mod ts_peg_export {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn credit_peg_is_ten_credits_per_usd() {
-        assert_eq!(CREDIT_USD, "0.10");
-        let v: f64 = CREDIT_USD.parse().unwrap();
-        assert!((v - 0.10).abs() < 1e-12);
-        assert_eq!((1.0 / v).round() as i64, 10);
-    }
-
-    #[test]
-    fn fresh_reading_not_stale() {
-        assert!(!is_stale(1_000, 1_300, 300));
-        assert!(!is_stale(1_000, 1_000, 300));
-    }
-
-    #[test]
-    fn old_reading_is_stale() {
-        assert!(is_stale(1_000, 1_301, 300));
-    }
-
-    #[test]
-    fn future_reading_is_not_stale() {
-        assert!(!is_stale(2_000, 1_000, 300));
-    }
-
-    #[test]
-    fn extreme_values_do_not_panic() {
-        assert!(!is_stale(i64::MIN, i64::MIN, 300));
-        assert!(is_stale(i64::MIN, i64::MAX, 300));
-        assert!(!is_stale(i64::MAX, i64::MIN, 300));
-    }
-
-    #[test]
-    fn item_query_uses_both_collection_and_index() {
-        let params = item_query_params("0x59a90bad9570ecd08895f132daf7b79696337f61", "0");
-        assert_eq!(
-            params,
-            [
-                (
-                    "contractAddress",
-                    "0x59a90bad9570ecd08895f132daf7b79696337f61"
-                ),
-                ("itemId", "0"),
-            ]
-        );
-    }
-
-    #[test]
-    fn json_as_i64_accepts_int_and_float() {
-        assert_eq!(
-            json_as_i64(&serde_json::json!(1_690_000_000_i64)),
-            Some(1_690_000_000)
-        );
-        assert_eq!(
-            json_as_i64(&serde_json::json!(1_690_000_000.0)),
-            Some(1_690_000_000)
-        );
-        assert_eq!(json_as_i64(&serde_json::json!("nope")), None);
-    }
-
-    const TWO_POW_216: &str = "105312291668557186697918027683670432318895095400549111254310977536";
-
-    #[test]
-    fn token_matches_item_decodes_dcl_v2_encoding() {
-        assert!(token_matches_item("2901", "0"));
-        assert!(!token_matches_item("2901", "1"));
-        let item1_issued7 = (alloy_primitives::U256::from_str_radix(TWO_POW_216, 10).unwrap()
-            + alloy_primitives::U256::from(7u64))
-        .to_string();
-        assert!(token_matches_item(&item1_issued7, "1"));
-        assert!(!token_matches_item(&item1_issued7, "0"));
-        assert!(!token_matches_item("", "0"));
-        assert!(!token_matches_item("0x2901", "0"));
-    }
-
-    fn order(mkt: &str, token: &str, price: &str, status: &str, expires: i64) -> serde_json::Value {
-        serde_json::json!({
-            "marketplaceAddress": mkt,
-            "tokenId": token,
-            "price": price,
-            "status": status,
-            "expiresAt": expires,
-        })
-    }
-
-    fn trade_order(
-        trade_id: &str,
-        token: &str,
-        price: &str,
-        status: &str,
-        expires: i64,
-    ) -> serde_json::Value {
-        serde_json::json!({
-            "id": trade_id,
-            "tradeId": trade_id,
-            "marketplaceAddress": "0x540fb08eDb56AaE562864B390542C97F562825BA",
-            "tokenId": token,
-            "price": price,
-            "status": status,
-            "expiresAt": expires,
-        })
-    }
-
-    fn v2_of(l: &OpenListing) -> (&str, &str) {
-        match &l.venue {
-            ListingVenue::V2 { token_id } => (token_id, &l.price_wei),
-            other => panic!("expected a V2 listing, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn select_cheapest_listing_picks_cheapest_matching_marketplacev2() {
-        let mv2 = MARKETPLACE_V2_POLYGON;
-        let now = 1_000i64;
-        let orders = vec![
-            order(
-                "0xa40b1d129b8906888720686f3a01921ddf37716f",
-                "2460",
-                "1",
-                "open",
-                9_999,
-            ),
-            order(
-                mv2,
-                &(alloy_primitives::U256::from_str_radix(TWO_POW_216, 10).unwrap()
-                    + alloy_primitives::U256::from(3u64))
-                .to_string(),
-                "5",
-                "open",
-                9_999,
-            ),
-            order(mv2, "2900", "5", "open", 500),
-            order(mv2, "2902", "20000000000000000", "open", 9_999),
-            order(mv2, "2901", "10000000000000000", "open", 9_999),
-        ];
-        let got = select_cheapest_listing(&orders, "0", now, true).expect("a match");
-        assert_eq!(v2_of(&got), ("2901", "10000000000000000"));
-    }
-
-    #[test]
-    fn select_cheapest_listing_accepts_trade_venue_pinned_by_trade_id() {
-        let now = 1_000i64;
-        let orders = vec![
-            order(
-                MARKETPLACE_V2_POLYGON,
-                "2901",
-                "20000000000000000",
-                "open",
-                9_999,
-            ),
-            trade_order(
-                "1bbe7d78-dd71-4cbe-9085-70d679d3ad11",
-                "2902",
-                "10000000000000000",
-                "open",
-                9_999,
-            ),
-        ];
-        let got = select_cheapest_listing(&orders, "0", now, true).expect("a match");
-        assert_eq!(
-            got.venue,
-            ListingVenue::Trade {
-                trade_id: "1bbe7d78-dd71-4cbe-9085-70d679d3ad11".into()
-            }
-        );
-        assert_eq!(got.price_wei, "10000000000000000");
-    }
-
-    #[test]
-    fn price_tie_prefers_the_onchain_v2_listing_over_the_trade() {
-        let now = 1_000i64;
-        let orders = vec![
-            trade_order(
-                "1bbe7d78-dd71-4cbe-9085-70d679d3ad11",
-                "2902",
-                "10000000000000000",
-                "open",
-                9_999,
-            ),
-            order(
-                MARKETPLACE_V2_POLYGON,
-                "2901",
-                "10000000000000000",
-                "open",
-                9_999,
-            ),
-        ];
-        let got = select_cheapest_listing(&orders, "0", now, true).expect("a match");
-        assert!(
-            matches!(got.venue, ListingVenue::V2 { .. }),
-            "tie must go to on-chain V2: {got:?}"
-        );
-    }
-
-    #[test]
-    fn trades_are_excluded_when_the_caller_cannot_fulfil_them() {
-        let now = 1_000i64;
-        let orders = vec![trade_order(
-            "1bbe7d78-dd71-4cbe-9085-70d679d3ad11",
-            "2902",
-            "10000000000000000",
-            "open",
-            9_999,
-        )];
-        assert!(select_cheapest_listing(&orders, "0", now, false).is_none());
-    }
-
-    #[test]
-    fn expired_or_closed_trades_are_not_candidates() {
-        let now = 1_000i64;
-        let expired = vec![trade_order("t-1", "2902", "1000", "open", 500)];
-        assert!(select_cheapest_listing(&expired, "0", now, true).is_none());
-        let sold = vec![trade_order("t-1", "2902", "1000", "sold", 9_999)];
-        assert!(select_cheapest_listing(&sold, "0", now, true).is_none());
-    }
-
-    fn info(price_wei: &str) -> ItemInfo {
-        ItemInfo {
-            item_id: "0".into(),
-            urn: "urn:decentraland:matic:collections-v2:0x59a9:0".into(),
-            category: "wearable".into(),
-            price_wei: price_wei.into(),
-            contract_address: "0x59a90bad9570ecd08895f132daf7b79696337f61".into(),
-            store_mintable: false,
-        }
-    }
-
-    fn mintable_info(price_wei: &str) -> ItemInfo {
-        ItemInfo {
-            store_mintable: true,
-            ..info(price_wei)
-        }
-    }
-
-    #[test]
-    fn secondary_basis_is_the_selected_listing_not_the_mint_price() {
-        let listing = OpenListing {
-            venue: ListingVenue::V2 {
-                token_id: "2901".into(),
-            },
-            price_wei: "10000000000000000".into(),
-        };
-        let got = resolve_basis("secondary", &info("0"), Some(listing)).unwrap();
-        assert_eq!(got.basis_wei, "10000000000000000");
-        assert_eq!(
-            got.kind,
-            BasisKind::Secondary {
-                token_id: "2901".into()
-            }
-        );
-    }
-
-    #[test]
-    fn secondary_without_listing_is_rejected_not_priced_at_mint() {
-        let err = resolve_basis("secondary", &info("0"), None).unwrap_err();
-        assert!(matches!(err, ApiError::Conflict(_)), "got {err:?}");
-        let err = resolve_basis("secondary", &info("2500000000000000000"), None).unwrap_err();
-        assert!(matches!(err, ApiError::Conflict(_)), "got {err:?}");
-    }
-
-    #[test]
-    fn primary_basis_stays_the_mint_price() {
-        let got = resolve_basis("primary", &mintable_info("2500000000000000000"), None).unwrap();
-        assert_eq!(got.basis_wei, "2500000000000000000");
-        assert_eq!(got.kind, BasisKind::Primary);
-    }
-
-    #[test]
-    fn primary_refuses_when_the_store_cannot_mint() {
-        let err = resolve_basis("primary", &info("2500000000000000000"), None).unwrap_err();
-        assert!(matches!(err, ApiError::Conflict(_)), "got {err:?}");
-        let listing = OpenListing {
-            venue: ListingVenue::V2 {
-                token_id: "2901".into(),
-            },
-            price_wei: "10000000000000000".into(),
-        };
-        let err =
-            resolve_basis("primary", &info("2500000000000000000"), Some(listing)).unwrap_err();
-        assert!(
-            matches!(err, ApiError::Conflict(_)),
-            "primary mode must not silently fall back to a listing: {err:?}"
-        );
-    }
-
-    #[test]
-    fn unknown_mode_is_refused_not_defaulted_to_mint() {
-        let err = resolve_basis("tertiary", &mintable_info("1"), None).unwrap_err();
-        assert!(matches!(err, ApiError::Internal(_)), "got {err:?}");
-        let err = resolve_basis("", &mintable_info("1"), None).unwrap_err();
-        assert!(matches!(err, ApiError::Internal(_)), "got {err:?}");
-    }
-
-    #[test]
-    fn auto_picks_the_cheaper_listing_over_the_pricier_mint() {
-        let listing = OpenListing {
-            venue: ListingVenue::V2 {
-                token_id: "2901".into(),
-            },
-            price_wei: "10000000000000000".into(),
-        };
-        let got =
-            resolve_basis("auto", &mintable_info("2500000000000000000"), Some(listing)).unwrap();
-        assert_eq!(got.basis_wei, "10000000000000000");
-        assert_eq!(
-            got.kind,
-            BasisKind::Secondary {
-                token_id: "2901".into()
-            }
-        );
-    }
-
-    #[test]
-    fn auto_picks_the_cheaper_mint_over_the_pricier_listing() {
-        let listing = OpenListing {
-            venue: ListingVenue::V2 {
-                token_id: "2901".into(),
-            },
-            price_wei: "2500000000000000000".into(),
-        };
-        let got =
-            resolve_basis("auto", &mintable_info("10000000000000000"), Some(listing)).unwrap();
-        assert_eq!(got.basis_wei, "10000000000000000");
-        assert_eq!(got.kind, BasisKind::Primary);
-    }
-
-    #[test]
-    fn auto_ignores_a_free_mint_and_charges_the_listing() {
-        let listing = OpenListing {
-            venue: ListingVenue::V2 {
-                token_id: "2901".into(),
-            },
-            price_wei: "1".into(),
-        };
-        let got = resolve_basis("auto", &mintable_info("0"), Some(listing)).unwrap();
-        assert_eq!(got.basis_wei, "1");
-        assert_eq!(
-            got.kind,
-            BasisKind::Secondary {
-                token_id: "2901".into()
-            }
-        );
-    }
-
-    #[test]
-    fn auto_refuses_a_free_mint_with_no_listing() {
-        let err = resolve_basis("auto", &mintable_info("0"), None).unwrap_err();
-        assert!(matches!(err, ApiError::Conflict(_)));
-    }
-
-    #[test]
-    fn primary_refuses_a_free_mint() {
-        let err = resolve_basis("primary", &mintable_info("0"), None).unwrap_err();
-        assert!(matches!(err, ApiError::Conflict(_)));
-    }
-
-    #[test]
-    fn auto_price_tie_goes_to_the_listing() {
-        let listing = OpenListing {
-            venue: ListingVenue::V2 {
-                token_id: "2901".into(),
-            },
-            price_wei: "10000000000000000".into(),
-        };
-        let got =
-            resolve_basis("auto", &mintable_info("10000000000000000"), Some(listing)).unwrap();
-        assert_eq!(
-            got.kind,
-            BasisKind::Secondary {
-                token_id: "2901".into()
-            },
-            "on a tie the existing listing is bought, not a new mint"
-        );
-    }
-
-    #[test]
-    fn auto_uses_the_listing_when_the_store_cannot_mint_even_if_mint_looks_cheaper() {
-        let listing = OpenListing {
-            venue: ListingVenue::V2 {
-                token_id: "2901".into(),
-            },
-            price_wei: "2500000000000000000".into(),
-        };
-        let got = resolve_basis("auto", &info("10000000000000000"), Some(listing)).unwrap();
-        assert_eq!(got.basis_wei, "2500000000000000000");
-        assert!(matches!(got.kind, BasisKind::Secondary { .. }));
-    }
-
-    #[test]
-    fn auto_unparseable_mint_price_defers_to_the_listing() {
-        let listing = OpenListing {
-            venue: ListingVenue::V2 {
-                token_id: "2901".into(),
-            },
-            price_wei: "10000000000000000".into(),
-        };
-        let got = resolve_basis("auto", &mintable_info("not-a-price"), Some(listing)).unwrap();
-        assert!(matches!(got.kind, BasisKind::Secondary { .. }));
-        assert!(!mint_undercuts_listing("not-a-price", "10000000000000000"));
-        assert!(!mint_undercuts_listing("1", "garbage"));
-        assert!(mint_undercuts_listing(" 1 ", "2"));
-        assert!(!mint_undercuts_listing("2", "2"));
-    }
-
-    #[test]
-    fn auto_falls_back_to_the_store_mint_when_no_listing() {
-        let got = resolve_basis("auto", &mintable_info("2500000000000000000"), None).unwrap();
-        assert_eq!(got.basis_wei, "2500000000000000000");
-        assert_eq!(got.kind, BasisKind::Primary);
-    }
-
-    #[test]
-    fn auto_refuses_when_neither_listing_nor_store_mint_exists() {
-        let err = resolve_basis("auto", &info("2500000000000000000"), None).unwrap_err();
-        assert!(matches!(err, ApiError::Conflict(_)), "got {err:?}");
-    }
-
-    #[test]
-    fn item_mintability_comes_from_is_on_sale_without_a_trade() {
-        let mintable = |is_on_sale: bool, trade_id: serde_json::Value| {
-            let on_sale = is_on_sale;
-            let has_trade = trade_id.as_str().is_some_and(|s| !s.trim().is_empty());
-            on_sale && !has_trade
-        };
-        assert!(mintable(true, serde_json::Value::Null));
-        assert!(mintable(true, serde_json::json!("")));
-        assert!(!mintable(true, serde_json::json!("df638de9-uuid")));
-        assert!(!mintable(false, serde_json::Value::Null));
-    }
-
-    #[test]
-    fn quote_and_checkout_derive_the_same_basis_from_the_same_selection() {
-        let now = 1_000i64;
-        let orders = vec![
-            order(
-                MARKETPLACE_V2_POLYGON,
-                "2902",
-                "20000000000000000",
-                "open",
-                9_999,
-            ),
-            order(
-                MARKETPLACE_V2_POLYGON,
-                "2901",
-                "10000000000000000",
-                "open",
-                9_999,
-            ),
-        ];
-        let quote_side = resolve_basis(
-            "secondary",
-            &info("0"),
-            select_cheapest_listing(&orders, "0", now, true),
-        )
-        .unwrap();
-        let checkout_side = resolve_basis(
-            "secondary",
-            &info("0"),
-            select_cheapest_listing(&orders, "0", now, true),
-        )
-        .unwrap();
-        assert_eq!(quote_side, checkout_side);
-        assert_eq!(quote_side.basis_wei, "10000000000000000");
-    }
-
-    #[test]
-    fn never_zero_guard_rejects_zero_charge_while_broker_pays() {
-        let err = ensure_charge_covers_payment("10000000000000000", "0").unwrap_err();
-        assert!(matches!(err, ApiError::Conflict(_)), "got {err:?}");
-        assert!(ensure_charge_covers_payment("10000000000000000", "abc").is_err());
-        assert!(ensure_charge_covers_payment("10000000000000000", "").is_err());
-        assert!(ensure_charge_covers_payment("garbage", "0").is_err());
-        assert!(ensure_charge_covers_payment("", "0").is_err());
-        ensure_charge_covers_payment("10000000000000000", "1").unwrap();
-        ensure_charge_covers_payment("0", "0").unwrap();
-        ensure_charge_covers_payment("000", "0.00").unwrap();
-        ensure_charge_covers_payment("0", "5").unwrap();
-    }
-
-    #[test]
-    fn charge_and_payment_positivity_parsers() {
-        assert!(charge_is_positive("1"));
-        assert!(charge_is_positive("0.5"));
-        assert!(charge_is_positive(" 10 "));
-        assert!(!charge_is_positive("0"));
-        assert!(!charge_is_positive("0.000"));
-        assert!(!charge_is_positive(""));
-        assert!(!charge_is_positive("-1"));
-        assert!(!charge_is_positive("1e3"));
-
-        assert!(payment_is_positive("1"));
-        assert!(payment_is_positive("10000000000000000"));
-        assert!(payment_is_positive("nonsense"));
-        assert!(payment_is_positive(""));
-        assert!(!payment_is_positive("0"));
-        assert!(!payment_is_positive("000"));
-    }
-
-    #[test]
-    fn select_cheapest_listing_none_when_no_matching_venue() {
-        let now = 1_000i64;
-        let orders = vec![order(
-            "0xa40b1d129b8906888720686f3a01921ddf37716f",
-            "2460",
-            "1",
-            "open",
-            9_999,
-        )];
-        assert!(select_cheapest_listing(&orders, "0", now, true).is_none());
-        let orders2 = vec![order(
-            MARKETPLACE_V2_POLYGON,
-            &(alloy_primitives::U256::from_str_radix(TWO_POW_216, 10).unwrap()
-                + alloy_primitives::U256::from(1u64))
-            .to_string(),
-            "1",
-            "open",
-            9_999,
-        )];
-        assert!(select_cheapest_listing(&orders2, "0", now, true).is_none());
-    }
-}
+mod tests;
 
 /// Characterizes `charge_is_positive` and `payment_is_positive` on the
 /// shared edge-input set used across all decimal-string validators in this

@@ -2,9 +2,7 @@ import { z } from "zod";
 
 import { ApiOkSchema } from "./generated-schemas/events";
 import { DataTotalSchema } from "./generated-schemas/market";
-import { ApiDataSchema, ApiDataTotalSchema } from "./generated-schemas/places";
-
-export { ApiDataSchema, ApiDataTotalSchema };
+import { ApiDataSchema } from "./generated-schemas/places";
 
 export const dataTotalOf = DataTotalSchema;
 

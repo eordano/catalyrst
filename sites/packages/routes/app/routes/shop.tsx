@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, useNavigate, useNavigation, useSearchParams } from "react-router";
+import ScreenFreshness from "@features/components/chrome/ScreenFreshness";
+import { data, Link, useNavigate, useNavigation, useSearchParams } from "react-router";
 import { href, searchHref } from "@core/lib/router/routes";
 
 import ChromeShell from "@ui/components/ChromeShell";
@@ -33,15 +34,9 @@ import { openSignIn } from "@features/components/auth/signin-store";
 import { useAuth } from "@data/lib/auth/index";
 import { getIdentity } from "@data/lib/auth/session";
 import { parseItemRef } from "@data/lib/catalyst/marketplace/cart";
-import { tryQuoteCreditItems } from "@data/lib/catalyst/marketplace/credit-quotes";
-import {
-  fetchCatalog,
-  isCatalogItemBuyable,
-  parseItemId,
-  toCollectibleCard,
-  type CatalogItem,
-  type CollectibleCard,
-} from "@data/lib/catalyst/marketplace/index";
+import type { CollectibleCard } from "@data/lib/catalyst/marketplace/index";
+import { SHOP_PAGE_SIZE, type ShopFilters as Filters } from "@data/lib/screens/shop";
+import { loadShopScreen } from "@data/lib/screens/shop.server";
 import { sidLoader } from "@core/lib/experiments/story-loader";
 import { collectibleToShopCard } from "@features/lib/marketplace/favorites";
 import { useFavorites } from "@features/lib/marketplace/use-favorites";
@@ -50,14 +45,13 @@ import { track } from "@core/lib/telemetry/track";
 import type { Route } from "./+types/shop";
 
 const STORY = "marketplace/shop";
-const CATALOG_LIMIT = 40;
 
 type ShopTabId = "overview" | "all-assets" | "names" | "my-assets" | "my-favorites" | "cart";
 
 const TABS: readonly NewShopTab<ShopTabId>[] = [
   { id: "overview", label: "Overview" },
   { id: "all-assets", label: "All Assets" },
-  { id: "names", label: "NAMEs", href: "/marketplace/names" },
+  { id: "names", label: "Names", href: "/marketplace/names" },
   { id: "my-assets", label: "My Assets" },
   { id: "my-favorites", label: "My Favorites" },
   { id: "cart", label: "Cart", href: "/marketplace/cart" },
@@ -81,82 +75,23 @@ const SORT: { id: string; label: string }[] = [
 ];
 const SORT_LABELS = SORT.map((s) => s.label);
 
-type Filters = {
-  tab: string;
-  category: string;
-  rarity: string;
-  sortBy: string;
-  search: string;
-  page: number;
-};
-
-function readFilters(params: URLSearchParams): Filters {
-  const page = Number.parseInt(params.get("page") ?? "0", 10);
-  return {
-    tab: params.get("tab")?.trim() || "overview",
-    category: params.get("category")?.trim() ?? "",
-    rarity: params.get("rarity")?.trim() ?? "",
-    sortBy: params.get("sortBy")?.trim() || "recently_listed",
-    search: params.get("search")?.trim() ?? "",
-    page: Number.isFinite(page) && page > 0 ? page : 0,
-  };
+export async function loader({ request }: Route.LoaderArgs) {
+  const { sid, wrap } = sidLoader(request);
+  const result = await loadShopScreen(new URL(request.url).searchParams, request.signal);
+  const response = wrap({ sid, ...result.data });
+  const headers = new Headers(response.init?.headers);
+  headers.set("Server-Timing", result.serverTiming);
+  headers.set("Cache-Control", "private, no-store");
+  return data(response.data, { ...response.init, headers });
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const url = new URL(request.url);
-  const f = readFilters(url.searchParams);
-  const { sid, wrap } = sidLoader(request);
-
-  let items: CatalogItem[] = [];
-  let total = 0;
-  let fallback = false;
-  let top: CatalogItem[] = [];
-  let trending: CatalogItem[] = [];
-  const isOverview = f.tab === "overview";
-  const none = Promise.resolve({ data: [] as CatalogItem[], total: 0 });
-  try {
-    const [result, topResult, trendingResult] = await Promise.all([
-      fetchCatalog({
-        first: CATALOG_LIMIT,
-        skip: f.page * CATALOG_LIMIT,
-        category: f.category || undefined,
-        rarity: f.rarity || undefined,
-        isOnSale: true,
-        sortBy: f.sortBy || undefined,
-        search: f.search || undefined,
-      }),
-      isOverview ? fetchCatalog({ first: 6, isOnSale: true, sortBy: "most_expensive" }) : none,
-      isOverview ? fetchCatalog({ first: 8, isOnSale: true, sortBy: "cheapest" }) : none,
-    ]);
-    items = result.data.filter(isCatalogItemBuyable);
-    total = result.total;
-    top = topResult.data.filter(isCatalogItemBuyable);
-    trending = trendingResult.data.filter(isCatalogItemBuyable);
-  } catch {
-    fallback = true;
+export function headers({ loaderHeaders, parentHeaders }: Route.HeadersArgs) {
+  const headers = new Headers(parentHeaders);
+  for (const name of ["Cache-Control", "Server-Timing"]) {
+    const value = loaderHeaders.get(name);
+    if (value) headers.set(name, value);
   }
-
-  const uniq = new Map<string, CatalogItem>();
-  for (const it of [...items, ...top, ...trending]) {
-    if (!uniq.has(it.id)) uniq.set(it.id, it);
-  }
-  const quotables = [...uniq.values()];
-  const credits = await tryQuoteCreditItems(
-    quotables.map((it) => {
-      const ref = parseItemId(it.id);
-      return ref ? { itemId: ref.itemId, collection: ref.contractAddress } : null;
-    }),
-  );
-  const creditsById = new Map<string, string | null>();
-  quotables.forEach((it, i) => creditsById.set(it.id, credits[i] ?? null));
-  const withCredits = (it: CatalogItem) =>
-    toCollectibleCard(it, creditsById.get(it.id) ?? null);
-
-  const cards = items.map(withCredits);
-  const topCards = top.map(withCredits);
-  const trendingCards = trending.map(withCredits);
-  const payload = { sid, filters: f, cards, topCards, trendingCards, total, fallback };
-  return wrap(payload);
+  return headers;
 }
 
 const toShopCard = (c: CollectibleCard): ShopCard => collectibleToShopCard(c);
@@ -245,6 +180,7 @@ export default function MarketplaceShop({ loaderData }: Route.ComponentProps) {
       topbar={topbar}
       subnav={false}
     >
+      <ScreenFreshness freshness={d.freshness} />
       {buyError ? (
         <p role="alert" style={{ color: "#ff7a7a", margin: "12px 24px 0", maxWidth: 1200, marginInline: "auto" }}>
           {buyError}
@@ -364,7 +300,9 @@ function OverviewTab({
       />
       {fallback ? (
         <p className="mk" style={FALLBACK_STYLE} role="alert">
-          Couldn&apos;t load the catalog right now. Please try again.
+          {cards.length || trending.length || rankRows.length
+            ? "Some shop sections couldn't load. Please try again."
+            : "Couldn't load the catalog right now. Please try again."}
         </p>
       ) : null}
     </>
@@ -435,7 +373,7 @@ function BrowseTab({
     setMany({ sortBy: id === "recently_listed" ? "" : id, page: "" });
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / CATALOG_LIMIT));
+  const totalPages = Math.max(1, Math.ceil(total / SHOP_PAGE_SIZE));
 
   return (
     <>
@@ -546,28 +484,7 @@ function AccountTab({ tab, onTab, signedIn }: { tab: string; onTab: (id: string)
   return (
     <div className="mk" style={{ background: "var(--lm-bg)", minHeight: "100%" }}>
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px" }}>
-        <div style={TABBAR_STYLE}>
-          {TABS.map((t) =>
-            t.href ? (
-              <Link
-                key={t.id}
-                to={t.href}
-                style={{ ...TAB_STYLE, ...(t.id === tab ? TAB_ACTIVE_STYLE : {}) }}
-              >
-                {t.label}
-              </Link>
-            ) : (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => onTab(t.id)}
-                style={{ ...TAB_STYLE, ...(t.id === tab ? TAB_ACTIVE_STYLE : {}) }}
-              >
-                {t.label}
-              </button>
-            ),
-          )}
-        </div>
+        <NewShopTabs tabs={TABS} active={tab as ShopTabId} onTab={onTab} />
         <div style={PLACEHOLDER_STYLE}>
           <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>
             {signedIn
@@ -588,29 +505,6 @@ const FALLBACK_STYLE: React.CSSProperties = {
   margin: "0 auto",
   padding: "0 24px 32px",
   color: "#ff7a7a",
-};
-const TABBAR_STYLE: React.CSSProperties = {
-  display: "flex",
-  gap: 4,
-  padding: "0 4px",
-  borderBottom: "1px solid var(--lm-line)",
-};
-const TAB_STYLE: React.CSSProperties = {
-  appearance: "none",
-  border: 0,
-  background: "transparent",
-  color: "var(--lm-ink-3)",
-  font: "inherit",
-  fontSize: 13,
-  fontWeight: 700,
-  letterSpacing: "0.4px",
-  textTransform: "uppercase",
-  padding: "14px 16px",
-  cursor: "pointer",
-};
-const TAB_ACTIVE_STYLE: React.CSSProperties = {
-  color: "var(--lm-ink)",
-  boxShadow: "inset 0 -3px 0 var(--brand)",
 };
 const PLACEHOLDER_STYLE: React.CSSProperties = {
   display: "flex",

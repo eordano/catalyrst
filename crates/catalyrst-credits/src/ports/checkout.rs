@@ -1,8 +1,10 @@
+use std::panic::AssertUnwindSafe;
 use std::time::Duration;
 
-use catalyrst_commons::worker::{spawn_periodic, PeriodicCfg};
+use futures::FutureExt;
+use serde_json::Value as JsonValue;
 use sqlx::Row;
-use tokio_util::sync::CancellationToken;
+use tokio::time::MissedTickBehavior;
 
 use crate::http::ApiError;
 use crate::ports::admin::GrantOutcome;
@@ -93,18 +95,22 @@ impl CreditsComponent {
         qty: i32,
         unit_price_credits: &str,
     ) -> Result<(), ApiError> {
-        let cart_id = self.get_or_create_cart(address).await?;
         sqlx::query(
-            "INSERT INTO cart_items \
+            "WITH c AS ( \
+                 INSERT INTO carts (address) VALUES ($1) \
+                 ON CONFLICT (address) DO UPDATE SET updated_at = now() \
+                 RETURNING id \
+             ) \
+             INSERT INTO cart_items \
                  (cart_id, item_id, collection, urn, category, qty, unit_price_credits) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7::numeric) \
+             SELECT c.id, $2::text, $3::text, $4::text, $5::text, $6::int, $7::numeric FROM c \
              ON CONFLICT (cart_id, collection, item_id) DO UPDATE \
                  SET qty = EXCLUDED.qty, \
                      urn = EXCLUDED.urn, \
                      category = EXCLUDED.category, \
                      unit_price_credits = EXCLUDED.unit_price_credits",
         )
-        .bind(cart_id)
+        .bind(address)
         .bind(item_id)
         .bind(collection)
         .bind(urn)
@@ -116,25 +122,99 @@ impl CreditsComponent {
         Ok(())
     }
 
+    /// [`Self::add_item`] with the unit price computed in the same statement (the
+    /// `ceil(...)` of `PricingClient::compute_credit_price`, byte-identical). The line is
+    /// only written when the charge covers a positive payment (`payment_positive` is the
+    /// caller's `payment_is_positive(basis_wei)`); the computed price is returned either way
+    /// so the caller can raise the same conflict `ensure_charge_covers_payment` would.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn add_item_priced(
+        &self,
+        address: &str,
+        item_id: &str,
+        collection: &str,
+        urn: &str,
+        category: &str,
+        qty: i32,
+        basis_wei: &str,
+        mana_usd: &str,
+        markup_bps: i64,
+        payment_positive: bool,
+    ) -> Result<String, ApiError> {
+        let row = sqlx::query(
+            "WITH p AS ( \
+                 SELECT ceil( \
+                     ($7::numeric / 1e18) * $8::numeric \
+                     * (1 + ($9::numeric / 10000)) \
+                     / $10::numeric \
+                 ) AS credit_price \
+             ), c AS ( \
+                 INSERT INTO carts (address) VALUES ($1) \
+                 ON CONFLICT (address) DO UPDATE SET updated_at = now() \
+                 RETURNING id \
+             ), i AS ( \
+                 INSERT INTO cart_items \
+                     (cart_id, item_id, collection, urn, category, qty, unit_price_credits) \
+                 SELECT c.id, $2::text, $3::text, $4::text, $5::text, $6::int, p.credit_price \
+                 FROM c, p \
+                 WHERE NOT ($11::bool AND NOT (p.credit_price > 0)) \
+                 ON CONFLICT (cart_id, collection, item_id) DO UPDATE \
+                     SET qty = EXCLUDED.qty, \
+                         urn = EXCLUDED.urn, \
+                         category = EXCLUDED.category, \
+                         unit_price_credits = EXCLUDED.unit_price_credits \
+                 RETURNING 1 \
+             ) \
+             SELECT p.credit_price::text AS credit_price FROM p",
+        )
+        .bind(address)
+        .bind(item_id)
+        .bind(collection)
+        .bind(urn)
+        .bind(category)
+        .bind(qty)
+        .bind(basis_wei)
+        .bind(mana_usd)
+        .bind(markup_bps)
+        .bind(crate::ports::pricing::CREDIT_USD)
+        .bind(payment_positive)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.get::<String, _>("credit_price"))
+    }
+
+    /// Deletes the line and returns the remaining cart in the same statement.
     pub async fn remove_item(
         &self,
         address: &str,
         collection: &str,
         item_id: &str,
-    ) -> Result<(), ApiError> {
-        sqlx::query(
-            "DELETE FROM cart_items ci \
-             USING carts c \
-             WHERE ci.cart_id = c.id AND c.address = $1 \
-               AND ci.item_id = $2 \
-               AND COALESCE(ci.collection, lower(split_part(ci.urn, ':', 5))) = $3",
+    ) -> Result<CartView, ApiError> {
+        let rows = sqlx::query(
+            "WITH d AS ( \
+                 DELETE FROM cart_items ci \
+                 USING carts c \
+                 WHERE ci.cart_id = c.id AND c.address = $1 \
+                   AND ci.item_id = $2 \
+                   AND COALESCE(ci.collection, lower(split_part(ci.urn, ':', 5))) = $3 \
+                 RETURNING ci.id \
+             ) \
+             SELECT ci.item_id, \
+                    COALESCE(ci.collection, lower(split_part(ci.urn, ':', 5))) AS collection, \
+                    ci.urn, ci.category, ci.qty, \
+                    ci.unit_price_credits::text AS unit_price_credits, \
+                    COALESCE(SUM(ci.unit_price_credits * ci.qty) OVER (), 0)::text AS total \
+             FROM cart_items ci \
+             JOIN carts c ON c.id = ci.cart_id \
+             WHERE c.address = $1 AND ci.id NOT IN (SELECT id FROM d) \
+             ORDER BY ci.added_at, ci.id",
         )
         .bind(address)
         .bind(item_id)
         .bind(collection)
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
-        Ok(())
+        Ok(cart_view_from_rows(rows))
     }
 
     pub async fn get_cart(&self, address: &str) -> Result<CartView, ApiError> {
@@ -152,28 +232,7 @@ impl CreditsComponent {
         .bind(address)
         .fetch_all(&self.pool)
         .await?;
-
-        let total: String = rows
-            .first()
-            .map(|r| r.get("total"))
-            .unwrap_or_else(|| "0".to_string());
-
-        let items: Vec<CartItemRow> = rows
-            .into_iter()
-            .map(|r| CartItemRow {
-                item_id: r.get("item_id"),
-                collection: r.get("collection"),
-                urn: r.get("urn"),
-                category: r.get("category"),
-                qty: r.get("qty"),
-                unit_price_credits: r.get("unit_price_credits"),
-            })
-            .collect();
-
-        Ok(CartView {
-            items,
-            total_credits: total,
-        })
+        Ok(cart_view_from_rows(rows))
     }
 
     pub async fn get_checkout(&self, id: i64) -> Result<Option<CheckoutRow>, ApiError> {
@@ -217,6 +276,45 @@ impl CreditsComponent {
         Ok((outcome, closed))
     }
 
+    /// [`Self::refund_checkout_manual`] with the admin audit row written by the statement
+    /// that closes the checkout; SQL stamps `closed` into `detail`.
+    pub async fn refund_checkout_manual_audited(
+        &self,
+        id: i64,
+        address: &str,
+        amount: &str,
+        actor: Option<&str>,
+        detail: impl FnOnce(&GrantOutcome) -> JsonValue,
+    ) -> Result<(GrantOutcome, bool), ApiError> {
+        let tx_ref = format!("checkout:{}", id);
+        let idem = format!("admin:refund:{}", id);
+        let mut tx = self.pool.begin().await?;
+        let outcome = self
+            .refund_in_tx(&mut tx, address, amount, &tx_ref, Some(&idem))
+            .await?;
+        let detail = detail(&outcome);
+        let closed: bool = sqlx::query_scalar(
+            "WITH u AS ( \
+                 UPDATE checkouts SET status = 'failed', updated_at = now() \
+                 WHERE id = $1 AND status = 'fulfilling' RETURNING 1 \
+             ), a AS ( \
+                 INSERT INTO admin_audit (action, address, entity_id, amount, reason, actor, detail) \
+                 SELECT 'checkout.refund', $2, $1, $3::numeric, NULL, $4, \
+                        $5::jsonb || jsonb_build_object('closed', EXISTS (SELECT 1 FROM u)) \
+             ) \
+             SELECT EXISTS (SELECT 1 FROM u)",
+        )
+        .bind(id)
+        .bind(address)
+        .bind(amount)
+        .bind(actor)
+        .bind(&detail)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok((outcome, closed))
+    }
+
     pub async fn find_checkout_by_idempotency_key(
         &self,
         idempotency_key: &str,
@@ -253,15 +351,15 @@ impl CreditsComponent {
             "INSERT INTO checkouts (idempotency_key, address, status) \
              VALUES ($1, $2, 'reserving') \
              ON CONFLICT (idempotency_key) DO NOTHING \
-             RETURNING id",
+             RETURNING id, (SELECT c.id FROM carts c WHERE c.address = $2) AS cart_id",
         )
         .bind(idempotency_key)
         .bind(address)
         .fetch_optional(&mut *tx)
         .await?;
 
-        let checkout_id: i64 = match claimed {
-            Some(r) => r.get("id"),
+        let (checkout_id, cart_id): (i64, Option<i64>) = match claimed {
+            Some(r) => (r.get("id"), r.get("cart_id")),
             None => {
                 let prior = sqlx::query(
                     "SELECT id, status, (lower(address) = lower($2)) AS addr_match \
@@ -287,11 +385,6 @@ impl CreditsComponent {
         };
         tracing::Span::current().record("checkout_id", checkout_id);
 
-        let cart_id: Option<i64> = sqlx::query("SELECT id FROM carts WHERE address = $1")
-            .bind(address)
-            .fetch_optional(&mut *tx)
-            .await?
-            .map(|r| r.get("id"));
         let Some(cart_id) = cart_id else {
             sqlx::query("UPDATE checkouts SET status = 'failed', updated_at = now() WHERE id = $1")
                 .bind(checkout_id)
@@ -315,72 +408,63 @@ impl CreditsComponent {
         let qtys: Vec<i32> = repriced.iter().map(|l| l.qty).collect();
         let modes: Vec<String> = repriced.iter().map(|l| l.mode.clone()).collect();
 
-        let total_row = sqlx::query(
-            "SELECT COALESCE(SUM(p::numeric * q), 0)::text AS total, \
-                    (COALESCE(SUM(p::numeric * q), 0) = 0) AS is_zero \
-             FROM unnest($1::text[], $2::int[]) AS t(p, q)",
+        let total: String = sqlx::query(
+            "UPDATE checkouts \
+             SET total_credits = (SELECT COALESCE(SUM(p::numeric * q), 0) \
+                                  FROM unnest($2::text[], $3::int[]) AS t(p, q)), \
+                 updated_at = now() \
+             WHERE id = $1 \
+             RETURNING total_credits::text AS total",
         )
+        .bind(checkout_id)
         .bind(&prices)
         .bind(&qtys)
         .fetch_one(&mut *tx)
-        .await?;
-        let total: String = total_row.get("total");
-        let total_is_zero: bool = total_row.get("is_zero");
+        .await?
+        .get("total");
 
-        sqlx::query(
-            "UPDATE checkouts SET total_credits = $2::numeric, updated_at = now() WHERE id = $1",
-        )
-        .bind(checkout_id)
-        .bind(&total)
-        .execute(&mut *tx)
-        .await?;
-
-        let bal = sqlx::query(
-            "SELECT (available >= $2::numeric) AS sufficient \
-             FROM user_credits WHERE address = $1 FOR UPDATE",
-        )
-        .bind(address)
-        .bind(&total)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let sufficient = bal
-            .map(|r| r.get::<bool, _>("sufficient"))
-            .unwrap_or(total_is_zero);
-        if !sufficient {
-            sqlx::query("UPDATE checkouts SET status = 'failed', updated_at = now() WHERE id = $1")
+        let checkout_ref = format!("checkout:{}", checkout_id);
+        let ledger_id = match self
+            .spend_in_tx_with_ledger(
+                &mut tx,
+                address,
+                &total,
+                &checkout_ref,
+                Some(idempotency_key),
+            )
+            .await
+        {
+            Ok((_, ledger_id)) => ledger_id,
+            Err(ApiError::PaymentRequired(_)) => {
+                sqlx::query(
+                    "UPDATE checkouts SET status = 'failed', updated_at = now() WHERE id = $1",
+                )
                 .bind(checkout_id)
                 .execute(&mut *tx)
                 .await?;
-            tx.commit().await?;
-            return Err(ApiError::payment_required("insufficient credits balance"));
-        }
-
-        let checkout_ref = format!("checkout:{}", checkout_id);
-        self.spend_in_tx(
-            &mut tx,
-            address,
-            &total,
-            &checkout_ref,
-            Some(idempotency_key),
-        )
-        .await?;
-
-        let ledger_id: Option<i64> = sqlx::query(
-            "SELECT id FROM credit_ledger \
-             WHERE tx_ref = $1 AND kind = 'spend' ORDER BY id DESC LIMIT 1",
-        )
-        .bind(&checkout_ref)
-        .fetch_optional(&mut *tx)
-        .await?
-        .map(|r| r.get("id"));
+                tx.commit().await?;
+                return Err(ApiError::payment_required("insufficient credits balance"));
+            }
+            Err(e) => return Err(e),
+        };
 
         sqlx::query(
-            "INSERT INTO fulfillment_outbox \
-                 (checkout_id, item_id, collection, urn, token_id, trade_id, basis_wei, unit_price_credits, mode, status) \
-             SELECT $1, t.item_id, t.collection, t.urn, t.token_id, t.trade_id, t.basis_wei, t.price::numeric, t.mode, 'pending' \
-             FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::int[], $10::text[]) \
-                      AS t(item_id, collection, urn, token_id, trade_id, basis_wei, price, qty, mode) \
-             CROSS JOIN LATERAL generate_series(1, t.qty) AS g",
+            "WITH o AS ( \
+                 INSERT INTO fulfillment_outbox \
+                     (checkout_id, item_id, collection, urn, token_id, trade_id, basis_wei, unit_price_credits, mode, status) \
+                 SELECT $1, t.item_id, t.collection, t.urn, t.token_id, t.trade_id, t.basis_wei, t.price::numeric, t.mode, 'pending' \
+                 FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::int[], $10::text[]) \
+                          AS t(item_id, collection, urn, token_id, trade_id, basis_wei, price, qty, mode) \
+                 CROSS JOIN LATERAL generate_series(1, t.qty) AS g \
+             ), d AS ( \
+                 DELETE FROM cart_items ci \
+                 USING unnest($3::text[], $2::text[]) AS t(collection, item_id) \
+                 WHERE ci.cart_id = $11 \
+                   AND ci.item_id = t.item_id \
+                   AND COALESCE(ci.collection, lower(split_part(ci.urn, ':', 5))) = t.collection \
+             ) \
+             UPDATE checkouts SET status = 'fulfilling', ledger_id = $12, updated_at = now() \
+             WHERE id = $1",
         )
         .bind(checkout_id)
         .bind(&item_ids)
@@ -392,38 +476,41 @@ impl CreditsComponent {
         .bind(&prices)
         .bind(&qtys)
         .bind(&modes)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            "UPDATE checkouts SET status = 'fulfilling', ledger_id = $2, updated_at = now() \
-             WHERE id = $1",
-        )
-        .bind(checkout_id)
+        .bind(cart_id)
         .bind(ledger_id)
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query(
-            "DELETE FROM cart_items ci \
-             USING unnest($2::text[], $3::text[]) AS t(collection, item_id) \
-             WHERE ci.cart_id = $1 \
-               AND ci.item_id = t.item_id \
-               AND COALESCE(ci.collection, lower(split_part(ci.urn, ':', 5))) = t.collection",
-        )
-        .bind(cart_id)
-        .bind(&collections)
-        .bind(&item_ids)
-        .execute(&mut *tx)
-        .await?;
-
         tx.commit().await?;
+        self.kick_fulfillment();
 
         Ok(CheckoutOutcome {
             id: checkout_id,
             status: "fulfilling".to_string(),
             replayed: false,
         })
+    }
+}
+
+fn cart_view_from_rows(rows: Vec<sqlx::postgres::PgRow>) -> CartView {
+    let total: String = rows
+        .first()
+        .map(|r| r.get("total"))
+        .unwrap_or_else(|| "0".to_string());
+    let items: Vec<CartItemRow> = rows
+        .into_iter()
+        .map(|r| CartItemRow {
+            item_id: r.get("item_id"),
+            collection: r.get("collection"),
+            urn: r.get("urn"),
+            category: r.get("category"),
+            qty: r.get("qty"),
+            unit_price_credits: r.get("unit_price_credits"),
+        })
+        .collect();
+    CartView {
+        items,
+        total_credits: total,
     }
 }
 
@@ -472,36 +559,78 @@ pub struct OutboxWorker {
     pub mock_fulfillment: bool,
 }
 
+/// One tick's bookkeeping: expire stale authorizations, list the checkouts awaiting
+/// compensation and the outbox lines awaiting a broker attempt, all in one statement.
+const OUTBOX_TICK_SQL: &str = "WITH expired AS ( \
+         UPDATE credit_authorizations SET status = 'expired' \
+         WHERE status = 'authorized' AND expires_at <= now() RETURNING 1 \
+     ), reversing AS ( \
+         SELECT id, address FROM checkouts WHERE status = 'reversing' ORDER BY id LIMIT 50 \
+     ), pending AS ( \
+         SELECT o.id \
+         FROM fulfillment_outbox o \
+         JOIN checkouts c ON c.id = o.checkout_id \
+         WHERE o.status = 'pending' AND o.attempts < $1 AND c.status = 'fulfilling' \
+         ORDER BY o.id LIMIT 50 \
+     ) \
+     SELECT 'expired' AS kind, count(*)::bigint AS id, NULL::text AS address FROM expired \
+     UNION ALL SELECT 'reversing', id, address FROM reversing \
+     UNION ALL SELECT 'pending', id, NULL FROM pending";
+
 impl OutboxWorker {
+    /// Ticks every `interval_secs` and whenever a write path calls
+    /// `CreditsComponent::kick_fulfillment`; a panicking pass is logged, not fatal.
     pub fn spawn(self, interval_secs: u64) {
-        spawn_periodic(
-            "credits-checkout-outbox",
-            Duration::from_secs(interval_secs.max(1)),
-            PeriodicCfg::default(),
-            CancellationToken::new(),
-            move || {
-                let worker = self.clone();
-                async move { worker.run_once().await.map(|_| ()) }
-            },
-        );
+        let kick = self.credits.kick.clone();
+        let period = Duration::from_secs(interval_secs.max(1));
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(period);
+            ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            tracing::info!(
+                worker = "credits-checkout-outbox",
+                period_ms = period.as_millis() as u64,
+                "periodic worker started"
+            );
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {}
+                    _ = kick.notified() => {}
+                }
+                match AssertUnwindSafe(self.run_once()).catch_unwind().await {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => {
+                        tracing::error!(worker = "credits-checkout-outbox", error = %e, "pass failed")
+                    }
+                    Err(_) => tracing::error!(worker = "credits-checkout-outbox", "pass panicked"),
+                }
+            }
+        });
     }
 
     pub async fn run_once(&self) -> Result<usize, ApiError> {
-        self.compensation_sweep().await?;
+        let rows = sqlx::query(OUTBOX_TICK_SQL)
+            .bind(self.max_attempts)
+            .fetch_all(&self.credits.pool)
+            .await?;
+        let mut expired = 0i64;
+        let mut reversing: Vec<(i64, String)> = Vec::new();
+        let mut candidates: Vec<i64> = Vec::new();
+        for r in rows {
+            match r.get::<String, _>("kind").as_str() {
+                "expired" => expired = r.get("id"),
+                "reversing" => reversing.push((r.get("id"), r.get("address"))),
+                _ => candidates.push(r.get("id")),
+            }
+        }
+        if expired > 0 {
+            tracing::info!(expired, "swept stale credit authorizations to 'expired'");
+        }
+        reversing.sort_by_key(|(id, _)| *id);
+        candidates.sort_unstable();
 
-        let candidates = sqlx::query(
-            "SELECT o.id \
-             FROM fulfillment_outbox o \
-             JOIN checkouts c ON c.id = o.checkout_id \
-             WHERE o.status = 'pending' AND o.attempts < $1 AND c.status = 'fulfilling' \
-             ORDER BY o.id LIMIT 50",
-        )
-        .bind(self.max_attempts)
-        .fetch_all(&self.credits.pool)
-        .await?
-        .into_iter()
-        .map(|r| r.get::<i64, _>("id"))
-        .collect::<Vec<i64>>();
+        for (checkout_id, buyer) in reversing {
+            self.try_compensate(checkout_id, &buyer).await;
+        }
 
         if candidates.is_empty() {
             return Ok(0);
@@ -672,20 +801,7 @@ impl OutboxWorker {
         .bind(checkout_id)
         .execute(&mut **tx)
         .await?;
-        Ok(())
-    }
-
-    async fn compensation_sweep(&self) -> Result<(), ApiError> {
-        let rows = sqlx::query(
-            "SELECT id, address FROM checkouts WHERE status = 'reversing' ORDER BY id LIMIT 50",
-        )
-        .fetch_all(&self.credits.pool)
-        .await?;
-        for r in rows {
-            let checkout_id: i64 = r.get("id");
-            let buyer: String = r.get("address");
-            self.try_compensate(checkout_id, &buyer).await;
-        }
+        self.credits.kick_fulfillment();
         Ok(())
     }
 

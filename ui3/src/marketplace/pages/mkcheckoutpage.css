@@ -240,3 +240,5 @@
   color: rgba(255, 255, 255, 0.85);
   font-size: 12px; overflow-x: auto; max-height: 260px;
 }
+
+.mkco__navigation { width: 100%; max-width: 1200px; margin-inline: auto; padding-inline: 24px; box-sizing: border-box; }

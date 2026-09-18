@@ -18,27 +18,26 @@ pub async fn get_failed_deployments(
     let offset = qs_get_number(&params, "offset");
     let limit = qs_get_number(&params, "limit");
 
-    let failed = state
-        .database
-        .get_failed_deployments()
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
     if offset.is_none() && limit.is_none() {
+        let failed = state
+            .database
+            .get_failed_deployments()
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
         return Ok(Json(failed));
     }
 
-    let safe_offset = offset.filter(|&o| o > 0).unwrap_or(0) as usize;
+    let safe_offset = offset.filter(|&o| o > 0).unwrap_or(0);
     let safe_limit = match limit {
-        Some(l) => l.clamp(0, MAX_FAILED_DEPLOYMENTS_PAGE_SIZE) as usize,
-        None => MAX_FAILED_DEPLOYMENTS_PAGE_SIZE as usize,
+        Some(l) => l.clamp(0, MAX_FAILED_DEPLOYMENTS_PAGE_SIZE),
+        None => MAX_FAILED_DEPLOYMENTS_PAGE_SIZE,
     };
 
-    let page: Vec<_> = failed
-        .into_iter()
-        .skip(safe_offset)
-        .take(safe_limit)
-        .collect();
+    let page = state
+        .database
+        .get_failed_deployments_page(safe_offset, safe_limit)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
 
     Ok(Json(page))
 }

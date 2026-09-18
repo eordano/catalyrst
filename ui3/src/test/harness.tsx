@@ -1,4 +1,4 @@
-import { StrictMode, lazy } from "react";
+import { StrictMode, lazy, useContext } from "react";
 import type { ReactNode } from "react";
 import { act, render } from "@testing-library/react";
 import type { RenderResult } from "@testing-library/react";
@@ -13,8 +13,18 @@ import AppLayout from "../app/AppLayout";
 import BootGate from "../app/BootGate";
 import { panelLoaders, prefetchPanel } from "../app/router";
 import { FakeBridge } from "./fakeBridge";
+import { SIDEBAR_DESIGN_STORAGE } from "../data/sidebarDesignFlag";
+import { WorldEntryContext } from "../app/WorldEntry";
+import * as sidebarPolicy from "../data/sidebarDesignFlag";
 
-export { FakeBridge, makeFriend, makeFriendRequest } from "./fakeBridge";
+export { makeFriend } from "./fakeBridge";
+
+function useLegacySidebar(): void {
+  const mocks = [
+    vi.spyOn(sidebarPolicy, "sidebarDesignEnabled").mockReturnValue(localStorage.getItem(SIDEBAR_DESIGN_STORAGE) === "1"),
+  ];
+  onTestFinished(() => mocks.forEach(mock => mock.mockRestore()));
+}
 
 function installBridge(bridge: FakeBridge): void {
   const prev = window.dclBridge;
@@ -72,10 +82,12 @@ function buildRoutes(): RouteObject[] {
   ];
 }
 
-export type RenderHudOptions = {
+type RenderHudOptions = {
   bridge?: FakeBridge;
   route?: string;
   minimapShown?: boolean;
+  legacyHud?: boolean;
+  initialView?: "lobby" | "world";
 };
 
 const MINIMAP_HIDDEN_KEY = "dcl.minimap.userHidden";
@@ -88,7 +100,7 @@ function seedMinimapPreference(shown: boolean): void {
   });
 }
 
-export type HudHarness = RenderResult & {
+type HudHarness = RenderResult & {
   bridge: FakeBridge;
   router: ReturnType<typeof createMemoryRouter>;
   user: UserEvent;
@@ -97,6 +109,7 @@ export type HudHarness = RenderResult & {
 };
 
 export function renderHud(options: RenderHudOptions = {}): HudHarness {
+  if (options.legacyHud !== false) useLegacySidebar();
   const bridge = options.bridge ?? new FakeBridge();
   bridge.wrapDispatch = (fn) => act(fn);
   installBridge(bridge);
@@ -109,7 +122,9 @@ export function renderHud(options: RenderHudOptions = {}): HudHarness {
   const view = render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <WorldEntryContext.Provider value={options.initialView === "lobby" ? null : { pending: false, enter: () => {} }}>
+          <RouterProvider router={router} />
+        </WorldEntryContext.Provider>
       </QueryClientProvider>
     </StrictMode>,
   );
@@ -139,8 +154,16 @@ export function renderBoot(
   const queryClient = makeQueryClient();
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <BootGate>{options.children ?? <div data-testid="world-content" />}</BootGate>
+      <BootGate>{options.children ?? <BootContent />}</BootGate>
     </QueryClientProvider>,
   );
   return { ...view, bridge, queryClient };
+}
+
+export function BootContent() {
+  const entry = useContext(WorldEntryContext);
+  return entry?.pending ? <div aria-label="Lobby controls">
+    <button onClick={() => entry.enter({ kind: "parcel", x: 0, y: 0 })}>Enter Genesis Plaza</button>
+    <button onClick={() => entry.enter(null)}>Enter linked destination</button>
+  </div> : <div data-testid="world-content">World controls</div>;
 }

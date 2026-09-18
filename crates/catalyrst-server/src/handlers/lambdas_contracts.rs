@@ -1,6 +1,8 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
+use alloy::primitives::{Address, Bytes};
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::Json;
@@ -243,10 +245,8 @@ fn keccak256(input: &[u8]) -> [u8; 32] {
 }
 
 fn absorb_block(state: &mut [u64; 25], block: &[u8]) {
-    for (i, word) in block.chunks_exact(8).enumerate() {
-        let mut w = [0u8; 8];
-        w.copy_from_slice(word);
-        state[i] ^= u64::from_le_bytes(w);
+    for (i, word) in block.as_chunks::<8>().0.iter().enumerate() {
+        state[i] ^= u64::from_le_bytes(*word);
     }
 }
 
@@ -281,6 +281,7 @@ fn decode_uint_word(hex_word: &str) -> Result<u64, String> {
     u64::from_str_radix(tail, 16).map_err(|e| format!("bad uint word: {e}"))
 }
 
+#[cfg(test)]
 fn decode_string_return(hex: &str) -> Result<String, String> {
     let h = strip0x(hex);
     let bytes = hex_decode(h).map_err(|e| format!("bad hex: {e}"))?;
@@ -317,6 +318,85 @@ fn be_word_to_usize(word: &[u8]) -> Result<usize, String> {
     Ok(v)
 }
 
+/// One Multicall3 round trip (one eth_call per entry when it answers nothing); any failure fails all.
+async fn calls(
+    client: &reqwest::Client,
+    rpc: &str,
+    contract: &str,
+    calldatas: Vec<String>,
+) -> Result<Vec<Vec<u8>>, String> {
+    if calldatas.is_empty() {
+        return Ok(Vec::new());
+    }
+    let target =
+        Address::from_str(contract).map_err(|e| format!("bad contract address {contract}: {e}"))?;
+    let data = calldatas
+        .iter()
+        .map(|d| hex_decode(d).map(Bytes::from))
+        .collect::<Result<Vec<_>, _>>()?;
+    let answers = super::nft_ownership::multicall(rpc, target, data).await;
+    if answers.iter().all(Option::is_none) {
+        tracing::warn!(
+            contract,
+            "Multicall3 answered nothing; one eth_call per entry instead"
+        );
+        return calls_one_by_one(client, rpc, contract, &calldatas).await;
+    }
+    answers
+        .into_iter()
+        .enumerate()
+        .map(|(i, a)| {
+            a.map(|b| b.to_vec())
+                .ok_or_else(|| format!("call {i} to {contract} failed"))
+        })
+        .collect()
+}
+
+async fn calls_one_by_one(
+    client: &reqwest::Client,
+    rpc: &str,
+    contract: &str,
+    calldatas: &[String],
+) -> Result<Vec<Vec<u8>>, String> {
+    use futures::stream::{self, StreamExt, TryStreamExt};
+    stream::iter(0..calldatas.len())
+        .map(|i| async move {
+            let hex = eth_call(client, rpc, contract, &calldatas[i]).await?;
+            hex_decode(strip0x(&hex)).map_err(|e| format!("bad hex: {e}"))
+        })
+        .buffered(ETH_CALL_CONCURRENCY)
+        .try_collect()
+        .await
+}
+
+/// `ids` are the 64-hex-char catalyst ids, `records` the matching `catalystById` returns.
+fn servers_from_records(ids: &[String], records: Vec<Vec<u8>>) -> Result<Vec<Value>, String> {
+    let mut out = Vec::with_capacity(ids.len());
+    for (id, rec) in ids.iter().zip(records) {
+        if rec.len() < 96 {
+            return Err(format!(
+                "catalystById return too short: 0x{}",
+                hex_encode(&rec)
+            ));
+        }
+        let owner = to_checksum_address(&hex_encode(&rec[44..64]));
+        let domain = decode_string_at(&rec, 2)?;
+        if domain.starts_with("http://") {
+            continue;
+        }
+        let mut address = domain.clone();
+        if !address.starts_with("https://") {
+            address = format!("https://{address}");
+        }
+        out.push(json!({
+            "baseUrl": address.trim(),
+            "owner": owner,
+            "id": format!("0x{id}"),
+        }));
+    }
+    Ok(out)
+}
+
 async fn fetch_servers(client: &reqwest::Client, network: &str) -> Result<Vec<Value>, String> {
     let c = contracts_for(network);
     let rpc = eth_rpc_url()?;
@@ -324,49 +404,24 @@ async fn fetch_servers(client: &reqwest::Client, network: &str) -> Result<Vec<Va
     let count_hex = eth_call(client, &rpc, c.catalyst, SEL_CATALYST_COUNT).await?;
     let count = decode_uint_word(&count_hex)?;
 
-    use futures::stream::{self, StreamExt, TryStreamExt};
-    let rpc = &rpc;
-    let catalyst = c.catalyst;
-    let raw: Vec<Option<Value>> = stream::iter(0..count)
-        .map(|i| async move {
-            let ids_data = format!("{}{}", SEL_CATALYST_IDS, encode_uint256(i));
-            let id_hex = eth_call(client, rpc, catalyst, &ids_data).await?;
-            let id_word = strip0x(&id_hex);
-            if id_word.len() < 64 {
-                return Err(format!("bad catalystIds return: {id_hex}"));
-            }
-            let id = format!("0x{}", &id_word[..64]);
+    let id_calls = (0..count)
+        .map(|i| format!("{SEL_CATALYST_IDS}{}", encode_uint256(i)))
+        .collect();
+    let id_words = calls(client, &rpc, c.catalyst, id_calls).await?;
+    let mut ids = Vec::with_capacity(id_words.len());
+    for word in &id_words {
+        if word.len() < 32 {
+            return Err(format!("bad catalystIds return: 0x{}", hex_encode(word)));
+        }
+        ids.push(hex_encode(&word[..32]));
+    }
 
-            let by_id_data = format!("{}{}", SEL_CATALYST_BY_ID, &id_word[..64]);
-            let rec_hex = eth_call(client, rpc, catalyst, &by_id_data).await?;
-            let rec = hex_decode(strip0x(&rec_hex)).map_err(|e| format!("bad hex: {e}"))?;
-            if rec.len() < 96 {
-                return Err(format!("catalystById return too short: {rec_hex}"));
-            }
-
-            let owner = to_checksum_address(&hex_encode(&rec[44..64]));
-            let domain = decode_string_at(&rec, 2)?;
-
-            if domain.starts_with("http://") {
-                return Ok(None);
-            }
-            let mut address = domain.clone();
-            if !address.starts_with("https://") {
-                address = format!("https://{address}");
-            }
-            let address = address.trim().to_string();
-
-            Ok(Some(json!({
-                "baseUrl": address,
-                "owner": owner,
-                "id": id,
-            })))
-        })
-        .buffered(ETH_CALL_CONCURRENCY)
-        .try_collect()
-        .await?;
-
-    Ok(raw.into_iter().flatten().collect())
+    let record_calls = ids
+        .iter()
+        .map(|id| format!("{SEL_CATALYST_BY_ID}{id}"))
+        .collect();
+    let records = calls(client, &rpc, c.catalyst, record_calls).await?;
+    servers_from_records(&ids, records)
 }
 
 async fn fetch_list(
@@ -377,17 +432,14 @@ async fn fetch_list(
     let size_hex = eth_call(client, rpc, contract, SEL_SIZE).await?;
     let size = decode_uint_word(&size_hex)?;
 
-    use futures::stream::{self, StreamExt, TryStreamExt};
-    let out: Vec<String> = stream::iter(0..size)
-        .map(|i| async move {
-            let data = format!("{}{}", SEL_GET, encode_uint256(i));
-            let val_hex = eth_call(client, rpc, contract, &data).await?;
-            decode_string_return(&val_hex)
-        })
-        .buffered(ETH_CALL_CONCURRENCY)
-        .try_collect()
-        .await?;
-    Ok(out)
+    let get_calls = (0..size)
+        .map(|i| format!("{SEL_GET}{}", encode_uint256(i)))
+        .collect();
+    calls(client, rpc, contract, get_calls)
+        .await?
+        .iter()
+        .map(|bytes| decode_string_at(bytes, 0))
+        .collect()
 }
 
 async fn fetch_pois(client: &reqwest::Client, network: &str) -> Result<Vec<String>, String> {
@@ -450,14 +502,52 @@ async fn fetch_third_party_integrations(
 }
 
 const CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const RETRY_AFTER: Duration = Duration::from_secs(60);
 
 const ETH_CALL_CONCURRENCY: usize = 16;
 
+/// A 6h cell whose failed refreshes are not retried for `RETRY_AFTER` (stale is still served).
+struct Slot {
+    value: TtlCell<Value>,
+    failed_at: Mutex<Option<Instant>>,
+}
+
+impl Slot {
+    fn new(name: &'static str) -> Self {
+        Self {
+            value: TtlCell::new(name),
+            failed_at: Mutex::new(None),
+        }
+    }
+
+    async fn get<F, Fut>(&self, fetch: F) -> Result<Value, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Value, String>>,
+    {
+        self.value
+            .get_or_refresh(CACHE_TTL, || async {
+                let recent = self
+                    .failed_at
+                    .lock()
+                    .unwrap()
+                    .is_some_and(|at| at.elapsed() < RETRY_AFTER);
+                if recent {
+                    return Err("upstream failed recently; backing off".to_string());
+                }
+                let fetched = fetch().await;
+                *self.failed_at.lock().unwrap() = fetched.is_err().then(Instant::now);
+                fetched
+            })
+            .await
+    }
+}
+
 struct ContractCaches {
-    servers: TtlCell<Value>,
-    pois: TtlCell<Value>,
-    denylisted_names: TtlCell<Value>,
-    third_party: TtlCell<Value>,
+    servers: Slot,
+    pois: Slot,
+    denylisted_names: Slot,
+    third_party: Slot,
     client: reqwest::Client,
 }
 
@@ -470,10 +560,10 @@ impl ContractCaches {
                 .following_redirects(10),
         );
         Self {
-            servers: TtlCell::new("contracts-servers"),
-            pois: TtlCell::new("contracts-pois"),
-            denylisted_names: TtlCell::new("contracts-denylisted-names"),
-            third_party: TtlCell::new("contracts-third-party"),
+            servers: Slot::new("contracts-servers"),
+            pois: Slot::new("contracts-pois"),
+            denylisted_names: Slot::new("contracts-denylisted-names"),
+            third_party: Slot::new("contracts-third-party"),
             client,
         }
     }
@@ -489,9 +579,7 @@ pub async fn contracts_servers(State(s): State<Arc<AppState>>) -> impl IntoRespo
     let network = s.eth_network.clone();
     match c
         .servers
-        .get_or_refresh(CACHE_TTL, || async {
-            fetch_servers(&c.client, &network).await.map(Value::Array)
-        })
+        .get(|| async { fetch_servers(&c.client, &network).await.map(Value::Array) })
         .await
     {
         Ok(v) => Json(v),
@@ -507,7 +595,7 @@ pub async fn contracts_pois(State(s): State<Arc<AppState>>) -> impl IntoResponse
     let network = s.eth_network.clone();
     match c
         .pois
-        .get_or_refresh(CACHE_TTL, || async {
+        .get(|| async {
             let pois = fetch_pois(&c.client, &network).await?;
             Ok::<Value, String>(Value::Array(pois.into_iter().map(Value::String).collect()))
         })
@@ -526,7 +614,7 @@ pub async fn contracts_denylisted_names(State(s): State<Arc<AppState>>) -> impl 
     let network = s.eth_network.clone();
     match c
         .denylisted_names
-        .get_or_refresh(CACHE_TTL, || async {
+        .get(|| async {
             let names = fetch_denylisted_names(&c.client, &network).await?;
             Ok::<Value, String>(Value::Array(names.into_iter().map(Value::String).collect()))
         })
@@ -545,7 +633,7 @@ pub async fn third_party_integrations(State(s): State<Arc<AppState>>) -> impl In
     let network = s.eth_network.clone();
     match c
         .third_party
-        .get_or_refresh(CACHE_TTL, || async {
+        .get(|| async {
             fetch_third_party_integrations(&c.client, &network)
                 .await
                 .map(Value::Array)
@@ -608,6 +696,40 @@ mod tests {
                      0000000000000000000000000000000000000000000000000000000000000005\
                      68656c6c6f000000000000000000000000000000000000000000000000000000";
         assert_eq!(decode_string_return(hexed).unwrap(), "hello");
+    }
+
+    #[test]
+    fn servers_from_records_keeps_https_and_skips_http() {
+        fn record(domain: &str) -> Vec<u8> {
+            let mut rec = vec![0u8; 96];
+            rec[44..64]
+                .copy_from_slice(&hex_decode("75e1d32289679dfcb2f01fbc0e043b3d7f9cd443").unwrap());
+            rec[64..96].copy_from_slice(&hex_decode(&encode_uint256(96)).unwrap());
+            rec.extend_from_slice(&hex_decode(&encode_uint256(domain.len() as u64)).unwrap());
+            rec.extend_from_slice(domain.as_bytes());
+            rec.resize(rec.len().div_ceil(32) * 32, 0);
+            rec
+        }
+        let ids: Vec<String> = ["11", "22", "33"].iter().map(|s| s.repeat(32)).collect();
+        let out = servers_from_records(
+            &ids,
+            vec![
+                record("peer.example "),
+                record("http://plain.example"),
+                record("https://secure.example"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(out.len(), 2, "http:// entries are dropped");
+        assert_eq!(out[0]["baseUrl"], "https://peer.example");
+        assert_eq!(
+            out[0]["owner"],
+            "0x75e1d32289679dfcB2F01fBc0e043B3d7F9Cd443"
+        );
+        assert_eq!(out[0]["id"], format!("0x{}", "11".repeat(32)));
+        assert_eq!(out[1]["baseUrl"], "https://secure.example");
+        assert_eq!(out[1]["id"], format!("0x{}", "33".repeat(32)));
+        assert!(servers_from_records(&ids[..1], vec![vec![0u8; 40]]).is_err());
     }
 
     #[test]

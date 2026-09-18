@@ -23,7 +23,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type GvSubmitCouncilVetoWizardProps = {
+type GvSubmitCouncilVetoWizardProps = {
   trackCtx: TrackContext;
   data: CouncilVetoData;
   initialStep?: string;

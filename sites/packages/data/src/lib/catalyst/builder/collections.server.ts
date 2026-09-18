@@ -7,7 +7,7 @@ import {
   type OrphanItem,
 } from "./collections";
 
-export type CollectionsData = {
+type CollectionsData = {
   collections: BuilderCollection[];
   items: OrphanItem[];
   usedFallback: boolean;

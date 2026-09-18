@@ -12,9 +12,9 @@ import {
   type TrackFn,
 } from "@core/lib/telemetry/track";
 
-export type BlogShopOpenTarget = "card" | "rail_cta" | "rail_item";
+type BlogShopOpenTarget = "card" | "rail_cta" | "rail_item";
 
-export type BlogShopEntryProps = {
+type BlogShopEntryProps = {
   arm: BlogShopEntryArm;
   items: CollectibleCard[] | null;
   trackCtx: TrackContext;

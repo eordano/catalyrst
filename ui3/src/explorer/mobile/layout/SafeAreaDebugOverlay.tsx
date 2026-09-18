@@ -3,7 +3,7 @@ import { useOrientation } from "./OrientationProvider";
 import "./viewport.css";
 import "./layout.css";
 
-export type SafeAreaDebugOverlayProps = {
+type SafeAreaDebugOverlayProps = {
   enabled?: boolean;
   className?: string;
 };

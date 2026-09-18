@@ -68,5 +68,6 @@ persistent "sample place list" banner saying those places come from a JSON file,
 not from the network.
 
 Ban and unban render as disabled controls carrying the reason. The page emits
-`operator_control_unavailable { control, reason }`; `SceneBanWizard` and its
-machine are left in place, unrendered, for when the edge route exists.
+`operator_control_unavailable { control, reason }`. The wizard and its state
+machine were removed once nothing rendered them; the flow above stays as the
+intended design for when the edge route exists.

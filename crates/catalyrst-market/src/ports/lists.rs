@@ -57,6 +57,33 @@ const PICK_IN_LISTS_SQL: &str = "INSERT INTO favorites.picks (item_id, user_addr
 const UNPICK_FROM_LISTS_SQL: &str = "DELETE FROM favorites.picks \
      WHERE item_id = $1 AND user_address = $2 AND list_id = ANY($3::uuid[])";
 
+/// Binds: $1 item id, $2 caller, $3 pick list ids, $4 default-list owner, $5 grantee wildcard,
+/// $6 unpick list ids. The main SELECT shares the CTEs' snapshot, so the remaining-pick check
+/// excludes the unpicked lists itself; the NOTIFY goes out with the statement's commit.
+const PICK_AND_UNPICK_IN_BULK_SQL: &str = "WITH picked AS (\
+       INSERT INTO favorites.picks (item_id, user_address, list_id) \
+       SELECT $1, $2, id FROM favorites.lists \
+       WHERE id = ANY($3::uuid[]) AND (\
+         favorites.lists.user_address = $2 \
+         OR favorites.lists.user_address = $4 \
+         OR EXISTS (\
+           SELECT 1 FROM favorites.acl \
+           WHERE favorites.acl.list_id = favorites.lists.id \
+           AND favorites.acl.permission = 'edit' \
+           AND favorites.acl.grantee IN ($2, $5)\
+         )\
+       ) \
+       ON CONFLICT (item_id, user_address, list_id) DO NOTHING\
+     ), unpicked AS (\
+       DELETE FROM favorites.picks \
+       WHERE item_id = $1 AND user_address = $2 AND list_id = ANY($6::uuid[])\
+     ) \
+     SELECT (cardinality($3::uuid[]) > 0 \
+             OR EXISTS (SELECT 1 FROM favorites.picks \
+                        WHERE item_id = $1 AND user_address = $2 \
+                          AND NOT (list_id = ANY($6::uuid[])))) AS picked_by_user \
+     FROM (SELECT pg_notify('catalyrst_market_dirty', 'favorites')) AS notified";
+
 #[derive(Debug)]
 pub struct ListPick {
     pub item_id: String,
@@ -247,7 +274,8 @@ SELECT
   l.permission                                 AS permission,
   (l.user_address = '{default_addr}')          AS is_default_list,
   COALESCE(pc.cnt, 0)::int8                    AS items_count,
-  COALESCE(pp.preview, ARRAY[]::text[])        AS preview{item_select}
+  COALESCE(pp.preview, ARRAY[]::text[])        AS preview,
+  COUNT(*) OVER()::int8                        AS total{item_select}
 FROM favorites.lists l
 LEFT JOIN (
   SELECT list_id, COUNT(*) AS cnt FROM favorites.picks
@@ -421,22 +449,19 @@ impl ListsComponent {
 
     pub async fn get_or_create_default_list(&self, user_address: &str) -> Result<String, ApiError> {
         let user = user_address.to_lowercase();
-        let existing = sqlx::query(sqlx::AssertSqlSafe(
-            "SELECT id::text AS id FROM favorites.lists \
-             WHERE user_address = $1 AND name = $2 \
-             ORDER BY created_at ASC LIMIT 1"
-                .to_string(),
-        ))
-        .bind(&user)
-        .bind(DEFAULT_LIST_NAME)
-        .fetch_optional(&self.pool)
-        .await?;
-        if let Some(row) = existing {
-            return Ok(row.try_get::<String, _>("id").unwrap_or_default());
-        }
+        // The oldest existing default list, or a fresh one, in one statement on the write pool.
         let row = sqlx::query(sqlx::AssertSqlSafe(
-            "INSERT INTO favorites.lists (name, user_address, is_private) \
-             VALUES ($1, $2, true) RETURNING id::text AS id"
+            "WITH existing AS (\
+               SELECT id FROM favorites.lists \
+               WHERE user_address = $2 AND name = $1 \
+               ORDER BY created_at ASC LIMIT 1\
+             ), created AS (\
+               INSERT INTO favorites.lists (name, user_address, is_private) \
+               SELECT $1, $2, true WHERE NOT EXISTS (SELECT 1 FROM existing) \
+               RETURNING id\
+             ) \
+             SELECT id::text AS id FROM existing \
+             UNION ALL SELECT id::text AS id FROM created"
                 .to_string(),
         ))
         .bind(DEFAULT_LIST_NAME)
@@ -487,41 +512,28 @@ impl ListsComponent {
     }
 
     /// Upstream `pickAndUnpickInBulk`: the pick INSERT and the unpick DELETE are one
-    /// transaction, so a failure between them cannot leave the item in the new lists and
-    /// still in the old ones.
+    /// statement, so a failure between them cannot leave the item in the new lists and
+    /// still in the old ones. Returns whether the caller still picks the item afterwards.
     pub async fn pick_and_unpick_in_bulk(
         &self,
         item_id: &str,
         user_address: &str,
         pick_ids: &[String],
         unpick_ids: &[String],
-    ) -> Result<(), ApiError> {
+    ) -> Result<bool, ApiError> {
         if pick_ids.is_empty() && unpick_ids.is_empty() {
-            return Ok(());
+            return self.is_picked_by_user(item_id, user_address).await;
         }
-        let user = user_address.to_lowercase();
-        let mut tx = self.write_pool().begin().await?;
-        if !pick_ids.is_empty() {
-            sqlx::query(sqlx::AssertSqlSafe(PICK_IN_LISTS_SQL.to_string()))
-                .bind(item_id)
-                .bind(&user)
-                .bind(pick_ids)
-                .bind(DEFAULT_LIST_USER_ADDRESS)
-                .bind(GRANTED_TO_ALL)
-                .execute(&mut *tx)
-                .await?;
-        }
-        if !unpick_ids.is_empty() {
-            sqlx::query(sqlx::AssertSqlSafe(UNPICK_FROM_LISTS_SQL.to_string()))
-                .bind(item_id)
-                .bind(&user)
-                .bind(unpick_ids)
-                .execute(&mut *tx)
-                .await?;
-        }
-        tx.commit().await?;
-        self.notify_dirty().await;
-        Ok(())
+        let row = sqlx::query(sqlx::AssertSqlSafe(PICK_AND_UNPICK_IN_BULK_SQL.to_string()))
+            .bind(item_id)
+            .bind(user_address.to_lowercase())
+            .bind(pick_ids)
+            .bind(DEFAULT_LIST_USER_ADDRESS)
+            .bind(GRANTED_TO_ALL)
+            .bind(unpick_ids)
+            .fetch_one(self.write_pool())
+            .await?;
+        Ok(row.try_get::<bool, _>("picked_by_user").unwrap_or(false))
     }
 
     pub async fn unpick_everywhere(
@@ -605,15 +617,21 @@ impl ListsComponent {
             })
             .collect();
 
-        let mut cq = sqlx::query(sqlx::AssertSqlSafe(count_sql));
-        cq = cq.bind(user_address.to_lowercase());
-        if let Some(needle) = opts.q {
-            cq = cq.bind(needle.to_string());
-        }
-        let total = match cq.fetch_one(&self.pool).await {
-            Ok(row) => row.try_get::<i64, _>("total").unwrap_or(0),
-            Err(e) if is_missing_favorites(&e) => 0,
-            Err(e) => return Err(e.into()),
+        let total = if let Some(first) = rows.first() {
+            first.try_get::<i64, _>("total").unwrap_or(0)
+        } else if opts.offset > 0 {
+            let mut cq = sqlx::query(sqlx::AssertSqlSafe(count_sql));
+            cq = cq.bind(user_address.to_lowercase());
+            if let Some(needle) = opts.q {
+                cq = cq.bind(needle.to_string());
+            }
+            match cq.fetch_one(&self.pool).await {
+                Ok(row) => row.try_get::<i64, _>("total").unwrap_or(0),
+                Err(e) if is_missing_favorites(&e) => 0,
+                Err(e) => return Err(e.into()),
+            }
+        } else {
+            0
         };
 
         Ok((lists, total))
@@ -804,5 +822,108 @@ mod tests {
         assert!(
             PICK_IN_LISTS_SQL.contains("ON CONFLICT (item_id, user_address, list_id) DO NOTHING")
         );
+    }
+}
+
+#[cfg(test)]
+mod pg_tests {
+    use super::*;
+    use catalyrst_contract_gate::pg::ScratchDb;
+
+    #[tokio::test]
+    async fn bulk_pick_answers_the_remaining_pick_state_from_one_statement() {
+        let Some(scratch) = ScratchDb::builder("CATALYRST_MARKET_TEST_PG", "picks")
+            .schemas(["favorites"])
+            .build()
+            .await
+        else {
+            return;
+        };
+        scratch
+            .apply_sql(
+                "CREATE TABLE favorites.lists (
+                   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL,
+                   description text, user_address varchar(42) NOT NULL,
+                   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz,
+                   is_private boolean NOT NULL DEFAULT false, permission text);
+                 CREATE TABLE favorites.picks (
+                   item_id text NOT NULL, user_address varchar(42) NOT NULL,
+                   list_id uuid NOT NULL REFERENCES favorites.lists(id) ON DELETE CASCADE,
+                   created_at timestamptz NOT NULL DEFAULT now(),
+                   PRIMARY KEY (item_id, user_address, list_id));
+                 CREATE TABLE favorites.acl (
+                   list_id uuid NOT NULL REFERENCES favorites.lists(id) ON DELETE CASCADE,
+                   permission text NOT NULL, grantee text NOT NULL,
+                   PRIMARY KEY (list_id, permission, grantee));",
+            )
+            .await;
+        let lists = ListsComponent::new(scratch.pool.clone());
+        let user = "0xAbC0000000000000000000000000000000000001";
+        let stranger = "0x0000000000000000000000000000000000000002";
+
+        let mine = lists.get_or_create_default_list(user).await.unwrap();
+        assert_eq!(
+            lists.get_or_create_default_list(user).await.unwrap(),
+            mine,
+            "the default list is created once"
+        );
+        let theirs = lists.get_or_create_default_list(stranger).await.unwrap();
+        assert_ne!(mine, theirs);
+        let (second,): (String,) = sqlx::query_as(
+            "INSERT INTO favorites.lists (name, user_address) VALUES ('more', $1) RETURNING id::text",
+        )
+        .bind(user.to_lowercase())
+        .fetch_one(&scratch.pool)
+        .await
+        .unwrap();
+
+        let item = "0xc-1";
+        assert!(lists
+            .pick_and_unpick_in_bulk(item, user, &[mine.clone(), second.clone()], &[])
+            .await
+            .unwrap());
+        assert!(
+            !lists
+                .pick_and_unpick_in_bulk(item, user, &[], &[mine.clone(), second.clone()])
+                .await
+                .unwrap(),
+            "unpicking every list answers false within the same statement"
+        );
+        assert!(!lists.is_picked_by_user(item, user).await.unwrap());
+
+        lists
+            .pick_and_unpick_in_bulk(item, user, &[mine.clone(), second.clone()], &[])
+            .await
+            .unwrap();
+        assert!(
+            lists
+                .pick_and_unpick_in_bulk(item, user, &[], std::slice::from_ref(&mine))
+                .await
+                .unwrap(),
+            "still picked in the other list"
+        );
+        assert!(
+            lists
+                .pick_and_unpick_in_bulk(
+                    item,
+                    user,
+                    std::slice::from_ref(&theirs),
+                    std::slice::from_ref(&second)
+                )
+                .await
+                .unwrap(),
+            "a pick request answers true even when the list is not writable"
+        );
+        let (rows,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM favorites.picks WHERE item_id = $1")
+                .bind(item)
+                .fetch_one(&scratch.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rows, 0,
+            "a stranger's private list took no pick, the unpick applied"
+        );
+        scratch.drop().await;
     }
 }

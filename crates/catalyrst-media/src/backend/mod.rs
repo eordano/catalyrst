@@ -44,3 +44,47 @@ pub fn build_backend(cfg: &Config) -> Arc<dyn TranslationBackend> {
         )),
     }
 }
+
+pub(crate) const TRANSLATE_CONCURRENCY: usize = 8;
+
+/// Maps `f` over `texts` with at most TRANSLATE_CONCURRENCY in flight, in input order;
+/// the first error aborts the rest, as the sequential loop did.
+pub(crate) async fn translate_concurrently<F, Fut>(
+    texts: &[String],
+    f: F,
+) -> Result<Vec<TranslatedItem>, String>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = Result<TranslatedItem, String>> + Send + 'static,
+{
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(TRANSLATE_CONCURRENCY));
+    let mut tasks = tokio::task::JoinSet::new();
+    let mut out: Vec<Option<TranslatedItem>> = (0..texts.len()).map(|_| None).collect();
+    let settle =
+        |joined: Result<(usize, Result<TranslatedItem, String>), tokio::task::JoinError>,
+         out: &mut Vec<Option<TranslatedItem>>|
+         -> Result<(), String> {
+            let (i, item) = joined.map_err(|e| format!("translate task failed: {e}"))?;
+            out[i] = Some(item?);
+            Ok(())
+        };
+    for (i, text) in texts.iter().cloned().enumerate() {
+        let permit = semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| e.to_string())?;
+        while let Some(joined) = tasks.try_join_next() {
+            settle(joined, &mut out)?;
+        }
+        let fut = f(text);
+        tasks.spawn(async move {
+            let _permit = permit;
+            (i, fut.await)
+        });
+    }
+    while let Some(joined) = tasks.join_next().await {
+        settle(joined, &mut out)?;
+    }
+    Ok(out.into_iter().flatten().collect())
+}

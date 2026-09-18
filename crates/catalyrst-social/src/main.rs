@@ -29,7 +29,21 @@ async fn main() -> Result<()> {
     let mut app = Router::new();
 
     app = mount(app, &mut members, "communities", build_communities().await);
-    app = mount(app, &mut members, "comms", build_comms().await);
+    let mut comms_runtime = None;
+    match build_comms().await {
+        Ok((router, runtime)) => {
+            members.push(("comms", true));
+            app = app.merge(router);
+            comms_runtime = Some(runtime);
+        }
+        Err(err) => {
+            if protected_comms_requested() {
+                return Err(err.context("protected embedded comms startup failed"));
+            }
+            tracing::warn!(member = "comms", %err, "member unavailable, serving without it");
+            members.push(("comms", false));
+        }
+    }
     app = mount(
         app,
         &mut members,
@@ -62,7 +76,16 @@ async fn main() -> Result<()> {
     tracing::info!(%addr, "catalyrst-social bundle listening");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    if let Some(runtime) = comms_runtime.as_mut() {
+        runtime.start();
+    }
+    let served = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await;
+    if let Some(runtime) = comms_runtime {
+        runtime.shutdown().await;
+    }
+    served?;
     Ok(())
 }
 
@@ -104,10 +127,43 @@ async fn build_communities() -> Result<Router> {
     Ok(catalyrst_social_service::rest::api_router().with_state(state))
 }
 
-async fn build_comms() -> Result<Router> {
+async fn build_comms() -> Result<(Router, catalyrst_comms::CommsRuntime)> {
     let cfg = catalyrst_comms::config::Config::from_env()?;
     let state = catalyrst_comms::build_state(&cfg).await?;
-    Ok(catalyrst_comms::api_router(state.clone()).with_state(state))
+    let runtime = catalyrst_comms::CommsRuntime::embedded(state.clone(), &cfg.cluster)?;
+    let connections = catalyrst_comms::connection_router(
+        state.clone(),
+        runtime.assignment_reader(),
+        cfg.pulse_room_authority_key,
+    )?;
+    let routes = catalyrst_comms::api_router(state.clone())
+        .merge(connections)
+        .with_state(state);
+    Ok((routes, runtime))
+}
+
+fn protected_comms_requested() -> bool {
+    env::var_os("COMMS_CONTROL_PG_CONNECTION_STRING").is_some()
+        || env::var_os("COMMS_CONTROL_V4_AUDIENCE").is_some()
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    let terminate = async {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()).ok() {
+            Some(mut signal) => {
+                signal.recv().await;
+            }
+            None => std::future::pending().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = terminate => {}
+    }
 }
 
 async fn build_notifications() -> Result<Router> {

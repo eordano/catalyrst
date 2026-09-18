@@ -1,9 +1,16 @@
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex, OnceLock};
 use std::time::Duration;
 
+use catalyrst_fed::cache::{cache_get, cache_put, Cached};
 use serde_json::{json, Value};
 
 const SCORE_URL: &str = "https://score.snapshot.org/";
+const SCORE_CACHE_TTL: Duration = Duration::from_secs(3600);
+const SCORE_CACHE_MAX: usize = 10_000;
+
+static SCORES: LazyLock<Mutex<HashMap<String, Cached<f64>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub const MIN_USER_ACTIVITY: f64 = 100.0;
 
@@ -67,11 +74,32 @@ fn client() -> &'static reqwest::Client {
     })
 }
 
+/// Memoised per address; a failed fetch is not cached, so it still yields 0.0 only for this call.
 pub async fn fetch_score(address: &str) -> f64 {
     if !is_ethereum_address(address) {
         return 0.0;
     }
+    let key = address.to_lowercase();
+    if let Some(score) = cache_get(&SCORES, &key) {
+        return score;
+    }
+    match fetch_score_uncached(&key).await {
+        Some(score) => {
+            if SCORES
+                .lock()
+                .map(|c| c.len() >= SCORE_CACHE_MAX)
+                .unwrap_or(false)
+            {
+                SCORES.lock().unwrap().clear();
+            }
+            cache_put(&SCORES, key, score, SCORE_CACHE_TTL);
+            score
+        }
+        None => 0.0,
+    }
+}
 
+async fn fetch_score_uncached(address: &str) -> Option<f64> {
     let payload = json!({
         "jsonrpc": "2.0",
         "method": "get_vp",
@@ -102,10 +130,10 @@ pub async fn fetch_score(address: &str) -> f64 {
     .await;
 
     match result {
-        Ok(vp) => to_int32(vp) as f64,
+        Ok(vp) => Some(to_int32(vp) as f64),
         Err(err) => {
             tracing::error!(error = %err, address = %address, "Error loading user score");
-            0.0
+            None
         }
     }
 }

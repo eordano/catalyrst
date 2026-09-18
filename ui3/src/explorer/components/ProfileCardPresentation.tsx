@@ -5,9 +5,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import type { Relationship } from "../../data/hooks/relationship";
 import "./profilecard.css";
 
-export type { Relationship } from "../../data/hooks/relationship";
-
-export type FriendOp = "request" | "accept" | "reject" | "block" | "unblock";
+type FriendOp = "request" | "accept" | "reject" | "block" | "unblock";
 
 export interface ProfileCardUser {
   address: string;

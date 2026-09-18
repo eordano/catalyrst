@@ -329,35 +329,52 @@ fn connected_key(world: bool, server: Option<&str>, x: i32, y: i32) -> String {
     }
 }
 
+/// Comms lookups for a page run concurrently, capped so a long list cannot flood the gatekeeper.
+const COMMS_CONCURRENCY: usize = 16;
+
 async fn attach_connected_users(state: &AppState, events: &mut [EventRecord]) {
     use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+    use tokio::task::JoinSet;
 
     if events.is_empty() {
         return;
     }
 
-    let mut worlds: HashSet<String> = HashSet::new();
-    let mut places: HashSet<String> = HashSet::new();
+    let mut keys: HashSet<(bool, String)> = HashSet::new();
     for e in events.iter() {
         match event_location(e.world, e.server.as_deref(), e.x, e.y) {
             Some(EventLocation::World(w)) => {
-                worlds.insert(w);
+                keys.insert((true, w));
             }
             Some(EventLocation::Place(p)) => {
-                places.insert(p);
+                keys.insert((false, p));
             }
             None => {}
         }
     }
 
-    let mut map: HashMap<String, Vec<String>> = HashMap::new();
-    for w in worlds {
-        let addrs = state.comms.get_world_participants(&w).await;
-        map.insert(w, addrs);
+    let limit = Arc::new(Semaphore::new(COMMS_CONCURRENCY));
+    let mut tasks = JoinSet::new();
+    for (world, id) in keys {
+        let state = state.clone();
+        let limit = limit.clone();
+        tasks.spawn(async move {
+            let _permit = limit.acquire_owned().await.ok();
+            let addrs = if world {
+                state.comms.get_world_participants(&id).await
+            } else {
+                state.comms.get_scene_participants(&id).await
+            };
+            (id, addrs)
+        });
     }
-    for p in places {
-        let addrs = state.comms.get_scene_participants(&p).await;
-        map.insert(p, addrs);
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    while let Some(res) = tasks.join_next().await {
+        if let Ok((id, addrs)) = res {
+            map.insert(id, addrs);
+        }
     }
 
     for e in events.iter_mut() {
@@ -610,7 +627,7 @@ pub(crate) async fn viewer_is_admin(
         return Ok(true);
     }
     match viewer {
-        Some(v) => crate::fed::authority::is_moderator(&state.pool, v).await,
+        Some(v) => state.events.viewer_is_moderator(v).await,
         None => Ok(false),
     }
 }
@@ -623,16 +640,12 @@ pub(crate) async fn load_event_for_viewer(
 ) -> Result<EventRecord, ApiError> {
     let viewer = optional_user(headers, "get", signed_path).await?;
     let admin = viewer_is_admin(state, headers, viewer.as_deref()).await?;
-    let mut evt = state
+    state
         .events
-        .get(event_id)
+        .get_for_viewer(event_id, viewer.as_deref())
         .await?
         .filter(|evt| visible_to_viewer(evt, viewer.as_deref(), admin))
-        .ok_or_else(|| ApiError::not_found(format!("Not found event \"{}\"", event_id)))?;
-    if let Some(user) = viewer {
-        evt.attending = state.events.is_user_attending(event_id, &user).await?;
-    }
-    Ok(evt)
+        .ok_or_else(|| ApiError::not_found(format!("Not found event \"{}\"", event_id)))
 }
 
 #[utoipa::path(

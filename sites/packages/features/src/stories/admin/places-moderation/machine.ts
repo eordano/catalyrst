@@ -23,7 +23,7 @@ export type ModerateFn = (args: {
   signal?: AbortSignal;
 }) => Promise<ModerationResult>;
 
-export type ModerateInput = {
+type ModerateInput = {
   trackCtx: TrackContext;
   reports?: ReportRow[];
   queueOpenCount?: number;
@@ -32,7 +32,7 @@ export type ModerateInput = {
   track?: TrackFn;
 };
 
-export type ModerateContext = {
+type ModerateContext = {
   trackCtx: TrackContext;
   reports: ReportRow[];
   queueOpenCount: number;
@@ -48,7 +48,7 @@ export type ModerateContext = {
   error?: string;
 };
 
-export type ModerateEvent =
+type ModerateEvent =
   | { type: "OPEN"; reportId: string }
   | { type: "CLOSE" }
   | { type: "DECIDE"; decision: ModerationDecision; resolution?: string; notes?: string }
@@ -76,7 +76,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type ModerateStateId = keyof typeof STATE_TO_SLUG;
-export type ModerateStepSlug = (typeof STATE_TO_SLUG)[ModerateStateId];
+type ModerateStepSlug = (typeof STATE_TO_SLUG)[ModerateStateId];
 
 export const FIRST_STEP_SLUG: ModerateStepSlug = STATE_TO_SLUG.queue;
 
@@ -88,7 +88,7 @@ export const stateToSlug: (value: string) => ModerateStepSlug = stepSlugs.toSlug
 
 export const slugToState: (slug: string | null | undefined) => ModerateStateId = stepSlugs.toState;
 
-export const moderateDecision: ModerateFn = ({
+const moderateDecision: ModerateFn = ({
   report,
   decision,
   resolution,
@@ -136,7 +136,7 @@ function placeholderReport(id: string): ReportRow {
   };
 }
 
-export function reportInContext(ctx: ModerateContext): ReportRow | undefined {
+function reportInContext(ctx: ModerateContext): ReportRow | undefined {
   if (!ctx.reportId) return undefined;
   return ctx.reports.find((r) => r.id === ctx.reportId) ?? placeholderReport(ctx.reportId);
 }
@@ -325,8 +325,6 @@ export const moderateMachine = setup({
     },
   },
 });
-
-export type ModerateMachine = typeof moderateMachine;
 
 export function resolveModerateSnapshot(args: {
   step: ModerateStateId;

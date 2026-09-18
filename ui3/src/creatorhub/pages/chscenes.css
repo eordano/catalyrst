@@ -9,6 +9,7 @@
 
 .chscenes__container {
   display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   width: 100%;
   max-width: 1180px;
@@ -310,6 +311,9 @@
 
 .chscenes__tabs {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
   gap: 6px;
   margin: 0 0 18px;
 }

@@ -13,7 +13,7 @@ export const PRIMARY_MINT_LABEL = "Sold by its creator as a new mint";
 
 type MkAssetPageProps = ComponentProps<typeof MkAssetPage>;
 
-export type MkAssetDetailViewProps = {
+type MkAssetDetailViewProps = {
   nft?: MkAssetPageProps["nft"];
   listings?: MkAssetPageProps["listings"];
   cartAnnounce?: string;

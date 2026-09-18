@@ -6,9 +6,13 @@ import Dropdown from "../../components/Dropdown";
 import VoiceParticipantList from "../components/VoiceParticipantList";
 import type { EngineSetting, EngineSettingInfo } from "../../overlay/engineSettings";
 import type { SettingGroup, SettingModule, SettingsTab } from "../../data/settings/catalog";
+import FeatureFlags from "./FeatureFlags";
+import { useAudioMixer } from "../../overlay/audioMixer";
+import AudioMixer from "../components/AudioMixer";
+import Icon from "../frames/SidebarDesignIcon";
 import "./settings.css";
 
-export type SettingsPanelProps = {
+type SettingsPanelProps = {
   tabs: SettingsTab[];
   tab: string;
   onTab: (id: string) => void;
@@ -18,10 +22,12 @@ export type SettingsPanelProps = {
   defaults: Record<string, number>;
   onChange: (m: SettingModule, value: number) => void;
   onReset?: () => void;
+  onClose?: () => void;
   engineConnected?: boolean | null;
 };
 
 const PILL_ICONS: Record<string, ReactNode> = {
+  flags: <Icon name="flag" />,
   graphics: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="2.5" y="5" width="19" height="12" rx="2" />
@@ -151,13 +157,19 @@ export default function SettingsPanel({
   defaults,
   onChange,
   onReset,
+  onClose,
   engineConnected,
 }: SettingsPanelProps) {
+  const [advancedAudio, setAdvancedAudio] = useState(false);
+  const mixer = useAudioMixer();
+  useEffect(() => tab === "sounds" ? mixer?.watch() : undefined, [tab, mixer?.watch]);
+  const hasSources = !!mixer && (mixer.sources.length > 0 || Object.keys(mixer.saved).length > 0);
+  const hasParticipants = mixer?.sources.some(source => source.id.startsWith("voice:"));
   const activeLabel = tabs.find((t) => t.id === tab)?.label ?? tab;
   return (
     <div className="set">
       <div className="set__head">
-        <h1 className="set__title">Settings</h1>
+        <div className="set__title-row"><h1 className="set__title">Settings</h1>{onClose && <button type="button" className="explorer-settings-close" aria-label="Close settings" onClick={onClose}><Icon name="close" /></button>}</div>
         <div className="set__pills" role="tablist" aria-label="Settings sections">
           {tabs.map((t) => (
             <button
@@ -173,7 +185,7 @@ export default function SettingsPanel({
             </button>
           ))}
         </div>
-        {onReset && (
+        {onReset && tab !== "flags" && (
           <button type="button" className="set__reset" onClick={onReset}>
             &#x21BA; Reset {activeLabel} defaults
           </button>
@@ -182,12 +194,13 @@ export default function SettingsPanel({
 
       <div className="set__card">
         <div className="set__content">
-          {engineConnected === false && (
+          {tab !== "flags" && engineConnected === false && (
             <div className="set__offline" role="note">
               Not connected to the engine &#x2014; changes won&apos;t be saved.
             </div>
           )}
-          {groups.length === 0 && (
+          {tab === "flags" && <FeatureFlags />}
+          {tab !== "flags" && groups.length === 0 && (
             <div className="set__empty">No settings in this section yet.</div>
           )}
           {groups.map((g, gi) => (
@@ -211,12 +224,13 @@ export default function SettingsPanel({
               </div>
             </section>
           ))}
-          {tab === "sounds" && (
+          {tab === "sounds" && hasParticipants && (
             <section className="set__group">
-              <h2 className="set__grouptitle">Voice Chat &amp; Streams &#x2014; Participants</h2>
+              <h2 className="set__grouptitle">Voice chat participants</h2>
               <VoiceParticipantList />
             </section>
           )}
+          {tab === "sounds" && hasSources && <section className="set__group"><h2 className="set__grouptitle">Individual sounds</h2><details className="set__advanced-audio" onToggle={event => setAdvancedAudio(event.currentTarget.open)}><summary>Advanced source controls</summary>{advancedAudio && <AudioMixer advanced />}</details></section>}
         </div>
       </div>
     </div>

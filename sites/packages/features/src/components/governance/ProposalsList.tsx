@@ -28,7 +28,7 @@ const STATUS_OPTIONS = [
   { id: "out_of_budget", label: "Out of Budget" },
 ];
 
-export type ProposalsListProps = {
+type ProposalsListProps = {
   sid: string;
   proposals: ProposalCard[];
   category: string;

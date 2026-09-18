@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { StorybookConfig } from "@storybook/react-vite";
+import { serverOnlyStoryModules } from "./server-only-stories.ts";
 import { mswStaticBuildAliases, siteAliases } from "./site-aliases.ts";
+import { validateAliasObject } from "../vite.validate.js";
 
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -35,8 +37,11 @@ const config = {
   ],
   viteFinal: async (config, { configType }) => {
     config.base = "./";
-    const aliases =
-      configType === "PRODUCTION" ? { ...siteAliases, ...mswStaticBuildAliases } : siteAliases;
+    config.plugins = [...(config.plugins ?? []), serverOnlyStoryModules()];
+    const aliases = {
+      ...validateAliasObject(),
+      ...(configType === "PRODUCTION" ? { ...siteAliases, ...mswStaticBuildAliases } : siteAliases),
+    };
     const resolve = (config.resolve ??= {});
     if (Array.isArray(resolve.alias)) {
       resolve.alias = [
@@ -46,7 +51,7 @@ const config = {
     } else {
       resolve.alias = { ...(resolve.alias as Record<string, string> | undefined), ...aliases };
     }
-    resolve.dedupe = [...new Set([...(resolve.dedupe ?? []), "react", "react-dom"])];
+    resolve.dedupe = [...new Set([...(resolve.dedupe ?? []), "react", "react-dom", "react-router", "@tanstack/react-query"])];
     const server = (config.server ??= {});
     server.allowedHosts = [
       ...(server.allowedHosts === true ? [] : server.allowedHosts ?? []),

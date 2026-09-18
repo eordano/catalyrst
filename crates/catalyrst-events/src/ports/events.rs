@@ -1,3 +1,8 @@
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+use std::time::Duration;
+
+use catalyrst_fed::cache::{cache_get, cache_put, Cached};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::PgPool;
@@ -9,7 +14,11 @@ use crate::schemas::EventRecord;
 pub struct EventsComponent {
     pool: PgPool,
     rewrite_domain: Option<String>,
+    moderators: Mutex<HashMap<String, Cached<HashSet<String>>>>,
 }
+
+/// Read-side moderator visibility only; writes keep the direct `require_moderator` gate.
+const MODERATOR_SET_TTL: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Default)]
 pub struct EventListFilters {
@@ -78,6 +87,8 @@ struct EventRow {
     raw: Value,
     #[sqlx(default)]
     total_count: i64,
+    #[sqlx(default)]
+    viewer_attending: Option<bool>,
 }
 
 impl EventsComponent {
@@ -85,7 +96,25 @@ impl EventsComponent {
         Self {
             pool,
             rewrite_domain,
+            moderators: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub async fn viewer_is_moderator(&self, address: &str) -> Result<bool, ApiError> {
+        let address = address.to_ascii_lowercase();
+        if let Some(set) = cache_get(&self.moderators, "all") {
+            return Ok(set.contains(&address));
+        }
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT address FROM moderators")
+            .fetch_all(&self.pool)
+            .await?;
+        let set: HashSet<String> = rows
+            .into_iter()
+            .map(|(a,)| a.to_ascii_lowercase())
+            .collect();
+        let hit = set.contains(&address);
+        cache_put(&self.moderators, "all".to_string(), set, MODERATOR_SET_TTL);
+        Ok(hit)
     }
 
     fn destination_clause(ids: &[String], binds: &mut Vec<EventBind>) -> String {
@@ -276,11 +305,6 @@ impl EventsComponent {
         }
         let rows = q.fetch_all(&self.pool).await?;
 
-        let local_attending = match &f.user {
-            Some(u) => self.local_attending_set(u).await?,
-            None => Vec::new(),
-        };
-
         let total = if with_total {
             match rows.first() {
                 Some(r) => r.total_count,
@@ -294,7 +318,7 @@ impl EventsComponent {
         let user = f.user.as_deref();
         let records = rows
             .into_iter()
-            .map(|r| event_row_to_record(r, user, &local_attending, self.rewrite_domain.as_deref()))
+            .map(|r| event_row_to_record(r, user, &[], self.rewrite_domain.as_deref()))
             .collect();
         Ok((records, total))
     }
@@ -309,17 +333,6 @@ impl EventsComponent {
         cq.fetch_one(&self.pool).await.unwrap_or(0)
     }
 
-    async fn local_attending_set(&self, user: &str) -> Result<Vec<String>, ApiError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT event_id FROM event_attendance_local \
-             WHERE signer = $1 AND action = 'going'",
-        )
-        .bind(user.to_lowercase())
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows.into_iter().map(|(id,)| id).collect())
-    }
-
     pub async fn get(&self, event_id: &str) -> Result<Option<EventRecord>, ApiError> {
         let row = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(format!(
             "SELECT {EVENT_COLUMNS} FROM event WHERE id = $1"
@@ -328,6 +341,34 @@ impl EventsComponent {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(|r| event_row_to_record(r, None, &[], self.rewrite_domain.as_deref())))
+    }
+
+    /// `get` plus the viewer's attendance (local RSVP or upstream attendee) in one statement.
+    pub async fn get_for_viewer(
+        &self,
+        event_id: &str,
+        viewer: Option<&str>,
+    ) -> Result<Option<EventRecord>, ApiError> {
+        let Some(viewer) = viewer else {
+            return self.get(event_id).await;
+        };
+        let row = sqlx::query_as::<_, EventRow>(sqlx::AssertSqlSafe(format!(
+            "SELECT {EVENT_COLUMNS}, (EXISTS ( \
+               SELECT 1 FROM event_attendance_local al \
+               WHERE al.event_id = event.id AND al.signer = $2 AND al.action = 'going' \
+             ) OR raw->'latest_attendees' ? $2) AS viewer_attending \
+             FROM event WHERE id = $1"
+        )))
+        .bind(event_id)
+        .bind(viewer.to_lowercase())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| {
+            let attending = r.viewer_attending.unwrap_or(false);
+            let mut rec = event_row_to_record(r, None, &[], self.rewrite_domain.as_deref());
+            rec.attending = attending;
+            rec
+        }))
     }
 
     pub async fn attending(&self, user: &str) -> Result<Vec<EventRecord>, ApiError> {
@@ -678,6 +719,17 @@ fn build_list_sql(f: &EventListFilters, with_total: bool, binds: &mut Vec<EventB
     } else {
         ""
     };
+    let viewer = match &f.user {
+        Some(u) => {
+            let p = next_placeholder(binds, EventBind::Text(u.to_lowercase()));
+            format!(
+                ", EXISTS (SELECT 1 FROM event_attendance_local al \
+                 WHERE al.event_id = event.id AND al.signer = {p} AND al.action = 'going') \
+                 AS viewer_attending"
+            )
+        }
+        None => String::new(),
+    };
 
     let order_clause = if let Some(s) = &f.search {
         let dir = if matches!(f.order, SortOrder::Asc) {
@@ -697,7 +749,7 @@ fn build_list_sql(f: &EventListFilters, with_total: bool, binds: &mut Vec<EventB
     let lim_p = next_placeholder(binds, EventBind::Int64(f.limit.max(0)));
     let off_p = next_placeholder(binds, EventBind::Int64(f.offset.max(0)));
     format!(
-        "SELECT {EVENT_COLUMNS}{extra} FROM event{where_sql}{order_clause} LIMIT {lim_p} OFFSET {off_p}"
+        "SELECT {EVENT_COLUMNS}{extra}{viewer} FROM event{where_sql}{order_clause} LIMIT {lim_p} OFFSET {off_p}"
     )
 }
 
@@ -829,7 +881,8 @@ fn event_row_to_record(
     };
     let attending = match attending_user {
         Some(u) => {
-            local_attending.iter().any(|id| id == &r.id)
+            r.viewer_attending.unwrap_or(false)
+                || local_attending.iter().any(|id| id == &r.id)
                 || raw
                     .get("latest_attendees")
                     .and_then(|v| v.as_array())

@@ -23,7 +23,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type BackpackEquipProps = {
+type BackpackEquipProps = {
   trackCtx: TrackContext;
   catalog: Wearable[];
   categories: Category[];

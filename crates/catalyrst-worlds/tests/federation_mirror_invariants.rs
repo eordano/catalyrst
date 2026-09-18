@@ -212,9 +212,6 @@ async fn remote_worlds_has_no_foreign_key_into_the_authoritative_tables() {
     scratch.drop().await;
 }
 
-/// `resolve_world_owner` returns `stored_owner` **first** and consults squid ENS only
-/// when it is NULL, so a write populating `worlds.owner` would become the permanent
-/// authority over the chain. The rule is "never touch that table", asserted as a count.
 #[tokio::test]
 async fn mirroring_a_peer_writes_zero_rows_to_worlds_and_world_scenes() {
     let scratch = db_or_skip!("the mirror path may now write the authoritative worlds tables");

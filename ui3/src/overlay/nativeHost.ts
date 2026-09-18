@@ -2,7 +2,7 @@ import type { NativeHostMessage } from "../generated/bridge/NativeHostMessage";
 
 export type { NativeHostMessage };
 
-export type Rect = Extract<NativeHostMessage, { t: "pointerRegions" }>["rects"][number];
+type Rect = Extract<NativeHostMessage, { t: "pointerRegions" }>["rects"][number];
 
 export function isNativeHost(): boolean {
   return typeof window !== "undefined" && !!window.__dclNativeHost;

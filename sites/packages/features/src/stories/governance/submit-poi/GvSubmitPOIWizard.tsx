@@ -22,7 +22,7 @@ import {
   type PoiDraft,
 } from "./machine";
 
-export type GvSubmitPOIWizardProps = {
+type GvSubmitPOIWizardProps = {
   trackCtx: TrackContext;
   ctx: PoiSubmitContext;
   initialStep?: string;

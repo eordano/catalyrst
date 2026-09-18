@@ -29,14 +29,14 @@ export type EditDraft = {
   recordCount: number;
 };
 
-export type EditInput = {
+type EditInput = {
   trackCtx: TrackContext;
   draft: EditDraft;
   saveUpdate?: SaveFn;
   track?: TrackFn;
 };
 
-export type EditContext = {
+type EditContext = {
   trackCtx: TrackContext;
   draft: EditDraft;
   saveUpdate: SaveFn;
@@ -45,7 +45,7 @@ export type EditContext = {
   error?: string;
 };
 
-export type EditEvent =
+type EditEvent =
   | { type: "NEXT" }
   | { type: "REVIEW" }
   | { type: "SAVE" }
@@ -70,8 +70,8 @@ export const STATE_TO_SLUG = {
   done: "done",
 } as const;
 
-export type EditStateId = keyof typeof STATE_TO_SLUG;
-export type EditStepSlug = (typeof STATE_TO_SLUG)[EditStateId];
+type EditStateId = keyof typeof STATE_TO_SLUG;
+type EditStepSlug = (typeof STATE_TO_SLUG)[EditStateId];
 
 export const FIRST_STEP_SLUG: EditStepSlug = STATE_TO_SLUG.general;
 
@@ -227,8 +227,6 @@ export const editUpdateMachine = setup({
     },
   },
 });
-
-export type EditUpdateMachine = typeof editUpdateMachine;
 
 export function resolveEditSnapshot(args: {
   step: EditStateId;

@@ -6,7 +6,7 @@ hypothesis:
   statement: >-
     Giving the DAO ops/committee an in-product read-only governance debug & ops
     console (app version, service health, frontend env vars, Snapshot config and
-    a transparency-budgets summary) surfaced inside GvDebugAdmin lets authorized
+    a transparency-budgets summary) lets authorized
     admins diagnose governance issues faster than jumping between the API, the
     Snapshot space and the env config.
   because: >-
@@ -39,11 +39,11 @@ decision:
     otherwise hold.
 ---
 
-# Admin -- Governance debug & ops console (GvDebugAdmin maintenance tools)
+# Admin -- Governance debug & ops console (governance maintenance tools)
 
 A gated, READ-ONLY governance debug & ops console at `/admin/debug-console` for
-the ADMIN persona. It renders ui3's `GvDebugAdmin` (inside its own
-`GovernanceChrome`) bound to live read data, mirroring the Decentraland
+the ADMIN persona. It renders its own console bound to live read data,
+mirroring the Decentraland
 governance internal debug page (`decentraland/governance` src/routes/debug.ts +
 the legacy `src/pages/debug.tsx` Admin/Debug panels).
 
@@ -92,8 +92,8 @@ permanent unavailable notice carrying that fact
 (`control-availability.ts` -> `debug.tools`). `admin_debug_tool_invoked` has
 been dropped from the telemetry catalog.
 
-`GvDebugAdmin` itself is untouched in ui3, where it remains a Storybook
-component.
+The ui3 `GvDebugAdmin` page that held them was removed once nothing rendered
+it.
 
 ## Data
 

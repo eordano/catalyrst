@@ -1,6 +1,5 @@
 import type { RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
-import type { EditorBridgeAction } from "../../overlay/editor-bridge-types";
 import type { EditorBus } from "../editor-bus";
 import {
   createStepDebugger,
@@ -45,16 +44,14 @@ interface DebugSessionOptions {
   viewportRef: RefObject<HTMLIFrameElement | null>;
   busRef: RefObject<EditorBus | null>;
   playStateRef: RefObject<{ playing: boolean; paused: boolean }>;
-  postToViewport: (action: EditorBridgeAction, extra?: { count?: number }) => void;
-  setRunPaused: (paused: boolean) => void;
+  pausePlayback: () => Promise<boolean>;
 }
 
 export function useDebugSession({
   viewportRef,
   busRef,
   playStateRef,
-  postToViewport,
-  setRunPaused,
+  pausePlayback,
 }: DebugSessionOptions) {
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugHeight, setDebugHeight] = useState(280);
@@ -64,22 +61,32 @@ export function useDebugSession({
   debugOpenRef.current = debugOpen;
 
   const exitDebug = (clearFlag = true) => {
+    debugOpenRef.current = false;
     debugCtlRef.current?.dispose();
     debugCtlRef.current = null;
     setDebugOpen(false);
     if (clearFlag) void setProjectPlayState(true, false);
   };
 
-  const enterDebug = () => {
+  const enterDebug = async () => {
     if (!playStateRef.current.playing || debugOpenRef.current) return;
-    void setProjectPlayState(true, true);
-    if (!playStateRef.current.paused) {
-      postToViewport("FreezeScene");
-      setRunPaused(true);
-      busRef.current?.announcePlayState(true, true);
-    }
+    const bus = busRef.current;
+    if (!bus) return;
+    debugOpenRef.current = true;
     setDebugUi(EMPTY_DEBUG_UI);
     setDebugOpen(true);
+    try {
+      if (!await pausePlayback()) throw new Error("The scene could not be paused.");
+      if (busRef.current !== bus || !debugOpenRef.current) return;
+      await setProjectPlayState(true, true);
+      if (busRef.current !== bus || !debugOpenRef.current) return;
+
+    } catch (error) {
+      if (busRef.current === bus && debugOpenRef.current) {
+        setDebugUi((prev) => ({ ...prev, error: "Pause failed: " + String(error) }));
+      }
+      return;
+    }
     const run = engineConsoleRunner(viewportRef.current);
     if (!run) {
       setDebugUi((prev) => ({

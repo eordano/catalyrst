@@ -1,10 +1,14 @@
+import { PageHeader, FilterButton } from "../../components/Surface";
+import { sendBridge } from "../../overlay/bridge";
 import { siteUrl } from "../../data/site";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import SearchField from "../../atoms/SearchField";
 import { Avatar } from "../../atoms/primitives";
+import ContentStatus from "../../components/ContentStatus";
 import EmptyState from "../../components/EmptyState";
 import { hexToColor3, baseItemUrn } from "../../data/catalyst/backpack";
+import { BACKPACK_PAGE_SIZE as PAGE_SIZE, RARITY_RANK } from "../../data/catalyst/backpack-order";
 import BackpackCategoryTile from "./BackpackCategoryTile";
 import BackpackDetailPanel from "./BackpackDetailPanel";
 import {
@@ -25,8 +29,6 @@ function dclBridge(): DclBridge | undefined {
 }
 
 const EMOTE_SLOTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0] as const;
-
-const PAGE_SIZE = 24;
 
 const OUTFIT_SLOTS = [0, 1, 2, 3, 4];
 
@@ -50,10 +52,6 @@ const EYE_PALETTE = [
   "#AFC5C7", "#20B3F6", "#397CB0", "#48DC75", "#3B9F50",
 ];
 const PALETTE: Record<string, string[]> = { skin: SKIN_PALETTE, hair: HAIR_PALETTE, eyes: EYE_PALETTE };
-
-const RARITY_RANK: Record<string, number> = {
-  unique: 7, mythic: 6, legendary: 5, exotic: 4, epic: 3, rare: 2, uncommon: 1, common: 0, base: 0,
-};
 
 function pageWindow(current: number, total: number): (number | "\u{2026}")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i);
@@ -85,7 +83,10 @@ type BackpackProps = {
   onEmoteLoadoutChange?: ((loadout: LoadoutEntry[]) => void) | null;
   onBaseChange?: ((base: Base) => void) | null;
   outfits?: Outfit[];
-  onOutfitsChange?: ((outfits: Outfit[]) => void) | null;
+  outfitsLoading?: boolean;
+  outfitsError?: boolean;
+  onRetryOutfits?: () => void;
+  onOutfitsChange?: ((outfits: Outfit[]) => void | Promise<void>) | null;
   renderOutfitPreview?: ((o: Outfit) => ReactNode) | null;
 };
 
@@ -103,6 +104,9 @@ export default function Backpack({
   onEmoteLoadoutChange = null,
   onBaseChange = null,
   outfits = [],
+  outfitsLoading = false,
+  outfitsError = false,
+  onRetryOutfits,
   onOutfitsChange = null,
   renderOutfitPreview = null,
 }: BackpackProps) {
@@ -173,11 +177,16 @@ export default function Backpack({
     eyes: localBase?.eyeColor ?? equipped?.eyeColor ?? "#3a6ea5",
   };
 
-  function commitBase(next: Base) {
+  function commitBase(next: Base, wearables?: string[]) {
     setLocalBase(next);
     onBaseChange?.(next);
+    if (wearables) {
+      setLocalEquipped(wearables);
+      onEquippedChange?.(wearables);
+    }
     try {
-      dclBridge()?.send?.("SetAvatar", {
+      sendBridge("SetAvatar", {
+        ...(wearables ? { equip: { wearableUrns: wearables, emoteUrns: equipped?.emotes ?? [], forceRender: [] } } : {}),
         base: {
           bodyShapeUrn: next.bodyShape,
           name: next.name,
@@ -211,7 +220,11 @@ export default function Backpack({
       skinColor: curColors.skin,
       hairColor: curColors.hair,
       eyeColor: curColors.eyes,
-    });
+    }, equippedWearables.filter((item) =>
+      !/^urn:decentraland:off-chain:base-avatars:base(male|female)$/i.test(item)
+      && catalogByUrn[item]?.category !== "body_shape"));
+    setSelectedOutfitSlot(null);
+    setCurrentOutfitSlot(null);
   }
 
   function playEmote(urn: string) {
@@ -301,7 +314,24 @@ export default function Backpack({
     onEmoteLoadoutChange?.(next);
   }
 
+  const [savingOutfit, setSavingOutfit] = useState(false);
+  const [outfitSaveError, setOutfitSaveError] = useState("");
   const outfitsList = localOutfits ?? outfits ?? [];
+  async function commitOutfits(next: Outfit[]): Promise<boolean> {
+    if (savingOutfit || outfitsLoading || outfitsError) return false;
+    setSavingOutfit(true);
+    setOutfitSaveError("");
+    try {
+      await onOutfitsChange?.(next);
+      setLocalOutfits(next);
+      return true;
+    } catch (error) {
+      setOutfitSaveError(error instanceof Error ? error.message : "Could not save outfits. Please try again.");
+      return false;
+    } finally {
+      setSavingOutfit(false);
+    }
+  }
   const outfitsBySlot = useMemo(() => {
     const m: Record<number, Outfit> = {};
     for (const o of outfitsList) m[o.slot] = o;
@@ -327,8 +357,7 @@ export default function Backpack({
         eyeColor: curColors.eyes,
       },
     ];
-    setLocalOutfits(next);
-    onOutfitsChange?.(next);
+    void commitOutfits(next);
   }
 
   function wearOutfit(o: Outfit) {
@@ -344,7 +373,7 @@ export default function Backpack({
       eyeColor: o.eyeColor || curColors.eyes,
     });
     try {
-      dclBridge()?.send?.("SetAvatar", {
+      sendBridge("SetAvatar", {
         equip: {
           wearableUrns: urns,
           emoteUrns: o.emotes ?? equipped?.emotes ?? [],
@@ -355,10 +384,9 @@ export default function Backpack({
     }
   }
 
-  function removeOutfit(slot: number) {
+  async function removeOutfit(slot: number) {
     const next = outfitsList.filter((o) => o.slot !== slot);
-    setLocalOutfits(next);
-    onOutfitsChange?.(next);
+    if (!await commitOutfits(next)) return;
     if (selectedOutfitSlot === slot) setSelectedOutfitSlot(null);
     if (currentOutfitSlot === slot) setCurrentOutfitSlot(null);
   }
@@ -374,6 +402,7 @@ export default function Backpack({
 
   function toggleEquip(w: Wearable) {
     if (!w) return;
+    if (w.category === "body_shape") { setBodyShape(w.urn); return; }
     const set = new Set(equippedWearables);
     if (set.has(w.urn)) {
       set.delete(w.urn);
@@ -390,7 +419,7 @@ export default function Backpack({
     setSelectedOutfitSlot(null);
     setCurrentOutfitSlot(null);
     try {
-      dclBridge()?.send?.("SetAvatar", {
+      sendBridge("SetAvatar", {
         equip: {
           wearableUrns: next,
           emoteUrns: equipped?.emotes ?? [],
@@ -416,32 +445,29 @@ export default function Backpack({
   }
 
   return (
-      <div className="bp">
-        <div className="bp__sub">
-          <h1 className="bp__title">Backpack</h1>
-          <div className="bp__kinds" role="tablist" aria-label="Backpack section">
-            <button
-              role="tab"
-              aria-selected={kind === "wearables"}
-              className={"bp__kind" + (kind === "wearables" ? " is-active" : "")}
+      <div className="bp ui-surface">
+        <PageHeader title="Backpack" className="bp__sub">
+          <div className="bp__kinds" role="group" aria-label="Backpack section">
+            <FilterButton
+              selected={kind === "wearables"}
+              className="bp__kind"
               onClick={() => {
                 setKind("wearables");
                 setSelectedUrn(null);
               }}
             >
               <span className="bp__kindicon" aria-hidden>&#x25C7;</span> Wearables
-            </button>
-            <button
-              role="tab"
-              aria-selected={kind === "emotes"}
-              className={"bp__kind" + (kind === "emotes" ? " is-active" : "")}
+            </FilterButton>
+            <FilterButton
+              selected={kind === "emotes"}
+              className="bp__kind"
               onClick={() => {
                 setKind("emotes");
                 setSelectedUrn(null);
               }}
             >
               <span className="bp__kindicon" aria-hidden>&#x266A;</span> Emotes
-            </button>
+            </FilterButton>
           </div>
           <div className="bp__subright">
             <div className="bp__filterwrap" ref={filterRef}>
@@ -511,12 +537,12 @@ export default function Backpack({
             <button
               className="bp__marketplace"
               type="button"
-              onClick={() => openExternal(siteUrl("/shop"))}
+              data-sb-linkto="Explorer/Pages/Marketplace"
             >
               <span className="bp__mkticon" aria-hidden>&#x1F6CD;</span> Marketplace
             </button>
           </div>
-        </div>
+        </PageHeader>
 
         <div className="bp__panes">
           <div className="bp__preview">
@@ -531,7 +557,7 @@ export default function Backpack({
               className="bp__help"
               type="button"
               aria-label="Help"
-              onClick={() => window.open("https://docs.decentraland.org/player/", "_blank", "noopener,noreferrer")}
+              data-sb-linkto="Explorer/Pages/Help"
             >
               ?
             </button>
@@ -569,12 +595,16 @@ export default function Backpack({
             <div className="bp__browse">
               {sub === "outfits" && kind === "wearables" ? (
                 <div className="bp__outfits">
-                  <div className="bp__oslots">
+                  {outfitsLoading ? <ContentStatus pending message="Loading saved outfits&hellip;" />
+                    : outfitsError ? <ContentStatus message="Couldn't load saved outfits." onRetry={onRetryOutfits} /> : null}
+                  {savingOutfit && <p role="status" aria-busy="true">Saving outfits&hellip;</p>}
+                  {outfitSaveError && <p role="alert">{outfitSaveError}</p>}
+                  {!outfitsLoading && !outfitsError && <div className="bp__oslots">
                     <button
                       type="button"
                       className="bp__oslot bp__oslot--save"
                       onClick={saveOutfit}
-                      disabled={OUTFIT_SLOTS.every((s) => outfitsBySlot[s])}
+                      disabled={savingOutfit || OUTFIT_SLOTS.every((s) => outfitsBySlot[s])}
                       title="Save the current look as an outfit"
                     >
                       <span className="bp__oplus" aria-hidden>
@@ -670,7 +700,8 @@ export default function Backpack({
                               <button
                                 type="button"
                                 className="bp__oremovebtn"
-                                onClick={() => removeOutfit(s)}
+                                disabled={savingOutfit}
+                                onClick={() => { void removeOutfit(s); }}
                               >
                                 Remove
                               </button>
@@ -679,7 +710,7 @@ export default function Backpack({
                         </div>
                       );
                     })}
-                  </div>
+                  </div>}
                   <div className="bp__opromo">
                     <div className="bp__opromotitle">
                       Unlock 5 more Outfit slots by getting a NAME!
@@ -807,12 +838,11 @@ export default function Backpack({
                           kind === "emotes" ? slotByUrn[w.urn] : undefined;
                         const isAssigned = assignedSlot !== undefined;
                         const isEquipped =
-                          equippedSet.has(w.urn) ||
-                          (w.category === "body_shape" &&
-                            (curBodyShape || "").toLowerCase() ===
-                              (w.urn || "").toLowerCase());
+                          w.category === "body_shape"
+                            ? (curBodyShape || "").toLowerCase() === (w.urn || "").toLowerCase()
+                            : equippedSet.has(w.urn);
                         const canEquip =
-                          kind === "wearables" && w.category !== "body_shape";
+                          kind === "wearables";
                         const hoverProps =
                           kind === "wearables"
                             ? {
@@ -846,7 +876,6 @@ export default function Backpack({
                                   playEmote(w.urn);
                                 } else {
                                   setSelectedUrn(w.urn);
-                                  toggleEquip(w);
                                 }
                               }}
                             >

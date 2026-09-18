@@ -10,16 +10,16 @@ import "../../explorer/pages/badgesdetail.css";
 import "../../explorer/pages/photodetail.css";
 import "./clientstage.css";
 
-export type PassportEquippedItem = {
+type PassportEquippedItem = {
   name: string;
   rarity: string;
   category: string;
   cat: string;
 };
-export type PassportLink = { title: string; url: string };
-export type PassportInfoField = { key: string; label: string; value: string };
+type PassportLink = { title: string; url: string };
+type PassportInfoField = { key: string; label: string; value: string };
 
-export type PassportProfile = {
+type PassportProfile = {
   address: string;
   name: string;
   tag: string;
@@ -31,14 +31,14 @@ export type PassportProfile = {
   equipped: PassportEquippedItem[];
 };
 
-export type PassportBadgeMedallion = {
+type PassportBadgeMedallion = {
   id: string;
   name: string;
   tier: string;
   tint: string;
   shape: string;
 };
-export type PassportBadgeCard = {
+type PassportBadgeCard = {
   id: string;
   name: string;
   tier: string;
@@ -46,20 +46,20 @@ export type PassportBadgeCard = {
   isNew: boolean;
   completedAt: string | null;
 };
-export type PassportBadgeSection = {
+type PassportBadgeSection = {
   id: string;
   label: string;
   badges: PassportBadgeCard[];
 };
-export type PassportBadges = {
+type PassportBadges = {
   categories: string[] | null;
   earned: PassportBadgeMedallion[];
   sections: PassportBadgeSection[];
   unavailable?: string | null;
 };
 
-export type PassportPhotoPerson = { name: string; tag: string; wearables: string[] };
-export type PassportPhoto = {
+type PassportPhotoPerson = { name: string; tag: string; wearables: string[] };
+type PassportPhoto = {
   id: string;
   dateTime: string;
   hue: number;
@@ -67,7 +67,7 @@ export type PassportPhoto = {
   people: PassportPhotoPerson[];
 };
 
-export type PassportData = {
+type PassportData = {
   profile: PassportProfile;
   badges: PassportBadges;
   photos: PassportPhoto[];
@@ -91,7 +91,7 @@ const TIER_TINT: Record<string, string> = {
   diamond: "#b9f2ff",
 };
 
-export type PassportPanelProps = {
+type PassportPanelProps = {
   data: PassportData;
   tab: PassportTab;
   openPhotoId: string | null;

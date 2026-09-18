@@ -21,6 +21,7 @@ export function useNotifications() {
 
   const query = useQuery({
     queryKey,
+    enabled: !!address && !identity.isGuest,
     queryFn: ({ signal }) =>
       fetchLiveNotifications({ signal, headers: authHeaders(), address }),
     staleTime: STALE.notifications,
@@ -28,11 +29,7 @@ export function useNotifications() {
     retry: false,
   });
 
-  const notifications = query.isSuccess
-    ? query.data
-    : query.isError
-      ? []
-      : undefined;
+  const notifications = query.data;
 
   const markReadMutation = useMutation({
     mutationFn: (ids: string[]) => markNotificationsRead(ids, { headers: authHeaders() }),
@@ -57,7 +54,7 @@ export function useNotifications() {
     notifications,
     address,
     unread: unreadCount(notifications),
-    isLoading: query.isPending,
+    isLoading: query.isLoading,
     isError: query.isError,
     isFetching: query.isFetching,
     refetch: query.refetch,

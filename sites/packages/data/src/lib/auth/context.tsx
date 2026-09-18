@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 
 import { isDevHost } from "./dev-host";
 import { isIdentityExpired } from "./expiry";
@@ -42,9 +36,9 @@ async function identityFromInApp(
   return next;
 }
 
-export type AuthStatus = "anonymous" | "connecting" | "connected" | "expired";
+type AuthStatus = "anonymous" | "connecting" | "connected" | "expired";
 
-export type UseAuth = {
+type UseAuth = {
   identity: AuthIdentity | null;
   address: string | null;
   status: AuthStatus;
@@ -296,6 +290,3 @@ export function useAuth(): UseAuth {
   );
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  return <>{children}</>;
-}

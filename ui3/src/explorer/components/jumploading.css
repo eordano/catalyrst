@@ -7,17 +7,8 @@
   align-items: center;
   justify-content: center;
   gap: 18px;
-  background: rgba(10, 8, 14, 0.78);
-  backdrop-filter: blur(6px);
+  background: var(--panel, #16131c);
   color: #fff;
-}
-.jl__spinner {
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  border: 4px solid rgba(255, 255, 255, 0.2);
-  border-top-color: var(--brand);
-  animation: jl-spin 0.8s linear infinite;
 }
 @keyframes jl-spin { to { transform: rotate(360deg); } }
 .jl__text { font-size: var(--fs-md); font-weight: 700; letter-spacing: 0.02em; }
@@ -35,3 +26,24 @@
 .jl__btn:hover { background: rgba(255, 255, 255, 0.16); }
 .jl__btn--primary { background: var(--brand); border-color: var(--brand); }
 .jl__btn--primary:hover { filter: brightness(1.1); }
+.jl { background: linear-gradient(180deg, #16131ced, #211829f5), center / cover url('../pages/lobby/assets/lobby-background.webp'); gap: 24px; padding: 32px; text-align: center; }
+.jl__text { font-size: clamp(20px, 3vw, 30px); font-weight: 600; letter-spacing: -.02em; max-width: 32ch; text-wrap: balance; }
+.jl__btn { min-height: 44px; font-weight: 500; }
+.jl__btn:focus-visible { outline: 2px solid #ff698e; outline-offset: 4px; }
+
+.jl__progress { width: min(440px, 100%); text-align: left; font-size: 14px; line-height: 1.5; }
+.jl__stage { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+.jl__bar { appearance: none; display: block; width: 100%; height: 6px; border: 0; border-radius: 3px; overflow: hidden; accent-color: var(--brand); background: #ffffff24; }
+.jl__bar::-webkit-progress-bar { background: #ffffff24; border-radius: 3px; }
+.jl__bar::-webkit-progress-value { background: var(--brand); border-radius: 3px; }
+.jl__bar::-moz-progress-bar { background: var(--brand); border-radius: 3px; }
+.jl__bar:indeterminate { background: linear-gradient(90deg, #ffffff24 0 35%, var(--brand) 50%, #ffffff24 65%); background-size: 200% 100%; animation: jl-progress 1.6s linear infinite; }
+.jl__bar:indeterminate::-webkit-progress-bar { background: transparent; }
+.jl__metrics { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; font-variant-numeric: tabular-nums; }
+.jl__progress p { margin: 8px 0 0; color: #d4cedd; }
+.jl__progress .jl__estimate { margin-top: 20px; color: #fff; }
+.jl__progress .jl__note { font-size: 12px; color: #bfb6c9; }
+.jl__stalled { max-width: 40ch; margin: 0; font-size: 14px; line-height: 1.5; }
+@keyframes jl-progress { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .jl__bar:indeterminate { animation: none; } }
+.jl__btn { font-family: inherit; }

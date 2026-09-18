@@ -26,14 +26,13 @@ pub async fn get_place(
     Query(pairs): Query<Vec<(String, String)>>,
     Path(place_id): Path<String>,
 ) -> Result<Json<ApiData<PlaceRow>>, ApiError> {
-    match state.places.find_by_id(&place_id).await? {
+    let user = crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
+    match state
+        .places
+        .find_by_id_for(&place_id, user.as_deref())
+        .await?
+    {
         Some(mut p) => {
-            let user =
-                crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
-            state
-                .places
-                .apply_user_interactions(user.as_deref(), std::slice::from_mut(&mut p))
-                .await;
             p.apply_realms_detail(with_realms_detail(&pairs));
             Ok(Json(ApiData::ok(p)))
         }
@@ -82,14 +81,12 @@ pub async fn get_place_list(
     let only_favorites = pairs
         .iter()
         .any(|(k, v)| k == "only_favorites" && matches!(v.as_str(), "true" | "1"));
-    if only_favorites {
-        match &user {
-            None => return Ok(Json(ApiDataTotal::ok(vec![], 0))),
-            Some(addr) => match state.places.favorite_entity_ids(addr).await? {
-                Some(ids) if !ids.is_empty() => filters.ids = ids,
-                _ => return Ok(Json(ApiDataTotal::ok(vec![], 0))),
-            },
-        }
+    if !state
+        .places
+        .scope_to_viewer(&mut filters, user.as_deref(), only_favorites)
+        .await?
+    {
+        return Ok(Json(ApiDataTotal::ok(vec![], 0)));
     }
 
     if let Some(owner) = pairs.iter().find(|(k, _)| k == "owner").map(|(_, v)| v) {
@@ -97,14 +94,7 @@ pub async fn get_place_list(
         filters.operated_positions = state.places.operated_positions(owner).await?;
     }
 
-    let (mut data, total) = tokio::try_join!(
-        state.places.find_list(&filters),
-        state.places.count_list(&filters),
-    )?;
-    state
-        .places
-        .apply_user_interactions(user.as_deref(), &mut data)
-        .await;
+    let (mut data, total) = state.places.list_page(&filters).await?;
     let realms = with_realms_detail(&pairs);
     for row in &mut data {
         row.apply_realms_detail(realms);
@@ -143,15 +133,10 @@ pub async fn post_place_list_by_id(
             "Cannot request more than 100 places at once",
         ));
     }
-    let (mut data, total) = tokio::try_join!(
-        state.places.find_by_ids(&ids),
-        state.places.count_by_ids(&ids),
-    )?;
     let user = crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
-    state
-        .places
-        .apply_user_interactions(user.as_deref(), &mut data)
-        .await;
+    // No LIMIT on an id lookup, so the page is the whole match set.
+    let data = state.places.find_by_ids_for(&ids, user.as_deref()).await?;
+    let total = data.len() as i64;
     Ok(Json(ApiDataTotal::ok(data, total)))
 }
 
@@ -183,10 +168,8 @@ pub async fn post_place_status_list_by_id(
             "Cannot request more than 100 places at once",
         ));
     }
-    let (data, total) = tokio::try_join!(
-        state.places.find_by_ids_status(&ids),
-        state.places.count_by_ids(&ids),
-    )?;
+    let data = state.places.find_by_ids_status(&ids).await?;
+    let total = data.len() as i64;
     Ok(Json(ApiDataTotal::ok(data, total)))
 }
 
@@ -243,6 +226,8 @@ fn parse_filters(pairs: &[(String, String)]) -> PlaceListFilters {
         destinations_mode: false,
         place_user_counts: Vec::new(),
         world_user_counts: Vec::new(),
+        viewer: None,
+        viewer_favorites_only: false,
     }
 }
 

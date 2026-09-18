@@ -17,14 +17,14 @@ type Item = {
   rarity: string;
 };
 
-export type ChItemEditorCollection = {
+type ChItemEditorCollection = {
   id?: string;
   name: string;
   itemCount?: number;
   status?: string;
 };
 
-export type ChItemEditorItem = {
+type ChItemEditorItem = {
   id: string;
   name: string;
   type: string;

@@ -77,120 +77,73 @@ afterEach(() => {
   delete process.env.OPEN_SCREEN_EXPERIMENT;
 });
 
-describe("GET /client/open-screen -- genesis arm", () => {
-  it("no live scene -> redirects to /places BEFORE counting an exposure", async () => {
-    activeMock.mockResolvedValue([]);
+describe("GET /client/open-screen", () => {
+  it("genesis arm redirects to /places when no scene is live, and stays put when one is, counting nothing", async () => {
     const thrown = await caught(loader(args("?arm=genesis")));
     expect(thrown).toBeInstanceOf(Response);
     const res = thrown as Response;
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/places");
     expect(exposure).not.toHaveBeenCalled();
-  });
 
-  it("live scene present -> no redirect (forced preview still counts nothing)", async () => {
     activeMock.mockResolvedValue([live("a", 5), live("b", 99)]);
-    const thrown = await caught(loader(args("?arm=genesis")));
-    expect(thrown).toBeUndefined();
+    expect(await caught(loader(args("?arm=genesis")))).toBeUndefined();
     expect(exposure).not.toHaveBeenCalled();
   });
-});
 
-describe("GET /client/open-screen -- draft (no activation)", () => {
-  it("serves base with no exposure", async () => {
-    const thrown = await caught(loader(args()));
-    expect(thrown).toBeUndefined();
+  it("serves base with no exposure while the draft is off, even after a no-op override row", async () => {
+    expect(await caught(loader(args()))).toBeUndefined();
     expect(loadMock).toHaveBeenCalledTimes(1);
     expect(activeMock).not.toHaveBeenCalled();
     expect(exposure).not.toHaveBeenCalled();
-  });
 
-  it("a no-op override row (UI save with nothing set) keeps the draft off", async () => {
     overrideRow({ killed: false, variant: null, flags: {} });
-    const thrown = await caught(loader(args()));
-    expect(thrown).toBeUndefined();
-    expect(loadMock).toHaveBeenCalledTimes(1);
-    expect(exposure).not.toHaveBeenCalled();
-  });
-});
-
-describe("GET /client/open-screen -- forced previews never count exposure", () => {
-  it("?arm=base loads the browse grid without an exposure", async () => {
-    const thrown = await caught(loader(args("?arm=base")));
-    expect(thrown).toBeUndefined();
-    expect(loadMock).toHaveBeenCalledTimes(1);
-    expect(activeMock).not.toHaveBeenCalled();
+    expect(await caught(loader(args()))).toBeUndefined();
+    expect(loadMock).toHaveBeenCalledTimes(2);
     expect(exposure).not.toHaveBeenCalled();
   });
 
-  it("?arm=three-cards stays (no redirect) without an exposure", async () => {
-    activeMock.mockResolvedValue([]);
-    const thrown = await caught(loader(args("?arm=three-cards")));
-    expect(thrown).toBeUndefined();
-    expect(exposure).not.toHaveBeenCalled();
-  });
+  it("forced previews never count an exposure, active experiment or not", async () => {
+    for (const search of ["?arm=base", "?arm=three-cards", "?variant=client_open_screen:three-cards"]) {
+      expect(await caught(loader(args(search))), search).toBeUndefined();
+      expect(exposure, search).not.toHaveBeenCalled();
+    }
 
-  it("?variant=client_open_screen:three-cards is a preview too", async () => {
-    const thrown = await caught(
-      loader(args("?variant=client_open_screen:three-cards")),
-    );
-    expect(thrown).toBeUndefined();
-    expect(exposure).not.toHaveBeenCalled();
-  });
-
-  it("a forced arm during an ACTIVE experiment still counts nothing", async () => {
     overrideRow({ killed: false, variant: "three-cards", flags: {} });
-    const thrown = await caught(loader(args("?arm=base")));
-    expect(thrown).toBeUndefined();
+    expect(await caught(loader(args("?arm=base")))).toBeUndefined();
+    expect(exposure).not.toHaveBeenCalled();
+
+    process.env.OPEN_SCREEN_EXPERIMENT = "client_open_screen";
+    activeMock.mockResolvedValue([live("a", 5)]);
+    expect(await caught(loader(args("?arm=three-cards")))).toBeUndefined();
     expect(exposure).not.toHaveBeenCalled();
   });
-});
 
-describe("GET /client/open-screen -- runtime-flag activation", () => {
-  it("{flags:{active:true}} buckets the session and counts the exposure", async () => {
+  it("an active flag buckets the session and a variant pin serves that arm, each counting one exposure", async () => {
     overrideRow({ killed: false, variant: null, flags: { active: true } });
     activeMock.mockResolvedValue([live("a", 5)]);
-    const thrown = await caught(loader(args()));
-    expect(thrown).toBeUndefined();
+    expect(await caught(loader(args()))).toBeUndefined();
     expect(exposure).toHaveBeenCalledTimes(1);
-    expect(exposure).toHaveBeenCalledWith(
-      expect.objectContaining({ experimentKey: "client_open_screen" }),
-    );
-  });
+    expect(exposure).toHaveBeenCalledWith(expect.objectContaining({ experimentKey: "client_open_screen" }));
 
-  it("a variant pin serves that arm to everyone and counts the exposure", async () => {
+    resetRuntimeFlagCache();
     overrideRow({ killed: false, variant: "three-cards", flags: {} });
-    const thrown = await caught(loader(args()));
-    expect(thrown).toBeUndefined();
-    expect(exposure).toHaveBeenCalledTimes(1);
-    expect(exposure).toHaveBeenCalledWith(
-      expect.objectContaining({ variant: "three-cards" }),
-    );
+    expect(await caught(loader(args()))).toBeUndefined();
+    expect(exposure).toHaveBeenCalledTimes(2);
+    expect(exposure).toHaveBeenLastCalledWith(expect.objectContaining({ variant: "three-cards" }));
   });
 
   it("a kill row serves base and stops exposures", async () => {
     overrideRow({ killed: true, variant: null, flags: {} });
-    const thrown = await caught(loader(args()));
-    expect(thrown).toBeUndefined();
+    expect(await caught(loader(args()))).toBeUndefined();
     expect(loadMock).toHaveBeenCalledTimes(1);
     expect(exposure).not.toHaveBeenCalled();
   });
-});
 
-describe("GET /client/open-screen -- env-var activation (back-compat)", () => {
-  it("OPEN_SCREEN_EXPERIMENT set counts an exposure for the resolved arm", async () => {
+  it("the OPEN_SCREEN_EXPERIMENT env var still activates the experiment and counts the exposure", async () => {
     process.env.OPEN_SCREEN_EXPERIMENT = "client_open_screen";
     activeMock.mockResolvedValue([live("a", 5)]);
-    const thrown = await caught(loader(args()));
-    expect(thrown).toBeUndefined();
+    expect(await caught(loader(args()))).toBeUndefined();
     expect(exposure).toHaveBeenCalledTimes(1);
-  });
-
-  it("env-var active plus a forced ?arm= still counts nothing", async () => {
-    process.env.OPEN_SCREEN_EXPERIMENT = "client_open_screen";
-    activeMock.mockResolvedValue([live("a", 5)]);
-    const thrown = await caught(loader(args("?arm=three-cards")));
-    expect(thrown).toBeUndefined();
-    expect(exposure).not.toHaveBeenCalled();
   });
 });

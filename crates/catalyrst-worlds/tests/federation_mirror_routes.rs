@@ -176,7 +176,13 @@ fn test_config(federation: WorldsFedConfig) -> Config {
         comms_gatekeeper_auth_token: None,
         denylist_json_url: None,
         dcl_lists_url: None,
+        map_parcel_view_url: "http://127.0.0.1:5162/v1/minimap.png".to_string(),
+        map_estate_view_url: "http://127.0.0.1:5162/v1/estatemap.png".to_string(),
         admin_token: Some(ADMIN_TOKEN.into()),
+        personal_worlds: catalyrst_worlds::personal_world::PersonalWorldsPolicy {
+            max_worlds: 0,
+            max_size_bytes: catalyrst_worlds::personal_world::DEFAULT_PERSONAL_WORLD_MAX_SIZE_BYTES,
+        },
         max_in_flight_upload_bytes: 512 * 1024 * 1024,
         max_concurrent_uploads: catalyrst_worlds::upload_limits::DEFAULT_MAX_CONCURRENT_UPLOADS,
         max_in_flight_upload_files:

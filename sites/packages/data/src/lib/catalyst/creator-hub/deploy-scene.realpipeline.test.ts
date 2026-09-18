@@ -46,7 +46,6 @@ describe("deployWorldScene \u{2014} REAL end-to-end publish pipeline (no live wa
     expect(res).toEqual({ ok: true, status: 200, creationTimestamp: 1782570659920 });
 
     expect(capturedUrl).toBe("http://x/entities");
-    expect(capturedUrl.endsWith("/entities")).toBe(true);
 
     const form = capturedForm as unknown as FormData;
     expect(form).toBeInstanceOf(FormData);

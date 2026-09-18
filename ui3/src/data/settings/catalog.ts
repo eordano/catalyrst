@@ -1,6 +1,6 @@
 import catalogJson from "./settings-catalog.data.json";
 
-export type SettingModuleKind = "toggle" | "slider" | "dropdown";
+type SettingModuleKind = "toggle" | "slider" | "dropdown";
 
 export type SettingModule = {
   key: string;
@@ -18,7 +18,7 @@ export type SettingModule = {
 export type SettingGroup = { title: string; modules: SettingModule[] };
 export type SettingsTab = { id: string; label: string };
 
-export type SettingsCatalog = {
+type SettingsCatalog = {
   tabs: SettingsTab[];
   sections: Record<string, SettingGroup[]>;
 };

@@ -1,3 +1,4 @@
+import { useWorldEntry } from "../WorldEntry";
 import type { QueryClient } from "@tanstack/react-query";
 import type {
   CSSProperties,
@@ -8,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import JumpLoading, { useJump } from "../../explorer/components/JumpLoading";
 
+import ContentStatus from "../../components/ContentStatus";
 import SearchField from "../../atoms/SearchField";
 import PlaceDetail from "../../explorer/pages/PlaceDetail";
 import WorldVisitModal from "../../components/WorldVisitModal";
@@ -17,7 +19,7 @@ import { useFriendPins, type FriendPin } from "../../data/hooks/useFriendPins";
 import { usePlaceSearch } from "../../data/hooks/usePlaceSearch";
 import { serviceBase } from "../../data/catalyst/client";
 import { safeCssUrl } from "../../data/cssUrl";
-import { toPlaceDetail, coordsToPercent } from "../../data/catalyst/places";
+import { toPlaceDetail, coordsToPercent, parcelRectPercent } from "../../data/catalyst/places";
 import { fetchPlaces, fetchCategories } from "../../data/catalyst/placesSchema";
 import type { PlaceView } from "../../data/catalyst/places";
 import { qk, STALE } from "../../data/queryKeys";
@@ -174,6 +176,8 @@ function CategorySidebar({
   setSort,
   places,
   loading,
+  error,
+  onRetry,
   onClose,
   onSelect,
 }: {
@@ -183,6 +187,8 @@ function CategorySidebar({
   setSort: (s: "most_active" | "like_score" | "created_at") => void;
   places: PlaceView[];
   loading: boolean;
+  error: boolean;
+  onRetry: () => void;
   onClose: () => void;
   onSelect: (p: PlaceView) => void;
 }) {
@@ -206,8 +212,9 @@ function CategorySidebar({
         ))}
       </div>
       <div className="map__sidebarlist">
-        {loading && <div className="map__sidebarmsg">Loading&#x2026;</div>}
-        {!loading && places.length === 0 && <div className="map__sidebarmsg">No scenes found.</div>}
+        {loading && <ContentStatus pending message="Loading scenes&hellip;" />}
+        {error && <ContentStatus message="Couldn't load scenes." onRetry={onRetry} />}
+        {!loading && !error && places.length === 0 && <div className="map__sidebarmsg">No scenes found.</div>}
         {!loading &&
           places.map((p) => (
             <button key={p.id} type="button" className="map__sidebarcard" onClick={() => onSelect(p)}>
@@ -238,10 +245,12 @@ export default function MapPanel() {
   const catsQ = useCategories();
 
   const navigate = useNavigate();
+  const entry = useWorldEntry();
   const [cat, setCat] = useState("ALL");
   const [search, setSearch] = useState("");
   const { jumping, stalled, beginJump, cancelJump, confirmJump } = useJump(() => navigate("/"));
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedPlace, setSelectedPlace] = useState<PlaceView | null>(null);
   const [selFriendAddr, setSelFriendAddr] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -251,10 +260,11 @@ export default function MapPanel() {
   const [box, setBox] = useState<ViewMetrics | null>(null);
   const [sidebarSort, setSidebarSort] = useState<"most_active" | "like_score" | "created_at">("most_active");
   const [confirmWorld, setConfirmWorld] = useState<{ realm: string; title?: string } | null>(null);
-  const { placeHits: searchPlaceHits, worldHits: searchWorldHits } = usePlaceSearch(search);
+  const { placeHits: searchPlaceHits, worldHits: searchWorldHits, loading: searchLoading, active: searchActive, error: searchError, retry: retrySearch } = usePlaceSearch(search);
 
-  const ZOOM_MAX = 4;
+  const ZOOM_MAX = 8;
   const ZOOM_STEP = 0.25;
+  const PARCEL_FOCUS_ZOOM = 8;
   const coverZoom = (m?: ViewMetrics | Metrics | null): number => {
     const mm = m ?? box;
     if (!mm || !mm.square) return 1;
@@ -410,8 +420,8 @@ export default function MapPanel() {
 
   const detailQ = usePlace(detailOpen ? selectedId : null);
   const selectedFromList = useMemo(
-    () => places.find((p) => p.id === selectedId) ?? null,
-    [places, selectedId],
+    () => places.find((p) => p.id === selectedId) ?? (selectedPlace?.id === selectedId ? selectedPlace : null),
+    [places, selectedId, selectedPlace],
   );
   const detailView = detailQ.data ?? selectedFromList;
 
@@ -461,35 +471,42 @@ export default function MapPanel() {
     filtered.find((p) => p.id === selectedId) ?? selectedFromList ?? null;
 
   const player = useMemo(() => coordsToPercent(sceneCoords), [sceneCoords]);
+  const parcelCell = useMemo(() => parcelRectPercent(sceneCoords), [sceneCoords]);
   const friendPins = useFriendPins();
   const selectedFriend = useMemo(
     () => friendPins.find((f) => f.address === selFriendAddr) ?? null,
     [friendPins, selFriendAddr],
   );
 
-  const centerOnPercent = (leftPct: number, topPct: number, m?: Metrics | null) => {
+  const centerOnPercent = (
+    leftPct: number,
+    topPct: number,
+    m?: Metrics | null,
+    zoomTarget?: number,
+  ) => {
     const mm = m || metrics();
     if (!mm) return;
-    const cover = coverZoom(mm);
+    const z = zoomTarget == null ? coverZoom(mm) : clampZoom(zoomTarget, mm);
     applyView(
-      cover,
+      z,
       clampPan(
-        -(leftPct / 100 - 0.5) * mm.square * cover,
-        -(topPct / 100 - 0.5) * mm.square * cover,
-        cover,
+        -(leftPct / 100 - 0.5) * mm.square * z,
+        -(topPct / 100 - 0.5) * mm.square * z,
+        z,
         mm,
       ),
     );
   };
 
-  const centerOnPlayer = (m?: Metrics | null) => centerOnPercent(player.left, player.top, m);
+  const centerOnPlayer = (zoomTarget?: number) =>
+    centerOnPercent(player.left, player.top, undefined, zoomTarget);
 
   const didInitRef = useRef(false);
   useEffect(() => {
     if (!box) return;
     if (!didInitRef.current) {
       didInitRef.current = true;
-      centerOnPlayer();
+      centerOnPlayer(sceneCoords ? PARCEL_FOCUS_ZOOM : undefined);
       return;
     }
     const z = clampZoom(zoomRef.current, box);
@@ -514,21 +531,28 @@ export default function MapPanel() {
   const onJumpIn = useCallback(
     (view: (PlaceView & { name?: string }) | null) => {
       if (!view) return;
+      if (entry?.pending) {
+        if (view.world && view.worldName) entry.enter({ kind: "world", realm: view.worldName });
+        else if (!view.world && Number.isFinite(Number(view.x)) && Number.isFinite(Number(view.y)))
+          entry.enter({ kind: "parcel", x: Number(view.x), y: Number(view.y) });
+        return;
+      }
       teleportTo(view);
-      beginJump(view.name || "destination");
+      beginJump(view.name || "destination", view.world ? undefined : `${view.x},${view.y}`);
     },
-    [beginJump],
+    [beginJump, entry],
   );
 
   const jumpToFriend = useCallback(
     (f: FriendPin) => {
+      if (entry?.pending) { entry.enter({ kind: "parcel", x: f.x, y: f.y }); return; }
       sendBridge("Teleport", {
         x: f.x * PARCEL_SIZE + PARCEL_SIZE / 2,
         z: f.y * PARCEL_SIZE + PARCEL_SIZE / 2,
       });
-      beginJump(f.name);
+      beginJump(f.name, `${f.x},${f.y}`);
     },
-    [beginJump],
+    [beginJump, entry],
   );
 
   const requestJumpIn = useCallback(
@@ -545,11 +569,12 @@ export default function MapPanel() {
 
   const confirmVisitWorld = useCallback(() => {
     if (!confirmWorld) return;
+    if (entry?.pending) { entry.enter({ kind: "world", realm: confirmWorld.realm }); return; }
     sendBridge("ChangeRealm", { realm: confirmWorld.realm });
     setConfirmWorld(null);
     setDetailOpen(false);
     beginJump(confirmWorld.title || confirmWorld.realm);
-  }, [confirmWorld, beginJump]);
+  }, [confirmWorld, beginJump, entry]);
 
   const pickWorldHit = useCallback((w: PlaceView) => {
     setConfirmWorld({ realm: w.worldName || w.title, title: w.title });
@@ -558,6 +583,7 @@ export default function MapPanel() {
 
   const pickPlaceHit = useCallback((p: PlaceView) => {
     centerOnPercent(p.left, p.top);
+    setSelectedPlace(p);
     setSelectedId(p.id);
     setDetailOpen(false);
     setSearch("");
@@ -567,7 +593,7 @@ export default function MapPanel() {
   const onDetailClick = useCallback(
     (e: ReactMouseEvent) => {
       const t = e.target instanceof Element ? e.target : null;
-      if (t?.closest(".pld__jump") || t?.closest(".pld__nav")) {
+      if (t?.closest(".pld__jump")) {
         requestJumpIn(detailView ?? sel);
         setDetailOpen(false);
         return;
@@ -581,7 +607,7 @@ export default function MapPanel() {
     [detailView, sel, requestJumpIn],
   );
 
-  const loading = placesQ.isLoading;
+  const loading = placesQ.isPending;
   const error = placesQ.isError;
   const empty = !loading && !error && filtered.length === 0;
 
@@ -608,12 +634,13 @@ export default function MapPanel() {
         onPointerMove={onTilesPointerMove}
         onPointerUp={onTilesPointerUp}
         onPointerCancel={onTilesPointerUp}
-        style={{
+        style={cssVars({
           ...(box ? { width: box.square, height: box.square } : null),
           transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: "center center",
           transition: animate ? "transform 0.15s ease" : "none",
-        }}
+          "--inv": 1 / zoom,
+        })}
       >
         <div className="map__grid" />
         <div className="map__roads" />
@@ -637,6 +664,18 @@ export default function MapPanel() {
           />
         ))}
 
+        {sceneCoords && (
+          <div
+            className="map__parcel"
+            style={{
+              left: parcelCell.left + "%",
+              top: parcelCell.top + "%",
+              width: parcelCell.size + "%",
+              height: parcelCell.size + "%",
+            }}
+            aria-label={`Current parcel ${sceneCoords}`}
+          />
+        )}
         <div
           className="map__player"
           style={{ left: player.left + "%", top: player.top + "%" }}
@@ -731,8 +770,11 @@ export default function MapPanel() {
         </div>
         <div className="map__search">
           <SearchField placeholder="Search places & worlds" value={search} onChange={setSearch} />
-          {search.trim().length >= 2 && (searchWorldHits.length > 0 || searchPlaceHits.length > 0) && (
+          {searchActive && (
             <div className="map__searchresults">
+              {searchLoading && <ContentStatus pending message="Searching places and worlds&hellip;" />}
+              {searchError && <ContentStatus message="Couldn't load all search results." onRetry={retrySearch} />}
+              {!searchLoading && !searchError && searchWorldHits.length === 0 && searchPlaceHits.length === 0 && <p role="status">No places or worlds found.</p>}
               {searchWorldHits.map((w) => (
                 <button key={w.id} type="button" className="map__searchresult" onClick={() => pickWorldHit(w)}>
                   <span className="map__searchresultworldicon" aria-hidden="true">&#x1F310;</span>
@@ -782,7 +824,7 @@ export default function MapPanel() {
           aria-label="Recenter"
           onClick={() => {
             clearSel();
-            centerOnPlayer();
+            centerOnPlayer(zoomRef.current);
           }}
         >
           &#x2295;
@@ -882,7 +924,7 @@ export default function MapPanel() {
                 className="map__jump"
                 onClick={() => jumpToFriend(selectedFriend)}
               >
-                jump in
+                Jump in
               </button>
             </div>
           </div>
@@ -932,7 +974,7 @@ export default function MapPanel() {
             </div>
             <div className="map__infoactions">
               <button className="map__jump" onClick={() => requestJumpIn(sel)}>
-                jump in
+                Jump in
               </button>
               <button className="map__nav" onClick={() => setDetailOpen(true)}>
                 details
@@ -946,7 +988,9 @@ export default function MapPanel() {
         <div className="map__pldwrap" onClick={onDetailClick}>
           <PlaceDetail
             place={toPlaceDetail(detailView ?? sel) ?? undefined}
-            notFound={detailQ.isError && !selectedFromList}
+            loading={detailQ.isPending}
+            error={detailQ.isError}
+            onRetry={() => { void detailQ.refetch(); }}
           />
         </div>
       )}
@@ -958,9 +1002,12 @@ export default function MapPanel() {
           sort={sidebarSort}
           setSort={setSidebarSort}
           places={sidebarQ.data ?? []}
-          loading={sidebarQ.isLoading}
+          loading={sidebarQ.isPending}
+          error={sidebarQ.isError}
+          onRetry={() => { void sidebarQ.refetch(); }}
           onClose={() => setCat("ALL")}
           onSelect={(p) => {
+            setSelectedPlace(p);
             setSelectedId(p.id);
             setDetailOpen(false);
           }}

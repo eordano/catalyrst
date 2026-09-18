@@ -4,7 +4,7 @@ import { makeStepSlugs } from "@core/lib/stories/step-slugs";
 
 import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/lib/telemetry/track";
 
-export type RsvpDirection = "going" | "cancel";
+type RsvpDirection = "going" | "cancel";
 
 export type { TrackFn };
 
@@ -17,7 +17,7 @@ export type CommitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<RsvpResult>;
 
-export type RsvpInput = {
+type RsvpInput = {
   trackCtx: TrackContext;
   eventId: string;
   count?: number;
@@ -26,7 +26,7 @@ export type RsvpInput = {
   track?: TrackFn;
 };
 
-export type RsvpContext = {
+type RsvpContext = {
   trackCtx: TrackContext;
   eventId: string;
   count: number;
@@ -35,7 +35,7 @@ export type RsvpContext = {
   error?: string;
 };
 
-export type RsvpEvent =
+type RsvpEvent =
   | { type: "TAP_GOING" }
   | { type: "SIGN_IN" }
   | { type: "CONFIRM" }
@@ -67,8 +67,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type RsvpStateId = keyof typeof STATE_TO_SLUG;
-export type RsvpStepSlug = (typeof STATE_TO_SLUG)[RsvpStateId];
+type RsvpStateId = keyof typeof STATE_TO_SLUG;
+type RsvpStepSlug = (typeof STATE_TO_SLUG)[RsvpStateId];
 
 export const FIRST_STEP_SLUG: RsvpStepSlug = STATE_TO_SLUG.idle;
 
@@ -117,7 +117,7 @@ export const rsvpMachine = setup({
     trackSignin: ({ context }) =>
       context.track(
         RSVP_EVENTS.signin,
-        { event_id: context.eventId, simulated: true },
+        { event_id: context.eventId, simulated: context.commit === simulateCommit },
         context.trackCtx,
       ),
     trackConfirmed: ({ context }) =>
@@ -127,7 +127,7 @@ export const rsvpMachine = setup({
     trackGoing: ({ context }) =>
       context.track(
         RSVP_EVENTS.going,
-        { event_id: context.eventId, count: context.count, stub: true },
+        { event_id: context.eventId, count: context.count, stub: context.commit === simulateCommit },
         context.trackCtx,
       ),
     trackCancelling: ({ context }) =>
@@ -135,7 +135,7 @@ export const rsvpMachine = setup({
     trackCancelled: ({ context }) =>
       context.track(
         RSVP_EVENTS.cancelled,
-        { event_id: context.eventId, count: context.count, stub: true },
+        { event_id: context.eventId, count: context.count, stub: context.commit === simulateCommit },
         context.trackCtx,
       ),
     trackError: ({ context }) =>
@@ -241,8 +241,6 @@ export const rsvpMachine = setup({
     },
   },
 });
-
-export type RsvpMachine = typeof rsvpMachine;
 
 export function resolveRsvpSnapshot(args: {
   step: RsvpStateId;

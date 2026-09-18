@@ -1,7 +1,7 @@
 import { fetchReceivedBids, type Bid } from "./bids";
 import type { GetOptions } from "../client";
 
-export type LoadedBids = {
+type LoadedBids = {
   bids: Bid[];
   source: "live" | "empty" | "unavailable";
   reason?: string;

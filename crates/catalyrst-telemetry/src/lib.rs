@@ -10,6 +10,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::routing::{get, post};
 use axum::Router;
+use catalyrst_commons::cache::{TtlCell, TtlMap};
+use serde_json::Value;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
 
@@ -77,12 +79,21 @@ fn today_utc() -> String {
 pub struct AppStateInner {
     pub pool: PgPool,
     pub ingest: IngestControl,
+    pub writer: handlers::ingest::WriteBuffer,
 
     pub admin_token: Option<String>,
 
     /// `None` (unset `TELEMETRY_CONTRACT_PATH`) = validation disabled
     /// (fail-open): the ingest path accepts every event.
     pub contract: Option<Arc<contract::Contract>>,
+
+    /// Memo of the `GET /experiments` aggregate, see `handlers::experiments::LIST_TTL`.
+    pub experiments_cache: TtlCell<Value>,
+    pub readout_cache:
+        TtlMap<handlers::experiments::ReadoutKey, Vec<handlers::experiments::ReadoutRow>>,
+    pub series_cache: TtlMap<(String, String), handlers::experiments::SeriesBundle>,
+    pub flags_config: TtlCell<Value>,
+    pub flags_observed: TtlCell<Vec<(Option<String>, i64)>>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -148,10 +159,16 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     }
 
     Ok(Arc::new(AppStateInner {
+        writer: handlers::ingest::WriteBuffer::start(pool.clone()),
         pool,
         ingest,
         admin_token: cfg.admin_token.clone(),
         contract,
+        experiments_cache: TtlCell::new("telemetry_experiments"),
+        readout_cache: TtlMap::bounded("telemetry_readout", handlers::experiments::LIST_TTL, 256),
+        series_cache: TtlMap::bounded("telemetry_series", handlers::experiments::LIST_TTL, 256),
+        flags_config: TtlCell::new("telemetry_flags_config"),
+        flags_observed: TtlCell::new("telemetry_flags_observed"),
     }))
 }
 

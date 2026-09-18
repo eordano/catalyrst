@@ -15,7 +15,7 @@ export type PreparedDeployment = {
   files: { file: string; hash: string; content: Uint8Array }[];
 };
 
-export type BuildSceneEntityInput = {
+type BuildSceneEntityInput = {
   pointers: string[];
   files: DeployContentFile[];
   metadata: unknown;
@@ -122,8 +122,8 @@ export type DeployOptions = {
   signal?: AbortSignal;
 };
 
-export const CATALYST_DEPLOY_PATH = "/content/entities";
-export const WORLDS_DEPLOY_PATH = "/entities";
+const CATALYST_DEPLOY_PATH = "/content/entities";
+const WORLDS_DEPLOY_PATH = "/entities";
 
 export function buildDeployFormData(
   prepared: PreparedDeployment,
@@ -215,7 +215,7 @@ export type WorldSceneMetadata = {
   [k: string]: unknown;
 };
 
-export type DeployWorldSceneInput = {
+type DeployWorldSceneInput = {
   worldName: string;
   files: DeployContentFile[];
   metadata: WorldSceneMetadata;
@@ -261,7 +261,7 @@ export async function deployWorldScene(
   });
 }
 
-export type DeployLandSceneInput = {
+type DeployLandSceneInput = {
   files: DeployContentFile[];
   metadata: WorldSceneMetadata;
   timestamp?: number;

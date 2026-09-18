@@ -1,0 +1,28 @@
+import { afterEach, expect, test, vi } from "vitest";
+import { screen, within } from "@testing-library/react";
+import { renderHud } from "./harness";
+import * as schema from "../data/catalyst/communitiesSchema";
+import * as api from "../data/catalyst/communities";
+
+const community = { id: "club", name: "Music Club", description: "Music", ownerAddress: "0xowner", privacy: "public", membersCount: 4, isLive: false, role: "member" } as api.Community;
+afterEach(() => vi.restoreAllMocks());
+test("leaving from a card requires confirmation; Escape and Stay preserve membership", async () => {
+  vi.spyOn(schema, "loadCommunities").mockResolvedValue([community]);
+  const leave = vi.spyOn(api, "leaveCommunity").mockResolvedValue(undefined as never);
+  await import("../app/panels/Communities.route");
+  const { user, path } = renderHud({ route: "/communities" });
+  await user.click(await screen.findByRole("button", { name: /^Joined/ }));
+  expect(leave).not.toHaveBeenCalled();
+  expect(screen.getByRole("alertdialog")).toHaveTextContent("Music Club");
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  expect(path()).toBe("/communities");
+  expect(leave).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: /^Joined/ }));
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Stay" }));
+  expect(leave).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: /^Joined/ }));
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Leave community" }));
+  expect(leave).toHaveBeenCalledTimes(1);
+  expect(leave).toHaveBeenCalledWith("club", expect.anything());
+});

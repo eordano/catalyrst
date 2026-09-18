@@ -141,22 +141,17 @@ async fn verify_with_keys(
     .await
     .map_err(|e| {
         tracing::warn!(
-            error = ?e,
+            reason = auth_error_class(&e),
             %method,
-            %path,
-            %raw_metadata,
-            signer = %chain.signer,
             "signed-fetch rejected"
         );
         match e {
             AuthChainError::Expired { .. } => SignedFetchError::new(401, "Expired signature"),
-            AuthChainError::InvalidSignature(d) => {
-                SignedFetchError::new(401, format!("Invalid signature: {d}"))
-            }
+            AuthChainError::InvalidSignature(_) => SignedFetchError::new(401, "Invalid signature"),
             AuthChainError::EipNotImplemented => {
                 SignedFetchError::new(503, "EIP-1654 validation unavailable")
             }
-            other => SignedFetchError::new(400, other.to_string()),
+            other => SignedFetchError::new(400, public_auth_error(&other)),
         }
     })?;
 
@@ -168,8 +163,8 @@ async fn verify_with_keys(
     })
 }
 
-fn invalid_metadata(raw_metadata: &str) -> SignedFetchError {
-    SignedFetchError::new(400, format!("Invalid metadata content: {raw_metadata}"))
+fn invalid_metadata(_raw_metadata: &str) -> SignedFetchError {
+    SignedFetchError::new(400, "Invalid metadata content")
 }
 
 /// Upstream's `verifyMetadata` refuses an unparseable or non-object metadata
@@ -177,8 +172,7 @@ fn invalid_metadata(raw_metadata: &str) -> SignedFetchError {
 /// gates below read fields off this value, so coercing anything else would let
 /// them pass vacuously over a delivery upstream drops.
 fn metadata_object(raw_metadata: &str) -> Result<serde_json::Value, SignedFetchError> {
-    let refused =
-        || SignedFetchError::new(400, format!("Invalid chain metadata: \"{raw_metadata}\""));
+    let refused = || SignedFetchError::new(400, "Invalid chain metadata");
     match serde_json::from_str::<serde_json::Value>(raw_metadata) {
         Ok(serde_json::Value::Null) => Ok(serde_json::Value::Object(serde_json::Map::new())),
         Ok(value @ serde_json::Value::Object(_)) => Ok(value),
@@ -188,11 +182,41 @@ fn metadata_object(raw_metadata: &str) -> Result<serde_json::Value, SignedFetchE
 
 fn map_chain_error(e: AuthChainError) -> SignedFetchError {
     match e {
-        AuthChainError::MalformedChain { detail } => {
-            SignedFetchError::new(400, format!("Invalid chain format: {detail}"))
-        }
+        AuthChainError::MalformedChain { .. } => SignedFetchError::new(400, "Invalid chain format"),
         AuthChainError::InsufficientLinks => SignedFetchError::new(400, "Invalid Auth Chain"),
-        other => SignedFetchError::new(400, other.to_string()),
+        other => SignedFetchError::new(400, public_auth_error(&other)),
+    }
+}
+
+fn auth_error_class(error: &AuthChainError) -> &'static str {
+    match error {
+        AuthChainError::MalformedChain { .. } => "malformed_chain",
+        AuthChainError::InsufficientLinks => "insufficient_links",
+        AuthChainError::MissingTimestamp => "missing_timestamp",
+        AuthChainError::Expired { .. } => "expired",
+        AuthChainError::InvalidSignature(_) => "invalid_signature",
+        AuthChainError::ForbiddenSigner => "forbidden_signer",
+        AuthChainError::EipNotImplemented => "eip1654_unavailable",
+        AuthChainError::AddressMismatch { .. } => "address_mismatch",
+        AuthChainError::InvalidTimestamp(_) => "invalid_timestamp",
+        AuthChainError::CatalystUnavailable(_) => "catalyst_unavailable",
+        AuthChainError::SceneSignerRejected => "scene_signer_rejected",
+    }
+}
+
+fn public_auth_error(error: &AuthChainError) -> &'static str {
+    match error {
+        AuthChainError::MalformedChain { .. } => "Invalid chain format",
+        AuthChainError::InsufficientLinks => "Invalid Auth Chain",
+        AuthChainError::MissingTimestamp => "Missing timestamp",
+        AuthChainError::Expired { .. } => "Expired signature",
+        AuthChainError::InvalidSignature(_) => "Invalid signature",
+        AuthChainError::ForbiddenSigner => "Access denied, invalid signer",
+        AuthChainError::EipNotImplemented => "EIP-1654 validation unavailable",
+        AuthChainError::AddressMismatch { .. } => "Forbidden: address mismatch",
+        AuthChainError::InvalidTimestamp(_) => "Invalid timestamp",
+        AuthChainError::CatalystUnavailable(_) => "Error connecting to catalyst",
+        AuthChainError::SceneSignerRejected => "Requests from scenes are not allowed",
     }
 }
 
@@ -309,7 +333,7 @@ mod signer_gate_tests {
         let metadata = r#"{"signer":"decentraland-kernel-scene","Signer":"x"}"#;
         assert_eq!(
             allowlisted(metadata).await,
-            Err((400, format!("Invalid metadata content: {metadata}")))
+            Err((400, "Invalid metadata content".into()))
         );
     }
 
@@ -318,7 +342,7 @@ mod signer_gate_tests {
         let metadata = r#"{"Signer":"decentraland-kernel-scene"}"#;
         assert_eq!(
             allowlisted(metadata).await,
-            Err((400, format!("Invalid metadata content: {metadata}")))
+            Err((400, "Invalid metadata content".into()))
         );
     }
 
@@ -343,11 +367,28 @@ mod payload_shape_tests {
     use axum::http::{HeaderName, HeaderValue};
     use catalyrst_crypto::signed_fetch::{build_legacy_payload, build_payload_v6};
     use catalyrst_crypto::{create_simple_auth_chain, reject_if_signer, Wallet};
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
 
     const KEY: &str = "0x4c0883a69102937d6231471b5dbb6204fe512961708279f2e3e8a5d4b8e3e3e3";
     const SCENE: &str = "decentraland-kernel-scene";
     const PATH: &str = "/scene-bans";
     const METADATA: &str = r#"{"signer":"decentraland-kernel-scene","intent":"dcl:scene:ban","isGuest":false,"realmName":"LocalPreview","sceneId":"bafkreiAbC123"}"#;
+    const CREDENTIAL_CANARY: &str = "server-signed-metadata-private-canary";
+
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[derive(Clone, Copy, Debug)]
     enum Shape {
@@ -435,7 +476,7 @@ mod payload_shape_tests {
             .map_err(failure)
             .unwrap_err();
         assert_eq!(status, 401, "{message}");
-        assert!(message.starts_with("Invalid signature: "), "{message}");
+        assert_eq!(message, "Invalid signature");
     }
 
     /// The same metadata on a `requireSigner` route, where upstream does declare the
@@ -482,10 +523,7 @@ mod payload_shape_tests {
                 .map_err(failure)
                 .unwrap_err();
             assert_eq!(status, 401, "{shape:?}: {message}");
-            assert!(
-                message.starts_with("Invalid signature: "),
-                "{shape:?}: {message}"
-            );
+            assert_eq!(message, "Invalid signature", "{shape:?}");
 
             let tampered = METADATA.replace("bafkreiAbC123", "bafkreiXyZ999");
             assert_ne!(tampered, METADATA);
@@ -497,11 +535,55 @@ mod payload_shape_tests {
                     .map_err(failure)
                     .unwrap_err();
             assert_eq!(status, 401, "{shape:?}: {message}");
-            assert!(
-                message.starts_with("Invalid signature: "),
-                "{shape:?}: {message}"
-            );
+            assert_eq!(message, "Invalid signature", "{shape:?}");
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn signed_fetch_failures_never_log_or_echo_metadata_and_signature_details() {
+        assert_eq!(
+            auth_error_class(&AuthChainError::InvalidSignature(CREDENTIAL_CANARY.into())),
+            "invalid_signature"
+        );
+        let tampered = METADATA.replace("bafkreiAbC123", CREDENTIAL_CANARY);
+        let headers = signed_as(Shape::V6, PATH, METADATA, &tampered);
+        let buffer = LogBuffer::default();
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let error = match verify_signed_fetch(&headers, "post", PATH, &[SCENE]).await {
+            Ok(_) => panic!("tampered metadata verified"),
+            Err(error) => error,
+        };
+        let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(
+            (error.status, error.message.as_str()),
+            (401, "Invalid signature")
+        );
+        assert!(!logs.contains(CREDENTIAL_CANARY));
+
+        let malformed = format!(r#"{{"private":"{CREDENTIAL_CANARY}""#);
+        let error = match verify_signed_fetch(
+            &signed_as(Shape::V6, PATH, &malformed, &malformed),
+            "post",
+            PATH,
+            &[SCENE],
+        )
+        .await
+        {
+            Ok(_) => panic!("malformed metadata verified"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            (error.status, error.message.as_str()),
+            (400, "Invalid chain metadata")
+        );
+        assert!(!error.message.contains(CREDENTIAL_CANARY));
     }
 
     #[tokio::test]
@@ -517,7 +599,7 @@ mod payload_shape_tests {
                     .unwrap_err();
             assert_eq!(
                 (status, message),
-                (400, format!("Invalid metadata content: {METADATA}")),
+                (400, "Invalid metadata content".into()),
                 "{shape:?}"
             );
 

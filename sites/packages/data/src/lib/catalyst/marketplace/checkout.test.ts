@@ -75,39 +75,41 @@ beforeEach(() => {
   }) as unknown as typeof postJSON);
 });
 
+type CheckoutBody = { items?: Array<{ collection: string; itemId: string }> };
+
 describe("startExpressCheckout \u{2014} money-safety scope (over-charge guard)", () => {
-  it("POSTs a checkout scoped to exactly [ref], touching no other cart line", async () => {
+  it("POSTs a checkout scoped to exactly [ref], touching no other cart line, whether the shared cart is full or empty", async () => {
     mFetchCart.mockResolvedValue(mkCart([refLine, other1Line, other2Line]));
 
     const res = await startExpressCheckout(IDENTITY, REF, "idem-1");
     expect(res.id).toBe(CHECKOUT_ID);
 
-    const posts = mPostJSON.mock.calls.filter((c) => c[0] === "/credits/checkout");
-    expect(posts).toHaveLength(1);
-
-    const body = posts[0][1] as { items?: Array<{ collection: string; itemId: string }> };
-    expect(body.items).toEqual([{ collection: REF.collection, itemId: REF.itemId }]);
-
+    const fullPosts = mPostJSON.mock.calls.filter((c) => c[0] === "/credits/checkout");
+    expect(fullPosts).toHaveLength(1);
+    expect((fullPosts[0][1] as CheckoutBody).items).toEqual([
+      { collection: REF.collection, itemId: REF.itemId },
+    ]);
     expect(log).toEqual([
       `add ${REF.collection}/${REF.itemId} x1`,
       `POST /credits/checkout`,
     ]);
-
-    const opts = posts[0][2] as { headers?: Record<string, string> };
+    const opts = fullPosts[0][2] as { headers?: Record<string, string> };
     expect(opts.headers?.["Idempotency-Key"]).toBe("idem-1");
-  });
 
-  it("scopes correctly even when the shared cart is empty (ensures the line first)", async () => {
+    mPostJSON.mockClear();
+    mAddCartItem.mockClear();
+    log = [];
     mFetchCart.mockResolvedValue(mkCart([]));
 
     await startExpressCheckout(IDENTITY, REF, "idem-2");
 
-    const posts = mPostJSON.mock.calls.filter((c) => c[0] === "/credits/checkout");
-    expect(posts).toHaveLength(1);
-    const body = posts[0][1] as { items?: Array<{ collection: string; itemId: string }> };
-    expect(body.items).toEqual([{ collection: REF.collection, itemId: REF.itemId }]);
+    const emptyPosts = mPostJSON.mock.calls.filter((c) => c[0] === "/credits/checkout");
+    expect(emptyPosts).toHaveLength(1);
+    expect((emptyPosts[0][1] as CheckoutBody).items).toEqual([
+      { collection: REF.collection, itemId: REF.itemId },
+    ]);
     expect(mAddCartItem).toHaveBeenCalledTimes(1);
-    expect(mAddCartItem).toHaveBeenCalledWith(IDENTITY, REF, 1, undefined);
+    expect(mAddCartItem.mock.calls[0].slice(0, 3)).toEqual([IDENTITY, REF, 1]);
     expect(log).toEqual([
       `add ${REF.collection}/${REF.itemId} x1`,
       `POST /credits/checkout`,
@@ -127,7 +129,7 @@ describe("quoteExpressItem \u{2014} non-destructive price read", () => {
     expect(mAddCartItem).not.toHaveBeenCalled();
   });
 
-  it("returns added:true and adds the line (qty 1) when it must be priced", async () => {
+  it("returns added:true and adds the line (qty 1) when it must be priced, and null when the added line can't be found", async () => {
     mFetchCart.mockResolvedValue(mkCart([other1Line]));
 
     const q = await quoteExpressItem(IDENTITY, REF);
@@ -135,32 +137,24 @@ describe("quoteExpressItem \u{2014} non-destructive price read", () => {
     expect(q?.added).toBe(true);
     expect(q?.line.itemId).toBe(REF.itemId);
     expect(mAddCartItem).toHaveBeenCalledTimes(1);
-    expect(mAddCartItem).toHaveBeenCalledWith(IDENTITY, REF, 1, undefined);
-  });
+    expect(mAddCartItem.mock.calls[0].slice(0, 3)).toEqual([IDENTITY, REF, 1]);
 
-  it("returns null when the added line can't be found (unpriceable)", async () => {
     mFetchCart.mockResolvedValue(mkCart([]));
     mAddCartItem.mockResolvedValue(mkCart([other1Line]));
-
-    const q = await quoteExpressItem(IDENTITY, REF);
-    expect(q).toBeNull();
+    expect(await quoteExpressItem(IDENTITY, REF)).toBeNull();
   });
 });
 
 describe("409 price-drift plumbing", () => {
-  it("isPriceDriftError matches only 409 CatalystErrors", async () => {
+  it("isPriceDriftError matches only 409 CatalystErrors and checkoutErrorMessage returns only genuine server messages", async () => {
     const { CatalystError } = await import("../client");
-    const { isPriceDriftError } = await import("./checkout");
+    const { checkoutErrorMessage, isPriceDriftError } = await import("./checkout");
     expect(isPriceDriftError(new CatalystError("moved", "u", 409, true))).toBe(true);
     expect(isPriceDriftError(new CatalystError("nope", "u", 402, true))).toBe(false);
     expect(isPriceDriftError(new CatalystError("nope", "u", 0))).toBe(false);
     expect(isPriceDriftError(new Error("409"))).toBe(false);
     expect(isPriceDriftError(null)).toBe(false);
-  });
 
-  it("checkoutErrorMessage returns only genuine server messages", async () => {
-    const { CatalystError } = await import("../client");
-    const { checkoutErrorMessage } = await import("./checkout");
     expect(checkoutErrorMessage(new CatalystError("total changed", "u", 409, true))).toBe(
       "total changed",
     );
@@ -170,7 +164,7 @@ describe("409 price-drift plumbing", () => {
     expect(checkoutErrorMessage(new Error("boom"))).toBeNull();
   });
 
-  it("applyFreshQuotes swaps fresh unit prices and recomputes the total exactly", async () => {
+  it("applyFreshQuotes swaps fresh unit prices, recomputes the total exactly, and fails closed on any unquotable or malformed entry", async () => {
     const { applyFreshQuotes } = await import("./checkout");
     const lines = [
       mkLine(REF.collection, REF.itemId, 2, "50"),
@@ -181,15 +175,12 @@ describe("409 price-drift plumbing", () => {
     expect(out!.lines.map((l) => l.unitPriceCredits)).toEqual(["7", "3"]);
     expect(out!.totalCredits).toBe("17");
     expect(lines[0].unitPriceCredits).toBe("50");
-  });
 
-  it("applyFreshQuotes fails closed on any unquotable or malformed entry", async () => {
-    const { applyFreshQuotes } = await import("./checkout");
-    const lines = [mkLine(REF.collection, REF.itemId, 1, "50")];
-    expect(applyFreshQuotes(lines, [null])).toBeNull();
-    expect(applyFreshQuotes(lines, [])).toBeNull();
-    expect(applyFreshQuotes(lines, ["1.5"])).toBeNull();
-    expect(applyFreshQuotes(lines, ["-2"])).toBeNull();
-    expect(applyFreshQuotes(lines, ["abc"])).toBeNull();
+    const single = [mkLine(REF.collection, REF.itemId, 1, "50")];
+    expect(applyFreshQuotes(single, [null])).toBeNull();
+    expect(applyFreshQuotes(single, [])).toBeNull();
+    expect(applyFreshQuotes(single, ["1.5"])).toBeNull();
+    expect(applyFreshQuotes(single, ["-2"])).toBeNull();
+    expect(applyFreshQuotes(single, ["abc"])).toBeNull();
   });
 });

@@ -73,8 +73,8 @@ impl MembersComponent {
         community_id: Uuid,
         pagination: &Pagination,
     ) -> Result<(Vec<CommunityMember>, i64), ApiError> {
-        let rows = sqlx::query_as::<_, (Uuid, String, String, NaiveDateTime)>(
-            "SELECT community_id, member_address, role, joined_at \
+        let rows = sqlx::query_as::<_, (Uuid, String, String, NaiveDateTime, i64)>(
+            "SELECT community_id, member_address, role, joined_at, COUNT(*) OVER () AS total \
              FROM community_members WHERE community_id = $1 \
              ORDER BY CASE role WHEN 'owner' THEN 1 WHEN 'moderator' THEN 2 WHEN 'member' THEN 3 ELSE 4 END ASC, \
                       joined_at ASC \
@@ -86,12 +86,17 @@ impl MembersComponent {
         .fetch_all(&self.pool)
         .await?;
 
-        let total: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM community_members WHERE community_id = $1")
-                .bind(community_id)
-                .fetch_one(&self.pool)
-                .await
-                .unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.4,
+            None if pagination.offset > 0 => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM community_members WHERE community_id = $1")
+                    .bind(community_id)
+                    .fetch_one(&self.pool)
+                    .await
+                    .unwrap_or(0)
+            }
+            None => 0,
+        };
 
         let members = rows.into_iter().map(row_to_member).collect();
         Ok((members, total))
@@ -105,8 +110,8 @@ impl MembersComponent {
     ) -> Result<(Vec<CommunityMember>, i64), ApiError> {
         let filter: Vec<String> = online.iter().map(|a| a.to_lowercase()).collect();
 
-        let rows = sqlx::query_as::<_, (Uuid, String, String, NaiveDateTime)>(
-            "SELECT community_id, member_address, role, joined_at \
+        let rows = sqlx::query_as::<_, (Uuid, String, String, NaiveDateTime, i64)>(
+            "SELECT community_id, member_address, role, joined_at, COUNT(*) OVER () AS total \
              FROM community_members WHERE community_id = $1 \
                AND member_address = ANY($2::text[]) \
              ORDER BY CASE role WHEN 'owner' THEN 1 WHEN 'moderator' THEN 2 WHEN 'member' THEN 3 ELSE 4 END ASC, \
@@ -120,14 +125,18 @@ impl MembersComponent {
         .fetch_all(&self.pool)
         .await?;
 
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM community_members WHERE community_id = $1 AND member_address = ANY($2::text[])",
-        )
-        .bind(community_id)
-        .bind(&filter)
-        .fetch_one(&self.pool)
-        .await
-        .unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.4,
+            None if pagination.offset > 0 => sqlx::query_scalar(
+                "SELECT COUNT(*) FROM community_members WHERE community_id = $1 AND member_address = ANY($2::text[])",
+            )
+            .bind(community_id)
+            .bind(&filter)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0),
+            None => 0,
+        };
 
         let members = rows.into_iter().map(row_to_member).collect();
         Ok((members, total))
@@ -135,7 +144,13 @@ impl MembersComponent {
 }
 
 fn row_to_member(
-    (community_id, member_address, role, joined_at): (Uuid, String, String, NaiveDateTime),
+    (community_id, member_address, role, joined_at, _total): (
+        Uuid,
+        String,
+        String,
+        NaiveDateTime,
+        i64,
+    ),
 ) -> CommunityMember {
     CommunityMember {
         community_id,

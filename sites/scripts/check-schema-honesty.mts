@@ -330,11 +330,8 @@ function failureRegions(body: TSNamespace.Node): TSNamespace.Node[] {
 function returnedExpressions(fn: TSNamespace.Expression): TSNamespace.Expression[] {
   if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return [];
   if (ts.isArrowFunction(fn) && !ts.isBlock(fn.body)) return [fn.body];
-  const out: TSNamespace.Expression[] = [];
-  fn.body?.forEachChild((c) => {
-    if (ts.isReturnStatement(c) && c.expression) out.push(c.expression);
-  });
-  return out;
+  if (!fn.body) return [];
+  return ownReturns(fn.body).flatMap((r) => (r.expression ? [r.expression] : []));
 }
 
 /**
@@ -404,10 +401,12 @@ function scan(file: string): Violation[] {
         // `.default(0)` / `.catch([])` are the idiomatic zod spelling of exactly
         // what this check exists to ban -- and were the largest gap. A function
         // argument (`.catch(() => [])`, including a promise catch) is the same
-        // lie, so it is judged by what it returns.
-        const returns = returnedExpressions(arg);
-        const fabricates = returns.length
-          ? returns.some(fabricatesAValue)
+        // lie, so it is judged by what it returns. A callback that returns
+        // nothing hands back `undefined`: the swallow in
+        // `reader.cancel().catch(() => {})` invents no value.
+        const isCallback = ts.isArrowFunction(arg) || ts.isFunctionExpression(arg);
+        const fabricates = isCallback
+          ? returnedExpressions(arg).some(fabricatesAValue)
           : fabricatesAValue(arg);
         if (fabricates) record(node, "fabricated-default");
       }

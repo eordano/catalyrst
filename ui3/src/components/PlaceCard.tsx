@@ -1,4 +1,7 @@
-import type { CSSProperties } from "react";
+import CoverImage from "./CoverImage";
+import { publicThumbnail } from "../data/thumbnail";
+import "./surface.css";
+import "./placecard.css";
 
 type PlaceCardProps = {
   title: string;
@@ -29,18 +32,10 @@ type CardBodyProps = {
   hue: number;
 };
 
-function CardBody({ title, image, players, rating, coords, live, featured, creator, hue }: CardBodyProps) {
-  const thumbStyle: CSSProperties & { "--hue": number; "--thumb-img"?: string } = {
-    "--hue": hue,
-    ...(image ? { "--thumb-img": `url("${image}")` } : null),
-  };
+function CardBody({ title, image, players, rating, coords, live, featured, creator }: CardBodyProps) {
   return (
     <>
-      <div
-        className="pl__thumb"
-        style={thumbStyle}
-        aria-hidden="true"
-      />
+      <CoverImage className="pl__thumb" src={publicThumbnail(image)} fallbackSrc={image} alt="" />
 
       <div className="pl__badges">
         {live != null && (
@@ -124,7 +119,7 @@ export default function PlaceCard({
 }: PlaceCardProps | PlaceCardSkeletonProps) {
   if (skeleton) {
     return (
-      <article className="pl__card pl__card--skeleton" aria-hidden="true">
+      <article className="ui-card pl__card pl__card--skeleton" aria-hidden="true">
         <div className="pl__thumb pl__thumb--skeleton" />
         <div className="pl__info pl__info--skeleton">
           <div className="pl__infotext">
@@ -145,7 +140,7 @@ export default function PlaceCard({
   if (title && !presentational) {
     return (
       <div
-        className="pl__card"
+        className="ui-card pl__card"
         data-sb-linkto={to || undefined}
         role="button"
         tabIndex={0}
@@ -162,7 +157,7 @@ export default function PlaceCard({
     );
   }
   return (
-    <article className="pl__card" data-sb-linkto={to || undefined}>
+    <article className="ui-card pl__card" data-sb-linkto={to || undefined}>
       {body}
     </article>
   );

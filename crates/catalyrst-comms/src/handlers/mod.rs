@@ -1,4 +1,5 @@
 pub mod deferred;
+pub mod island_refresh;
 pub mod messaging;
 pub mod ping;
 pub mod reports;

@@ -97,6 +97,10 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("AWS_REGION", "S3 region (default us-east-1)"),
     ("AWS_ENDPOINT", "optional -- custom S3 endpoint"),
     (
+        "PLACES_REPORT_STORAGE",
+        "optional -- report storage: s3 or database (authenticated JSON uploads)",
+    ),
+    (
         "PLACES_REPORT_LOCAL_FALLBACK",
         "bool -- allow local-dev report storage when S3 is unconfigured",
     ),

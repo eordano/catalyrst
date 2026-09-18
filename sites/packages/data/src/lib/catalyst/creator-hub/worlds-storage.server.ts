@@ -14,8 +14,6 @@ import {
 import { loadManageWorlds } from "./manage-worlds.server";
 import type { GetOptions } from "../client";
 
-export { loadWalletStats } from "../wcs.server";
-
 const EMPTY_PLAYERS: PlayerEntry = { addresses: [], profileNames: {} };
 
 export async function loadWorldsStorage(
@@ -24,56 +22,66 @@ export async function loadWorldsStorage(
 ): Promise<WorldsStorageData> {
   const addr = normalizeAddress(address);
 
+  const [valuesRes, envRes, playersRes, managedRes, usageRes] =
+    await Promise.allSettled([
+      fetchValues(opts),
+      fetchEnvKeys(opts),
+      fetchPlayers(opts),
+      addr
+        ? loadManageWorlds(addr, opts.signal, { fetchImpl: opts.fetchImpl })
+        : Promise.resolve(null),
+      fetchUsage("world", opts),
+    ]);
+
   let source: "live" | "empty" = "empty";
   let fallback = false;
 
   let values: StorageValue[] = [];
-  try {
-    values = await fetchValues(opts);
+  if (valuesRes.status === "fulfilled") {
+    values = valuesRes.value;
     if (values.length > 0) source = "live";
-  } catch {
+  } else {
     fallback = true;
   }
 
   let envKeys: EnvKey[] = [];
-  try {
-    envKeys = await fetchEnvKeys(opts);
+  if (envRes.status === "fulfilled") {
+    envKeys = envRes.value;
     if (envKeys.length > 0) source = "live";
-  } catch {
+  } else {
     fallback = true;
   }
 
   let players: PlayerEntry = EMPTY_PLAYERS;
-  try {
-    const live = await fetchPlayers(opts);
-    if (live.length > 0) {
-      players = { addresses: live, profileNames: {} };
+  if (playersRes.status === "fulfilled") {
+    if (playersRes.value.length > 0) {
+      players = { addresses: playersRes.value, profileNames: {} };
       source = "live";
     }
-  } catch {
+  } else {
     fallback = true;
   }
 
   let worlds: StorageWorld[] = [];
-  if (addr) {
-    try {
-      const managed = await loadManageWorlds(addr, opts.signal);
-      worlds = managed.worlds.map((w) => ({
+  if (managedRes.status === "fulfilled") {
+    if (managedRes.value) {
+      worlds = managedRes.value.worlds.map((w) => ({
         name: w.name,
-        role: w.role === "owner" ? ("owner" as const) : ("collaborator" as const),
+        role:
+          w.role === "owner" ? ("owner" as const) : ("collaborator" as const),
         scenes: w.deployedScenes,
         usedBytes: 0,
         maxTotalSizeBytes: 0,
       }));
       if (worlds.length > 0) source = "live";
-    } catch {
-      fallback = true;
     }
+  } else {
+    fallback = true;
   }
 
   let stats: WalletStats | null = null;
-  try {
-    const usage = await fetchUsage("world", opts);
+  if (usageRes.status === "fulfilled") {
+    const usage = usageRes.value;
     if (usage.maxTotalSizeBytes > 0) {
       stats = {
         wallet: addr,
@@ -84,7 +92,7 @@ export async function loadWorldsStorage(
       };
       source = "live";
     }
-  } catch {
+  } else {
     fallback = true;
   }
 

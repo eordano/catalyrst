@@ -37,7 +37,7 @@ export function claimNameUrl(searchParams: URLSearchParams): string {
   return `/marketplace/claim-name?${params.toString()}`;
 }
 
-export type DeployWorldWizardProps = {
+type DeployWorldWizardProps = {
   trackCtx: TrackContext;
   names: DeployName[];
   namesEmpty: boolean;

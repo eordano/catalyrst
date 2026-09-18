@@ -27,7 +27,7 @@ export type SourceLedgerGroup = {
   emptyNote?: string;
 };
 
-export type SourceLedgerProps = {
+type SourceLedgerProps = {
   groups: readonly SourceLedgerGroup[];
   headingLevel?: 2 | 3 | 4;
   now?: number;

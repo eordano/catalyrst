@@ -1,0 +1,114 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -8,7 +8,7 @@
+ 
+ [lib]
+ name = "web_transport"
+-crate-type = ["lib", "cdylib"]
++crate-type = ["lib"]
+ 
+ [dependencies]
+ # web-transport-quinn enables rustls' aws-lc-rs provider by default (needs NASM on Windows +
+--- a/src/host.rs
++++ b/src/host.rs
+@@ -18,6 +18,7 @@
+ 
+ /// Buffer size for a single reliable-stream read. Raw chunks are forwarded as-is.
+ const STREAM_READ_BUF: usize = 16 * 1024;
++const STREAM_SEND_WINDOW: u64 = 64 * 1024;
+ 
+ /// Settings for constructing a [`Host`].
+ pub struct HostConfig {
+@@ -65,7 +66,7 @@
+ /// Commands sent from the polling thread into a connection's async task.
+ enum PeerCommand {
+     /// Write raw bytes to the peer's reliable bidi stream.
+-    Stream(Vec<u8>),
++    Stream(Bytes),
+ }
+ 
+ /// Per-connection state retained by the host so the polling thread can send to a peer.
+@@ -151,6 +152,11 @@
+ 
+     /// Queue raw bytes for the peer's reliable bidi stream. Returns `false` if the peer is gone.
+     pub fn send_stream(&self, peer_id: u64, data: &[u8]) -> bool {
++        self.send_stream_bytes(peer_id, Bytes::copy_from_slice(data))
++    }
++
++    /// Retains the byte owner's allocation and queue permits until the stream write completes.
++    pub fn send_stream_bytes(&self, peer_id: u64, data: Bytes) -> bool {
+         let peers = self
+             .peers
+             .lock()
+@@ -158,7 +164,7 @@
+         match peers.get(&peer_id) {
+             Some(handle) => handle
+                 .cmd_tx
+-                .send(PeerCommand::Stream(data.to_vec()))
++                .send(PeerCommand::Stream(data))
+                 .is_ok(),
+             None => false,
+         }
+@@ -230,6 +236,7 @@
+         Ok(session) => session,
+         Err(_) => return,
+     };
++    session.set_send_window(STREAM_SEND_WINDOW);
+     let remote_addr = session.remote_address().to_string();
+ 
+     let (cmd_tx, cmd_rx) = unbounded_channel::<PeerCommand>();
+@@ -284,7 +291,10 @@
+     events_tx: Sender<Event>,
+     mut cmd_rx: UnboundedReceiver<PeerCommand>,
+ ) {
+-    let (mut send, mut recv) = match session.accept_bi().await {
++    let (mut send, mut recv) = match tokio::select! {
++        stream = session.accept_bi() => stream,
++        _ = session.closed() => return,
++    } {
+         Ok(pair) => pair,
+         Err(_) => return,
+     };
+@@ -299,8 +309,18 @@
+         }
+     });
+ 
+-    while let Some(PeerCommand::Stream(bytes)) = cmd_rx.recv().await {
+-        if send.write_all(&bytes).await.is_err() {
++    loop {
++        let command = tokio::select! {
++            command = cmd_rx.recv() => command,
++            _ = session.closed() => break,
++        };
++        let Some(PeerCommand::Stream(bytes)) = command else { break };
++        let written = tokio::select! {
++            result = send.write_all(&bytes) => result.is_ok(),
++            _ = session.closed() => false,
++        };
++        if !written {
++            session.close(0, b"stream write failed");
+             break;
+         }
+     }
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,7 +1,7 @@
+ //! Rust-backed WebTransport server transport for Decentraland Pulse.
+ //!
+ //! [`host::Host`] is the Rust API: a thin, generic wrapper over `web-transport-quinn`
+-//! exposing an ENet-shaped, synchronously-polled model (create → service → send → destroy).
++//! exposing an ENet-shaped, synchronously-polled model (create -> service -> send -> destroy).
+ //! Pulse channel semantics (length framing, datagram sequencing) live in the C# layer; this
+ //! crate is a dumb byte pipe for the reliable stream and for datagrams.
+ //!
+--- a/src/cabi.rs
++++ b/src/cabi.rs
+@@ -2 +2 @@
+-//! `wt_host_create` → repeatedly `wt_host_service` (poll/drain) → `wt_peer_send_*` →
++//! `wt_host_create` -> repeatedly `wt_host_service` (poll/drain) -> `wt_peer_send_*` ->
+@@ -31 +31 @@
+-/// only until the next `wt_*_service` or `wt_*_destroy` call on the same handle — copy out
++/// only until the next `wt_*_service` or `wt_*_destroy` call on the same handle - copy out
+@@ -273 +273 @@
+-/// always 0 — a client has a single session.
++/// always 0 - a client has a single session.

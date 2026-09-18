@@ -33,13 +33,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   ).toLowerCase();
   const initialStep = url.searchParams.get("step")?.trim() || undefined;
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    "marketplace/transfer",
-    FALLBACK,
-  );
-
-  const owned = await loadOwnedAssets(address, { signal: request.signal });
+  const [{ sid, assignment, wrap }, owned] = await Promise.all([
+    storyLoader(request, "marketplace/transfer", FALLBACK),
+    loadOwnedAssets(address, { signal: request.signal }),
+  ]);
 
   const assets: TransferAsset[] = [];
   const leased: LeasedAsset[] = [];

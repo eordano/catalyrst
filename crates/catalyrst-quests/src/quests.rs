@@ -55,12 +55,18 @@ pub async fn abandon_quest(
     user_address: &str,
     quest_instance_id: &str,
 ) -> Result<(), QuestError> {
-    let instance = db.get_quest_instance(quest_instance_id).await?;
+    let (instance, stored) = db.get_quest_instance_with_quest(quest_instance_id).await?;
     if instance.user_address != user_address {
         return Err(QuestError::NotInstanceOwner);
     }
 
-    let state = compute_instance_state(db, &instance.quest_id, &instance.id).await?;
+    let quest = crate::db::decode_quest(stored)?;
+    let stored_events = db.get_events(&instance.id).await?;
+    let events: Vec<Event> = stored_events
+        .iter()
+        .filter_map(|e| Event::decode(e.event.as_slice()).ok())
+        .collect();
+    let state = get_state(&quest, &events);
     if is_completed(&state) {
         return Err(QuestError::QuestAlreadyCompleted);
     }

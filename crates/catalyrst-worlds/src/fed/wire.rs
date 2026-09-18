@@ -163,7 +163,7 @@ fn parse_peer_time(raw: &str) -> Option<DateTime<Utc>> {
 }
 
 /// The source-level half of the provenance rule in [`crate::fed::names`]. The type
-/// barrier is not a proof --
+/// barrier is not sufficient on its own --
 /// `LocalWorldName::from_request_path(r.as_peer_reported_str())` compiles -- so this
 /// gate catches it, and lives in the test suite rather than CI config so it runs
 /// wherever the tests run.
@@ -507,7 +507,7 @@ mod tests {
         let sweep = lib.find("revoke_peers_no_longer_admitted").expect(
             "build_state no longer reconciles the mirror against the admitted set. Removing \
              that call does not fail to compile and does not fail any type check; it silently \
-             restores the finding that a de-admitted peer's worlds keep being published, \
+             restores the bug where a de-admitted peer's worlds keep being published, \
              because the restart that is supposed to revoke them would revoke nothing.",
         );
         let state = lib

@@ -43,8 +43,7 @@ pub async fn list_worlds(
 ) -> Result<Json<Value>, ApiError> {
     authorize_admin(&state, &headers)?;
     let (limit, offset) = clamp_page(&q);
-    let total = state.worlds.admin_count_worlds().await?;
-    let rows = state.worlds.admin_list_worlds(limit, offset).await?;
+    let (rows, total) = state.worlds.admin_list_worlds_page(limit, offset).await?;
     let worlds: Vec<Value> = rows
         .into_iter()
         .map(|w| {
@@ -85,12 +84,13 @@ pub async fn world_detail(
     Path(world_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     authorize_admin(&state, &headers)?;
-    let world =
-        state.worlds.get_world(&world_name).await?.ok_or_else(|| {
-            ApiError::not_found(format!("World \"{}\" was not found.", world_name))
-        })?;
-    let scenes = state.worlds.get_scenes(&world_name).await?;
-    let perms = state.worlds.get_permission_records(&world_name).await?;
+    let (world, scenes, perms) = tokio::try_join!(
+        state.worlds.get_world(&world_name),
+        state.worlds.get_scenes(&world_name),
+        state.worlds.get_permission_records(&world_name),
+    )?;
+    let world = world
+        .ok_or_else(|| ApiError::not_found(format!("World \"{}\" was not found.", world_name)))?;
     let permissions: Vec<Value> = perms
         .into_iter()
         .map(|(address, permission_type)| json!({ "address": address, "type": permission_type }))
@@ -342,16 +342,19 @@ pub async fn world_ban_status(
             "comms-gatekeeper not configured",
         ));
     }
-    let platform_banned = state.bans.is_player_banned(&q.address).await;
-    let scene_banned = match q.parcel.as_deref() {
-        Some(parcel) => Some(
-            state
-                .bans
-                .is_user_banned_from_scene(&q.address, &world_name, parcel)
-                .await,
-        ),
-        None => None,
+    let scene_check = async {
+        match q.parcel.as_deref() {
+            Some(parcel) => Some(
+                state
+                    .bans
+                    .is_user_banned_from_scene(&q.address, &world_name, parcel)
+                    .await,
+            ),
+            None => None,
+        }
     };
+    let (platform_banned, scene_banned) =
+        tokio::join!(state.bans.is_player_banned(&q.address), scene_check);
     Ok(Json(json!({
         "world": world_name,
         "address": q.address.to_lowercase(),

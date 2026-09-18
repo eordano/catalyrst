@@ -1,22 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import DclLogomark from "../../atoms/DclLogomark";
 import { LOADING_TIPS, TIP_ROTATION_MS } from "./loadingTips";
 import "./loading.css";
 
 const TIP_INDEX_STORAGE_KEY = "dcl-loading-tip-index";
 
 const TIP_COUNT = LOADING_TIPS.length;
-
-function DclGem() {
-  return (
-    <svg className="loading__gem" viewBox="0 0 32 32" aria-hidden="true">
-      <circle cx="16" cy="16" r="16" fill="#ff2d55" />
-      <path
-        d="M16 7l6 6-6 6-6-6 6-6zm0 13.5l5.5-5.5v3L16 23.5 10.5 18v-3L16 20.5z"
-        fill="#fff"
-      />
-    </svg>
-  );
-}
 
 function persistedTip(): number {
   try {
@@ -65,7 +54,7 @@ export default function Loading({ progress = 65, initialTip }: LoadingProps) {
     <div className="loading">
       <header className="loading__header">
         <div className="loading__brand">
-          <DclGem />
+          <DclLogomark className="loading__gem" size={24} />
           <span>Decentraland</span>
         </div>
         <div className="loading__pct">{phaseLabel} {progress}%</div>

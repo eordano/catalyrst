@@ -1,8 +1,8 @@
-export type WearableCatalog = Record<string, string[]>;
+type WearableCatalog = Record<string, string[]>;
 
 export type WearableCatalogs = { male: WearableCatalog; female: WearableCatalog };
 
-export type WearableCatalogEntry = {
+type WearableCatalogEntry = {
   urn?: string;
   category?: string;
   bodyShapes?: unknown;

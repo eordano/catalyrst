@@ -39,7 +39,7 @@ export type HandleStore = {
   put(slug: string, handle: FileSystemDirectoryHandle | null): Promise<void>;
   get(slug: string): Promise<FileSystemDirectoryHandle | null>;
   clear(slug: string): Promise<void>;
-  putMeta(slug: string, meta: Partial<ProjectMeta>): Promise<void>;
+  putMeta(slug: string, meta: Partial<ProjectMeta>, signal?: AbortSignal): Promise<void>;
   getMeta(slug: string): Promise<ProjectMeta | null>;
   list(): Promise<ProjectMeta[] | null>;
   keys(): Promise<string[] | null>;
@@ -162,10 +162,12 @@ export function createHandleStore(backend: HandleBackend = indexedDbBackend()): 
       } catch {
       }
     },
-    async putMeta(slug, meta) {
+    async putMeta(slug, meta, signal) {
+      signal?.throwIfAborted();
       if (!slug) return;
       try {
         const prev = ((await backend.readMeta(slug)) as ProjectMeta | undefined) ?? undefined;
+        signal?.throwIfAborted();
         const merged: ProjectMeta = {
           slug,
           title: meta.title ?? prev?.title ?? slug,
@@ -180,8 +182,10 @@ export function createHandleStore(backend: HandleBackend = indexedDbBackend()): 
             : prev?.codeFiles,
           assets: meta.assets ? { ...prev?.assets, ...meta.assets } : prev?.assets,
         };
+        signal?.throwIfAborted();
         await backend.writeMeta(slug, merged);
       } catch {
+        signal?.throwIfAborted();
       }
     },
     async getMeta(slug) {

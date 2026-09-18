@@ -18,7 +18,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type CancelListingWizardProps = {
+type CancelListingWizardProps = {
   trackCtx: TrackContext;
   order: CancelOrder;
   ownership?: Ownership;

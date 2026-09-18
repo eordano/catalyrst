@@ -5,7 +5,7 @@ import "@ui/creatorhub/frames/creatorhubchrome.css";
 import { useAuth } from "@data/lib/auth/index";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import {
   filterRows,
   readAssigneeFilter,
@@ -50,18 +50,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     readWallet(request) ||
     null;
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const { committee, allRows, usedFixture, error, usedFallback } =
-    await loadCommitteeCuration({
+  const [{ sid, assignment, wrap }, { committee, allRows, usedFixture, error, usedFallback }] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    loadCommitteeCuration({
       youAddress: youParam,
       isCommittee: true,
       signal: request.signal,
-    });
+    }),
+  ]);
 
   const isCommittee =
     !!youParam &&
@@ -135,7 +131,7 @@ const ShieldGlyph = (
 export default function CreateCurate({ loaderData }: Route.ComponentProps) {
   const d = loaderData as unknown as LoaderData;
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
 
   const signIn = () => {
     track("ch_curate_signin_clicked", {}, { sid: d.sid, story: STORY });

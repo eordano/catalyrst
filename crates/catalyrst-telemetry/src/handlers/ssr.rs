@@ -205,7 +205,50 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
 
     match route.surface {
         Surface::Errors => {
-            let stats = call_stats(&st, &filters, &route.fingerprint, "sentry").await;
+            let issues = route.tab == "issues";
+            let group = if issues { "1" } else { "0" };
+            let list_extra: &[(&str, String)] = &[
+                ("group", group.into()),
+                ("limit", "100".into()),
+                ("offset", "0".into()),
+            ];
+            let (stats, issue, events) = tokio::join!(
+                call_stats(&st, &filters, &route.fingerprint, "sentry"),
+                async {
+                    match &route.fingerprint {
+                        Some(_) => Some(
+                            call_events(
+                                &st,
+                                &filters,
+                                route.surface,
+                                &route.fingerprint,
+                                &[("group", "1".into()), ("limit", "1".into())],
+                            )
+                            .await,
+                        ),
+                        None => None,
+                    }
+                },
+                async {
+                    match &route.fingerprint {
+                        Some(_) => {
+                            call_events(
+                                &st,
+                                &filters,
+                                route.surface,
+                                &route.fingerprint,
+                                &[
+                                    ("group", "0".into()),
+                                    ("limit", "100".into()),
+                                    ("offset", "0".into()),
+                                ],
+                            )
+                            .await
+                        }
+                        None => call_events(&st, &filters, route.surface, &None, list_extra).await,
+                    }
+                }
+            );
             cache.insert(
                 format!(
                     "/dash/stats?{}",
@@ -215,15 +258,7 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
             );
             total_html = errors_total(&stats, filters.hours);
 
-            if let Some(fp) = &route.fingerprint {
-                let issue = call_events(
-                    &st,
-                    &filters,
-                    route.surface,
-                    &route.fingerprint,
-                    &[("group", "1".into()), ("limit", "1".into())],
-                )
-                .await;
+            if let (Some(fp), Some(issue)) = (&route.fingerprint, issue) {
                 cache.insert(
                     format!(
                         "/dash/events?{}",
@@ -247,18 +282,6 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
                 imeta_html = m;
                 ihead_show = true;
 
-                let events = call_events(
-                    &st,
-                    &filters,
-                    route.surface,
-                    &route.fingerprint,
-                    &[
-                        ("group", "0".into()),
-                        ("limit", "100".into()),
-                        ("offset", "0".into()),
-                    ],
-                )
-                .await;
                 cache.insert(
                     format!(
                         "/dash/events?{}",
@@ -278,33 +301,10 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
                 thead_html = errors_thead(false, &filters);
                 rows_html = render_rows(&events, false, false, &[]);
             } else {
-                let issues = route.tab == "issues";
-                let group = if issues { "1" } else { "0" };
-                let events = call_events(
-                    &st,
-                    &filters,
-                    route.surface,
-                    &None,
-                    &[
-                        ("group", group.into()),
-                        ("limit", "100".into()),
-                        ("offset", "0".into()),
-                    ],
-                )
-                .await;
                 cache.insert(
                     format!(
                         "/dash/events?{}",
-                        qs(
-                            &filters,
-                            route.surface,
-                            &None,
-                            &[
-                                ("group", group.into()),
-                                ("limit", "100".into()),
-                                ("offset", "0".into())
-                            ]
-                        )
+                        qs(&filters, route.surface, &None, list_extra)
                     ),
                     events.clone(),
                 );
@@ -321,26 +321,22 @@ pub async fn page(State(st): State<AppState>, OriginalUri(uri): OriginalUri) -> 
             total_html = metrics_total(&metrics, filters.hours);
         }
         Surface::Metrics => {
-            let metrics = call_metrics(&st, filters.hours).await;
+            let issues = route.tab == "issues";
+            let group = if issues { "1" } else { "0" };
+            let list_extra: &[(&str, String)] = &[
+                ("group", group.into()),
+                ("limit", "100".into()),
+                ("offset", "0".into()),
+            ];
+            let (metrics, events) = tokio::join!(
+                call_metrics(&st, filters.hours),
+                call_events(&st, &filters, route.surface, &None, list_extra)
+            );
             cache.insert(
                 format!("/dash/metrics?hours={}", filters.hours),
                 metrics.clone(),
             );
             total_html = metrics_total(&metrics, filters.hours);
-            let issues = route.tab == "issues";
-            let group = if issues { "1" } else { "0" };
-            let events = call_events(
-                &st,
-                &filters,
-                route.surface,
-                &None,
-                &[
-                    ("group", group.into()),
-                    ("limit", "100".into()),
-                    ("offset", "0".into()),
-                ],
-            )
-            .await;
             cache.insert(
                 format!(
                     "/dash/events?{}",

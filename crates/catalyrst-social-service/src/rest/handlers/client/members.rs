@@ -13,8 +13,9 @@ use crate::rest::handlers::permissions::{
 use crate::rest::AppState;
 
 use super::{
-    auth, err, load_client_standing, map_db, parse_uuid, refusal_response,
-    role_text_as_written_into_the_community_members_table, verified_wallet_of_the_caller,
+    auth, err, load_client_standing, load_client_standing_pair, map_db, parse_uuid,
+    refusal_response, role_text_as_written_into_the_community_members_table,
+    verified_wallet_of_the_caller,
 };
 
 pub async fn add_member(
@@ -31,16 +32,27 @@ pub async fn add_member(
         Ok(s) => s,
         Err(e) => return e,
     };
-    let community: Option<(bool, bool)> = match map_db(
-        sqlx::query_as("SELECT active, private FROM communities WHERE id = $1")
-            .bind(uuid)
-            .fetch_optional(&state.pool)
-            .await,
+    // The guards and the insert are one statement; the insert only fires when every guard holds.
+    let gate: Option<(bool, bool, bool)> = match map_db(
+        sqlx::query_as(
+            "WITH c AS (SELECT active, private FROM communities WHERE id = $1), \
+                  b AS (SELECT COALESCE(bool_or(active), FALSE) AS banned FROM community_bans \
+                        WHERE community_id = $1 AND banned_address = $2), \
+                  ins AS (INSERT INTO community_members (community_id, member_address, role, joined_at) \
+                          SELECT $1, $2, 'member', now() FROM c, b \
+                          WHERE c.active AND NOT c.private AND NOT b.banned \
+                          ON CONFLICT (community_id, member_address) DO NOTHING) \
+             SELECT c.active, c.private, b.banned FROM c, b",
+        )
+        .bind(uuid)
+        .bind(signer.as_str())
+        .fetch_optional(&state.pool)
+        .await,
     ) {
         Ok(v) => v,
         Err(e) => return e,
     };
-    let (active, private) = match community {
+    let (active, private, banned) = match gate {
         Some(v) => v,
         None => {
             return err(
@@ -61,34 +73,11 @@ pub async fn add_member(
             ),
         );
     }
-    let banned: Option<bool> = match map_db(
-        sqlx::query_scalar(
-            "SELECT active FROM community_bans WHERE community_id = $1 AND banned_address = $2",
-        )
-        .bind(uuid)
-        .bind(signer.as_str())
-        .fetch_optional(&state.pool)
-        .await,
-    ) {
-        Ok(v) => v,
-        Err(e) => return e,
-    };
-    if banned.unwrap_or(false) {
+    if banned {
         return err(
             StatusCode::FORBIDDEN,
             "The member is banned from this community",
         );
-    }
-    let ins = sqlx::query(
-        "INSERT INTO community_members (community_id, member_address, role, joined_at) \
-         VALUES ($1, $2, 'member', now()) ON CONFLICT (community_id, member_address) DO NOTHING",
-    )
-    .bind(uuid)
-    .bind(signer.as_str())
-    .execute(&state.pool)
-    .await;
-    if let Err(e) = map_db(ins) {
-        return e;
     }
     StatusCode::NO_CONTENT.into_response()
 }
@@ -126,14 +115,11 @@ pub async fn remove_member(
             );
         }
     } else {
-        let kicker_standing = match load_client_standing(&state, uuid, signer.as_str()).await {
-            Ok(s) => s,
-            Err(e) => return e,
-        };
-        let target_standing = match load_client_standing(&state, uuid, &target).await {
-            Ok(s) => s,
-            Err(e) => return e,
-        };
+        let (kicker_standing, target_standing) =
+            match load_client_standing_pair(&state, uuid, signer.as_str(), &target).await {
+                Ok(s) => s,
+                Err(e) => return e,
+            };
         let target_tier = target_standing.tier();
         let effective_target_tier = if is_member(target_tier) {
             target_tier

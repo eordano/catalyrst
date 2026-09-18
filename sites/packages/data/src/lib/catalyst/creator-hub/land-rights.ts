@@ -5,7 +5,6 @@ import type { GetOptions } from "../client";
 import { DEPLOY_GRANTING_LEGS } from "@ui/generated/catalyst/validator/deployGrantingLegs";
 import type { ParcelPermissionFlags } from "@ui/generated/catalyst/validator/ParcelPermissionFlags";
 
-export type { ParcelPermissionFlags };
 export { DEPLOY_GRANTING_LEGS };
 
 export type LandRights =

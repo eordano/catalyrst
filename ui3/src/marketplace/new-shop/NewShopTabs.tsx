@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from "react";
 import { useEffect, useRef } from "react";
+import ChromeLink from "../../web/frames/ChromeLink";
 import "./newshoptabs.css";
 
 export type NewShopTab<Id extends string = string> = { id: Id; label: string; href?: string };
@@ -73,7 +74,7 @@ export default function NewShopTabs<Id extends string = string>({
         const cls = "nstabs__tab" + (is ? " is-active" : "");
         if (t.href) {
           return (
-            <a
+            <ChromeLink
               key={t.id}
               ref={(el) => {
                 refs.current[i] = el;
@@ -84,7 +85,7 @@ export default function NewShopTabs<Id extends string = string>({
               onKeyDown={(e) => onKeyDown(e, i)}
             >
               {t.label}
-            </a>
+            </ChromeLink>
           );
         }
         return (

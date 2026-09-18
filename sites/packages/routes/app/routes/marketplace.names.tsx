@@ -1,3 +1,4 @@
+import { SHOP_TABS } from "@features/lib/marketplace/shop-tabs";
 import { useEffect, useRef, useState } from "react";
 import { redirect, useNavigate, useNavigation, useSearchParams } from "react-router";
 
@@ -21,7 +22,7 @@ import {
   type NameAvailability,
 } from "@data/lib/catalyst/marketplace/names";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import type { Route } from "./+types/marketplace.names";
@@ -30,14 +31,7 @@ import type { StoryId } from "@core/lib/telemetry/story-id";
 const STORY: StoryId = "marketplace/names";
 const NO_TAKEN: ReadonlySet<string> = new Set();
 
-const SHOP_TABS = [
-  { id: "overview", label: "Overview", href: "/shop" },
-  { id: "all-assets", label: "All Assets", href: "/shop?tab=all-assets" },
-  { id: "names", label: "NAMEs", href: "/marketplace/names" },
-  { id: "my-assets", label: "My Assets", href: "/marketplace/account" },
-  { id: "my-favorites", label: "My Favorites", href: "/shop?tab=my-favorites" },
-  { id: "cart", label: "Cart", href: "/marketplace/cart" },
-] as const;
+
 
 const CREDITS_NOTE =
   "Credits can't be used for NAMEs yet \u{2014} Credits checkout only supports collection items.";
@@ -64,21 +58,24 @@ export async function loader({ request }: Route.LoaderArgs) {
     ""
   ).trim();
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap, data } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    async () => {
+      let result: NameAvailability | null = null;
+      let checkFailed = false;
+      if (query && classifyName(query, NO_TAKEN).kind === "available") {
+        try {
+          result = await checkNameAvailability(query, { signal: request.signal });
+        } catch {
+          checkFailed = true;
+        }
+      }
+      return { result, checkFailed };
+    },
   );
-
-  let result: NameAvailability | null = null;
-  let checkFailed = false;
-  if (query && classifyName(query, NO_TAKEN).kind === "available") {
-    try {
-      result = await checkNameAvailability(query, { signal: request.signal });
-    } catch {
-      checkFailed = true;
-    }
-  }
+  const { result, checkFailed } = data;
 
   const payload = { sid, query, result, checkFailed };
 

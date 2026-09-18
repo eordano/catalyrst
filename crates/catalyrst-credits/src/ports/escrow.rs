@@ -124,8 +124,8 @@ pub struct ReleaseWorker {
 
 impl ReleaseWorker {
     pub fn spawn(self, interval_secs: u64) {
-        // Configuration is immutable for this worker. Report a disabled release
-        // capability once, but keep sweeping expired authorizations every tick.
+        // Configuration is immutable for this worker: without it there is nothing to poll
+        // (authorization expiry runs on the checkout outbox tick).
         if self.usage_grants_pool.is_none()
             || self.economy_admin_token.is_none()
             || self.escrow_address.is_none()
@@ -134,8 +134,9 @@ impl ReleaseWorker {
                 usage_grants_configured = self.usage_grants_pool.is_some(),
                 economy_token_configured = self.economy_admin_token.is_some(),
                 escrow_address_configured = self.escrow_address.is_some(),
-                "escrow releases disabled: incomplete configuration; authorization expiry remains active"
+                "escrow releases disabled: incomplete configuration"
             );
+            return;
         }
         spawn_periodic(
             "credits-escrow-release",
@@ -150,17 +151,6 @@ impl ReleaseWorker {
     }
 
     pub async fn run_once(&self) -> Result<usize, ApiError> {
-        match self.credits.expire_stale_authorizations().await {
-            Ok(n) if n > 0 => {
-                tracing::info!(
-                    expired = n,
-                    "swept stale credit authorizations to 'expired'"
-                )
-            }
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = %e, "credit authorization expiry sweep failed"),
-        }
-
         let (Some(pool), Some(token)) = (
             self.usage_grants_pool.as_ref(),
             self.economy_admin_token.as_ref(),

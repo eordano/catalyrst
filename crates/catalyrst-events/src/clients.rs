@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use axum::http::HeaderMap;
+use catalyrst_fed::cache::{cache_get, cache_put, Cached};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::Deserialize;
 use serde_json::Value;
@@ -8,6 +11,10 @@ use serde_json::Value;
 pub use catalyrst_fed::comms::CommsGatekeeper;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// Parcel/world -> place id barely changes; a miss is never memoized.
+const LOCATION_CACHE_TTL: Duration = Duration::from_secs(300);
+/// Anonymous destination payloads only; signed requests carry viewer-specific fields.
+const DESTINATION_CACHE_TTL: Duration = Duration::from_secs(30);
 
 pub(crate) fn destination_url(base_url: &str, id: &str) -> String {
     format!(
@@ -78,9 +85,13 @@ fn forwarded_headers(headers: &HeaderMap) -> reqwest::header::HeaderMap {
     out
 }
 
+type CachedLocation = Cached<(Option<String>, bool)>;
+
 pub struct Places {
     base_url: String,
     http: reqwest::Client,
+    locations: Mutex<HashMap<String, CachedLocation>>,
+    destinations: Mutex<HashMap<String, Cached<Value>>>,
 }
 
 impl Places {
@@ -88,10 +99,33 @@ impl Places {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             http: reqwest::Client::new(),
+            locations: Mutex::new(HashMap::new()),
+            destinations: Mutex::new(HashMap::new()),
         }
     }
 
     pub async fn get_destination(&self, id: &str, headers: &HeaderMap) -> Option<Value> {
+        let anonymous = !headers
+            .iter()
+            .any(|(name, _)| name.as_str().starts_with("x-identity-"));
+        if anonymous {
+            if let Some(hit) = cache_get(&self.destinations, id) {
+                return Some(hit);
+            }
+        }
+        let found = self.fetch_destination(id, headers).await;
+        if let (true, Some(v)) = (anonymous, &found) {
+            cache_put(
+                &self.destinations,
+                id.to_string(),
+                v.clone(),
+                DESTINATION_CACHE_TTL,
+            );
+        }
+        found
+    }
+
+    async fn fetch_destination(&self, id: &str, headers: &HeaderMap) -> Option<Value> {
         let url = destination_url(&self.base_url, id);
         let resp = self
             .http
@@ -121,6 +155,24 @@ impl Places {
     }
 
     pub async fn resolve_location(
+        &self,
+        world: bool,
+        server: Option<&str>,
+        x: i32,
+        y: i32,
+    ) -> (Option<String>, bool) {
+        let key = format!("{world}|{}|{x},{y}", server.unwrap_or(""));
+        if let Some(hit) = cache_get(&self.locations, &key) {
+            return hit;
+        }
+        let resolved = self.lookup_location(world, server, x, y).await;
+        if resolved.0.is_some() {
+            cache_put(&self.locations, key, resolved.clone(), LOCATION_CACHE_TTL);
+        }
+        resolved
+    }
+
+    async fn lookup_location(
         &self,
         world: bool,
         server: Option<&str>,

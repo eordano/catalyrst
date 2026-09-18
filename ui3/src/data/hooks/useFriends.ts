@@ -1,16 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery, type QueryClient } from "@tanstack/react-query";
-
-import { qk, STALE } from "../queryKeys";
-import { getBridge, subscribeBridge } from "../../overlay/bridge";
+import { useMemo } from "react";
+import { useBridgeState } from "../../overlay/bridge";
 import type { FriendEntry } from "../../generated/bridge/FriendEntry";
 import type { FriendRef } from "../../generated/bridge/FriendRef";
 import type { FriendRequestEntry } from "../../generated/bridge/FriendRequestEntry";
 import type { OverlayPush } from "../../generated/bridge/OverlayPush";
 
 export { FRIEND_ACTIONS, requestFriendAction } from "./friendActions";
-
-const SELF_KEY = "self";
 
 const MONTHS = [
   "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
@@ -34,9 +29,9 @@ type RawBlocked = Partial<FriendRef> & {
   blockedAt?: number;
 };
 
-export type FriendStatus = "online" | "away" | "offline";
+type FriendStatus = "online" | "away" | "offline";
 
-export type NormalizedFriend = {
+type NormalizedFriend = {
   address: string;
   name: string;
   tag: string;
@@ -48,7 +43,7 @@ export type NormalizedFriend = {
   hasClaimedName: boolean;
 };
 
-export type NormalizedRequest = {
+type NormalizedRequest = {
   id: string;
   address: string;
   name: string;
@@ -60,7 +55,7 @@ export type NormalizedRequest = {
   hasClaimedName: boolean;
 };
 
-export type NormalizedBlocked = {
+type NormalizedBlocked = {
   address: string;
   name: string;
   tag: string;
@@ -70,7 +65,7 @@ export type NormalizedBlocked = {
   hasClaimedName: boolean;
 };
 
-export type FriendsData = {
+type FriendsData = {
   self: unknown;
   friends: NormalizedFriend[];
   received: NormalizedRequest[];
@@ -226,76 +221,12 @@ export function adaptBridgeFriends(push: FriendsPush | null): RawFriendsData | n
   };
 }
 
-function useBridgeFriendsPush(): FriendsPush | null {
-  const [push, setPush] = useState<FriendsPush | null>(null);
-  useEffect(() => {
-    let unsub: () => void = () => {};
-    let cancelled = false;
-    let iv: ReturnType<typeof setInterval> | null = null;
-    let to: ReturnType<typeof setTimeout> | null = null;
-    const attach = () => {
-      if (!getBridge()) return false;
-      unsub = subscribeBridge((p: unknown) => {
-        if (p && typeof p === "object" && (p as { kind?: unknown }).kind === "friends") {
-          setPush(p as FriendsPush);
-        }
-      });
-      return true;
-    };
-    if (!attach()) {
-      iv = setInterval(() => {
-        if (cancelled) return;
-        if (attach() && iv) {
-          clearInterval(iv);
-          iv = null;
-        }
-      }, 250);
-      to = setTimeout(() => iv && clearInterval(iv), 10000);
-    }
-    return () => {
-      cancelled = true;
-      if (iv) clearInterval(iv);
-      if (to) clearTimeout(to);
-      try {
-        unsub();
-      } catch {
-      }
-    };
-  }, []);
-  return push;
-}
-
-export async function fetchFriends(
-  { signal }: { signal?: AbortSignal } = {},
-): Promise<FriendsData> {
-  if (signal?.aborted) {
-    throw new DOMException("Friends read aborted", "AbortError");
-  }
-  return normalizeFriends({});
-}
-
-export function prefetchFriends(queryClient: QueryClient) {
-  return queryClient.prefetchQuery({
-    queryKey: qk.friends(SELF_KEY),
-    queryFn: ({ signal }) => fetchFriends({ signal }),
-    staleTime: STALE.friends,
-  });
-}
-
 const EMPTY: readonly never[] = Object.freeze([]);
 
 export function useFriends() {
-  const query = useQuery({
-    queryKey: qk.friends(SELF_KEY),
-    queryFn: ({ signal }) => fetchFriends({ signal }),
-    staleTime: STALE.friends,
-  });
-
-  const push = useBridgeFriendsPush();
-  const data = useMemo(
-    () => (push ? normalizeFriends(adaptBridgeFriends(push)) : query.data),
-    [push, query.data],
-  );
+  const push = useBridgeState((state) => state.friendsSnapshot);
+  const isGuest = useBridgeState((state) => state.identity.isGuest);
+  const data = useMemo(() => push ? normalizeFriends(adaptBridgeFriends(push)) : undefined, [push]);
   const friends = data?.friends ?? EMPTY;
   const received = data?.received ?? EMPTY;
   const sent = data?.sent ?? EMPTY;
@@ -312,7 +243,7 @@ export function useFriends() {
   );
 
   return {
-    ...query,
+    isPending: !isGuest && !push,
     data,
     friends,
     received,

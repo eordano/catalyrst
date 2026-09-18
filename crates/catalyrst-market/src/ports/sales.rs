@@ -1,3 +1,4 @@
+use catalyrst_commons::cache::TtlMap;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use sqlx::Row;
@@ -81,13 +82,39 @@ pub struct Sale {
     pub sale_type: String,
 }
 
+fn bind_all<'q>(
+    mut q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+    bind_str: &[String],
+    bind_i64: &[i64],
+    kinds: &[char],
+) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+    let mut si = bind_str.iter();
+    let mut ii = bind_i64.iter();
+    for k in kinds {
+        if *k == 's' {
+            q = q.bind(si.next().cloned().unwrap_or_default());
+        } else {
+            q = q.bind(*ii.next().unwrap_or(&0));
+        }
+    }
+    q
+}
+
 pub struct SalesComponent {
     pool: PgPool,
+    totals: TtlMap<(String, Vec<String>, Vec<i64>), i64>,
 }
 
 impl SalesComponent {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            totals: TtlMap::bounded(
+                "market.sale_totals",
+                crate::ports::orders::totals_ttl(),
+                crate::ports::orders::TOTALS_MAX_ENTRIES,
+            ),
+        }
     }
 
     pub async fn get_sales(&self, f: &SaleFilters) -> Result<(Vec<Sale>, i64), ApiError> {
@@ -217,59 +244,42 @@ impl SalesComponent {
 
         let index_sort = order_by.starts_with("sort_timestamp");
 
-        let bind_str_p = bind_str.clone();
-        let bind_i64_p = bind_i64.clone();
-        let kinds_p = kinds.clone();
-        let bind_str_c = bind_str.clone();
-        let bind_i64_c = bind_i64.clone();
-        let kinds_c = kinds.clone();
-        let page_pool = self.pool.clone();
-        let count_pool = self.pool.clone();
-
-        let page_fut = async move {
-            let mut tx = page_pool.begin().await?;
-            sqlx::query("SET LOCAL random_page_cost = 1.1")
-                .execute(&mut *tx)
-                .await?;
+        let page_fut = async {
+            let q = bind_all(
+                sqlx::query(sqlx::AssertSqlSafe(page_sql)),
+                &bind_str,
+                &bind_i64,
+                &kinds,
+            )
+            .bind(limit)
+            .bind(offset);
             if index_sort {
+                // enable_sort is per query, so this branch keeps one transaction.
+                let mut tx = self.pool.begin().await?;
                 sqlx::query("SET LOCAL enable_sort = off")
                     .execute(&mut *tx)
                     .await?;
+                let rows = q.fetch_all(&mut *tx).await?;
+                tx.commit().await?;
+                Ok::<_, sqlx::Error>(rows)
+            } else {
+                q.fetch_all(&self.pool).await
             }
-            let mut q = sqlx::query(sqlx::AssertSqlSafe(page_sql));
-            let mut si = bind_str_p.iter();
-            let mut ii = bind_i64_p.iter();
-            for k in &kinds_p {
-                if *k == 's' {
-                    q = q.bind(si.next().cloned().unwrap_or_default());
-                } else {
-                    q = q.bind(*ii.next().unwrap_or(&0));
-                }
-            }
-            q = q.bind(limit).bind(offset);
-            let rows = q.fetch_all(&mut *tx).await?;
-            tx.commit().await?;
-            Ok::<_, sqlx::Error>(rows)
         };
-        let count_fut = async move {
-            let mut tx = count_pool.begin().await?;
-            sqlx::query("SET LOCAL random_page_cost = 1.1")
-                .execute(&mut *tx)
+        let count_fut = self.totals.get_or_fetch(
+            (count_sql.clone(), bind_str.clone(), bind_i64.clone()),
+            || async {
+                let row = bind_all(
+                    sqlx::query(sqlx::AssertSqlSafe(count_sql)),
+                    &bind_str,
+                    &bind_i64,
+                    &kinds,
+                )
+                .fetch_one(&self.pool)
                 .await?;
-            let mut q = sqlx::query(sqlx::AssertSqlSafe(count_sql));
-            let mut si = bind_str_c.iter();
-            let mut ii = bind_i64_c.iter();
-            for k in &kinds_c {
-                if *k == 's' {
-                    q = q.bind(si.next().cloned().unwrap_or_default());
-                } else {
-                    q = q.bind(*ii.next().unwrap_or(&0));
-                }
-            }
-            let row = q.fetch_one(&mut *tx).await?;
-            tx.commit().await?;
-            Ok::<_, sqlx::Error>(row.try_get::<i64, _>("sales_count").unwrap_or(0))
-        };
+                Ok::<_, sqlx::Error>(row.try_get::<i64, _>("sales_count").unwrap_or(0))
+            },
+        );
 
         let (rows, total) = tokio::try_join!(page_fut, count_fut)?;
         let sales: Vec<Sale> = rows

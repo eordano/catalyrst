@@ -29,7 +29,7 @@
             version = "0.0.0";
             src = ./.;
             inherit nodejs;
-            npmDepsHash = "sha256-b8NMkKpbIQsSoxqsSD6aAiUWKVik9valsiqnZ+Y4AGU=";
+            npmDepsHash = "sha256-/ju50SE3iDqh1tHD6eP+p/qbVosCRJ8PSfGLkNFDV1I=";
 
             npmBuildScript = "build-storybook";
 

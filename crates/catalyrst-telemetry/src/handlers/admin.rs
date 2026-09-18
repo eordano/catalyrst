@@ -325,13 +325,28 @@ fn actor_of(headers: &HeaderMap, q: &ActorQuery) -> String {
         .unwrap_or_else(|| "loopback".to_string())
 }
 
-pub(crate) async fn audit(state: &AppState, actor: &str, action: &str, detail: Value) {
-    let _ = sqlx::query("INSERT INTO admin_audit (actor, action, detail) VALUES ($1, $2, $3)")
-        .bind(actor)
-        .bind(action)
-        .bind(detail)
-        .execute(&state.pool)
-        .await;
+/// One statement for `write` plus its audit row; bind actor, action, detail after the write's `binds`.
+pub(crate) fn audited(write: &str, binds: usize) -> String {
+    format!(
+        "WITH w AS ({write} RETURNING 1) \
+         INSERT INTO admin_audit (actor, action, detail) VALUES (${}, ${}, ${})",
+        binds + 1,
+        binds + 2,
+        binds + 3
+    )
+}
+
+/// [`audited`] for deletes: audit detail gains `deleted` = rows removed, returned as the single column.
+fn audited_delete(write: &str, binds: usize) -> String {
+    format!(
+        "WITH w AS ({write} RETURNING 1) \
+         INSERT INTO admin_audit (actor, action, detail) \
+         SELECT ${}, ${}, ${}::jsonb || jsonb_build_object('deleted', (SELECT count(*) FROM w)) \
+         RETURNING (detail->>'deleted')::bigint",
+        binds + 1,
+        binds + 2,
+        binds + 3
+    )
 }
 
 #[derive(Deserialize)]
@@ -352,27 +367,23 @@ pub async fn purge(
     if b.older_than_days < 1 {
         return Err(bad("older_than_days must be >= 1"));
     }
-    let res = sqlx::query(
+    let actor = actor_of(&headers, &aq);
+    let deleted: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(audited_delete(
         "DELETE FROM telemetry_events \
          WHERE received_at < now() - make_interval(days => $1::int) \
            AND ($2::text IS NULL OR source = $2) \
            AND ($3::text IS NULL OR project = $3)",
-    )
+        3,
+    )))
     .bind(b.older_than_days)
     .bind(b.source.as_deref().filter(|s| !s.is_empty()))
     .bind(b.project.as_deref().filter(|s| !s.is_empty()))
-    .execute(&st.pool)
+    .bind(&actor)
+    .bind("purge")
+    .bind(json!({ "older_than_days": b.older_than_days, "source": b.source, "project": b.project }))
+    .fetch_one(&st.pool)
     .await
     .map_err(|e| db_err("telemetry admin", e))?;
-    let deleted = res.rows_affected() as i64;
-    let actor = actor_of(&headers, &aq);
-    audit(
-        &st,
-        &actor,
-        "purge",
-        json!({ "older_than_days": b.older_than_days, "source": b.source, "project": b.project, "deleted": deleted }),
-    )
-    .await;
     Ok(Json(json!({ "ok": true, "deleted": deleted })))
 }
 
@@ -388,23 +399,20 @@ pub async fn ingest_toggle(
     Query(aq): Query<ActorQuery>,
     Json(b): Json<IngestBody>,
 ) -> AdminResult {
-    sqlx::query(
+    let actor = actor_of(&headers, &aq);
+    sqlx::query(sqlx::AssertSqlSafe(audited(
         "INSERT INTO admin_settings (key, value, updated_at) VALUES ('ingest_enabled', $1, now()) \
          ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = now()",
-    )
+        1,
+    )))
     .bind(if b.enabled { "true" } else { "false" })
+    .bind(&actor)
+    .bind("ingest_toggle")
+    .bind(json!({ "enabled": b.enabled }))
     .execute(&st.pool)
     .await
     .map_err(|e| db_err("telemetry admin", e))?;
     st.ingest.enabled.store(b.enabled, Ordering::Relaxed);
-    let actor = actor_of(&headers, &aq);
-    audit(
-        &st,
-        &actor,
-        "ingest_toggle",
-        json!({ "enabled": b.enabled }),
-    )
-    .await;
     Ok(Json(json!({ "ok": true, "enabled": b.enabled })))
 }
 
@@ -425,17 +433,23 @@ pub async fn quota(
     if b.project.is_empty() {
         return Err(bad("project required"));
     }
+    let actor = actor_of(&headers, &aq);
+    let detail = json!({ "project": b.project, "daily_limit": b.daily_limit });
     match b.daily_limit {
         Some(limit) => {
             if limit < 0 {
                 return Err(bad("daily_limit must be >= 0"));
             }
-            sqlx::query(
+            sqlx::query(sqlx::AssertSqlSafe(audited(
                 "INSERT INTO project_quota (project, daily_limit, updated_at) VALUES ($1, $2, now()) \
                  ON CONFLICT (project) DO UPDATE SET daily_limit = $2, updated_at = now()",
-            )
+                2,
+            )))
             .bind(&b.project)
             .bind(limit)
+            .bind(&actor)
+            .bind("quota")
+            .bind(detail)
             .execute(&st.pool)
             .await
             .map_err(|e| db_err("telemetry admin", e))?;
@@ -446,22 +460,20 @@ pub async fn quota(
                 .insert(b.project.clone(), limit);
         }
         None => {
-            sqlx::query("DELETE FROM project_quota WHERE project = $1")
-                .bind(&b.project)
-                .execute(&st.pool)
-                .await
-                .map_err(|e| db_err("telemetry admin", e))?;
+            sqlx::query(sqlx::AssertSqlSafe(audited(
+                "DELETE FROM project_quota WHERE project = $1",
+                1,
+            )))
+            .bind(&b.project)
+            .bind(&actor)
+            .bind("quota")
+            .bind(detail)
+            .execute(&st.pool)
+            .await
+            .map_err(|e| db_err("telemetry admin", e))?;
             st.ingest.quotas.write().unwrap().remove(&b.project);
         }
     }
-    let actor = actor_of(&headers, &aq);
-    audit(
-        &st,
-        &actor,
-        "quota",
-        json!({ "project": b.project, "daily_limit": b.daily_limit }),
-    )
-    .await;
     Ok(Json(
         json!({ "ok": true, "project": b.project, "daily_limit": b.daily_limit }),
     ))
@@ -522,26 +534,24 @@ pub async fn bulk_delete(
     Json(f): Json<BulkFilter>,
 ) -> AdminResult {
     f.require_some()?;
-    let sql = format!("DELETE FROM telemetry_events WHERE {BULK_WHERE}");
+    let sql = audited_delete(
+        &format!("DELETE FROM telemetry_events WHERE {BULK_WHERE}"),
+        5,
+    );
     let [b1, b2, b3, b4, b5] = f.binds();
-    let res = sqlx::query(sqlx::AssertSqlSafe(sql))
+    let actor = actor_of(&headers, &aq);
+    let deleted: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
         .bind(b1)
         .bind(b2)
         .bind(b3)
         .bind(b4)
         .bind(b5)
-        .execute(&st.pool)
+        .bind(&actor)
+        .bind("bulk_delete")
+        .bind(json!({ "source": f.source, "project": f.project, "fingerprint": f.fingerprint, "before": f.before, "level": f.level }))
+        .fetch_one(&st.pool)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("db error: {e}")))?;
-    let deleted = res.rows_affected() as i64;
-    let actor = actor_of(&headers, &aq);
-    audit(
-        &st,
-        &actor,
-        "bulk_delete",
-        json!({ "source": f.source, "project": f.project, "fingerprint": f.fingerprint, "before": f.before, "level": f.level, "deleted": deleted }),
-    )
-    .await;
     Ok(Json(json!({ "ok": true, "deleted": deleted })))
 }
 
@@ -563,32 +573,34 @@ pub async fn export(
     let limit = b.limit.unwrap_or(100).clamp(1, 10_000);
 
     let sql = format!(
-        "SELECT to_jsonb(t) AS row FROM ( \
-           SELECT id, source, project, event_kind, fingerprint, \
-             to_char(received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS received_at, \
-             body \
-           FROM telemetry_events WHERE {BULK_WHERE} \
-           ORDER BY telemetry_events.received_at DESC LIMIT {limit} \
-         ) t"
+        "WITH r AS ( \
+           SELECT to_jsonb(t) - 'ord' AS row, t.ord FROM ( \
+             SELECT id, source, project, event_kind, fingerprint, \
+               to_char(received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS received_at, \
+               body, received_at AS ord \
+             FROM telemetry_events WHERE {BULK_WHERE} \
+             ORDER BY telemetry_events.received_at DESC LIMIT {limit} \
+           ) t \
+         ), a AS ( \
+           INSERT INTO admin_audit (actor, action, detail) \
+           SELECT $6, $7, $8::jsonb || jsonb_build_object('count', (SELECT count(*) FROM r)) \
+         ) \
+         SELECT row FROM r ORDER BY ord DESC"
     );
     let [b1, b2, b3, b4, b5] = b.filter.binds();
+    let actor = actor_of(&headers, &aq);
     let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
         .bind(b1)
         .bind(b2)
         .bind(b3)
         .bind(b4)
         .bind(b5)
+        .bind(&actor)
+        .bind("export")
+        .bind(json!({ "source": b.filter.source, "project": b.filter.project, "fingerprint": b.filter.fingerprint, "before": b.filter.before, "level": b.filter.level }))
         .fetch_all(&st.pool)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("db error: {e}")))?;
-    let actor = actor_of(&headers, &aq);
-    audit(
-        &st,
-        &actor,
-        "export",
-        json!({ "source": b.filter.source, "project": b.filter.project, "fingerprint": b.filter.fingerprint, "before": b.filter.before, "level": b.filter.level, "count": rows.len() }),
-    )
-    .await;
     let truncated = rows.len() as i64 >= limit;
     Ok(Json(
         json!({ "ok": true, "count": rows.len(), "truncated": truncated, "events": rows }),
@@ -666,29 +678,26 @@ pub async fn regroup(
             "at least one source fingerprint (distinct from canonical) required",
         ));
     }
-    let mut merged = 0i64;
-    for src in &sources {
-        sqlx::query(
-            "INSERT INTO issue_merge (source_fingerprint, canonical_fingerprint, merged_at) \
-             VALUES ($1, $2, now()) \
-             ON CONFLICT (source_fingerprint) \
-             DO UPDATE SET canonical_fingerprint = $2, merged_at = now()",
-        )
-        .bind(src)
-        .bind(&b.canonical)
-        .execute(&st.pool)
-        .await
-        .map_err(|e| db_err("telemetry admin", e))?;
-        merged += 1;
-    }
+    let merged = sources.len() as i64;
+    let mut distinct = sources.clone();
+    distinct.sort();
+    distinct.dedup();
     let actor = actor_of(&headers, &aq);
-    audit(
-        &st,
-        &actor,
-        "regroup",
-        json!({ "fingerprint": b.canonical, "canonical": b.canonical, "sources": sources, "merged": merged }),
-    )
-    .await;
+    sqlx::query(sqlx::AssertSqlSafe(audited(
+        "INSERT INTO issue_merge (source_fingerprint, canonical_fingerprint, merged_at) \
+         SELECT s, $2, now() FROM unnest($1::text[]) AS s \
+         ON CONFLICT (source_fingerprint) \
+         DO UPDATE SET canonical_fingerprint = $2, merged_at = now()",
+        2,
+    )))
+    .bind(&distinct)
+    .bind(&b.canonical)
+    .bind(&actor)
+    .bind("regroup")
+    .bind(json!({ "fingerprint": b.canonical, "canonical": b.canonical, "sources": sources, "merged": merged }))
+    .execute(&st.pool)
+    .await
+    .map_err(|e| db_err("telemetry admin", e))?;
     Ok(Json(
         json!({ "ok": true, "canonical": b.canonical, "merged": merged }),
     ))
@@ -715,24 +724,21 @@ pub async fn release(
     if !matches!(b.state.as_str(), "active" | "archived" | "broken") {
         return Err(bad("state must be active|archived|broken"));
     }
-    sqlx::query(
+    let actor = actor_of(&headers, &aq);
+    sqlx::query(sqlx::AssertSqlSafe(audited(
         "INSERT INTO release_state (release, state, note, updated_at) VALUES ($1, $2, $3, now()) \
          ON CONFLICT (release) DO UPDATE SET state = $2, note = $3, updated_at = now()",
-    )
+        3,
+    )))
     .bind(&b.release)
     .bind(&b.state)
     .bind(b.note.as_deref().filter(|s| !s.is_empty()))
+    .bind(&actor)
+    .bind("release")
+    .bind(json!({ "release": b.release, "state": b.state, "note": b.note }))
     .execute(&st.pool)
     .await
     .map_err(|e| db_err("telemetry admin", e))?;
-    let actor = actor_of(&headers, &aq);
-    audit(
-        &st,
-        &actor,
-        "release",
-        json!({ "release": b.release, "state": b.state, "note": b.note }),
-    )
-    .await;
     Ok(Json(
         json!({ "ok": true, "release": b.release, "state": b.state }),
     ))

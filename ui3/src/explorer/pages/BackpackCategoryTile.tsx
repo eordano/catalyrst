@@ -26,6 +26,7 @@ export default function BackpackCategoryTile({
       aria-label={slot.label}
     >
       <span className="bp__catglyph u-mask-icon" aria-hidden style={glyphStyle} />
+      <span className="bp__catlabel">{slot.label}</span>
       <span className="bp__catslot" aria-hidden>
         {thumbnail ? (
           <img className="bp__catthumb" src={thumbnail} alt="" loading="lazy" />

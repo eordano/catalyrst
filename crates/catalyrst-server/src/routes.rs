@@ -683,7 +683,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(axum::middleware::from_fn(
             crate::nul_guard::nul_guard_middleware,
         ))
-        .layer(axum::middleware::from_fn(crate::cors::cors_middleware));
+        .layer(axum::middleware::from_fn(crate::cors::cors_middleware))
+        .layer(axum::middleware::from_fn(
+            crate::connection::keep_alive_hint,
+        ));
 
     if let Some(timeout) = request_timeout() {
         tracing::info!(?timeout, "request timeout enabled");

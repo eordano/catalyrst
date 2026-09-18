@@ -9,6 +9,7 @@ use crate::handlers::admin::require_admin;
 use crate::handlers::{idempotency_key, require_broadcast_enabled};
 use crate::http::errors::ApiError;
 use crate::ports::broker::{parse_address, parse_token_id, BrokerCall};
+use crate::ports::claims::claim_escrow_action;
 use crate::ports::escrow::{build_reclaim, build_release};
 use crate::AppState;
 
@@ -164,32 +165,22 @@ async fn broadcast_action(
 
     let tx_hash = match idem {
         Some(key) => {
-            let claim = sqlx::query(
-                "INSERT INTO escrow_actions \
-                 (idempotency_key, action, collection, token_id, buyer, escrow_address, chain_id, status) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending') \
-                 ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING",
+            let claim = claim_escrow_action(
+                &state.pool,
+                key,
+                action.as_str(),
+                collection_hex,
+                token_id_text,
+                buyer_hex,
+                &escrow_hex,
+                chain_id,
             )
-            .bind(key)
-            .bind(action.as_str())
-            .bind(collection_hex)
-            .bind(token_id_text)
-            .bind(buyer_hex)
-            .bind(&escrow_hex)
-            .bind(chain_id)
-            .execute(&state.pool)
             .await?;
 
-            if claim.rows_affected() == 0 {
-                let (existing_tx, status): (Option<String>, String) = sqlx::query_as(
-                    "SELECT tx_hash, status FROM escrow_actions WHERE idempotency_key = $1",
-                )
-                .bind(key)
-                .fetch_one(&state.pool)
-                .await?;
-                match status.as_str() {
+            if !claim.claimed {
+                match claim.status() {
                     "sent" => {
-                        let tx_hash = existing_tx.ok_or_else(|| {
+                        let tx_hash = claim.tx_hash.ok_or_else(|| {
                             ApiError::Internal(format!(
                                 "escrow action for idempotencyKey {key:?} is 'sent' but has no recorded txHash"
                             ))
@@ -199,13 +190,7 @@ async fn broadcast_action(
                     }
 
                     "error" => {
-                        let rearmed = sqlx::query(
-                            "UPDATE escrow_actions SET status = 'pending', updated_at = NOW() WHERE idempotency_key = $1 AND status = 'error'",
-                        )
-                        .bind(key)
-                        .execute(&state.pool)
-                        .await?;
-                        if rearmed.rows_affected() == 0 {
+                        if !claim.rearmed {
                             return Err(ApiError::Conflict(format!(
                                 "an escrow {} for idempotencyKey {key:?} is already in flight; not re-broadcasting \u{2014} retry after it settles",
                                 action.as_str()
@@ -214,7 +199,7 @@ async fn broadcast_action(
                         tracing::info!(idempotency_key = %key, action = action.as_str(), "re-arming errored escrow action for re-broadcast (prior attempt failed pre-broadcast; no NFT moved)");
                     }
 
-                    _ => {
+                    status => {
                         return Err(ApiError::Conflict(format!(
                             "an escrow {} for idempotencyKey {key:?} is in flight (status {status:?}); not re-broadcasting \u{2014} poll the recorded action or reconcile rather than retrying",
                             action.as_str()

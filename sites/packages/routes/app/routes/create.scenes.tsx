@@ -16,13 +16,18 @@ import {
   type ProjectMeta,
 } from "@data/lib/fs/handle-store";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { loadCreatorScenes, type CreatorScene } from "@data/lib/catalyst/create/index.server";
 import { discoverDeployedScenes } from "@data/lib/catalyst/creator-hub/discover-deployed.server";
 import type { DiscoveredScene } from "@data/lib/catalyst/creator-hub/discover-deployed";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
+import {
+  NO_COMPOSITE_CODE_ONLY_HINT,
+  NO_COMPOSITE_HINT,
+  OPEN_FAILED_HINT,
+} from "@data/lib/fs/local-scene";
 import { track } from "@core/lib/telemetry/track";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
@@ -140,28 +145,22 @@ export async function loader({ request }: Route.LoaderArgs) {
   const devOverride = import.meta.env.DEV && WALLET_RE.test(asParam) ? asParam : "";
   const publishedAddress = devOverride || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
+  const { sid, wrap, data: { scenes, error, published } } = await storyLoaderWith(
+    request, STORY, FALLBACK, async () => {
+      let scenes: CreatorScene[] = [];
+      let error = false;
+      if (!forceEmpty && view === "local") {
+        try {
+          scenes = await loadCreatorScenes({ creator: creator || undefined, limit: 12, signal: request.signal });
+        } catch {
+          error = true;
+        }
+      }
+      const published: DiscoveredScene[] = view === "published" && publishedAddress
+        ? await discoverDeployedScenes(publishedAddress, { signal: request.signal }).catch(() => []) : [];
+      return { scenes, error, published };
+    },
   );
-
-  let scenes: CreatorScene[] = [];
-  let error = false;
-  if (!forceEmpty && view === "local") {
-    try {
-      scenes = await loadCreatorScenes({ creator: creator || undefined, limit: 12 });
-    } catch {
-      error = true;
-    }
-  }
-
-  const published: DiscoveredScene[] =
-    view === "published" && publishedAddress
-      ? await discoverDeployedScenes(publishedAddress, { signal: request.signal }).catch(
-          () => [],
-        )
-      : [];
 
   const payload = {
     sid,
@@ -232,7 +231,7 @@ function PublishedScenesView({
   const navigate = useNavigate();
   const revalidator = useRevalidator();
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
   const { tabs, onTab } = useSceneTabs("published");
 
   const needsRescope = isConnected && !!address && !loaderAddress;
@@ -339,7 +338,7 @@ function ScenesView({
   const revalidator = useRevalidator();
   const [, setSearchParams] = useSearchParams();
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
   const { tabs, onTab } = useSceneTabs("local");
   const isEmpty = scenes.length === 0;
   const rescoping = isConnected && Boolean(address) && !creator;
@@ -438,7 +437,7 @@ function ScenesView({
     track("ch_scenes_clicked", { to: "editor", seeded: Boolean(pointer) }, { sid, story: STORY });
     navigate(
       pointer
-        ? `/creator-hub/scene-editor?pointer=${encodeURIComponent(pointer)}&from=scenes`
+        ? `/creator-hub/scene-editor?pointer=${encodeURIComponent(pointer)}${scene?.world_name ? `&world=${encodeURIComponent(scene.world_name)}` : ""}&from=scenes`
         : "/creator-hub/scene-editor?from=scenes",
     );
   }
@@ -537,8 +536,9 @@ function ScenesView({
     setImportError(null);
     setImportPhase("picking");
     try {
-      const { openLocalScene, stashLocalSeed, stashCompositeHandle, stashLocalComposite } =
-        await import("@data/lib/fs/local-scene");
+      const { openLocalScene, stageLocalSceneForEditor } = await import(
+        "@data/lib/fs/local-scene"
+      );
       const out = await openLocalScene({ onPhase: setImportPhase });
       if (out.status === "cancelled") {
         setImportPhase(null);
@@ -551,29 +551,11 @@ function ScenesView({
           { reason: "no_composite", has_scene_json: out.hasSceneJson, files: out.fileCount },
           { sid, story: STORY },
         );
-        setImportError(
-          out.hasSceneJson
-            ? "No main.composite found in that folder \u{2014} it looks like a code-only SDK project (scene.json but no saved scene). Pick the project folder that contains your saved scene, the one holding main.composite."
-            : "No main.composite found in that folder \u{2014} pick the project folder that contains your saved scene, the one holding main.composite.",
-        );
+        setImportError(out.hasSceneJson ? NO_COMPOSITE_CODE_ONLY_HINT : NO_COMPOSITE_HINT);
         return;
       }
-      const res = out.result;
       setImportPhase("opening");
-      stashLocalSeed(res.seed);
-      await stashCompositeHandle(res.compositeHandle);
-      stashLocalComposite(res.compositeText);
-      {
-        const { populateProjectRealm, clearProjectRealm } = await import(
-          "@data/lib/fs/project-realm"
-        );
-        if (res.files) {
-          const pr = await populateProjectRealm(res.files, res.sceneJsonText);
-          if (!pr.ok) await clearProjectRealm();
-        } else {
-          await clearProjectRealm();
-        }
-      }
+      await stageLocalSceneForEditor(out.result);
       if (typeof window !== "undefined") {
         window.location.assign("/creator-hub/scene-editor?source=local&from=scenes");
       } else {
@@ -582,9 +564,7 @@ function ScenesView({
     } catch {
       setImportPhase(null);
       track("ch_scenes_import_failed", { reason: "exception" }, { sid, story: STORY });
-      setImportError(
-        "Couldn't read that folder \u{2014} check that this site still has permission to access it, then try again.",
-      );
+      setImportError(OPEN_FAILED_HINT);
     }
   }
   function onRetry() {

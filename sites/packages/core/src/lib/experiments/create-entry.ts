@@ -1,12 +1,12 @@
 
-export const CREATE_ENTRY_ARMS = [
+const CREATE_ENTRY_ARMS = [
   "download-hub",
   "builder-or-download",
   "hub-or-download",
   "capability-routed",
 ] as const;
 
-export type CreateEntryArm = (typeof CREATE_ENTRY_ARMS)[number];
+type CreateEntryArm = (typeof CREATE_ENTRY_ARMS)[number];
 
 export const CREATE_ENTRY_STORIES = {
   "entry-preview": "create_entry_preview",

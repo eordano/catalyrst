@@ -1,6 +1,7 @@
 
-import type { ButtonHTMLAttributes, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type { ButtonHTMLAttributes, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { NearbyPlayer } from "../../generated/bridge/NearbyPlayer";
 import { Avatar } from "../../atoms/primitives";
 import DclLogomark from "../../atoms/DclLogomark";
@@ -8,6 +9,7 @@ import type { BridgeChatLine } from "../../overlay/bridge";
 import { EmojiPicker } from "./EmojiPicker";
 import { getEmojiData, loadEmojiData, searchByShortcode, SHORTCODE_RE, type Emoji } from "./emojiData";
 import { MessageText, mentionsMe, buildNameIndex } from "./chatText";
+import { consoleLineKey, dispatchCommand, helpText, requestEngineHelp, wallClockMs, type ConsoleSource } from "./chatCommands";
 import type { ProfileCardProps } from "../components/ProfileCard";
 import type { ProfileCardUser } from "../components/ProfileCardPresentation";
 import styles from "./Chat.module.css";
@@ -18,7 +20,8 @@ export type ChatIo = {
   me: { address: string; name: string } | null;
   blocked: string[];
   live: boolean;
-  send: (message: string) => void;
+  send: (message: string) => void | Promise<void>;
+  console?: ConsoleSource;
   teleport?: (x: number, z: number) => void;
   changeRealm?: (realm: string) => void;
 };
@@ -33,6 +36,7 @@ const RARITY = [
   "#a0abff", "#c640cd",
 ];
 const SYSTEM_COLOR = "#61d04f";
+const CONSOLE_CHANNEL = "System";
 
 function isSystem(sender: string): boolean {
   return !sender || sender.toLowerCase() === "system";
@@ -185,7 +189,7 @@ function CtrlButton({
   );
 }
 
-export function DaySeparator({ ts }: { ts: number }) {
+function DaySeparator({ ts }: { ts: number }) {
   return (
     <div className={styles.dayRow}>
       <span className={styles.dayPill}>{formatDay(ts)}</span>
@@ -195,14 +199,44 @@ export function DaySeparator({ ts }: { ts: number }) {
 
 const MSG_STYLES = { url: styles.url, mention: styles.mention, location: styles.location, world: styles.world };
 
-type ChatLine = { id: string; ts: number; sender: string; senderName?: string; message: string };
+type ChatLine = { id: string; ts: number; sender: string; senderName?: string; message: string; channel?: string };
+type LocalLine = { id: string; ts: number; message: string; anchor: BridgeChatLine | null; anchorKey?: string };
 
-export function ChatBubble({
+const receivedAt = new WeakMap<BridgeChatLine, number>();
+let localSeq = 0;
+
+function stampOf(l: BridgeChatLine): number {
+  const seen = receivedAt.get(l);
+  if (seen != null) return seen;
+  const ts = wallClockMs(l.timestamp, Date.now());
+  receivedAt.set(l, ts);
+  return ts;
+}
+
+function isConsole(line: ChatLine): boolean {
+  return line.channel === CONSOLE_CHANNEL || isSystem(line.sender);
+}
+
+function ConsoleLine({ line, echo }: { line: ChatLine; echo: boolean }) {
+  return (
+    <div className={`${styles.consoleLine} ${echo ? styles.consoleEcho : ""}`.trim()} data-console={echo ? "echo" : "output"}>
+      {echo && (
+        <span className={styles.consolePrompt} aria-hidden="true">
+          &#x203A;
+        </span>
+      )}
+      <span className={styles.consoleText}>{line.message}</span>
+    </div>
+  );
+}
+
+function ChatBubble({
   line,
   name,
   members = [],
   me,
   onOpenProfile,
+  onViewProfile,
   onLocation,
   onVisitWorld,
 }: {
@@ -211,6 +245,7 @@ export function ChatBubble({
   members?: NearbyPlayer[];
   me?: { address?: string; name?: string } | null;
   onOpenProfile?: (user: ProfileCardUser, e: ReactMouseEvent) => void;
+  onViewProfile?: (user: ProfileCardUser, opener: HTMLElement) => void;
   onLocation?: (x: number, y: number) => void;
   onVisitWorld?: (name: string) => void;
 }) {
@@ -224,6 +259,10 @@ export function ChatBubble({
     if (e.type === "contextmenu") e.preventDefault();
     onOpenProfile?.(sender, e);
   };
+  const viewSender = (e: ReactMouseEvent<HTMLButtonElement>): void => {
+    if (onViewProfile) onViewProfile(sender, e.currentTarget);
+    else openSender(e);
+  };
   const onMention = (address: string, mname: string, e: ReactMouseEvent): void => {
     if (e.type === "contextmenu") e.preventDefault();
     const m = findMember(members, address);
@@ -232,7 +271,7 @@ export function ChatBubble({
 
   return (
     <div className={`${styles.entry} ${highlight ? styles.mentionMe : ""}`.trim()}>
-      <button type="button" className={styles.avatarBtn} aria-label={`View ${base}`} onClick={openSender} onContextMenu={openSender}>
+      <button type="button" className={styles.avatarBtn} aria-label={`View ${base}`} onClick={viewSender} onContextMenu={openSender}>
         <Avatar src={senderMember?.picture} name={name} hue={hexToHue(color)} size={28} />
       </button>
       <div className={styles.bubble}>
@@ -249,7 +288,7 @@ export function ChatBubble({
   );
 }
 
-export function MemberRow({ member }: { member: NearbyPlayer }) {
+function MemberRow({ member }: { member: NearbyPlayer }) {
   const { base, tag } = splitName(memberLabel(member));
   const color = senderColor(member.address);
   return (
@@ -313,24 +352,45 @@ export function ChatView({
   hidden = false,
   io,
   docked = false,
+  header = true,
   title = "Nearby",
   membersTitle,
   membersEmpty,
   emptyLine,
   profileCard,
+  onViewProfile,
+  commands = true,
+  draftValue,
+  onDraftChange,
 }: {
   open: boolean;
   onToggle: () => void;
   hidden?: boolean;
   io: ChatIo;
   docked?: boolean;
+  header?: boolean;
   title?: string;
   membersTitle?: string;
   membersEmpty?: string;
   emptyLine?: string;
   profileCard?: (props: ProfileCardProps) => ReactNode;
+  onViewProfile?: (user: ProfileCardUser, opener: HTMLElement | null) => void;
+  commands?: boolean;
+  draftValue?: string;
+  onDraftChange?: (value: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const [localDraft, setLocalDraft] = useState("");
+  const draft = draftValue ?? localDraft;
+  const setDraft = (value: SetStateAction<string>) => {
+    const next = typeof value === "function" ? value(draft) : value;
+    if (onDraftChange) onDraftChange(next);
+    else setLocalDraft(next);
+  };
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+  const followTail = useRef(true);
+  const scrollPosition = useRef(0);
+  const [newMessages, setNewMessages] = useState(false);
   const [picker, setPicker] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [emojiReady, setEmojiReady] = useState(() => getEmojiData() != null);
@@ -340,6 +400,9 @@ export function ChatView({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionSug, setMentionSug] = useState<NearbyPlayer[]>([]);
   const [profileTarget, setProfileTarget] = useState<{ user: ProfileCardUser; x: number; y: number } | null>(null);
+  const [clearedAfter, setClearedAfter] = useState<{ line: BridgeChatLine | null } | null>(null);
+  const [localLines, setLocalLines] = useState<LocalLine[]>([]);
+  const [hiddenKeys, setHiddenKeys] = useState<ReadonlySet<string>>(() => new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -362,7 +425,7 @@ export function ChatView({
     [emojiReady, scQuery],
   );
 
-  const active = open && (hovered || focused || picker);
+  const active = open && (docked || hovered || focused || picker);
   const bare = !active;
 
   const nameByAddr = useMemo(() => {
@@ -377,22 +440,49 @@ export function ChatView({
     () => new Set(blocked.map((a) => a.toLowerCase())),
     [blocked],
   );
-  const lines = useMemo<ChatLine[]>(
-    () =>
-      chatPushes
-        .filter((l) => !(l.senderAddress && blockedSet.has(l.senderAddress.toLowerCase())))
-        .map((l, i) => {
-          const sender = l.senderAddress || l.senderName || "system";
-          return {
-            id: l.timestamp != null ? `t${l.timestamp}-${i}` : `i${sender}|${l.message ?? ""}|${i}`,
-            ts: l.timestamp ?? Date.now(),
-            sender,
-            senderName: l.senderName ?? undefined,
-            message: l.message ?? "",
-          };
-        }),
-    [chatPushes, blockedSet],
-  );
+  const [consoleSince, setConsoleSince] = useState<number | null>(null);
+  const visiblePushes = useMemo(() => {
+    if (!clearedAfter) return chatPushes;
+    const i = clearedAfter.line ? chatPushes.indexOf(clearedAfter.line) : -1;
+    return chatPushes.slice(i + 1);
+  }, [chatPushes, clearedAfter]);
+
+  const lines = useMemo<ChatLine[]>(() => {
+    const out: ChatLine[] = [];
+    const visible = new Set(visiblePushes);
+    const lastByKey = new Map<string, number>();
+    visiblePushes.forEach((l, i) => lastByKey.set(consoleLineKey(l), i));
+    const pending = new Map<BridgeChatLine, LocalLine[]>();
+    const pendingByKey = new Map<string, LocalLine[]>();
+    const toLine = (ll: LocalLine): ChatLine => ({ id: ll.id, ts: ll.ts, sender: "system", message: ll.message, channel: CONSOLE_CHANNEL });
+    for (const ll of localLines) {
+      if (ll.anchorKey != null && lastByKey.has(ll.anchorKey)) pendingByKey.set(ll.anchorKey, [...(pendingByKey.get(ll.anchorKey) ?? []), ll]);
+      else if (ll.anchorKey == null && ll.anchor && visible.has(ll.anchor)) pending.set(ll.anchor, [...(pending.get(ll.anchor) ?? []), ll]);
+      else out.push(toLine(ll));
+    }
+    visiblePushes.forEach((l, i) => {
+      const key = consoleLineKey(l);
+      const blockedLine = l.senderAddress && blockedSet.has(l.senderAddress.toLowerCase());
+      const unsolicitedSystem = !l.senderAddress && isSystem(l.senderName ?? "") && (consoleSince === null || stampOf(l) < consoleSince);
+      const commandEcho = l.channel === CONSOLE_CHANNEL && /^\/(?:goto|teleport|changerealm)(?:\s|$)/i.test(l.message?.trimStart() ?? "");
+      const hiddenLine = commandEcho || unsolicitedSystem || (!l.senderAddress && !l.senderName && hiddenKeys.has(key));
+      if (!blockedLine && !hiddenLine) {
+        const sender = l.senderAddress || l.senderName || "system";
+        const ts = stampOf(l);
+        out.push({
+          id: `t${ts}-${i}`,
+          ts,
+          sender,
+          senderName: l.senderName ?? undefined,
+          message: l.message ?? "",
+          channel: l.channel ?? undefined,
+        });
+      }
+      for (const ll of pending.get(l) ?? []) out.push(toLine(ll));
+      if (lastByKey.get(key) === i) for (const ll of pendingByKey.get(key) ?? []) out.push(toLine(ll));
+    });
+    return out;
+  }, [visiblePushes, localLines, blockedSet, hiddenKeys, consoleSince]);
 
   const rows = useMemo(() => {
     const out: ({ kind: "day"; ts: number; id: string } | { kind: "msg"; line: ChatLine })[] = [];
@@ -409,14 +499,39 @@ export function ChatView({
   }, [lines]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || hidden) return;
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [lines, open, active]);
+    if (!el) return;
+    if (followTail.current) el.scrollTop = el.scrollHeight;
+    else {
+      el.scrollTop = scrollPosition.current;
+      setNewMessages(true);
+    }
+  }, [lines, open, hidden]);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
+    if (open && !hidden && !sending) inputRef.current?.focus({ preventScroll: true });
+    else setHovered(false);
+  }, [open, hidden, sending]);
+
+  useEffect(() => {
+    if (!open || hidden) return undefined;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey) return;
+      const ae = document.activeElement;
+      if (
+        ae &&
+        (ae.tagName === "INPUT" ||
+          ae.tagName === "TEXTAREA" ||
+          (ae instanceof HTMLElement && ae.isContentEditable))
+      )
+        return;
+      e.preventDefault();
+      inputRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, hidden]);
 
   useEffect(() => {
     if (!active) setShowMembers(false);
@@ -465,10 +580,51 @@ export function ChatView({
     inputRef.current?.focus();
   };
 
-  const send = (): void => {
+  const printLocal = (message: string, anchor: BridgeChatLine | null, anchorKey?: string): void => {
+    localSeq += 1;
+    setLocalLines((ls) => [...ls, { id: `l${localSeq}`, ts: Date.now(), message, anchor, anchorKey }]);
+  };
+
+  const askEngineHelp = (source: ConsoleSource, anchor: BridgeChatLine | null): void => {
+    void requestEngineHelp(source, io.send).then((help) => {
+      if (!help || help.names.length === 0) {
+        printLocal(helpText(), anchor);
+        return;
+      }
+      setHiddenKeys((h) => new Set([...h, ...help.keys]));
+      printLocal(helpText(help.names), anchor, help.keys[help.keys.length - 1]);
+    });
+  };
+
+  const send = async (): Promise<void> => {
     const message = draft.trim();
-    if (!message) return;
-    io.send(message);
+    if (!message || sending) return;
+    setSendError("");
+    const action = commands ? dispatchCommand(message) : { kind: "send" as const, message };
+    if (message.startsWith("/")) setConsoleSince(Date.now());
+    const anchor = chatPushes[chatPushes.length - 1] ?? null;
+    if (action.kind === "clear") {
+      setClearedAfter({ line: anchor });
+      setLocalLines([]);
+    } else if (action.kind === "print") {
+      printLocal(action.text, anchor);
+    } else if (action.kind === "help") {
+      if (io.console) askEngineHelp(io.console, anchor);
+      else printLocal(helpText(), anchor);
+    } else {
+      setSending(true);
+      try {
+        await io.send(action.message);
+      } catch (error) {
+        setSendError(error instanceof Error ? error.message : "Message not sent. Try again.");
+        return;
+      } finally {
+        setSending(false);
+      }
+    }
+    followTail.current = true;
+    setNewMessages(false);
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
     setDraft("");
     setScQuery(null);
     setMentionSug([]);
@@ -477,13 +633,14 @@ export function ChatView({
 
   const onKeyDown = (e: ReactKeyboardEvent): void => {
     e.stopPropagation();
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter") {
       e.preventDefault();
       const firstMention = mentionSug[0];
       const firstEmoji = suggestions[0];
       if (firstMention) applyMention(firstMention);
       else if (firstEmoji) applyEmoji(firstEmoji.emoji);
-      else send();
+      else void send();
     } else if (e.key === "Escape") {
       if (mentionQuery != null) {
         setMentionQuery(null);
@@ -506,7 +663,7 @@ export function ChatView({
     io.changeRealm?.(name);
   };
 
-  if (hidden) return null;
+  if (hidden || !open) return null;
 
   return (
     <div
@@ -514,7 +671,7 @@ export function ChatView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {open && active && (
+      {header && open && active && (
         <header className={styles.nav}>
           <div className={styles.navLeft}>
             <DclLogomark size={26} className={styles.channelIcon} />
@@ -541,17 +698,25 @@ export function ChatView({
       )}
 
       {open && (
-        <div ref={listRef} className={styles.messages}>
+        <div ref={listRef} className={styles.messages} role="log" aria-label={`${title} messages`} aria-live="polite" onScroll={() => {
+          const el = listRef.current;
+          if (!el) return;
+          scrollPosition.current = el.scrollTop;
+          followTail.current = el.scrollHeight - el.clientHeight - el.scrollTop < 40;
+          if (followTail.current) setNewMessages(false);
+        }}>
           {rows.length === 0 ? (
             <div className={styles.empty}>
               {live
-                ? emptyLine ?? `No messages yet \u{2014} say hello to ${title}.`
+                ? emptyLine ?? `Say hello to ${title}!`
                 : `Connecting to ${title} chat\u{2026}`}
             </div>
           ) : (
             rows.map((r) =>
               r.kind === "day" ? (
                 <DaySeparator key={r.id} ts={r.ts} />
+              ) : isConsole(r.line) ? (
+                <ConsoleLine key={r.line.id} line={r.line} echo={!isSystem(r.line.sender)} />
               ) : (
                 <ChatBubble
                   key={r.line.id}
@@ -560,6 +725,7 @@ export function ChatView({
                   members={members}
                   me={me}
                   onOpenProfile={openProfile}
+                  onViewProfile={onViewProfile}
                   onLocation={onLocation}
                   onVisitWorld={onVisitWorld}
                 />
@@ -568,6 +734,12 @@ export function ChatView({
           )}
         </div>
       )}
+
+      {newMessages && <button type="button" className={styles.latest} onClick={() => {
+        followTail.current = true;
+        setNewMessages(false);
+        if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+      }}>New messages &#xb7; Jump to latest</button>}
 
       {active && picker && (
         <div className={styles.pickerWrap}>
@@ -621,9 +793,10 @@ export function ChatView({
         className={styles.inputRow}
         onSubmit={(e) => {
           e.preventDefault();
-          send();
+          void send();
         }}
       >
+        <div className={styles.composerField}>
         <input
           ref={inputRef}
           className={`${styles.input} ${bare ? styles.inputBare : ""}`.trim()}
@@ -634,18 +807,22 @@ export function ChatView({
             openIfClosed();
           }}
           onBlur={() => setFocused(false)}
-          placeholder={focused ? "Message Nearby" : "Press Enter to chat"}
+          placeholder={`Message ${title}`}
+          disabled={sending}
           maxLength={MAX_LEN}
           onKeyDown={onKeyDown}
-          aria-label="Send a message to Nearby chat"
+          aria-label={`Send a message to ${title} chat`}
         />
         {!bare && draft.length > 0 && <CharRing len={draft.length} />}
         {!bare && (
-          <CtrlButton variant="ghost" size="sm" active={picker} className={styles.emojiBtn} aria-label="Emoji" onClick={toggleEmoji}>
+          <CtrlButton variant="ghost" size="sm" active={picker} className={styles.emojiBtn} aria-label="Emoji" onClick={toggleEmoji} disabled={sending}>
             <Smiley />
           </CtrlButton>
         )}
+        </div>
+        <button type="submit" className={styles.send} disabled={sending || !draft.trim()} aria-label={`Send message to ${title}`}>{sending ? "Sending\u2026" : "Send"}</button>
       </form>
+      {sendError && <p className={styles.sendError} role="alert">{sendError}</p>}
 
       {open && active && showMembers && (
         <MembersOverlay
@@ -660,19 +837,22 @@ export function ChatView({
         />
       )}
 
-      {profileTarget && ProfileCardImpl && (
-        <ProfileCardImpl
-          user={profileTarget.user}
-          x={profileTarget.x}
-          y={profileTarget.y}
-          onMention={(name) => {
-            insertMention(name);
-            setProfileTarget(null);
-          }}
-          onClose={() => setProfileTarget(null)}
-        />
-      )}
+      {profileTarget &&
+        ProfileCardImpl &&
+        createPortal(
+          <ProfileCardImpl
+            user={profileTarget.user}
+            x={profileTarget.x}
+            y={profileTarget.y}
+            onMention={(name) => {
+              insertMention(name);
+              setProfileTarget(null);
+            }}
+            onViewPassport={onViewProfile && ((user) => onViewProfile(user, inputRef.current))}
+            onClose={() => setProfileTarget(null)}
+          />,
+          document.body,
+        )}
     </div>
   );
 }
-

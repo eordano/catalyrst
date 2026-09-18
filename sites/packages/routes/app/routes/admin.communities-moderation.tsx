@@ -6,8 +6,9 @@ import {
   type CommunityModerationCard,
 } from "@data/lib/catalyst/admin/community-moderation";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
+import AdminConsoleLinks from "@features/components/admin/AdminConsoleLinks";
 import ModerateCommunitiesWizard from "@features/stories/admin/communities-moderation/ModerateCommunitiesWizard";
 
 import type { Route } from "./+types/admin.communities-moderation";
@@ -26,15 +27,15 @@ export async function loader({ request }: Route.LoaderArgs) {
   const step = url.searchParams.get("step")?.trim() || null;
   const search = url.searchParams.get("search")?.trim() || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: list } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
-  );
-
-  const list = await loadModerationCommunities(
-    { search: search || undefined, limit: 50 },
-    { signal: request.signal },
+    () =>
+      loadModerationCommunities(
+        { search: search || undefined, limit: 50 },
+        { signal: request.signal },
+      ),
   );
   const cards: CommunityModerationCard[] = list.cards;
 
@@ -60,6 +61,7 @@ export default function AdminCommunitiesModerationRoute({ loaderData }: Route.Co
         />
       )}
       <ModerateCommunitiesWizard
+        nav={<AdminConsoleLinks current="communities" />}
         trackCtx={{
           sid: d.sid,
           story: STORY,

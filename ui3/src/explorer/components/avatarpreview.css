@@ -22,6 +22,9 @@
 @keyframes avatar-stage-spin {
   to { transform: rotate(360deg); }
 }
+@media (prefers-reduced-motion: reduce) {
+  .avatar-stage > [data-status="loading"]::after { animation: none; }
+}
 .avatar-stage__gate {
   position: absolute;
   inset: auto 8% 10%;

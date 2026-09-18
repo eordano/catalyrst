@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { DeCatalogItem, DeLocalItem } from "../types";
-import { PROJECT_CACHE, projectContentBase } from "../project-cache";
+import { PROJECT_CACHE, projectContentBase, type PlaceAssetOutcome } from "../project-cache";
 import { ModelGlyph } from "./DeIcons";
 import { useOneShot } from "../use-one-shot";
 
@@ -13,15 +13,56 @@ export interface DeAssetsPreset {
   focusSearch?: boolean;
 }
 
-export interface DeAssetsPanelProps {
+interface DeAssetsPanelProps {
+  customItems?: ReactNode;
+  cleanup?: ReactNode;
   tab?: "catalog" | "local";
   preset?: DeAssetsPreset | null;
   width?: number;
   catalog?: DeCatalogItem[];
   local?: DeLocalItem[];
   live?: boolean;
-  onPlace?: (asset: DeCatalogItem) => void;
+  onPlace?: PlaceAssetFn;
   onDragAsset?: (asset: DeCatalogItem | null) => void;
+  placeStatus?: PlaceStatus | null;
+  onBack?: () => void;
+}
+
+type PlaceDrop = { x: number; y: number } | null;
+
+type PlaceAssetFn = (
+  asset: DeCatalogItem,
+  drop?: PlaceDrop,
+) => void | Promise<PlaceAssetOutcome | void>;
+
+type PlaceStatus = { kind: "placing" | "placed" | "warning" | "error"; text: string };
+
+export function usePlaceStatus(onPlace: PlaceAssetFn | undefined) {
+  const [status, setStatus] = useState<PlaceStatus | null>(null);
+  const place = onPlace
+    ? (a: DeCatalogItem, drop?: PlaceDrop) => {
+        setStatus({ kind: "placing", text: `Placing ${a.name}\u{2026}` });
+        let result: Promise<PlaceAssetOutcome | void>;
+        try {
+          result = Promise.resolve(onPlace(a, drop));
+        } catch (e) {
+          result = Promise.reject(e instanceof Error ? e : new Error(String(e)));
+        }
+        result
+          .then((out) => {
+            if (out && out.warning) {
+              setStatus({ kind: "warning", text: `Placed ${out.name}, but ${out.warning}.` });
+            } else {
+              setStatus({ kind: "placed", text: `Placed ${a.name} in the scene.` });
+            }
+          })
+          .catch((e: unknown) => {
+            const reason = e instanceof Error ? e.message : String(e);
+            setStatus({ kind: "error", text: `Couldn\u{2019}t place ${a.name}: ${reason}` });
+          });
+      }
+    : undefined;
+  return { status, place };
 }
 
 function AssetThumb({ a }: { a: DeCatalogItem }) {
@@ -38,6 +79,7 @@ function AssetThumb({ a }: { a: DeCatalogItem }) {
     >
       {showImg ? (
         <img
+          crossOrigin="anonymous"
           src={a.thumbnailUrl}
           alt=""
           loading="lazy"
@@ -52,6 +94,8 @@ function AssetThumb({ a }: { a: DeCatalogItem }) {
 }
 
 export function DeAssetsPanel({
+  customItems,
+  cleanup,
   tab = "catalog",
   preset = null,
   width = 300,
@@ -60,34 +104,44 @@ export function DeAssetsPanel({
   live = false,
   onPlace = undefined,
   onDragAsset = undefined,
+  placeStatus = undefined,
+  onBack,
 }: DeAssetsPanelProps) {
-  const [active, setActive] = useState(tab);
+  const [active, setActive] = useState<"catalog" | "local" | "custom">(tab);
   useOneShot(preset?.nonce ?? 0, () => {
     if (preset?.tab) setActive(preset.tab);
   });
   return (
     <div className="eui-panel eui-left" style={{ width }}>
+      {onBack && (
+        <div className="eui-panel-head">
+          <button type="button" className="eui-btn" onClick={onBack} aria-label="Back to scene">
+            &#x2190; Scene
+          </button>
+        </div>
+      )}
       <div className="eui-seg">
-        {(["catalog", "local"] as const).map((t) => (
+        {((customItems ? ["catalog", "local", "custom"] : ["catalog", "local"]) as Array<"catalog" | "local" | "custom">).map((t) => (
           <button
             key={t}
             className={"eui-seg-btn" + (active === t ? " active" : "")}
             onClick={() => setActive(t)}
           >
-            {t === "catalog" ? "Catalog" : "Local"}
+            {t === "catalog" ? "Catalog" : t === "custom" ? "Custom items" : "Local"}
           </button>
         ))}
       </div>
-      {active === "catalog" ? (
+      {active === "custom" ? customItems : active === "catalog" ? (
         <DeCatalogTab
           items={catalog}
           live={live}
           onPlace={onPlace}
           onDragAsset={onDragAsset}
+          placeStatus={placeStatus}
           preset={preset}
         />
       ) : (
-        <DeLocalTab items={local} live={live} onPlace={onPlace} />
+        <><DeLocalTab items={local} live={live} onPlace={onPlace} />{cleanup}</>
       )}
     </div>
   );
@@ -100,11 +154,12 @@ function catOf(a: DeCatalogItem): string {
 const CATALOG_RENDER_CAP = 240;
 const SMART_CATEGORY = "__smart";
 
-export interface DeCatalogTabProps {
+interface DeCatalogTabProps {
   items?: DeCatalogItem[];
   live?: boolean;
-  onPlace?: (asset: DeCatalogItem) => void;
+  onPlace?: PlaceAssetFn;
   onDragAsset?: (asset: DeCatalogItem | null) => void;
+  placeStatus?: PlaceStatus | null;
   preset?: DeAssetsPreset | null;
 }
 
@@ -113,9 +168,13 @@ export function DeCatalogTab({
   live = false,
   onPlace = undefined,
   onDragAsset = undefined,
+  placeStatus = undefined,
   preset = null,
 }: DeCatalogTabProps) {
   const placeable = typeof onPlace === "function";
+  const own = usePlaceStatus(placeStatus === undefined ? onPlace : undefined);
+  const place = placeStatus === undefined ? own.place : onPlace;
+  const status = placeStatus === undefined ? own.status : placeStatus;
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState("");
   const [smartOnly, setSmartOnly] = useState(false);
@@ -190,6 +249,18 @@ export function DeCatalogTab({
           ? `${filtered.length.toLocaleString()} of ${items.length.toLocaleString()} models`
           : `${items.length.toLocaleString()} models`}
       </div>
+      {status && (
+        <div
+          className="eui-comp-note"
+          style={{
+            padding: "0 12px 6px",
+            color: status.kind === "error" ? "var(--error)" : undefined,
+          }}
+          role={status.kind === "error" ? "alert" : "status"}
+        >
+          {status.text}
+        </div>
+      )}
       {smartOnly && (
         <div
           className="eui-comp-note"
@@ -219,7 +290,7 @@ export function DeCatalogTab({
                     : `Place ${a.name} in the scene \u{2014} click, or drag onto the viewport`
                   : `${a.name} \u{2014} ${catOf(a) || a.pack}`
               }
-              onClick={placeable ? () => onPlace?.(a) : undefined}
+              onClick={place ? () => place(a) : undefined}
               draggable={placeable}
               onDragStart={
                 placeable
@@ -316,13 +387,13 @@ function modelNameOf(path: string): string {
   return (path.split("/").pop() ?? path).replace(LOCAL_MODEL_RE, "");
 }
 
-export interface DeLocalTabProps {
+interface DeLocalTabProps {
   items?: DeLocalItem[];
   live?: boolean;
   onPlace?: (asset: DeCatalogItem) => void;
 }
 
-export function DeLocalTab({ items = [], live = false, onPlace = undefined }: DeLocalTabProps) {
+function DeLocalTab({ items = [], live = false, onPlace = undefined }: DeLocalTabProps) {
   const placeable = typeof onPlace === "function";
   const [query, setQuery] = useState("");
   const [added, setAdded] = useState<LocalModel[]>([]);

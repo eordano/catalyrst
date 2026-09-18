@@ -1,12 +1,8 @@
 import { z } from "zod";
 
-import {
-  ManagedWorldSchema,
-  WalletStatsSchema,
-  type ManagedWorld,
-} from "./creator-hub/manage-worlds";
+import { WalletStatsSchema, type ManagedWorld } from "./creator-hub/manage-worlds";
 
-export { ManagedWorldSchema, WalletStatsSchema };
+export { WalletStatsSchema };
 export type { ManagedWorld };
 export type { WalletStats } from "./creator-hub/manage-worlds";
 
@@ -47,14 +43,14 @@ export const WcsWorldRowSchema = z.object({
   deployed_scenes: requiredCount,
   thumbnail_hash: strOrNull,
 });
-export type WcsWorldRow = z.infer<typeof WcsWorldRowSchema>;
+type WcsWorldRow = z.infer<typeof WcsWorldRowSchema>;
 
-export const WorldsListEnvelopeSchema = z.object({
+const WorldsListEnvelopeSchema = z.object({
   total: requiredCount,
   worlds: z.array(z.unknown()),
 });
 
-export function wcsContentUrl(hash: string | null, base = wcsBase()): string | null {
+function wcsContentUrl(hash: string | null, base = wcsBase()): string | null {
   return hash ? `${base}/contents/${hash}` : null;
 }
 

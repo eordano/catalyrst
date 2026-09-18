@@ -1,3 +1,4 @@
+import { SHOP_TABS } from "@features/lib/marketplace/shop-tabs";
 import React, { useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router";
 
@@ -37,7 +38,7 @@ import { useAuth } from "@data/lib/auth/context";
 import AccountSocial from "@features/components/social/AccountSocial";
 import { openSignIn } from "@features/components/auth/signin-store";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { marketplaceMeta } from "@core/lib/seo/marketplace-meta";
 import { track } from "@core/lib/telemetry/track";
@@ -62,6 +63,7 @@ function readTab(params: URLSearchParams): Tab {
 const EMPTY_ITEMS: OwnedList<OwnedItem> = { elements: [], total: 0 };
 const EMPTY_NAMES: OwnedList<OwnedName> = { elements: [], total: 0 };
 const EMPTY_ORDERS: OwnedList<Order> = { elements: [], total: 0 };
+const EMPTY_COLLECTIONS: OwnedList<never> = { elements: [], total: 0 };
 
 type CollectionCard = {
   contractAddress: string;
@@ -83,44 +85,59 @@ export async function loader({ request }: Route.LoaderArgs) {
   const address =
     url.searchParams.get("address")?.trim().toLowerCase() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const sig = request.signal;
+
+  const {
+    sid,
+    wrap,
+    data: [wearables, emotes, names, orders, cols],
+  } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    (): Promise<
+      [
+        OwnedList<OwnedItem>,
+        OwnedList<OwnedItem>,
+        OwnedList<OwnedName>,
+        OwnedList<Order>,
+        OwnedList<Awaited<ReturnType<typeof fetchCreatorCollections>>["elements"][number]>,
+      ]
+    > =>
+      address
+        ? Promise.all([
+            fetchOwnedWearables(address, { first: PER_SECTION }, { signal: sig }).catch(
+              () => EMPTY_ITEMS,
+            ),
+            fetchOwnedEmotes(address, { first: PER_SECTION }, { signal: sig }).catch(
+              () => EMPTY_ITEMS,
+            ),
+            fetchOwnedNames(address, { first: PER_SECTION }, { signal: sig }).catch(
+              () => EMPTY_NAMES,
+            ),
+            fetchOwnerOrders(address, { first: PER_SECTION }, { signal: sig }).catch(
+              () => EMPTY_ORDERS,
+            ),
+            tab === "collections"
+              ? fetchCreatorCollections(
+                  address,
+                  { first: PER_SECTION, sortBy: "newest" },
+                  { signal: sig },
+                ).catch(() => EMPTY_COLLECTIONS)
+              : Promise.resolve(EMPTY_COLLECTIONS),
+          ])
+        : Promise.resolve([
+            EMPTY_ITEMS,
+            EMPTY_ITEMS,
+            EMPTY_NAMES,
+            EMPTY_ORDERS,
+            EMPTY_COLLECTIONS,
+          ]),
   );
-
-  const sig = request.signal;
-
-  const [wearables, emotes, names, orders]: [
-    OwnedList<OwnedItem>,
-    OwnedList<OwnedItem>,
-    OwnedList<OwnedName>,
-    OwnedList<Order>,
-  ] = address
-    ? await Promise.all([
-        fetchOwnedWearables(address, { first: PER_SECTION }, { signal: sig }).catch(
-          () => EMPTY_ITEMS,
-        ),
-        fetchOwnedEmotes(address, { first: PER_SECTION }, { signal: sig }).catch(
-          () => EMPTY_ITEMS,
-        ),
-        fetchOwnedNames(address, { first: PER_SECTION }, { signal: sig }).catch(
-          () => EMPTY_NAMES,
-        ),
-        fetchOwnerOrders(address, { first: PER_SECTION }, { signal: sig }).catch(
-          () => EMPTY_ORDERS,
-        ),
-      ])
-    : [EMPTY_ITEMS, EMPTY_ITEMS, EMPTY_NAMES, EMPTY_ORDERS];
 
   let collectionCards: CollectionCard[] = [];
   let collectionsTotal = 0;
   if (address && tab === "collections") {
-    const cols = await fetchCreatorCollections(
-      address,
-      { first: PER_SECTION, sortBy: "newest" },
-      { signal: sig },
-    ).catch(() => ({ elements: [], total: 0 }) as OwnedList<never>);
     collectionsTotal = cols.total;
     const tiles = await Promise.all(
       cols.elements.map((c) =>
@@ -329,14 +346,7 @@ const TAB_LABELS: Record<Tab, string> = {
   social: "Social",
 };
 
-const SHOP_TABS = [
-  { id: "overview", label: "Overview", href: "/shop" },
-  { id: "all-assets", label: "All Assets", href: "/shop?tab=all-assets" },
-  { id: "names", label: "NAMEs", href: "/marketplace/names" },
-  { id: "my-assets", label: "My Assets", href: "/marketplace/account" },
-  { id: "my-favorites", label: "My Favorites", href: "/shop?tab=my-favorites" },
-  { id: "cart", label: "Cart", href: "/marketplace/cart" },
-] as const;
+
 
 function useAccountViewed(sid: string, d: LoaderData) {
   const last = useRef<string | null>(null);

@@ -114,9 +114,13 @@ pub struct SuggestionsComponent {
     /// Milliseconds since `started` at which the last shed line was printed, zero for none yet.
     shed_logged_at: AtomicU64,
     started: std::time::Instant,
+    /// Global and day-windowed, so one query a minute serves every miss.
+    popularity: PopularityCache,
 }
 
 type SuggestionsCache = catalyrst_commons::cache::TtlMap<String, Arc<SuggestionsResponse>>;
+type PopularityCache = catalyrst_commons::cache::TtlMap<i64, Arc<HashMap<String, f64>>>;
+const POPULARITY_CACHE_TTL_SECONDS: u64 = 60;
 
 pub fn clamp_first(first: Option<i64>) -> i64 {
     first
@@ -139,6 +143,11 @@ impl SuggestionsComponent {
             shed_total: AtomicU64::new(0),
             shed_logged_at: AtomicU64::new(0),
             started: std::time::Instant::now(),
+            popularity: catalyrst_commons::cache::TtlMap::bounded(
+                "market_suggestions_popularity",
+                std::time::Duration::from_secs(POPULARITY_CACHE_TTL_SECONDS),
+                2,
+            ),
         }
     }
 
@@ -309,26 +318,33 @@ impl SuggestionsComponent {
     }
 
     /// Sale counts over the window, rescaled to 0..1 by the busiest item.
-    async fn popularity(&self) -> Result<HashMap<String, f64>, ApiError> {
-        let rows = sqlx::query(sqlx::AssertSqlSafe(select_popularity()))
-            .bind(midnight_days_ago(POPULARITY_DAYS))
-            .bind(POPULARITY_POOL)
-            .fetch_all(&self.pool)
-            .await?;
-        let counted: Vec<(String, f64)> = rows
-            .into_iter()
-            .filter_map(|row| {
-                Some((
-                    row.try_get::<String, _>("item_id").ok()?,
-                    row.try_get::<i64, _>("sales").unwrap_or(0) as f64,
+    async fn popularity(&self) -> Result<Arc<HashMap<String, f64>>, ApiError> {
+        let from = midnight_days_ago(POPULARITY_DAYS);
+        self.popularity
+            .get_or_fetch(from, || async move {
+                let rows = sqlx::query(sqlx::AssertSqlSafe(select_popularity()))
+                    .bind(from)
+                    .bind(POPULARITY_POOL)
+                    .fetch_all(&self.pool)
+                    .await?;
+                let counted: Vec<(String, f64)> = rows
+                    .into_iter()
+                    .filter_map(|row| {
+                        Some((
+                            row.try_get::<String, _>("item_id").ok()?,
+                            row.try_get::<i64, _>("sales").unwrap_or(0) as f64,
+                        ))
+                    })
+                    .collect();
+                let max = counted.iter().map(|(_, n)| *n).fold(0.0f64, f64::max);
+                if max <= 0.0 {
+                    return Ok(Arc::new(HashMap::new()));
+                }
+                Ok(Arc::new(
+                    counted.into_iter().map(|(id, n)| (id, n / max)).collect(),
                 ))
             })
-            .collect();
-        let max = counted.iter().map(|(_, n)| *n).fold(0.0f64, f64::max);
-        if max <= 0.0 {
-            return Ok(HashMap::new());
-        }
-        Ok(counted.into_iter().map(|(id, n)| (id, n / max)).collect())
+            .await
     }
 
     /// The rail.
@@ -410,11 +426,17 @@ impl SuggestionsComponent {
         limit: usize,
         mana_usd_rate: f64,
     ) -> Result<Arc<SuggestionsResponse>, ApiError> {
-        let owned = match wallet {
-            Some(wallet) => self.owned_of(wallet).await?,
-            None => Vec::new(),
-        };
-        let favorites = normalize_item_ids(&self.favorites_of(favorites_for).await, MAX_FAVORITES);
+        let (owned, favorites) = tokio::join!(
+            async {
+                match wallet {
+                    Some(wallet) => self.owned_of(wallet).await,
+                    None => Ok(Vec::new()),
+                }
+            },
+            self.favorites_of(favorites_for)
+        );
+        let owned = owned?;
+        let favorites = normalize_item_ids(&favorites, MAX_FAVORITES);
 
         let profile = build_taste_profile(ProfileInput {
             owned: &owned,
@@ -435,10 +457,12 @@ impl SuggestionsComponent {
         }
 
         let profile_ids: Vec<String> = profile.iter().map(|e| e.item_id.clone()).collect();
-        let attributes = self.attributes_of(&profile_ids, mana_usd_rate).await?;
+        let (attributes, neighbors, popularity) = tokio::try_join!(
+            self.attributes_of(&profile_ids, mana_usd_rate),
+            self.neighbors_of(&profile),
+            self.popularity()
+        )?;
         let aggregates = build_profile_aggregates(&profile, &attributes);
-        let neighbors = self.neighbors_of(&profile).await?;
-        let popularity = self.popularity().await?;
 
         let creator_items = self
             .creator_items_of(&top_creators_of(

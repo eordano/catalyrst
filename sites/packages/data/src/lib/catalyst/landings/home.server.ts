@@ -1,6 +1,7 @@
 import { fetchEvents, type Event } from "../places/events";
 import { fetchMostActivePlaces } from "../places/index";
 import type { GetOptions } from "../client";
+import { ttlMemo } from "../../ttl-memo";
 import {
   eventToRitualItem,
   eventWeekday,
@@ -72,13 +73,27 @@ const HOME_CONTENT: HomeContent = {
   },
 };
 
-export function loadHomeContent(): HomeContent {
+function loadHomeContent(): HomeContent {
   return parseHomeContent(HOME_CONTENT);
 }
 
-export async function loadHome(
-  opts: GetOptions = {},
-): Promise<{ content: HomeContent; live: boolean; unreadable: string[] }> {
+const HOME_TTL_MS = 60_000;
+
+type HomeData = { content: HomeContent; live: boolean; unreadable: string[] };
+
+const homeMemo = ttlMemo({
+  ttlMs: HOME_TTL_MS,
+  keyOf: (opts: GetOptions) => (opts.fetchImpl || opts.base ? null : ""),
+  keep: (d: HomeData) => d.unreadable.length === 0,
+  load: (opts) => loadHomeLive(opts.fetchImpl || opts.base ? opts : {}),
+});
+
+// The rails are visitor-independent; a fully readable result serves a minute of requests.
+export function loadHome(opts: GetOptions = {}): Promise<HomeData> {
+  return homeMemo(opts);
+}
+
+async function loadHomeLive(opts: GetOptions): Promise<HomeData> {
   let content = loadHomeContent();
 
   const [events, hotspots, rituals] = await Promise.all([

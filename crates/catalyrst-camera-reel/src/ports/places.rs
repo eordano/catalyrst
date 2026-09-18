@@ -22,6 +22,7 @@ pub enum PlacesClientError {
     RequestFailed(reqwest::Error),
     ApiError(u16),
     ParseError(reqwest::Error),
+    TaskFailed(tokio::task::JoinError),
 }
 
 impl fmt::Display for PlacesClientError {
@@ -30,9 +31,12 @@ impl fmt::Display for PlacesClientError {
             PlacesClientError::RequestFailed(e) => write!(f, "request failed: {e}"),
             PlacesClientError::ApiError(status) => write!(f, "places API returned status {status}"),
             PlacesClientError::ParseError(e) => write!(f, "failed to parse response: {e}"),
+            PlacesClientError::TaskFailed(e) => write!(f, "page fetch task failed: {e}"),
         }
     }
 }
+
+const PAGE: usize = 100;
 
 pub struct PlacesClient {
     client: reqwest::Client,
@@ -59,6 +63,29 @@ impl PlacesClient {
         }
     }
 
+    async fn fetch_page(
+        client: &reqwest::Client,
+        base_url: &str,
+        world_name: &str,
+        offset: usize,
+    ) -> Result<PlacesApiResponse, PlacesClientError> {
+        let url = format!(
+            "{}/api/places?names={}&limit={}&offset={}",
+            base_url, world_name, PAGE, offset
+        );
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(PlacesClientError::RequestFailed)?;
+        let status = response.status().as_u16();
+        if !response.status().is_success() {
+            return Err(PlacesClientError::ApiError(status));
+        }
+        response.json().await.map_err(PlacesClientError::ParseError)
+    }
+
+    /// The first page carries `total`; any further pages are fetched concurrently.
     pub async fn get_world_place_ids(
         &self,
         world_name: &str,
@@ -67,41 +94,32 @@ impl PlacesClient {
             return Ok(cached);
         }
 
-        let mut all_ids = Vec::new();
-        let mut offset: usize = 0;
-        let limit: usize = 100;
+        let first = Self::fetch_page(&self.client, &self.base_url, world_name, 0).await?;
+        let mut all_ids: Vec<String> = first.data.into_iter().map(|e| e.id).collect();
 
-        loop {
-            let url = format!(
-                "{}/api/places?names={}&limit={}&offset={}",
-                self.base_url, world_name, limit, offset
+        if !all_ids.is_empty() && all_ids.len() < first.total {
+            let mut pages = tokio::task::JoinSet::new();
+            for offset in (all_ids.len()..first.total).step_by(PAGE) {
+                let client = self.client.clone();
+                let base_url = self.base_url.clone();
+                let world_name = world_name.to_string();
+                pages.spawn(async move {
+                    Self::fetch_page(&client, &base_url, &world_name, offset)
+                        .await
+                        .map(|page| (offset, page))
+                });
+            }
+            let mut rest = Vec::new();
+            while let Some(joined) = pages.join_next().await {
+                let (offset, page) = joined.map_err(PlacesClientError::TaskFailed)??;
+                rest.push((offset, page));
+            }
+            rest.sort_by_key(|(offset, _)| *offset);
+            all_ids.extend(
+                rest.into_iter()
+                    .flat_map(|(_, page)| page.data)
+                    .map(|e| e.id),
             );
-
-            let response = self
-                .client
-                .get(&url)
-                .send()
-                .await
-                .map_err(PlacesClientError::RequestFailed)?;
-
-            let status = response.status().as_u16();
-            if !response.status().is_success() {
-                return Err(PlacesClientError::ApiError(status));
-            }
-
-            let body: PlacesApiResponse = response
-                .json()
-                .await
-                .map_err(PlacesClientError::ParseError)?;
-
-            for entry in &body.data {
-                all_ids.push(entry.id.clone());
-            }
-
-            offset += body.data.len();
-            if offset >= body.total || body.data.is_empty() {
-                break;
-            }
         }
 
         self.cache

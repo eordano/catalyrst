@@ -2,8 +2,10 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import DclTopBar, { type DclTopBarNavId } from "./DclTopBar";
 import { useChromeAuth } from "./chrome-auth";
+import { chromeLinkProps, useChromeNav } from "./chrome-nav";
 import { Caret } from "../../atoms/icons";
 import { siteHost } from "../../data/site";
+import { docsUrl } from "../../data/docs";
 import "./siteschrome.css";
 
 export type SitesNavId =
@@ -49,8 +51,9 @@ const FOOTER_COLS: FooterCol[] = [
     title: "Resources",
     links: [
       { label: "Shop", href: "/shop" },
+      { label: "Social", href: "https://dcl.social/" },
       { label: "Creator Hub", href: "/creator-hub" },
-      { label: "Docs", href: "https://docs.decentraland.org/" },
+      { label: "Docs", href: docsUrl() },
       { label: "Blog", href: "/blog" },
       { label: "Vote", href: "/governance" },
     ],
@@ -154,6 +157,7 @@ export default function SitesChrome({
   const isIn = signedIn ?? auth.signedIn;
   const acct = account ?? auth.account;
   const signIn = onSignIn ?? auth.onSignIn;
+  const { navigate: go } = useChromeNav();
 
   const [email, setEmail] = useState("");
   const [news, setNews] = useState<NewsletterState>({ phase: "idle" });
@@ -243,7 +247,7 @@ export default function SitesChrome({
       <footer className="st__footer">
         <div className="st__footin">
           <div className="st__footbrand">
-            <a className="st__footlogo" href="/" aria-label="Decentraland Home">
+            <a className="st__footlogo" {...chromeLinkProps("/", go)} aria-label="Decentraland Home">
               <span className="st__wordmark">Decentraland</span>
             </a>
             <div className="st__news">
@@ -297,7 +301,7 @@ export default function SitesChrome({
                 <ul className="st__footlist">
                   {col.links.map((link) => (
                     <li key={link.label}>
-                      <a href={link.href} className="st__footlink">
+                      <a {...chromeLinkProps(link.href, go)} className="st__footlink">
                         {link.label}
                       </a>
                     </li>

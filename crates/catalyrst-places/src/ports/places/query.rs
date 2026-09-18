@@ -115,6 +115,7 @@ pub(super) fn raw_timestamptz_sql(key: &str) -> String {
 pub(super) enum Bind {
     Text(String),
     TextArray(Vec<String>),
+    JsonbArray(Vec<serde_json::Value>),
     Int(i32),
 }
 
@@ -127,6 +128,18 @@ pub(super) fn build_where(f: &PlaceListFilters, road_positions: bool) -> (String
         clauses.push(format!("id = ANY(${})", idx));
         binds.push(Bind::TextArray(f.ids.clone()));
         idx += 1;
+    }
+    if f.viewer_favorites_only {
+        match &f.viewer {
+            Some(viewer) => {
+                clauses.push(format!(
+                    r#"EXISTS (SELECT 1 FROM user_favorites uf WHERE uf.entity_id = id AND lower(uf."user") = ${idx})"#
+                ));
+                binds.push(Bind::Text(viewer.to_lowercase()));
+                idx += 1;
+            }
+            None => clauses.push("FALSE".to_string()),
+        }
     }
     if f.only_worlds {
         clauses.push("world IS TRUE".to_string());
@@ -144,8 +157,13 @@ pub(super) fn build_where(f: &PlaceListFilters, road_positions: bool) -> (String
     positions.extend(f.operated_positions.iter().cloned());
     let mut positions_clause = None;
     if !positions.is_empty() {
-        positions_clause = Some(format!("raw->'positions' ?| ${}::text[]", idx));
-        binds.push(Bind::TextArray(positions));
+        positions_clause = Some(format!("raw->'positions' @> ANY(${}::jsonb[])", idx));
+        binds.push(Bind::JsonbArray(
+            positions
+                .into_iter()
+                .map(|p| serde_json::json!([p]))
+                .collect(),
+        ));
         idx += 1;
     } else if f.owner_filtered {
         clauses.push("FALSE".to_string());
@@ -313,6 +331,7 @@ pub(super) fn bind_param<'a>(
     match b {
         Bind::Text(s) => q.bind(s),
         Bind::TextArray(v) => q.bind(v),
+        Bind::JsonbArray(v) => q.bind(v),
         Bind::Int(n) => q.bind(*n),
     }
 }
@@ -451,7 +470,7 @@ mod tests {
 
     /// 0003 already shipped with this backfill and a migration is immutable, so
     /// it is allowed by name; a NEW migration may not add another.
-    fn scanned_migrations() -> [(&'static str, &'static str, Vec<String>); 6] {
+    fn scanned_migrations() -> [(&'static str, &'static str, Vec<String>); 9] {
         let world_backfill = format!("(raw->>'world'){}", "::boolean");
         [
             (
@@ -482,6 +501,21 @@ mod tests {
             (
                 "0005_road_positions.sql",
                 include_str!("../../../migrations/0005_road_positions.sql"),
+                Vec::new(),
+            ),
+            (
+                "0006_place_like_score_indexes.sql",
+                include_str!("../../../migrations/0006_place_like_score_indexes.sql"),
+                Vec::new(),
+            ),
+            (
+                "0007_place_fetched_at_idx.sql",
+                include_str!("../../../migrations/0007_place_fetched_at_idx.sql"),
+                Vec::new(),
+            ),
+            (
+                "0008_place_positions_containment_indexes.sql",
+                include_str!("../../../migrations/0008_place_positions_containment_indexes.sql"),
                 Vec::new(),
             ),
         ]

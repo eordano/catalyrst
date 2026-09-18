@@ -1,3 +1,5 @@
+@import "../../components/surface.css";
+
 .ch {
   position: fixed;
   inset: 0;
@@ -5,9 +7,7 @@
   display: flex;
   color: #fff;
   background:
-    radial-gradient(120% 60% at 100% 0%, color-mix(in srgb, var(--brand) 8%, transparent), transparent 60%),
-    radial-gradient(90% 50% at 0% 0%, color-mix(in srgb, var(--purple) 7%, transparent), transparent 55%),
-    #0e0d10;
+    var(--ui-canvas);
 }
 
 .ch__skip {
@@ -51,10 +51,7 @@
   flex-direction: column;
   gap: 18px;
   padding: 22px 16px 18px;
-  background: rgba(13, 12, 15, 0.92);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  box-shadow: 2px 0 14px rgba(0, 0, 0, 0.35);
+  background: var(--ui-shell);
   border-right: 1px solid var(--line);
 }
 
@@ -118,19 +115,6 @@
 .ch__newbtn:hover { background: var(--brand-hover); }
 .ch__newbtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .ch__newbtn svg { display: block; flex: 0 0 auto; }
-
-.ch__newbadge {
-  flex: 0 0 auto;
-  padding: 2px 7px;
-  border-radius: var(--r-pill);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #0d0c11;
-  background: color-mix(in srgb, #0d0c11 16%, transparent);
-  border: 1px solid color-mix(in srgb, #0d0c11 30%, transparent);
-}
 
 .ch__nav {
   flex: 1 1 auto;
@@ -256,6 +240,13 @@
   transition: background 0.12s ease, color 0.12s ease;
 }
 .ch__settings:hover { background: var(--fill-4); color: #fff; }
+.ch__settings:focus-visible,
+.ch__account:focus-visible,
+.ch__signin:focus-visible,
+.ch__topaccbtn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
 
 .ch__account {
   flex: 1 1 auto;
@@ -275,6 +266,8 @@
   transition: background 0.12s ease;
 }
 .ch__account:hover { background: var(--fill-4); }
+.ch__accountwrap { flex: 1 1 auto; min-width: 0; display: flex; }
+.ch__accountwrap .acm__menu { min-width: 100%; }
 .ch__avatar { border: 2px solid var(--ink-85); }
 .ch__accmeta { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
 .ch__accname { font-size: 13px; font-weight: 700; }
@@ -302,6 +295,7 @@
 .ch__main {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -311,7 +305,7 @@
 .ch__railclose { display: none; }
 
 @media (max-width: 720px) {
-  .ch { flex-direction: column; }
+  .ch { flex-direction: column; background: var(--ui-canvas); }
 
   .ch__topbar {
     flex: 0 0 auto;
@@ -406,6 +400,7 @@
     max-width: 84vw;
     transform: translateX(calc(-100% - 12px));
     transition: transform 0.22s ease;
+    background: var(--ui-shell);
   }
   .ch.is-menuopen .ch__rail {
     transform: translateX(0);

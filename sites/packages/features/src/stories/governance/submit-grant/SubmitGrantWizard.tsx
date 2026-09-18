@@ -18,22 +18,13 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type SubmitGrantWizardProps = {
+type SubmitGrantWizardProps = {
   budget: GrantBudget;
   trackCtx: TrackContext;
   initialStep?: string;
   submitGrant?: SubmitFn;
   track?: TrackFn;
 };
-
-const SECTION_TITLES = [
-  "Funding",
-  "General Information",
-  "Team",
-  "Due Diligence",
-  "Category-Specific Assessment",
-  "Final Consent",
-] as const;
 
 function tierForBudget(tiers: GrantTier[], budget: number): GrantTier | undefined {
   if (!budget) return undefined;
@@ -550,4 +541,3 @@ function SubmitGrantWizardInner({
   );
 }
 
-export const GRANT_SECTION_TITLES = SECTION_TITLES;

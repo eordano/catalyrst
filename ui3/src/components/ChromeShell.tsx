@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import DappFooter from "./DappFooter";
+import type { ChromeNavigate } from "../web/frames/chrome-nav";
+import ChromeLink from "../web/frames/ChromeLink";
 import "./chromeshell.css";
 
 type ChromeTab<Id extends string = string> = {
@@ -19,7 +21,7 @@ type ChromeShellProps<Id extends string = string> = {
   tabs?: readonly ChromeTab<Id>[];
   active?: NoInfer<Id>;
   onTab?: (id: NoInfer<Id>) => void;
-  onNavigate?: (href: string) => void;
+  onNavigate?: ChromeNavigate;
   tabsLabel?: string;
   right?: ReactNode;
   children?: ReactNode;
@@ -79,23 +81,20 @@ export default function ChromeShell<Id extends string = string>({
 
   const renderTab = (tab: ChromeTab<Id>, cls: string) =>
     tab.href ? (
-      <a
+      <ChromeLink
         key={tab.id}
-        href={tab.href}
+        href={tab.href} onNavigate={onNavigate}
         className={cls + (tab.id === active ? " is-active" : "")}
         aria-current={tab.id === active ? "page" : undefined}
-        onClick={(e) => {
+        onClick={() => {
           onTab?.(tab.id);
           setMenuOpen(false);
-          if (!onNavigate || e.defaultPrevented) return;
-          if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-          e.preventDefault();
-          onNavigate(tab.href as string);
+
         }}
       >
         {tab.icon ? <span className="cs__tabicon" aria-hidden="true">{tab.icon}</span> : null}
         {tab.label}
-      </a>
+      </ChromeLink>
     ) : (
       <button
         key={tab.id}
@@ -116,16 +115,16 @@ export default function ChromeShell<Id extends string = string>({
 
   return (
     <div className={"cs ui2" + (className ? " " + className : "")} data-label={ariaLabel}>
-      <a className="cs__skip" href="#cs-main">Skip to content</a>
+      <ChromeLink className="cs__skip" href="#cs-main">Skip to content</ChromeLink>
       {topbar}
 
       {subnav ? (
         <div className="cs__nav">
           {brand ? (
             brandHref ? (
-              <a className="cs__brand" href={brandHref}>
+              <ChromeLink className="cs__brand" href={brandHref} onNavigate={onNavigate}>
                 {brand}
-              </a>
+              </ChromeLink>
             ) : (
               <div className="cs__brand">{brand}</div>
             )

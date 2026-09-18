@@ -69,7 +69,7 @@ const MEMBER_LINKS: SidebarLink[] = [
   },
 ];
 
-export type GvVestingInfo = {
+type GvVestingInfo = {
   releasableLabel: string;
   unvestedLabel: string;
   href?: string;

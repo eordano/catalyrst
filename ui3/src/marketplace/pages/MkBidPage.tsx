@@ -6,6 +6,7 @@ import Modal from "../../components/Modal";
 import ManaMark from "../../atoms/ManaMark";
 import AssetPreviewTile from "../components/AssetPreviewTile";
 import "./mkbidpage.css";
+import { docsUrl } from "../../data/docs";
 
 type Nft = {
   name: string;
@@ -348,7 +349,7 @@ export default function MkBidPage({
                       {COPY.price_too_low_a}
                       <a
                         className="mkbidpage__learnmore"
-                        href="https://docs.decentraland.org/blockchain-integration/transactions-in-polygon"
+                        href={docsUrl("player/blockchain-integration/transactions-in-polygon")}
                         target="_blank"
                         rel="noreferrer"
                       >

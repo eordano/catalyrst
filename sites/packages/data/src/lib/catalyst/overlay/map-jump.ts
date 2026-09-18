@@ -4,7 +4,7 @@ import { getJSON } from "../client";
 import type { GetOptions } from "../client";
 import { ApiDataTotalSchema } from "../generated-schemas/places";
 
-export const MAP_PIN_LIMIT = 40;
+const MAP_PIN_LIMIT = 40;
 
 export const PIN_CATEGORIES = [
   { key: "all", label: "All" },

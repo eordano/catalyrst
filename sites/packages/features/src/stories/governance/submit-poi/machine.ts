@@ -27,14 +27,14 @@ export type SubmitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SubmitResult>;
 
-export type PoiInput = {
+type PoiInput = {
   trackCtx: TrackContext;
   request: PoiRequest;
   submit?: SubmitFn;
   track?: TrackFn;
 };
 
-export type PoiContext = {
+type PoiContext = {
   trackCtx: TrackContext;
   request: PoiRequest;
   submit: SubmitFn;
@@ -45,7 +45,7 @@ export type PoiContext = {
   error?: string;
 };
 
-export type PoiEvent =
+type PoiEvent =
   | { type: "SUBMIT_COORDINATES"; x: string; y: string }
   | { type: "SUBMIT_DESCRIPTION"; description: string; coAuthors: string[] }
   | { type: "CONFIRM" }
@@ -72,8 +72,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type PoiStateId = keyof typeof STATE_TO_SLUG;
-export type PoiStepSlug = (typeof STATE_TO_SLUG)[PoiStateId];
+type PoiStateId = keyof typeof STATE_TO_SLUG;
+type PoiStepSlug = (typeof STATE_TO_SLUG)[PoiStateId];
 
 export const FIRST_STEP_SLUG: PoiStepSlug = STATE_TO_SLUG.coordinates;
 
@@ -285,8 +285,6 @@ export const poiMachine = setup({
     },
   },
 });
-
-export type PoiMachine = typeof poiMachine;
 
 export function resolvePoiSnapshot(args: {
   step: PoiStateId;

@@ -24,14 +24,14 @@ type Step = "options" | "wallet" | "qr" | "code" | "shell-wait";
 
 export type SignInSocialProvider = "google" | "apple" | "discord";
 
-export type SignInWallet = { rdns: string; name: string; icon?: string };
+type SignInWallet = { rdns: string; name: string; icon?: string };
 
-export type SignInShellHandle = {
+type SignInShellHandle = {
   identity: Promise<unknown>;
   cancel: () => void;
 };
 
-export type PhonePairSession = {
+type PhonePairSession = {
   qrDataUrl: string;
   uri: string;
   libreUri?: string;
@@ -50,7 +50,7 @@ const SOCIALS: {
   { provider: "discord", label: "Discord", Icon: DiscordIcon },
 ];
 
-export type SignInModalViewProps = {
+type SignInModalViewProps = {
   onClose: () => void;
   onSignedIn?: () => void;
   inAppAvailable: boolean;

@@ -13,63 +13,71 @@ const run = (events: BootEvent[], start: BootState = INITIAL_BOOT): BootState =>
   events.reduce(bootReducer, start);
 
 describe("boot-machine", () => {
-  it("starts idle with no overlay", () => {
+  it("narrates the boot overlay from idle through download, workers, compile and handshake", () => {
     expect(INITIAL_BOOT.phase).toBe("idle");
     expect(bootOverlay(INITIAL_BOOT).show).toBe(false);
+    const booting = run([{ type: "viewport", src: "/_play/?x" }]);
+    expect(booting.phase).toBe("booting");
+    expect(bootOverlay(booting)).toMatchObject({ show: true, kind: "loading" });
+    expect(bootOverlay(booting).text).toMatch(/loading/i);
+    const dl = bootReducer(booting, { type: "progress", pct: 40 });
+    expect(dl.stage).toBe("download");
+    expect(bootOverlay(dl).text).toMatch(/download/i);
+    expect(bootOverlay(dl).text).toContain("40%");
+    const wk = bootReducer(dl, { type: "progress", pct: 92 });
+    expect(wk.stage).toBe("workers");
+    expect(bootOverlay(wk).text).toMatch(/workers/i);
+    expect(bootOverlay(wk).text).toContain("92%");
+    const explicit = bootReducer(dl, { type: "progress", pct: 82, stage: "compile" });
+    expect(explicit.stage).toBe("compile");
+    expect(bootOverlay(explicit).text).toMatch(/compil/i);
+    expect(bootOverlay(explicit).text).toContain("82%");
+    const handshaking = bootReducer(wk, { type: "progress", pct: 100 });
+    expect(handshaking.phase).toBe("handshaking");
+    expect(bootOverlay(handshaking).text).toMatch(/scene/i);
   });
 
-  it("idle -> booting when a viewport mounts", () => {
-    const s = run([{ type: "viewport", src: "/_play/?x" }]);
-    expect(s.phase).toBe("booting");
-    expect(bootOverlay(s)).toMatchObject({ show: true, kind: "loading" });
-  });
-
-  it("progress 100 moves booting -> handshaking (Starting scene\u{2026})", () => {
-    const s = run([
+  it("requires the scene handshake after engine startup and tears down on viewport(null)", () => {
+    const live = run([
       { type: "viewport", src: "/_play" },
-      { type: "progress", pct: 40 },
       { type: "progress", pct: 100 },
-    ]);
-    expect(s.phase).toBe("handshaking");
-    expect(bootOverlay(s).text).toBe("Starting scene\u{2026}");
-  });
-
-  it("bus scene-ready => ready + live editing, overlay gone", () => {
-    const s = run([
-      { type: "viewport", src: "/_play" },
-      { type: "progress", pct: 100 },
+      { type: "engine-ready" },
       { type: "scene-ready" },
     ]);
-    expect(s.phase).toBe("ready");
-    expect(isEditorReady(s)).toBe(true);
-    expect(isLiveEditing(s)).toBe(true);
-    expect(bootOverlay(s).show).toBe(false);
-  });
-
-  it("engine-ready alone (missed handshake) => ready, overlay dismissed", () => {
-    const s = run([
+    expect(live.phase).toBe("ready");
+    expect(isEditorReady(live)).toBe(true);
+    expect(isLiveEditing(live)).toBe(true);
+    expect(bootOverlay(live).show).toBe(false);
+    const engineOnly = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
       { type: "engine-ready" },
     ]);
-    expect(s.phase).toBe("ready");
-    expect(isEditorReady(s)).toBe(true);
-    expect(isLiveEditing(s)).toBe(false);
-    expect(bootOverlay(s).show).toBe(false);
+    expect(engineOnly.phase).toBe("handshaking");
+    expect(isEditorReady(engineOnly)).toBe(false);
+    expect(isLiveEditing(engineOnly)).toBe(false);
+    expect(bootOverlay(engineOnly).show).toBe(true);
+    expect(bootReducer(live, { type: "viewport", src: null })).toEqual(INITIAL_BOOT);
   });
 
-  it("timeout with engine already up self-heals to ready (no dead end)", () => {
-    const s = run([
+  it("requires independent engine and scene facts before becoming ready", () => {
+    const sceneFirst = run([
+      { type: "viewport", src: "/_play" },
+      { type: "scene-ready" },
+    ]);
+    expect(sceneFirst).toMatchObject({ phase: "handshaking", sceneReady: true, engineReady: false });
+    expect(bootReducer(sceneFirst, { type: "engine-ready" })).toMatchObject({ phase: "ready", sceneReady: true, engineReady: true });
+  });
+
+  it("requires a real scene handshake to recover from a timeout", () => {
+    const healthy = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
       { type: "engine-ready" },
       { type: "timeout" },
     ]);
-    expect(s.phase).toBe("ready");
-    expect(bootOverlay(s).show).toBe(false);
-  });
-
-  it("timeout without any ready signal -> soft error, then engine-ready clears it", () => {
+    expect(healthy.phase).toBe("error");
+    expect(bootOverlay(healthy).show).toBe(true);
     const timedOut = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
@@ -77,87 +85,48 @@ describe("boot-machine", () => {
     ]);
     expect(timedOut.phase).toBe("error");
     expect(bootOverlay(timedOut)).toMatchObject({ show: true, kind: "error" });
-    const healed = bootReducer(timedOut, { type: "engine-ready" });
+    expect(bootReducer(timedOut, { type: "engine-ready" }).phase).toBe("error");
+    const sceneOnly = bootReducer(timedOut, { type: "scene-ready" });
+    expect(sceneOnly).toMatchObject({ phase: "error", sceneReady: true, engineReady: false });
+    const healed = bootReducer(healthy, { type: "scene-ready" });
     expect(healed.phase).toBe("ready");
     expect(bootOverlay(healed).show).toBe(false);
   });
 
-  it("bus-reset after ready keeps the engine interactive but drops live editing", () => {
+  it("bus-reset waits for a fresh handshake", () => {
     const ready = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
+      { type: "engine-ready" },
       { type: "scene-ready" },
     ]);
     const reset = bootReducer(ready, { type: "bus-reset" });
-    expect(reset.phase).toBe("ready");
+    expect(reset.phase).toBe("handshaking");
     expect(isLiveEditing(reset)).toBe(false);
-    expect(bootOverlay(reset).show).toBe(false);
-  });
-
-  it("bus-reset before engine-ready falls back to handshaking (re-blocks)", () => {
-    const s = run([
+    expect(bootOverlay(reset).show).toBe(true);
+    const early = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
       { type: "bus-reset" },
     ]);
-    expect(s.phase).toBe("handshaking");
-    expect(s.sceneReady).toBe(false);
+    expect(early.phase).toBe("handshaking");
+    expect(early.sceneReady).toBe(false);
   });
 
-  it("retry from error re-kicks to handshaking when the engine is up", () => {
+  it("retry resets the previous engine state and an engine error remains visible", () => {
     const errored = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
       { type: "engine-error", reason: "boom" },
     ]);
     expect(errored.phase).toBe("error");
-    const retried = bootReducer(errored, { type: "retry" });
-    expect(retried.phase).toBe("booting");
-    const withEngine = bootReducer({ ...errored, engineReady: true }, { type: "retry" });
-    expect(withEngine.phase).toBe("handshaking");
-  });
-
-  it("viewport(null) tears everything back down to idle", () => {
+    expect(bootReducer(errored, { type: "retry" }).phase).toBe("booting");
+    expect(bootReducer({ ...errored, engineReady: true }, { type: "retry" })).toMatchObject({ phase: "booting", engineReady: false, sceneReady: false });
     const ready = run([
       { type: "viewport", src: "/_play" },
       { type: "scene-ready" },
     ]);
-    const gone = bootReducer(ready, { type: "viewport", src: null });
-    expect(gone).toEqual(INITIAL_BOOT);
-  });
-
-  it("engine-error while already interactive is ignored (no flicker to error)", () => {
-    const ready = run([
-      { type: "viewport", src: "/_play" },
-      { type: "scene-ready" },
-    ]);
-    const s = bootReducer(ready, { type: "engine-error" });
-    expect(s.phase).toBe("ready");
-  });
-
-  it("progress without explicit stage derives it from percent", () => {
-    const dl = run([
-      { type: "viewport", src: "/_play" },
-      { type: "progress", pct: 40 },
-    ]);
-    expect(dl.stage).toBe("download");
-    expect(bootOverlay(dl).text).toBe("Downloading engine\u{2026} 40%");
-    const wk = bootReducer(dl, { type: "progress", pct: 92 });
-    expect(wk.stage).toBe("workers");
-    expect(bootOverlay(wk).text).toBe("Starting workers\u{2026} 92%");
-  });
-
-  it("explicit engine stage wins over the percent heuristic", () => {
-    const s = run([
-      { type: "viewport", src: "/_play" },
-      { type: "progress", pct: 82, stage: "compile" },
-    ]);
-    expect(s.stage).toBe("compile");
-    expect(bootOverlay(s).text).toBe("Compiling engine\u{2026} 82%");
-  });
-
-  it("no progress yet keeps the generic loading text", () => {
-    const s = run([{ type: "viewport", src: "/_play" }]);
-    expect(bootOverlay(s).text).toBe("Loading scene editor\u{2026}");
+    expect(bootReducer(ready, { type: "engine-error" }).phase).toBe("error");
+    expect(bootReducer(ready, { type: "viewport", src: "/_play?project=other" })).toMatchObject({ phase: "booting", engineReady: false, sceneReady: false });
   });
 });

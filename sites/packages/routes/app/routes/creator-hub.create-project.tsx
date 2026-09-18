@@ -9,7 +9,7 @@ import CreatorHubBreadcrumb from "@ui/creatorhub/components/CreatorHubBreadcrumb
 import { resolveBreadcrumbOrigin } from "@features/components/creator-hub/breadcrumbOrigins";
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoader } from "@core/lib/experiments/story-loader";
 
@@ -116,7 +116,7 @@ export default function CreatorHubCreateProject({ loaderData }: Route.ComponentP
   const { sid, step, template, from, assignment, defaults, takenPaths, templates } =
     loaderData;
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
 
   const origin = resolveBreadcrumbOrigin(from || (template ? "templates" : null));
 

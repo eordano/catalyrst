@@ -288,7 +288,7 @@ function receptionRows(d: WorldActivityData): Datum<FactRow[]> {
   return liveNow(rows, r.endpoint, r.readAt);
 }
 
-function notBuiltPanels(world: string): NotBuiltSpec[] {
+function notBuiltPanels(): NotBuiltSpec[] {
   const entry = (id: string) => SOURCE_REGISTRY.find((e) => e.id === id);
 
   const sessions = entry("creators-scenes-stats");
@@ -340,9 +340,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     url.searchParams.get("address")?.trim() || readWallet(request) || "";
   const from = url.searchParams.get("from");
 
-  const { sid, assignment, wrap } = await storyLoader(request, STORY, FALLBACK);
-
-  const [activity, stats] = await Promise.all([
+  const [{ sid, wrap }, [activity, stats]] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    Promise.all([
     loadWorldActivity(world, { address, signal: request.signal }),
     address
       ? loadWalletStats(address, { signal: request.signal })
@@ -353,6 +353,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
             "No address on this request, so the per-wallet storage breakdown was not read. Add ?address= to scope it.",
           ) as Datum<WalletStats>,
         ),
+  ]),
   ]);
 
   const notFound = !activity.worldKnown;
@@ -468,7 +469,7 @@ export default function CreatorHubWorldActivityRoute({
         }}
         permissionsHref={permissionsHref}
         reception={d.reception}
-        notBuilt={notBuiltPanels(d.world)}
+        notBuilt={notBuiltPanels()}
         sources={d.sources}
         notFound={d.notFound}
         deployedByCaller={d.deployedByCaller}

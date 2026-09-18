@@ -12,6 +12,7 @@ use eip712::{ProposalMessage, APP_NAME, VOTING_TYPE};
 use templates::{ProposalKind, RenderContext, DEFAULT_CHOICES};
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(15);
+const BLOCK_MEMO_TTL: Duration = Duration::from_secs(12);
 
 #[derive(Debug)]
 pub enum SubmitError {
@@ -37,6 +38,7 @@ pub struct SnapshotSubmitter {
     block_rpc_url: String,
     cfg: SnapshotConfig,
     http: reqwest::Client,
+    block_memo: tokio::sync::Mutex<Option<(std::time::Instant, u64)>>,
 }
 
 pub enum SnapshotGate {
@@ -95,6 +97,7 @@ impl SnapshotGate {
             client,
             cfg,
             http,
+            block_memo: tokio::sync::Mutex::new(None),
         }))
     }
 
@@ -190,7 +193,21 @@ impl SnapshotSubmitter {
         }
     }
 
+    /// One block of staleness is within snapshot's own tolerance; the lock also
+    /// single-flights concurrent submissions onto one RPC call.
     async fn latest_block(&self) -> Result<u64, SnapshotError> {
+        let mut memo = self.block_memo.lock().await;
+        if let Some((at, block)) = *memo {
+            if at.elapsed() < BLOCK_MEMO_TTL {
+                return Ok(block);
+            }
+        }
+        let block = self.fetch_latest_block().await?;
+        *memo = Some((std::time::Instant::now(), block));
+        Ok(block)
+    }
+
+    async fn fetch_latest_block(&self) -> Result<u64, SnapshotError> {
         let response = self
             .http
             .post(&self.block_rpc_url)

@@ -71,12 +71,16 @@ export default function AdminIndexRoute({ loaderData }: Route.ComponentProps) {
   if (!loaderData.authorized) {
     return (
       <SitesChrome>
-        <main style={{ maxWidth: 640, margin: "0 auto", padding: "48px 20px" }}>
-          <h1>Operations</h1>
-          <p>
-            This page is restricted to curation-committee members. Connect a
-            committee wallet to view system status.
-          </p>
+        <main className="adm">
+          <div className="adm-gate">
+            <div className="adm-card">
+              <h1 className="adm__h2">Operations</h1>
+              <p className="adm-card__text">
+                This page is restricted to curation-committee members. Connect a
+                committee wallet to view system status.
+              </p>
+            </div>
+          </div>
         </main>
       </SitesChrome>
     );

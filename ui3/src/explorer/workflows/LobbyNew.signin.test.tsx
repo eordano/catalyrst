@@ -1,8 +1,11 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import LobbyNew from "./LobbyNew";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+vi.mock("../../wearable-preview/WearablePreview", () => ({ default: () => null }));
+const renderLobby = () => render(<QueryClientProvider client={new QueryClient()}><LobbyNew /></QueryClientProvider>);
 import { loginWithIdentity, signOutEngineAuth } from "../../data/auth/engineLogin";
 
 const SIGNER = "0x00000000000000000000000000000000000000aa";
@@ -20,16 +23,25 @@ function makeIdentity() {
   };
 }
 
-const jumpIn = () => screen.getByRole("button", { name: "Continue as guest" });
-const signIn = () => screen.getByRole("button", { name: "Sign in" });
+const guest = () => screen.getByRole("button", { name: "Play as a guest" });
+const signIn = () => screen.getByRole("button", { name: "Login or sign up" });
+
+beforeAll(async () => {
+  await import("../../overlay/SignInFlow");
+});
 
 afterEach(() => {
   signOutEngineAuth();
 });
 
 describe("LobbyNew sign-in affordance", () => {
-  test("signed-out: Sign in opens the SignInFlow modal", async () => {
-    render(<LobbyNew />);
+  test("signed-out: the landing offers guest play and login, with no identity form, and login opens the SignInFlow modal", async () => {
+    renderLobby();
+    expect(screen.getByRole("heading", { name: "Welcome to Decentraland!" })).toBeTruthy();
+    expect(guest()).toBeEnabled();
+    expect(screen.queryByLabelText("Username")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+
     await userEvent.click(signIn());
     const modal = await screen.findByRole("dialog", {
       name: "Sign in to Decentraland",
@@ -40,61 +52,31 @@ describe("LobbyNew sign-in affordance", () => {
     ).toBeTruthy();
   });
 
-  test("signed-in (stashed identity): shows address + Sign out", async () => {
+  test("playing as a guest opens the name step, and Back returns to the landing keeping what was typed", async () => {
+    renderLobby();
+    await userEvent.click(guest());
+    expect(screen.getByRole("heading", { name: "Pick Your Name" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Login or sign up" })).toBeNull();
+    const field = screen.getByLabelText("Username") as HTMLInputElement;
+    await userEvent.clear(field);
+    await userEvent.type(field, "Ada");
+
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(signIn()).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    await userEvent.click(guest());
+    expect((screen.getByLabelText("Username") as HTMLInputElement).value).toBe("Ada");
+  });
+
+  test("signed-in (stashed identity): shows the address with entering in progress and no login button, and Sign out returns to signed-out", async () => {
     expect(loginWithIdentity(makeIdentity())).toBe(true);
-    render(<LobbyNew />);
+    renderLobby();
     expect(screen.getByText(/Signing in as/)).toBeTruthy();
     expect(screen.getByText("0x0000\u{2026}00aa")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Entering Decentraland\u2026" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Play as a guest" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Login or sign up" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(signIn()).toBeTruthy();
-  });
-});
-
-describe("LobbyNew call-to-action weighting", () => {
-  test("both calls to action are the same button", () => {
-    render(<LobbyNew />);
-    expect(jumpIn().className).toContain("lobbynew__btn");
-    expect(signIn().className).toContain("lobbynew__btn");
-  });
-
-  test("signing in leads while the guest identity is untouched", () => {
-    render(<LobbyNew />);
-    expect(signIn().className).toContain("is-primary");
-    expect(jumpIn().className).toContain("is-secondary");
-  });
-
-  test("naming the avatar hands the lead to jumping in", async () => {
-    render(<LobbyNew />);
-    await userEvent.type(screen.getByLabelText("Username"), "x");
-    expect(jumpIn().className).toContain("is-primary");
-    expect(signIn().className).toContain("is-secondary");
-  });
-
-  test("rolling a new name hands the lead to jumping in", async () => {
-    render(<LobbyNew />);
-    await userEvent.click(screen.getByRole("button", { name: "Random name" }));
-    expect(jumpIn().className).toContain("is-primary");
-    expect(signIn().className).toContain("is-secondary");
-  });
-
-  test("restyling the avatar hands the lead to jumping in", async () => {
-    render(<LobbyNew />);
-    await userEvent.click(screen.getByRole("radio", { name: "Feminine body" }));
-    expect(jumpIn().className).toContain("is-primary");
-    expect(signIn().className).toContain("is-secondary");
-  });
-
-  test("agreeing to the terms leaves the lead alone", async () => {
-    render(<LobbyNew />);
-    await userEvent.click(screen.getByRole("checkbox"));
-    expect(signIn().className).toContain("is-primary");
-    expect(jumpIn().className).toContain("is-secondary");
-  });
-
-  test("a signed-in visitor sees jumping in lead, with no sign-in button", () => {
-    expect(loginWithIdentity(makeIdentity())).toBe(true);
-    render(<LobbyNew />);
-    expect(jumpIn().className).toContain("is-primary");
-    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   });
 });

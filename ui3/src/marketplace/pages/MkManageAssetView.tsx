@@ -6,9 +6,9 @@ import "./manageassetview.css";
 
 type MkManageAssetPageProps = ComponentProps<typeof MkManageAssetPage>;
 
-export type MkManageAction = "sell" | "transfer" | "cancel";
+type MkManageAction = "sell" | "transfer" | "cancel";
 
-export type MkManageAssetViewProps = {
+type MkManageAssetViewProps = {
   actionHub?: boolean;
   name?: string;
   image?: string | null;

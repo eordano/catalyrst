@@ -24,7 +24,7 @@ export type CancelFn = (args: {
   signal?: AbortSignal;
 }) => Promise<CancelResult>;
 
-export type CancelInput = {
+type CancelInput = {
   trackCtx: TrackContext;
   order?: CancelOrder;
   ownership?: Ownership;
@@ -34,7 +34,7 @@ export type CancelInput = {
 
 export type Ownership = "self" | "other" | "none";
 
-export type CancelContext = {
+type CancelContext = {
   trackCtx: TrackContext;
   cancel: CancelFn;
   track: TrackFn;
@@ -44,7 +44,7 @@ export type CancelContext = {
   error?: string;
 };
 
-export type CancelEvent =
+type CancelEvent =
   | { type: "CONNECT_WALLET" }
   | { type: "NOT_OWNER" }
   | { type: "CONFIRM" }
@@ -72,8 +72,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type CancelStateId = keyof typeof STATE_TO_SLUG;
-export type CancelStepSlug = (typeof STATE_TO_SLUG)[CancelStateId];
+type CancelStateId = keyof typeof STATE_TO_SLUG;
+type CancelStepSlug = (typeof STATE_TO_SLUG)[CancelStateId];
 
 export const FIRST_STEP_SLUG: CancelStepSlug = STATE_TO_SLUG.reviewing;
 
@@ -236,8 +236,6 @@ export const cancelMachine = setup({
     },
   },
 });
-
-export type CancelMachine = typeof cancelMachine;
 
 export function resolveCancelSnapshot(args: {
   step: CancelStateId;

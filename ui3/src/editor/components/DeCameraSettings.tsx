@@ -64,7 +64,7 @@ function SensitivitySlider({ label, value, onChange }: SensitivitySliderProps) {
   );
 }
 
-export interface DeCameraSettingsProps {
+interface DeCameraSettingsProps {
   prefs: CameraPrefs;
   onChange?: (next: CameraPrefs) => void;
   onReset?: (next: CameraPrefs) => void;

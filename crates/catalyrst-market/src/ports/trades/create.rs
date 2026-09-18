@@ -1,6 +1,6 @@
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::PgPool;
 
 use super::contracts::{is_estate_chain, network_for_chain, offchain_marketplaces};
 use super::eip712::{resolve_signature, SignatureError};
@@ -48,12 +48,26 @@ pub struct TradeChecksInput {
 /// Upstream validates these with ajv's `type: 'number'`, which does not care how a number was
 /// spelled: `137` and `137.0` are one chain id, and a wallet that serialises through a float
 /// must not be told its trade is malformed. A fractional value is still refused.
-#[derive(Deserialize)]
-#[serde(untagged)]
 enum JsonNumber {
     Unsigned(u64),
     Signed(i64),
     Float(f64),
+}
+
+impl<'de> Deserialize<'de> for JsonNumber {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let number = serde_json::Number::deserialize(deserializer)?;
+        if let Some(value) = number.as_u64() {
+            Ok(Self::Unsigned(value))
+        } else if let Some(value) = number.as_i64() {
+            Ok(Self::Signed(value))
+        } else {
+            number
+                .as_f64()
+                .map(Self::Float)
+                .ok_or_else(|| serde::de::Error::custom("number is outside the supported range"))
+        }
+    }
 }
 
 impl JsonNumber {
@@ -360,119 +374,111 @@ pub async fn create_trade(
     let matched = resolve_signature(trade, &candidates)
         .map_err(|e| TradeCreationError::InvalidSignature(e.to_string()))?;
     verify_sent_ownership(trade, chain).await?;
+    insert_trade(
+        pool,
+        trade,
+        network,
+        matched.marketplace.address,
+        matched.cancellation_digest.as_deref(),
+    )
+    .await
+}
 
+/// Trade head, assets and per-kind rows in one statement; a duplicate signature inserts nothing.
+async fn insert_trade(
+    pool: &PgPool,
+    trade: &TradeCreation,
+    network: &str,
+    contract: &str,
+    trade_digest: Option<&str>,
+) -> Result<String, TradeCreationError> {
     let expires_at = ms_to_utc(trade.checks.expiration)?;
     let effective_since = ms_to_utc(trade.checks.effective)?;
     let checks = checks_json(&trade.checks).map_err(|e| {
         TradeCreationError::InvalidStructure(format!("checks are not serialisable: {e}"))
     })?;
-
-    let mut tx = pool.begin().await?;
-    let inserted: Option<(String,)> = sqlx::query_as(
-        "INSERT INTO marketplace.trades \
-             (network, chain_id, signature, hashed_signature, checks, signer, type, \
-              expires_at, effective_since, contract, trade_digest) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7::marketplace.trade_type, $8, $9, $10, $11) \
-         ON CONFLICT (hashed_signature) DO NOTHING \
-         RETURNING id::text",
-    )
-    .bind(network)
-    .bind(trade.chain_id as i32)
-    .bind(&trade.signature)
-    .bind(hashed_signature(&trade.signature))
-    .bind(&checks)
-    .bind(trade.signer.to_lowercase())
-    .bind(&trade.trade_type)
-    .bind(expires_at)
-    .bind(effective_since)
-    .bind(matched.marketplace.address)
-    .bind(matched.cancellation_digest.as_deref())
-    .fetch_optional(&mut *tx)
-    .await?;
-
+    let mut rows = Vec::with_capacity(trade.sent.len() + trade.received.len());
+    for (direction, assets) in [("sent", &trade.sent), ("received", &trade.received)] {
+        for asset in assets {
+            let (value, error) = match asset.asset_type {
+                ASSET_TYPE_ERC721 => (&asset.token_id, "erc721 asset needs a tokenId"),
+                ASSET_TYPE_ERC20 | ASSET_TYPE_USD_PEGGED_MANA => {
+                    (&asset.amount, "fungible asset needs an amount")
+                }
+                ASSET_TYPE_COLLECTION_ITEM => (&asset.item_id, "collection item needs an itemId"),
+                other => {
+                    return Err(TradeCreationError::InvalidStructure(format!(
+                        "unsupported asset type {other}"
+                    )))
+                }
+            };
+            let value = value
+                .as_ref()
+                .ok_or_else(|| TradeCreationError::InvalidStructure(error.to_owned()))?;
+            rows.push(serde_json::json!({
+                "direction": direction,
+                "asset_type": asset.asset_type,
+                "contract_address": asset.contract_address.to_lowercase(),
+                "beneficiary": asset.beneficiary.as_ref().map(|b| b.to_lowercase()),
+                "extra": asset.extra.as_deref().unwrap_or("0x"),
+                "value": value,
+            }));
+        }
+    }
+    let inserted: Option<(String,)> = sqlx::query_as(CREATE_TRADE_SQL)
+        .bind(network)
+        .bind(trade.chain_id as i32)
+        .bind(&trade.signature)
+        .bind(hashed_signature(&trade.signature))
+        .bind(&checks)
+        .bind(trade.signer.to_lowercase())
+        .bind(&trade.trade_type)
+        .bind(expires_at)
+        .bind(effective_since)
+        .bind(contract)
+        .bind(trade_digest)
+        .bind(serde_json::Value::Array(rows))
+        .fetch_optional(pool)
+        .await?;
     let Some((trade_id,)) = inserted else {
         return Err(TradeCreationError::Duplicate);
     };
-
-    for (direction, assets) in [("sent", &trade.sent), ("received", &trade.received)] {
-        for asset in assets.iter() {
-            insert_asset(&mut tx, &trade_id, direction, asset).await?;
-        }
-    }
-
-    tx.commit().await?;
     Ok(trade_id)
 }
 
-async fn insert_asset(
-    tx: &mut Transaction<'_, Postgres>,
-    trade_id: &str,
-    direction: &str,
-    asset: &TradeAssetInput,
-) -> Result<(), TradeCreationError> {
-    let (asset_id,): (String,) = sqlx::query_as(
-        "INSERT INTO marketplace.trade_assets \
-             (trade_id, direction, asset_type, contract_address, beneficiary, extra) \
-         VALUES ($1::uuid, $2::marketplace.asset_direction_type, $3, $4, $5, $6) \
-         RETURNING id::text",
-    )
-    .bind(trade_id)
-    .bind(direction)
-    .bind(asset.asset_type as i16)
-    .bind(asset.contract_address.to_lowercase())
-    .bind(asset.beneficiary.as_ref().map(|b| b.to_lowercase()))
-    .bind(asset.extra.clone().unwrap_or_else(|| "0x".to_string()))
-    .fetch_one(&mut **tx)
-    .await?;
+const CREATE_TRADE_SQL: &str = "WITH t AS (
+        INSERT INTO marketplace.trades
+            (network, chain_id, signature, hashed_signature, checks, signer, type,
+             expires_at, effective_since, contract, trade_digest)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::marketplace.trade_type, $8, $9, $10, $11)
+        ON CONFLICT (hashed_signature) DO NOTHING
+        RETURNING id
+     ), input AS MATERIALIZED (
+        SELECT gen_random_uuid() AS id, t.id AS trade_id, r.*
+        FROM t, jsonb_to_recordset($12) AS r(direction text, asset_type smallint,
+            contract_address text, beneficiary text, extra text, value text)
+     ), inserted AS (
+        INSERT INTO marketplace.trade_assets
+            (id, trade_id, direction, asset_type, contract_address, beneficiary, extra)
+        SELECT id, trade_id, direction::marketplace.asset_direction_type,
+               asset_type, contract_address, beneficiary, extra FROM input
+        RETURNING id
+     ), erc721 AS (
+        INSERT INTO marketplace.trade_assets_erc721 (asset_id, token_id)
+        SELECT i.id, i.value FROM input i JOIN inserted USING (id) WHERE i.asset_type = 3
+     ), erc20 AS (
+        INSERT INTO marketplace.trade_assets_erc20 (asset_id, amount)
+        SELECT i.id, i.value::numeric FROM input i JOIN inserted USING (id)
+        WHERE i.asset_type IN (1, 2)
+     ), item AS (
+        INSERT INTO marketplace.trade_assets_item (asset_id, item_id)
+        SELECT i.id, i.value FROM input i JOIN inserted USING (id) WHERE i.asset_type = 4
+     )
+     SELECT id::text FROM t";
 
-    match asset.asset_type {
-        ASSET_TYPE_ERC721 => {
-            let token_id = asset.token_id.as_ref().ok_or_else(|| {
-                TradeCreationError::InvalidStructure("erc721 asset needs a tokenId".to_string())
-            })?;
-            sqlx::query(
-                "INSERT INTO marketplace.trade_assets_erc721 (asset_id, token_id) \
-                 VALUES ($1::uuid, $2)",
-            )
-            .bind(&asset_id)
-            .bind(token_id)
-            .execute(&mut **tx)
-            .await?;
-        }
-        ASSET_TYPE_ERC20 | ASSET_TYPE_USD_PEGGED_MANA => {
-            let amount = asset.amount.as_ref().ok_or_else(|| {
-                TradeCreationError::InvalidStructure("fungible asset needs an amount".to_string())
-            })?;
-            sqlx::query(
-                "INSERT INTO marketplace.trade_assets_erc20 (asset_id, amount) \
-                 VALUES ($1::uuid, $2::numeric)",
-            )
-            .bind(&asset_id)
-            .bind(amount)
-            .execute(&mut **tx)
-            .await?;
-        }
-        ASSET_TYPE_COLLECTION_ITEM => {
-            let item_id = asset.item_id.as_ref().ok_or_else(|| {
-                TradeCreationError::InvalidStructure("collection item needs an itemId".to_string())
-            })?;
-            sqlx::query(
-                "INSERT INTO marketplace.trade_assets_item (asset_id, item_id) \
-                 VALUES ($1::uuid, $2)",
-            )
-            .bind(&asset_id)
-            .bind(item_id)
-            .execute(&mut **tx)
-            .await?;
-        }
-        other => {
-            return Err(TradeCreationError::InvalidStructure(format!(
-                "unsupported asset type {other}"
-            )))
-        }
-    }
-    Ok(())
-}
+#[cfg(test)]
+#[path = "create_batch_tests.rs"]
+mod batch_tests;
 
 fn hashed_signature(signature: &str) -> String {
     use alloy_primitives::keccak256;

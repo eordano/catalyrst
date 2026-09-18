@@ -4,9 +4,9 @@ import StCreatorHubDownload from "../../web/pages/StCreatorHubDownload";
 import StCreatorHubDownloadSuccess from "../../web/pages/StCreatorHubDownloadSuccess";
 import "./ldcreatorhubdownloadpage.css";
 
-export type LdChdOsKey = "windows" | "macos";
+type LdChdOsKey = "windows" | "macos";
 
-export type LdChdOption = {
+type LdChdOption = {
   os: string;
   osKey: LdChdOsKey;
   url: string;

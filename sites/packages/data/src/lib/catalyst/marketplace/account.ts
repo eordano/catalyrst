@@ -5,13 +5,7 @@ import { formatMana } from "./money";
 
 export { formatMana };
 
-import {
-  AssetsHttpResponseSchema,
-  OrderSchema,
-  ProfileEmoteSchema,
-  ProfileNameSchema,
-  ProfileWearableSchema,
-} from "../generated-schemas/market";
+import { AssetsHttpResponseSchema, OrderSchema, ProfileNameSchema, ProfileWearableSchema, ProfileEmoteSchema } from "../generated-schemas/market";
 import {
   parseMarketEnvelope,
   parseCollection,
@@ -21,12 +15,14 @@ import {
   type Order,
 } from "./schema";
 
-export { OrderSchema, type Order };
+export { type Order };
 import { shortAddress } from "../format/address";
 import { warnInvalid } from "../warn";
 
 type Mutual<A, B> = A extends B ? (B extends A ? true : false) : false;
+
 type Assert<T extends true> = T;
+
 export type _AssertProfileItemShapesMatch = Assert<
   Mutual<z.infer<typeof ProfileWearableSchema>, z.infer<typeof ProfileEmoteSchema>>
 >;
@@ -49,7 +45,7 @@ export type OwnedName = {
   price: string | null;
 };
 
-export function parseOwnedItem(raw: unknown): OwnedItem | null {
+function parseOwnedItem(raw: unknown): OwnedItem | null {
   const r = ProfileWearableSchema.safeParse(raw);
   if (!r.success) {
     warnInvalid("OwnedItem", r.error.issues);
@@ -68,7 +64,7 @@ export function parseOwnedItem(raw: unknown): OwnedItem | null {
   };
 }
 
-export function parseOwnedName(raw: unknown): OwnedName | null {
+function parseOwnedName(raw: unknown): OwnedName | null {
   const r = ProfileNameSchema.safeParse(raw);
   if (!r.success) {
     warnInvalid("OwnedName", r.error.issues);
@@ -83,7 +79,7 @@ export function parseOwnedName(raw: unknown): OwnedName | null {
   };
 }
 
-export function parseOrder(raw: unknown): Order | null {
+function parseOrder(raw: unknown): Order | null {
   const r = OrderSchema.safeParse(raw);
   if (!r.success) {
     warnInvalid("Order", r.error.issues);
@@ -94,13 +90,13 @@ export function parseOrder(raw: unknown): Order | null {
 
 const AssetsEnvelopeSchema = AssetsHttpResponseSchema(z.unknown());
 
-export type AssetsPage = {
+type AssetsPage = {
   elements: unknown[];
   total: number;
   totalItems?: number | null;
 };
 
-export function parseAssetsEnvelope(raw: unknown): AssetsPage | null {
+function parseAssetsEnvelope(raw: unknown): AssetsPage | null {
   const r = AssetsEnvelopeSchema.safeParse(raw);
   if (r.success) return r.data.data;
   warnInvalid("AssetsEnvelope", r.error.issues);
@@ -258,13 +254,7 @@ function safeRarity(r: string | null | undefined): string {
   return r && RARITIES.has(r) ? r : "common";
 }
 
-export function toCardNetwork(
-  network: string | null | undefined,
-): "ethereum" | "polygon" {
-  return network === "ETHEREUM" ? "ethereum" : "polygon";
-}
-
-export function shortenAddress(addr: string | null | undefined): string {
+function shortenAddress(addr: string | null | undefined): string {
   return addr ? shortAddress(addr) : "";
 }
 
@@ -274,7 +264,7 @@ export function thumbnailFromUrn(urn: string | null | undefined): string | undef
     : undefined;
 }
 
-export type OwnedCard = {
+type OwnedCard = {
   id: string;
   name: string;
   collection: string | undefined;
@@ -296,7 +286,7 @@ export function toOwnedCard(item: OwnedItem): OwnedCard {
   };
 }
 
-export type OnSaleRow = {
+type OnSaleRow = {
   id: string;
   name: string;
   sub: string;

@@ -10,14 +10,14 @@ const nullableStr = z.string().nullish().transform((v) => v ?? null);
 export const CommunityMemberSchema = CommunityMemberWireSchema;
 export type CommunityMember = z.infer<typeof CommunityMemberSchema>;
 
-export const CommunityEventSchema = z.object({
+const CommunityEventSchema = z.object({
   id: z.string(),
   name: z.string(),
   image: nullableStr,
   creatorName: nullableStr,
   timeLabel: nullableStr,
 });
-export type CommunityEvent = z.infer<typeof CommunityEventSchema>;
+type CommunityEvent = z.infer<typeof CommunityEventSchema>;
 
 export const CommunitySchema = z.object({
   id: z.string(),

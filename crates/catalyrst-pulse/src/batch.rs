@@ -13,6 +13,7 @@ pub enum SeqEncoding {
     Delta,
     #[default]
     Absolute,
+    AbsoluteBaseline,
 }
 
 pub const SEQ_ENCODING_HEADER_BITS: u32 = 1;
@@ -37,6 +38,10 @@ const _: () = assert!(crate::transport::webtransport::config::DEFAULT_MAX_DATAGR
 const GLIDE_STATE_BITS: u32 = 2;
 const JUMP_COUNT_BITS: u32 = 16;
 const PARCEL_INDEX_BITS: u32 = 17;
+
+fn varint_bits(value: u32) -> u32 {
+    (32 - value.leading_zeros()).max(1).div_ceil(7) * 8
+}
 
 pub const FIELD_COUNT: usize = 17;
 
@@ -95,6 +100,14 @@ impl BitWriter {
     pub fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
+
+    fn write_varint(&mut self, mut value: u32) {
+        while value >= 128 {
+            self.write_bits((value & 127) | 128, 8);
+            value >>= 7;
+        }
+        self.write_bits(value, 8);
+    }
 }
 
 pub struct BitReader<'a> {
@@ -130,17 +143,34 @@ impl<'a> BitReader<'a> {
     pub fn bits_remaining(&self) -> u64 {
         self.total - self.nbits
     }
+
+    fn read_varint(&mut self) -> Result<u32, BatchError> {
+        let mut value = 0;
+        for shift in (0..35).step_by(7) {
+            let byte = self.read_bits(8)?;
+            if (shift == 28 && byte > 15) || (shift > 0 && byte == 0) {
+                return Err(BatchError::UnexpectedEof);
+            }
+            value |= (byte & 127) << shift;
+            if byte < 128 {
+                return Ok(value);
+            }
+        }
+        Err(BatchError::UnexpectedEof)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BatchError {
     UnexpectedEof,
+    InvalidData,
 }
 
 impl std::fmt::Display for BatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BatchError::UnexpectedEof => write!(f, "batch payload ended mid-field"),
+            BatchError::InvalidData => write!(f, "invalid batch data"),
         }
     }
 }
@@ -153,6 +183,7 @@ pub struct BatchSubject {
     pub baseline_seq: u32,
     pub new_seq: u32,
     pub state_flags: u32,
+    pub state_flags_present: bool,
     pub fields: [Option<u32>; FIELD_COUNT],
 }
 
@@ -163,6 +194,7 @@ impl BatchSubject {
             baseline_seq: delta.baseline_seq,
             new_seq: delta.new_seq,
             state_flags,
+            state_flags_present: delta.state_flags.is_some(),
             fields: [
                 delta.parcel_index.map(|v| v as u32),
                 delta.position_x,
@@ -203,7 +235,7 @@ impl BatchSubject {
             slide_blend: self.fields[9],
             head_yaw: self.fields[10],
             head_pitch: self.fields[11],
-            state_flags: Some(self.state_flags),
+            state_flags: self.state_flags_present.then_some(self.state_flags),
             glide_state: self.fields[12].map(|v| v as i32),
             jump_count: self.fields[13].map(|v| v as i32),
             point_at_x: self.fields[14],
@@ -216,12 +248,33 @@ impl BatchSubject {
         self.fields.iter().filter(|f| f.is_some()).count()
     }
 
+    pub fn is_representable(&self) -> bool {
+        self.subject_id < (1 << SUBJECT_ID_BITS)
+            && self.state_flags < (1 << STATE_FLAGS_BITS)
+            && self.seq_delta() > 0
+            && self.seq_delta() < (1 << 31)
+            && self
+                .fields
+                .iter()
+                .zip(FIELD_WIDTHS)
+                .all(|(value, width)| value.is_none_or(|value| value < (1 << width)))
+    }
+
     fn seq_delta(&self) -> u32 {
         self.new_seq.wrapping_sub(self.baseline_seq)
     }
 
     pub fn bit_len(&self, mode: SeqEncoding) -> u64 {
-        let mut n = (SUBJECT_ID_BITS + PRESENCE_BITS + STATE_FLAGS_BITS) as u64;
+        let flags = if mode == SeqEncoding::AbsoluteBaseline {
+            1 + if self.state_flags_present {
+                STATE_FLAGS_BITS
+            } else {
+                0
+            }
+        } else {
+            STATE_FLAGS_BITS
+        };
+        let mut n = (SUBJECT_ID_BITS + PRESENCE_BITS + flags) as u64;
         n += match mode {
             SeqEncoding::Delta => {
                 if self.seq_delta() >= SEQ_DELTA_ESCAPE {
@@ -231,6 +284,15 @@ impl BatchSubject {
                 }
             }
             SeqEncoding::Absolute => ABSOLUTE_SEQ_BITS as u64,
+            SeqEncoding::AbsoluteBaseline => {
+                (varint_bits(self.new_seq)
+                    + SEQ_DELTA_BITS
+                    + if self.seq_delta() >= SEQ_DELTA_ESCAPE {
+                        varint_bits(self.baseline_seq)
+                    } else {
+                        0
+                    }) as u64
+            }
         };
         for (i, field) in self.fields.iter().enumerate() {
             if field.is_some() {
@@ -241,6 +303,22 @@ impl BatchSubject {
     }
 
     fn encode_into(&self, w: &mut BitWriter, mode: SeqEncoding) {
+        self.encode_with_mask(w, mode, None, false);
+    }
+
+    fn presence_mask(&self) -> u32 {
+        self.fields.iter().enumerate().fold(0, |mask, (i, field)| {
+            mask | (u32::from(field.is_some()) << (PRESENCE_BITS - 1 - i as u32))
+        })
+    }
+
+    fn encode_with_mask(
+        &self,
+        w: &mut BitWriter,
+        mode: SeqEncoding,
+        mask_index: Option<(u32, u32)>,
+        unit_gap: bool,
+    ) {
         w.write_bits(self.subject_id, SUBJECT_ID_BITS);
         match mode {
             SeqEncoding::Delta => {
@@ -253,15 +331,25 @@ impl BatchSubject {
                 }
             }
             SeqEncoding::Absolute => w.write_bits(self.new_seq, ABSOLUTE_SEQ_BITS),
-        }
-        let mut mask = 0u32;
-        for (i, field) in self.fields.iter().enumerate() {
-            if field.is_some() {
-                mask |= 1 << (PRESENCE_BITS - 1 - i as u32);
+            SeqEncoding::AbsoluteBaseline => {
+                w.write_varint(self.new_seq);
+                let distance = self.seq_delta();
+                if !unit_gap {
+                    w.write_bits(distance.min(SEQ_DELTA_ESCAPE), SEQ_DELTA_BITS);
+                }
+                if distance >= SEQ_DELTA_ESCAPE {
+                    w.write_varint(self.baseline_seq);
+                }
             }
         }
-        w.write_bits(mask, PRESENCE_BITS);
-        w.write_bits(self.state_flags, STATE_FLAGS_BITS);
+        let (mask, width) = mask_index.unwrap_or((self.presence_mask(), PRESENCE_BITS));
+        w.write_bits(mask, width);
+        if mode == SeqEncoding::AbsoluteBaseline {
+            w.write_bits(u32::from(self.state_flags_present), 1);
+        }
+        if mode != SeqEncoding::AbsoluteBaseline || self.state_flags_present {
+            w.write_bits(self.state_flags, STATE_FLAGS_BITS);
+        }
         for (i, field) in self.fields.iter().enumerate() {
             if let Some(v) = field {
                 w.write_bits(*v, FIELD_WIDTHS[i]);
@@ -273,6 +361,16 @@ impl BatchSubject {
         r: &mut BitReader<'_>,
         mode: SeqEncoding,
         last_known_seq: &mut impl FnMut(u32) -> u32,
+    ) -> Result<Self, BatchError> {
+        Self::decode_with_masks(r, mode, last_known_seq, &[], false)
+    }
+
+    fn decode_with_masks(
+        r: &mut BitReader<'_>,
+        mode: SeqEncoding,
+        last_known_seq: &mut impl FnMut(u32) -> u32,
+        masks: &[u32],
+        unit_gap: bool,
     ) -> Result<Self, BatchError> {
         let subject_id = r.read_bits(SUBJECT_ID_BITS)?;
         let (baseline_seq, new_seq) = match mode {
@@ -290,9 +388,34 @@ impl BatchSubject {
                 let new_seq = r.read_bits(ABSOLUTE_SEQ_BITS)?;
                 (new_seq, new_seq)
             }
+            SeqEncoding::AbsoluteBaseline => {
+                let new_seq = r.read_varint()?;
+                let distance = if unit_gap {
+                    1
+                } else {
+                    r.read_bits(SEQ_DELTA_BITS)?
+                };
+                let baseline = if distance == SEQ_DELTA_ESCAPE {
+                    r.read_varint()?
+                } else {
+                    new_seq.wrapping_sub(distance)
+                };
+                (baseline, new_seq)
+            }
         };
-        let mask = r.read_bits(PRESENCE_BITS)?;
-        let state_flags = r.read_bits(STATE_FLAGS_BITS)?;
+        let mask = if masks.is_empty() {
+            r.read_bits(PRESENCE_BITS)?
+        } else {
+            *masks
+                .get(r.read_bits(mask_index_bits(masks.len()))? as usize)
+                .ok_or(BatchError::InvalidData)?
+        };
+        let state_flags_present = mode != SeqEncoding::AbsoluteBaseline || r.read_bits(1)? != 0;
+        let state_flags = if state_flags_present {
+            r.read_bits(STATE_FLAGS_BITS)?
+        } else {
+            0
+        };
         let mut fields = [None; FIELD_COUNT];
         for (i, field) in fields.iter_mut().enumerate() {
             if mask & (1 << (PRESENCE_BITS - 1 - i as u32)) != 0 {
@@ -304,6 +427,7 @@ impl BatchSubject {
             baseline_seq,
             new_seq,
             state_flags,
+            state_flags_present,
             fields,
         })
     }
@@ -318,7 +442,10 @@ pub struct EncodedBatch {
 
 fn open_batch(mode: SeqEncoding) -> BitWriter {
     let mut w = BitWriter::new();
-    w.write_bits(mode as u32, SEQ_ENCODING_HEADER_BITS);
+    w.write_bits(
+        u32::from(mode != SeqEncoding::Delta),
+        SEQ_ENCODING_HEADER_BITS,
+    );
     w
 }
 
@@ -379,6 +506,165 @@ pub fn decode_batch(
         )?);
     }
     Ok(out)
+}
+
+pub fn decode_baseline_batch(
+    subject_count: u32,
+    payload: &[u8],
+) -> Result<Vec<BatchSubject>, BatchError> {
+    if payload.is_empty()
+        || payload.len() > 1200
+        || subject_count == 0
+        || subject_count as usize > (payload.len() * 8 - 1) / 22
+    {
+        return Err(BatchError::InvalidData);
+    }
+    let mut reader = BitReader::new(payload);
+    let mut masks = Vec::new();
+    let mut unit_gap = false;
+    if reader.read_bits(1)? == 0 {
+        unit_gap = reader.read_bits(1)? != 0;
+        let count = reader.read_bits(3)? + 1;
+        for _ in 0..count {
+            let mask = reader.read_bits(PRESENCE_BITS)?;
+            if masks.contains(&mask) {
+                return Err(BatchError::InvalidData);
+            }
+            masks.push(mask);
+        }
+    }
+    let mut out: Vec<BatchSubject> = Vec::with_capacity(subject_count as usize);
+    for _ in 0..subject_count {
+        let subject = BatchSubject::decode_with_masks(
+            &mut reader,
+            SeqEncoding::AbsoluteBaseline,
+            &mut |_| unreachable!(),
+            &masks,
+            unit_gap,
+        )?;
+        if !subject.is_representable() || out.iter().any(|s| s.subject_id == subject.subject_id) {
+            return Err(BatchError::InvalidData);
+        }
+        out.push(subject);
+    }
+    let remaining = reader.bits_remaining();
+    if remaining > 7 || reader.read_bits(remaining as u32)? != 0 {
+        return Err(BatchError::InvalidData);
+    }
+    Ok(out)
+}
+
+fn mask_index_bits(count: usize) -> u32 {
+    usize::BITS - (count - 1).leading_zeros()
+}
+
+pub fn encode_dictionary_batches(
+    server_tick: u32,
+    subjects: &[BatchSubject],
+    max_bytes: usize,
+) -> Vec<EncodedBatch> {
+    let mut masks = Vec::new();
+    for subject in subjects {
+        let mask = subject.presence_mask();
+        if !masks.contains(&mask) {
+            masks.push(mask);
+        }
+        if masks.len() > 8 {
+            return encode_batches(
+                server_tick,
+                subjects,
+                max_bytes,
+                SeqEncoding::AbsoluteBaseline,
+            );
+        }
+    }
+    if subjects.is_empty() {
+        return Vec::new();
+    }
+    let index_bits = mask_index_bits(masks.len());
+    let unit_gap = subjects.iter().all(|s| s.seq_delta() == 1);
+    let open = || {
+        let mut writer = BitWriter::new();
+        writer.write_bits(0, 1);
+        writer.write_bits(u32::from(unit_gap), 1);
+        writer.write_bits((masks.len() - 1) as u32, 3);
+        for mask in &masks {
+            writer.write_bits(*mask, PRESENCE_BITS);
+        }
+        writer
+    };
+    let mut writer = open();
+    let mut count = 0;
+    let mut start = 0;
+    let mut out = Vec::new();
+    for (index, subject) in subjects.iter().enumerate() {
+        let bits = subject.bit_len(SeqEncoding::AbsoluteBaseline) - PRESENCE_BITS as u64
+            + index_bits as u64
+            - if unit_gap { SEQ_DELTA_BITS as u64 } else { 0 };
+        if count > 0 && (writer.bit_len() + bits).div_ceil(8) as usize > max_bytes {
+            finish_dictionary_chunk(
+                &mut out,
+                server_tick,
+                &subjects[start..index],
+                writer,
+                count,
+                max_bytes,
+            );
+            writer = open();
+            count = 0;
+            start = index;
+        }
+        let mask = masks
+            .iter()
+            .position(|mask| *mask == subject.presence_mask())
+            .unwrap() as u32;
+        subject.encode_with_mask(
+            &mut writer,
+            SeqEncoding::AbsoluteBaseline,
+            Some((mask, index_bits)),
+            unit_gap,
+        );
+        count += 1;
+    }
+    finish_dictionary_chunk(
+        &mut out,
+        server_tick,
+        &subjects[start..],
+        writer,
+        count,
+        max_bytes,
+    );
+    out
+}
+
+fn finish_dictionary_chunk(
+    out: &mut Vec<EncodedBatch>,
+    server_tick: u32,
+    subjects: &[BatchSubject],
+    writer: BitWriter,
+    count: u32,
+    max_bytes: usize,
+) {
+    let plain_bits = 1 + subjects
+        .iter()
+        .map(|subject| subject.bit_len(SeqEncoding::AbsoluteBaseline))
+        .sum::<u64>();
+    if plain_bits.div_ceil(8) <= writer.bit_len().div_ceil(8)
+        || writer.bit_len().div_ceil(8) as usize > max_bytes
+    {
+        out.extend(encode_batches(
+            server_tick,
+            subjects,
+            max_bytes,
+            SeqEncoding::AbsoluteBaseline,
+        ));
+    } else {
+        out.push(EncodedBatch {
+            server_tick,
+            subject_count: count,
+            payload: writer.into_bytes(),
+        });
+    }
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import "./viewport.css";
 import "./layout.css";
 
-export type FigmaBoxMargins = {
+type FigmaBoxMargins = {
   top?: number;
   right?: number;
   bottom?: number;
@@ -16,7 +16,7 @@ export const FIGMA_BOX_MODAL = {
   landscapeMargins: { top: 80, right: 80, bottom: 70, left: 80 },
 } as const;
 
-export type FigmaBoxProps = {
+type FigmaBoxProps = {
   children?: ReactNode;
   portraitFrameHeight?: number;
   landscapeFrameHeight?: number;

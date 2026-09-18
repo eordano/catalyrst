@@ -13,7 +13,7 @@ import { useAuth } from "@data/lib/auth/context";
 import { isInReturnWindow, readLease } from "@data/lib/catalyst/marketplace/escrow-lease";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import { withCreatorFunnel } from "@core/lib/telemetry/creator-funnel";
 import SellWizard from "@features/stories/marketplace/sell-list/SellWizard";
@@ -58,19 +58,20 @@ export async function loader({ request }: Route.LoaderArgs) {
     readWallet(request) ||
     null;
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    async () => {
+      const address = addressOverride ?? (await loadFixtureAssets()).address;
+      try {
+        return await fetchOwnedWearables(address, { first: 24 }, { signal: request.signal });
+      } catch {
+        return [] as OwnedAsset[];
+      }
+    },
   );
-
-  const address = addressOverride ?? (await loadFixtureAssets()).address;
-  let assets: OwnedAsset[] = [];
-  try {
-    assets = await fetchOwnedWearables(address, { first: 24 }, { signal: request.signal });
-  } catch {
-    assets = [];
-  }
+  let assets: OwnedAsset[] = data;
 
   const sellable: OwnedAsset[] = [];
   const leased: LeasedAsset[] = [];

@@ -93,7 +93,16 @@ async fn credit_used_reconciler_debits_once_across_two_runs() {
     assert_eq!(available(&pool, &addr).await, 10.0);
     assert_eq!(status(&pool, &id).await, "authorized");
 
+    let cap = catalyrst_testgate::sql_capture::sql_capture();
     state.credits.reconcile(None).await.unwrap();
+    let flips = cap.count_containing("SET status = 'consumed'");
+    let locks = cap.count_containing("FOR UPDATE");
+    drop(cap);
+    assert!(flips >= 1);
+    assert_eq!(
+        locks, flips,
+        "one wallet lock per flipped authorization; the guarded UPDATE is the row lock"
+    );
 
     assert_eq!(available(&pool, &addr).await, 5.0, "debited $5 once");
     assert_eq!(status(&pool, &id).await, "consumed");

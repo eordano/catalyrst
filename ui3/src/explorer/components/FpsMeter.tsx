@@ -1,7 +1,7 @@
 import { useFps } from "./useFps";
 import "./fpsmeter.css";
 
-export type FpsTone = "good" | "warn" | "bad";
+type FpsTone = "good" | "warn" | "bad";
 
 export const FPS_GOOD = 55;
 export const FPS_WARN = 30;

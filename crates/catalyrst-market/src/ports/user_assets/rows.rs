@@ -34,6 +34,9 @@ pub(super) struct ProfileRow {
     price: Option<String>,
     #[sqlx(default)]
     is_leased: bool,
+    pub(super) total: i64,
+    #[sqlx(default)]
+    pub(super) total_items: i64,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -52,6 +55,7 @@ pub(super) struct GroupedWearableRow {
     #[allow(dead_code)]
     rarity_order: i32,
     is_leased: bool,
+    pub(super) total: i64,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -69,6 +73,7 @@ pub(super) struct GroupedEmoteRow {
     #[allow(dead_code)]
     rarity_order: i32,
     is_leased: bool,
+    pub(super) total: i64,
 }
 
 pub fn fix_urn(urn: &str) -> String {

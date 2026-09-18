@@ -6,10 +6,10 @@ import Checkbox from "../../atoms/Checkbox";
 import "../../explorer/components/communitycreate.css";
 import "./communitycreateview.css";
 
-export type CommunityPrivacy = "public" | "private";
-export type CommunityVisibility = "all" | "unlisted";
+type CommunityPrivacy = "public" | "private";
+type CommunityVisibility = "all" | "unlisted";
 
-export type CommunityDraft = {
+type CommunityDraft = {
   name: string;
   description: string;
   privacy: CommunityPrivacy;
@@ -18,15 +18,15 @@ export type CommunityDraft = {
   policyAck: boolean;
 };
 
-export type CommunityDraftIssues = Partial<Record<keyof CommunityDraft, string>>;
+type CommunityDraftIssues = Partial<Record<keyof CommunityDraft, string>>;
 
-export type CommunityMembershipOption = {
+type CommunityMembershipOption = {
   value: CommunityPrivacy;
   label: string;
   note: string;
 };
 
-export type CommunityCreateViewProps = {
+type CommunityCreateViewProps = {
   value: string;
   step: string;
   hasName: boolean;

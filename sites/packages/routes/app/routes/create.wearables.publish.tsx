@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { href } from "@core/lib/router/routes";
 
 import CreatorHubChrome from "@ui/creatorhub/frames/CreatorHubChrome";
 import CreatorHubBreadcrumb from "@ui/creatorhub/components/CreatorHubBreadcrumb";
 import "@ui/creatorhub/frames/creatorhubchrome.css";
-import { useAuth } from "@data/lib/auth/index";
+import { useAuth, walletProvider } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import {
   fetchCollectionItems,
   fetchCollectionMeta,
@@ -17,13 +17,14 @@ import {
   buildSummary,
   toPublishItems,
 } from "@data/lib/catalyst/creator-hub/wearable-publish-collection";
-import { loadPublishCollection } from "@data/lib/catalyst/creator-hub/wearable-publish-collection.server";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoader } from "@core/lib/experiments/story-loader";
 
-import PublishCollectionWizard, {
-  type SummaryView,
-} from "@features/stories/creator-hub/wearable-publish-collection/PublishCollectionWizard";
+import type { SummaryView } from "@features/stories/creator-hub/wearable-publish-collection/PublishCollectionWizard";
+import LiveLinkedPublishWizard from "@features/stories/creator-hub/wearable-publish-collection/LiveLinkedPublishWizard";
+import { linkedPublicationFlow } from "@data/lib/catalyst/builder/linked-publication-flow";
+import LivePublishCollectionWizard from "@features/stories/creator-hub/wearable-publish-collection/LivePublishCollectionWizard";
+import { collectionPublicationFlow } from "@data/lib/catalyst/builder/collection-publication-flow";
 import type { PublishCollection } from "@features/stories/creator-hub/wearable-publish-collection/machine";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
@@ -44,7 +45,6 @@ const FALLBACK: Assignment = {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const step = url.searchParams.get("step")?.trim() || null;
   const collectionId = url.searchParams.get("collection")?.trim() || null;
 
   const { sid, assignment, wrap } = await storyLoader(
@@ -53,35 +53,34 @@ export async function loader({ request }: Route.LoaderArgs) {
     FALLBACK,
   );
 
-  const { collection, summary, manaPerItem, id, fallback } =
-    await loadPublishCollection(collectionId);
-
-  const payload = {
-    sid,
-    step,
-    collectionId: id,
-    collection,
-    summary,
-    manaPerItem,
-    fallback,
-    assignment,
-  };
+  const payload = { sid, collectionId: collectionId ?? "", assignment };
   return wrap(payload);
 }
 
 export default function CreateWearablesPublishRoute({
   loaderData,
 }: Route.ComponentProps) {
-  const { sid, step, collectionId, collection, summary, manaPerItem, fallback, assignment } =
+  const { sid, collectionId, assignment } =
     loaderData;
-  const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const auth = useAuth();
+  const { isConnected, address } = auth;
+  const authRef = useRef(auth);
+  authRef.current = auth;
+  const flow = useMemo(() => collectionPublicationFlow(() => {
+    const current = authRef.current;
+    if (!current.address || !current.isConnected) throw new Error("Sign in with the collection owner to publish.");
+    return {address:current.address, provider:walletProvider(), fetch:current.fetch, sign:current.sign};
+  }), [address]);
+  const linkedFlow = useMemo(() => linkedPublicationFlow(() => {
+    const current = authRef.current;
+    if (!current.address || !current.isConnected) throw new Error("Sign in with the collection owner to publish.");
+    return {address:current.address, provider:walletProvider(), fetch:current.fetch, sign:current.sign};
+  }), [address]);
+  const { name } = useChromeAuth();
 
   const live = useLivePublish(collectionId);
   const hasLive = live.phase === "ready" || live.phase === "empty";
-  const effCollection = hasLive ? live.data!.collection : collection;
-  const effSummary = hasLive ? live.data!.summary : summary;
-  const effFallback = hasLive ? false : fallback;
+  const effFallback = !hasLive;
   const loading = live.phase === "loading";
 
   return (
@@ -140,34 +139,31 @@ export default function CreateWearablesPublishRoute({
               </>
             )}
           </p>
-        ) : (
-          <p className="cwpc-route__sim" role="note">
-            Collection items are read live from the builder. The MANA publish payment
-            and the curation submission are <strong>simulated</strong> (the real
-            publish needs a connected wallet, an EIP-712 / auth-chain signature, and
-            the auth-gated builder-server publish endpoint).
-          </p>
-        )}
+        ) : null}
 
-        <PublishCollectionWizard
-          key={hasLive ? "live" : "ssr"}
-          collection={effCollection}
-          summary={effSummary}
-          manaPerItem={manaPerItem}
+        {hasLive && isConnected && live.data!.linked && <LiveLinkedPublishWizard
+          key={`${address}:${collectionId}:linked`}
+          collection={live.data!.collection} summary={live.data!.summary} flow={linkedFlow}
+          trackCtx={{sid,story:STORY,variant:assignment.variant,experimentKey:assignment.experimentKey}}
+        />}
+        {hasLive && isConnected && !live.data!.linked && <LivePublishCollectionWizard
+          key={`${address}:${collectionId}`}
+          collection={live.data!.collection}
+          summary={live.data!.summary}
+          flow={flow}
           trackCtx={{
             sid,
             story: STORY,
             variant: assignment.variant,
             experimentKey: assignment.experimentKey,
           }}
-          initialStep={step ?? undefined}
-        />
+        />}
       </main>
     </CreatorHubChrome>
   );
 }
 
-type LivePublish = { collection: PublishCollection; summary: SummaryView };
+type LivePublish = { collection: PublishCollection; summary: SummaryView; linked: boolean };
 
 type LivePublishPhase = "idle" | "loading" | "ready" | "empty" | "error";
 
@@ -180,6 +176,7 @@ type LivePublishState = {
 function useLivePublish(id: string): LivePublishState {
   const auth = useAuth();
   const connected = auth.isConnected;
+  const address = auth.address;
   const authFetch = auth.fetch;
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
@@ -199,7 +196,7 @@ function useLivePublish(id: string): LivePublishState {
     const opts = { fetchImpl, base: "" };
     Promise.all([
       fetchCollectionItems(id, opts),
-      fetchCollectionMeta(id, opts).catch(() => null),
+      fetchCollectionMeta(id, opts),
     ])
       .then(([{ wearables, emotes }, meta]) => {
         if (cancelled) return;
@@ -208,6 +205,7 @@ function useLivePublish(id: string): LivePublishState {
           data: {
             collection: buildPublishCollection(id, items, meta?.name ?? ""),
             summary: buildSummary(id, wearables, emotes, meta),
+            linked: meta?.urn?.startsWith("urn:decentraland:matic:collections-thirdparty:") ?? false,
           },
           phase: items.length === 0 ? "empty" : "ready",
         });
@@ -218,7 +216,7 @@ function useLivePublish(id: string): LivePublishState {
     return () => {
       cancelled = true;
     };
-  }, [connected, authFetch, id, attempt]);
+  }, [connected, address, authFetch, id, attempt]);
 
   return {
     data: state.data,

@@ -8,22 +8,9 @@ import {
   WorldHeadcountRowSchema,
 } from "./presence";
 
-export {
-  PRESENCE_BASE,
-  parsePointer,
-  sceneJumpUrl,
-  worldJumpUrl,
-} from "./presence";
-
-export const DERIVED_LABELS = {
-  peak: "Peak concurrent (sampled)",
-  occupied: "Snapshots with someone in it",
-  firstSeen: "History begins",
-} as const;
-
-export const HISTORY_MIN_LIMIT = 1;
+const HISTORY_MIN_LIMIT = 1;
 export const HISTORY_MAX_LIMIT = 5000;
-export const HISTORY_DEFAULT_LIMIT = 200;
+const HISTORY_DEFAULT_LIMIT = 200;
 
 export function clampHistoryLimit(limit: number | null | undefined): number {
   const n = Number(limit);
@@ -33,12 +20,12 @@ export function clampHistoryLimit(limit: number | null | undefined): number {
 
 const takenAt = z.string();
 
-export const WorldOccupancyRowSchema = WorldHeadcountRowSchema.extend({
+const WorldOccupancyRowSchema = WorldHeadcountRowSchema.extend({
   taken_at: takenAt,
 });
 export type WorldOccupancyRow = z.infer<typeof WorldOccupancyRowSchema>;
 
-export const SceneHistoryRowSchema = SceneOccupancyRowSchema.extend({
+const SceneHistoryRowSchema = SceneOccupancyRowSchema.extend({
   taken_at: takenAt,
 });
 export type SceneHistoryRow = z.infer<typeof SceneHistoryRowSchema>;
@@ -152,8 +139,8 @@ export function currentPath(): string {
   return historyPath("/current");
 }
 
-export type OccupancyPoint = { date: string; value: number | null };
-export type GapBand = { fromIndex: number; toIndex: number };
+type OccupancyPoint = { date: string; value: number | null };
+type GapBand = { fromIndex: number; toIndex: number };
 
 export type BucketizedHistory = {
   points: OccupancyPoint[];
@@ -166,7 +153,7 @@ export type BucketizedHistory = {
   cadenceSeconds: number;
 };
 
-export const EMPTY_HISTORY: BucketizedHistory = {
+const EMPTY_HISTORY: BucketizedHistory = {
   points: [],
   gapBands: [],
   sampleCount: 0,

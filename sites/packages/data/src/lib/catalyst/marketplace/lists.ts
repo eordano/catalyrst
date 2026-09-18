@@ -8,11 +8,9 @@ import {
 } from "../generated-schemas/market";
 import { formatMana, toCardNetwork } from "./index";
 
-export { FavoriteListSchema };
-
 type WireFavoriteList = z.infer<typeof FavoriteListSchema>;
 
-export type ListItem = {
+type ListItem = {
   id: string;
   itemId: string | null;
   name: string | null;
@@ -41,7 +39,7 @@ export type List = {
   items: ListItem[];
 };
 
-export function normalizeList(w: WireFavoriteList): List {
+function normalizeList(w: WireFavoriteList): List {
   return {
     id: w.id,
     name: w.name,
@@ -116,7 +114,7 @@ function safeRarity(r: string | null | undefined): string {
   return r && RARITIES.has(r) ? r : "common";
 }
 
-export function listItemPrice(item: ListItem): string | null {
+function listItemPrice(item: ListItem): string | null {
   if (!item.isOnSale) return null;
   return formatMana(item.price);
 }

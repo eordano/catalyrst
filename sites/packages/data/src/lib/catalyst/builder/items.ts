@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { warnInvalid } from "../warn";
 
-export const ITEM_TYPES = ["wearable", "emote"] as const;
+const ITEM_TYPES = ["wearable", "emote"] as const;
 
-export const RARITIES = [
+const RARITIES = [
   "unique",
   "mythic",
   "exotic",
@@ -13,9 +13,8 @@ export const RARITIES = [
   "uncommon",
   "common",
 ] as const;
-export type Rarity = (typeof RARITIES)[number];
 
-export const BODY_SHAPES = ["male", "female", "both"] as const;
+const BODY_SHAPES = ["male", "female", "both"] as const;
 
 const WearableMetricsSchema = z.object({
   triangles: z.number(),
@@ -37,7 +36,7 @@ const RepresentationSchema = z.object({
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-export const BuilderItemSchema = z.object({
+const BuilderItemSchema = z.object({
   id: z.string(),
   type: z.enum(ITEM_TYPES),
   name: z.string(),

@@ -4,13 +4,14 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::handlers::admin::audited;
 use crate::AppState;
 
 fn err<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
 
-#[derive(sqlx::FromRow, Clone)]
+#[derive(sqlx::FromRow, Clone, Deserialize)]
 pub struct Group {
     pub name: String,
     pub description: String,
@@ -48,38 +49,34 @@ async fn load_groups(pool: &sqlx::PgPool) -> Result<Vec<Group>, sqlx::Error> {
     .await
 }
 
-pub async fn groups_for_user(pool: &sqlx::PgPool, user_key: &str) -> Vec<String> {
-    match load_groups(pool).await {
-        Ok(groups) => groups
-            .into_iter()
-            .filter(|g| matches(g, user_key))
-            .map(|g| g.name)
-            .collect(),
-        Err(e) => {
-            tracing::warn!(error = %e, "group resolution failed; falling back to global flags");
-            Vec::new()
-        }
+/// `flag_groups` as one jsonb column, in `load_groups` order, for folding into a wider statement.
+pub const GROUPS_JSON: &str = "(SELECT COALESCE(jsonb_agg(jsonb_build_object( \
+      'name', name, 'description', description, 'members', to_jsonb(members), \
+      'rollout_pct', rollout_pct, 'priority', priority) ORDER BY priority DESC, name), '[]'::jsonb) \
+    FROM telemetry.flag_groups)";
+
+pub fn groups_for(groups: Vec<Group>, user_key: &str) -> Vec<String> {
+    if user_key.is_empty() {
+        return Vec::new();
     }
+    groups
+        .into_iter()
+        .filter(|g| matches(g, user_key))
+        .map(|g| g.name)
+        .collect()
 }
 
 pub type FlagTarget = (String, String, String, Option<String>);
 
-pub async fn flag_targets_for(
-    pool: &sqlx::PgPool,
+/// Highest-priority group (first in `groups`) wins each flag.
+pub fn rank_flag_targets(
+    rows: Vec<FlagTarget>,
     groups: &[String],
 ) -> std::collections::HashMap<String, (String, Option<String>)> {
     let mut out = std::collections::HashMap::new();
     if groups.is_empty() {
         return out;
     }
-    let rows = sqlx::query_as::<_, FlagTarget>(
-        "SELECT group_name, flag, state, forced_variant FROM telemetry.flag_group_targets \
-         WHERE group_name = ANY($1)",
-    )
-    .bind(groups)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
     let rank: std::collections::HashMap<&str, usize> = groups
         .iter()
         .enumerate()
@@ -100,66 +97,28 @@ pub async fn flag_targets_for(
     out
 }
 
-pub async fn experiment_target_for(
-    pool: &sqlx::PgPool,
-    exp_key: &str,
-    groups: &[String],
-) -> Option<(bool, Option<String>, Value)> {
-    if groups.is_empty() {
-        return None;
-    }
-    let rows = sqlx::query_as::<_, (String, bool, Option<String>, Value)>(
-        "SELECT group_name, killed, forced_variant, flags \
-         FROM telemetry.experiment_group_targets \
-         WHERE exp_key = $1 AND group_name = ANY($2)",
-    )
-    .bind(exp_key)
-    .bind(groups)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-    for name in groups {
-        if let Some((_, killed, variant, flags)) = rows.iter().find(|r| &r.0 == name) {
-            return Some((*killed, variant.clone(), flags.clone()));
-        }
-    }
-    None
-}
-
-pub async fn areas(pool: &sqlx::PgPool, kind: &str) -> std::collections::HashMap<String, String> {
-    sqlx::query_as::<_, (String, String)>(
-        "SELECT name, area FROM telemetry.product_areas WHERE kind = $1",
-    )
-    .bind(kind)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .collect()
+fn decode<T: serde::de::DeserializeOwned>(v: Value) -> Result<T, (StatusCode, String)> {
+    serde_json::from_value(v).map_err(err)
 }
 
 pub async fn list(State(st): State<AppState>) -> Result<Json<Value>, (StatusCode, String)> {
-    let groups = load_groups(&st.pool).await.map_err(err)?;
-    let flag_targets = sqlx::query_as::<_, (String, String, String, Option<String>)>(
-        "SELECT group_name, flag, state, forced_variant \
-         FROM telemetry.flag_group_targets ORDER BY group_name, flag",
-    )
-    .fetch_all(&st.pool)
-    .await
-    .map_err(err)?;
-    let exp_targets = sqlx::query_as::<_, (String, String, bool, Option<String>)>(
-        "SELECT group_name, exp_key, killed, forced_variant \
-         FROM telemetry.experiment_group_targets ORDER BY group_name, exp_key",
-    )
-    .fetch_all(&st.pool)
-    .await
-    .map_err(err)?;
-    let area_rows = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT kind, name, area FROM telemetry.product_areas ORDER BY kind, name",
-    )
-    .fetch_all(&st.pool)
-    .await
-    .map_err(err)?;
+    let (groups, flag_targets, exp_targets, area_rows): (Value, Value, Value, Value) =
+        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {GROUPS_JSON} AS groups, \
+               (SELECT COALESCE(jsonb_agg(jsonb_build_array(group_name, flag, state, forced_variant) \
+                  ORDER BY group_name, flag), '[]'::jsonb) FROM telemetry.flag_group_targets) AS flag_targets, \
+               (SELECT COALESCE(jsonb_agg(jsonb_build_array(group_name, exp_key, killed, forced_variant) \
+                  ORDER BY group_name, exp_key), '[]'::jsonb) FROM telemetry.experiment_group_targets) AS exp_targets, \
+               (SELECT COALESCE(jsonb_agg(jsonb_build_array(kind, name, area) ORDER BY kind, name), '[]'::jsonb) \
+                  FROM telemetry.product_areas) AS areas"
+        )))
+        .fetch_one(&st.pool)
+        .await
+        .map_err(err)?;
+    let groups: Vec<Group> = decode(groups)?;
+    let flag_targets: Vec<(String, String, String, Option<String>)> = decode(flag_targets)?;
+    let exp_targets: Vec<(String, String, bool, Option<String>)> = decode(exp_targets)?;
+    let area_rows: Vec<(String, String, String)> = decode(area_rows)?;
 
     Ok(Json(json!({
         "groups": groups.iter().map(|g| json!({
@@ -243,14 +202,27 @@ pub async fn set(
             return Err((StatusCode::BAD_REQUEST, "rollout_pct must be 0..100".into()));
         }
     }
+    let action = if b.clear { "group.clear" } else { "group.set" };
+    let detail = json!({
+        "name": b.name,
+        "members": b.members.as_ref().map(|m| m.len()),
+        "rollout_pct": b.rollout_pct,
+        "priority": b.priority,
+    });
     if b.clear {
-        sqlx::query("DELETE FROM telemetry.flag_groups WHERE name = $1")
-            .bind(&b.name)
-            .execute(&st.pool)
-            .await
-            .map_err(err)?;
+        sqlx::query(sqlx::AssertSqlSafe(audited(
+            "DELETE FROM telemetry.flag_groups WHERE name = $1",
+            1,
+        )))
+        .bind(&b.name)
+        .bind("loopback")
+        .bind(action)
+        .bind(detail)
+        .execute(&st.pool)
+        .await
+        .map_err(err)?;
     } else {
-        sqlx::query(
+        sqlx::query(sqlx::AssertSqlSafe(audited(
             "INSERT INTO telemetry.flag_groups \
                (name, description, members, rollout_pct, priority, updated_at) \
              VALUES ($1, COALESCE($2, ''), COALESCE($3, '{}'::text[]), \
@@ -261,29 +233,20 @@ pub async fn set(
                rollout_pct = COALESCE($4, telemetry.flag_groups.rollout_pct), \
                priority = COALESCE($5, telemetry.flag_groups.priority), \
                updated_at = now()",
-        )
+            5,
+        )))
         .bind(&b.name)
         .bind(b.description.as_deref())
         .bind(b.members.as_deref())
         .bind(b.rollout_pct)
         .bind(b.priority)
+        .bind("loopback")
+        .bind(action)
+        .bind(detail)
         .execute(&st.pool)
         .await
         .map_err(err)?;
     }
-    let action = if b.clear { "group.clear" } else { "group.set" };
-    crate::handlers::admin::audit(
-        &st,
-        "loopback",
-        action,
-        json!({
-            "name": b.name,
-            "members": b.members.as_ref().map(|m| m.len()),
-            "rollout_pct": b.rollout_pct,
-            "priority": b.priority,
-        }),
-    )
-    .await;
     Ok(Json(json!({ "ok": true, "name": b.name })))
 }
 
@@ -317,6 +280,15 @@ pub async fn set_target(
     if b.group.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "group required".into()));
     }
+    let action = if b.clear {
+        "group.target.clear"
+    } else {
+        "group.target.set"
+    };
+    let detail = json!({
+        "group": b.group, "flag": b.flag, "exp_key": b.exp_key,
+        "state": b.state, "killed": b.killed, "variant": b.variant,
+    });
     match (b.flag.as_deref(), b.exp_key.as_deref()) {
         (Some(flag), None) if !flag.is_empty() => {
             let state = b.state.clone().unwrap_or_else(|| "on".to_string());
@@ -327,27 +299,35 @@ pub async fn set_target(
                 ));
             }
             if b.clear {
-                sqlx::query(
+                sqlx::query(sqlx::AssertSqlSafe(audited(
                     "DELETE FROM telemetry.flag_group_targets \
                      WHERE flag = $1 AND group_name = $2",
-                )
+                    2,
+                )))
                 .bind(flag)
                 .bind(&b.group)
+                .bind("loopback")
+                .bind(action)
+                .bind(detail)
                 .execute(&st.pool)
                 .await
                 .map_err(err)?;
             } else {
-                sqlx::query(
+                sqlx::query(sqlx::AssertSqlSafe(audited(
                     "INSERT INTO telemetry.flag_group_targets \
                        (flag, group_name, state, forced_variant, updated_at) \
                      VALUES ($1, $2, $3, $4, now()) \
                      ON CONFLICT (flag, group_name) DO UPDATE SET \
                        state = $3, forced_variant = $4, updated_at = now()",
-                )
+                    4,
+                )))
                 .bind(flag)
                 .bind(&b.group)
                 .bind(&state)
                 .bind(&b.variant)
+                .bind("loopback")
+                .bind(action)
+                .bind(detail)
                 .execute(&st.pool)
                 .await
                 .map_err(err)?;
@@ -355,27 +335,35 @@ pub async fn set_target(
         }
         (None, Some(exp_key)) if !exp_key.is_empty() => {
             if b.clear {
-                sqlx::query(
+                sqlx::query(sqlx::AssertSqlSafe(audited(
                     "DELETE FROM telemetry.experiment_group_targets \
                      WHERE exp_key = $1 AND group_name = $2",
-                )
+                    2,
+                )))
                 .bind(exp_key)
                 .bind(&b.group)
+                .bind("loopback")
+                .bind(action)
+                .bind(detail)
                 .execute(&st.pool)
                 .await
                 .map_err(err)?;
             } else {
-                sqlx::query(
+                sqlx::query(sqlx::AssertSqlSafe(audited(
                     "INSERT INTO telemetry.experiment_group_targets \
                        (exp_key, group_name, killed, forced_variant, updated_at) \
                      VALUES ($1, $2, $3, $4, now()) \
                      ON CONFLICT (exp_key, group_name) DO UPDATE SET \
                        killed = $3, forced_variant = $4, updated_at = now()",
-                )
+                    4,
+                )))
                 .bind(exp_key)
                 .bind(&b.group)
                 .bind(b.killed)
                 .bind(&b.variant)
+                .bind("loopback")
+                .bind(action)
+                .bind(detail)
                 .execute(&st.pool)
                 .await
                 .map_err(err)?;
@@ -388,20 +376,6 @@ pub async fn set_target(
             ))
         }
     }
-    crate::handlers::admin::audit(
-        &st,
-        "loopback",
-        if b.clear {
-            "group.target.clear"
-        } else {
-            "group.target.set"
-        },
-        json!({
-            "group": b.group, "flag": b.flag, "exp_key": b.exp_key,
-            "state": b.state, "killed": b.killed, "variant": b.variant,
-        }),
-    )
-    .await;
     Ok(Json(json!({ "ok": true, "group": b.group })))
 }
 
@@ -430,37 +404,42 @@ pub async fn set_area(
     if b.name.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "name required".into()));
     }
+    let action = if b.clear { "area.clear" } else { "area.set" };
+    let detail = json!({ "kind": b.kind, "name": b.name, "area": b.area });
     if b.clear {
-        sqlx::query("DELETE FROM telemetry.product_areas WHERE kind = $1 AND name = $2")
-            .bind(&b.kind)
-            .bind(&b.name)
-            .execute(&st.pool)
-            .await
-            .map_err(err)?;
+        sqlx::query(sqlx::AssertSqlSafe(audited(
+            "DELETE FROM telemetry.product_areas WHERE kind = $1 AND name = $2",
+            2,
+        )))
+        .bind(&b.kind)
+        .bind(&b.name)
+        .bind("loopback")
+        .bind(action)
+        .bind(detail)
+        .execute(&st.pool)
+        .await
+        .map_err(err)?;
     } else {
         let area = b.area.clone().unwrap_or_default();
         if area.is_empty() {
             return Err((StatusCode::BAD_REQUEST, "area required".into()));
         }
-        sqlx::query(
+        sqlx::query(sqlx::AssertSqlSafe(audited(
             "INSERT INTO telemetry.product_areas (kind, name, area, updated_at) \
              VALUES ($1, $2, $3, now()) \
              ON CONFLICT (kind, name) DO UPDATE SET area = $3, updated_at = now()",
-        )
+            3,
+        )))
         .bind(&b.kind)
         .bind(&b.name)
         .bind(&area)
+        .bind("loopback")
+        .bind(action)
+        .bind(detail)
         .execute(&st.pool)
         .await
         .map_err(err)?;
     }
-    crate::handlers::admin::audit(
-        &st,
-        "loopback",
-        if b.clear { "area.clear" } else { "area.set" },
-        json!({ "kind": b.kind, "name": b.name, "area": b.area }),
-    )
-    .await;
     Ok(Json(json!({ "ok": true, "name": b.name })))
 }
 

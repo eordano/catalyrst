@@ -1,6 +1,7 @@
 #![allow(clippy::result_large_err, clippy::type_complexity)]
 
 pub mod admin;
+pub(crate) mod connection;
 pub mod cors;
 pub mod errors;
 pub mod extractors;

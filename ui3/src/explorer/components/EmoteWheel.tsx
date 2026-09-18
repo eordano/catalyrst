@@ -28,6 +28,9 @@ function buildSlots(catalog: Emote[], loadout: SlotBinding[]): WheelSlot[] {
 
 type EmoteWheelProps = {
   catalog?: Emote[];
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
   loadout?: SlotBinding[];
   onSelect?: (name: string) => void;
   onClose?: () => void;
@@ -36,6 +39,9 @@ type EmoteWheelProps = {
 
 export default function EmoteWheel({
   catalog = [],
+  loading = false,
+  error = false,
+  onRetry,
   loadout = [],
   onSelect,
   onClose,
@@ -136,7 +142,8 @@ export default function EmoteWheel({
 
         <div className="ew__center">
           <div className="ew__hovername">{hovered?.name ?? " "}</div>
-          <div className="ew__title">EMOTES</div>
+          <div className="ew__title">Emotes</div>
+          {loading ? <p role="status">{"Loading emotes\u2026"}</p> : error ? <div role="alert"><p>Could not load emotes.</p><button type="button" className="ew__customise" onClick={onRetry}>Try again</button></div> : !slots.some(slot => slot.emote) ? <p>No emotes equipped.</p> : null}
           {onCustomise && (
             <button
               type="button"

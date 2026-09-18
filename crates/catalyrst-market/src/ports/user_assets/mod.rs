@@ -1,4 +1,6 @@
 mod component;
+#[cfg(test)]
+mod pg_tests;
 mod rows;
 mod sql;
 mod types;

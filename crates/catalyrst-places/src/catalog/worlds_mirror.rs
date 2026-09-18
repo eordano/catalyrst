@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
@@ -27,8 +28,14 @@ const UPSERT: &str = r#"
         (id, base_position, title, description, creator_address, content_rating,
          categories, likes, dislikes, favorites, deployed_at, disabled, highlighted,
          raw, fetched_at)
-    VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now())
+    SELECT u.id, u.base_position, u.title, u.description, u.creator_address, u.content_rating,
+           ARRAY(SELECT jsonb_array_elements_text(u.categories)), u.likes, u.dislikes, u.favorites,
+           u.deployed_at, u.disabled, u.highlighted, u.raw, now()
+    FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
+                $7::jsonb[], $8::int4[], $9::int4[], $10::int4[], $11::timestamptz[],
+                $12::boolean[], $13::boolean[], $14::jsonb[])
+         AS u(id, base_position, title, description, creator_address, content_rating,
+              categories, likes, dislikes, favorites, deployed_at, disabled, highlighted, raw)
     ON CONFLICT (id) DO UPDATE SET
         base_position   = EXCLUDED.base_position,
         title           = EXCLUDED.title,
@@ -143,18 +150,7 @@ pub async fn run_cycle(
                     break;
                 }
                 let count = worlds.len() as i64;
-                for world in &worlds {
-                    match upsert_world(pool, world).await {
-                        Ok(true) => out.upserted += 1,
-                        Ok(false) => out.skipped_rows += 1,
-                        Err(e) => {
-                            out.failed_rows += 1;
-                            out.complete = false;
-                            let id = world.get("id").and_then(Value::as_str).unwrap_or("?");
-                            tracing::warn!(error = %e, world_id = id, "worlds mirror: upsert failed; row skipped");
-                        }
-                    }
-                }
+                upsert_page(pool, &worlds, &mut out).await;
                 if count < PAGE {
                     break;
                 }
@@ -269,32 +265,127 @@ pub fn extract_fields(world: &Value) -> Option<(WorldFields, Value)> {
 
 /// Ok(false) means the row was skipped (unservable), Ok(true) means upserted.
 pub async fn upsert_world(pool: &PgPool, world: &Value) -> Result<bool> {
-    let Some((w, raw)) = extract_fields(world) else {
+    let Some(fields) = extract_fields(world) else {
         return Ok(false);
     };
+    upsert_rows(pool, &[fields]).await?;
+    Ok(true)
+}
+
+/// One multi-row upsert per page; a later duplicate id wins as it did row by row.
+/// A failed batch falls back to row-by-row so one bad row still only costs itself.
+async fn upsert_page(pool: &PgPool, worlds: &[Value], out: &mut CycleOutcome) {
+    let mut by_id: HashMap<String, usize> = HashMap::new();
+    let mut rows: Vec<(WorldFields, Value)> = Vec::with_capacity(worlds.len());
+    let mut extracted = 0usize;
+    for fields in worlds.iter().filter_map(extract_fields) {
+        extracted += 1;
+        match by_id.get(&fields.0.id) {
+            Some(&i) => rows[i] = fields,
+            None => {
+                by_id.insert(fields.0.id.clone(), rows.len());
+                rows.push(fields);
+            }
+        }
+    }
+    match upsert_rows(pool, &rows).await {
+        Ok(()) => {
+            out.upserted += extracted;
+            out.skipped_rows += worlds.len() - extracted;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "worlds mirror: page upsert failed; retrying row by row");
+            for world in worlds {
+                match upsert_world(pool, world).await {
+                    Ok(true) => out.upserted += 1,
+                    Ok(false) => out.skipped_rows += 1,
+                    Err(e) => {
+                        out.failed_rows += 1;
+                        out.complete = false;
+                        let id = world.get("id").and_then(Value::as_str).unwrap_or("?");
+                        tracing::warn!(error = %e, world_id = id, "worlds mirror: upsert failed; row skipped");
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn upsert_rows(pool: &PgPool, rows: &[(WorldFields, Value)]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
     sqlx::query(UPSERT)
-        .bind(&w.id)
-        .bind(w.base_position.as_deref().unwrap_or("0,0"))
-        .bind(w.title.as_deref().unwrap_or(""))
-        .bind(w.description.as_deref().unwrap_or(""))
+        .bind(rows.iter().map(|(w, _)| w.id.clone()).collect::<Vec<_>>())
         .bind(
-            w.owner
-                .as_deref()
-                .map(str::to_lowercase)
-                .filter(|s| !s.is_empty()),
+            rows.iter()
+                .map(|(w, _)| w.base_position.as_deref().unwrap_or("0,0"))
+                .collect::<Vec<_>>(),
         )
-        .bind(w.content_rating.as_deref())
-        .bind(w.categories.as_deref().unwrap_or(&[]))
-        .bind(w.likes.unwrap_or(0))
-        .bind(w.dislikes.unwrap_or(0))
-        .bind(w.favorites.unwrap_or(0))
-        .bind(parse_mirror_timestamp(w.deployed_at.as_deref()))
-        .bind(w.disabled.unwrap_or(false))
-        .bind(w.highlighted.unwrap_or(false))
-        .bind(&raw)
+        .bind(
+            rows.iter()
+                .map(|(w, _)| w.title.as_deref().unwrap_or(""))
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| w.description.as_deref().unwrap_or(""))
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| {
+                    w.owner
+                        .as_deref()
+                        .map(str::to_lowercase)
+                        .filter(|s| !s.is_empty())
+                })
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| w.content_rating.as_deref())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| Value::from(w.categories.clone().unwrap_or_default()))
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| w.likes.unwrap_or(0))
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| w.dislikes.unwrap_or(0))
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| w.favorites.unwrap_or(0))
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| parse_mirror_timestamp(w.deployed_at.as_deref()))
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| w.disabled.unwrap_or(false))
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(w, _)| w.highlighted.unwrap_or(false))
+                .collect::<Vec<_>>(),
+        )
+        .bind(rows.iter().map(|(_, raw)| raw.clone()).collect::<Vec<_>>())
         .execute(pool)
         .await?;
-    Ok(true)
+    Ok(())
 }
 
 #[derive(Debug, PartialEq, Eq)]

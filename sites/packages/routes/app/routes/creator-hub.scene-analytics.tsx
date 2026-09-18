@@ -15,7 +15,7 @@ import { sceneKey } from "@ui/creatorhub/lib/scene-analytics";
 
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { fetchCreatorScenesStats } from "@data/lib/catalyst/creator-hub/scene-analytics";
 import { getJSON, worldsBase } from "@data/lib/catalyst/client";
 import { ensureSid, serializeSidCookie } from "@core/lib/experiments/assign";
@@ -55,13 +55,14 @@ export default function CreatorHubSceneAnalyticsRoute({
 }: Route.ComponentProps) {
   const { sid } = loaderData as { sid: string };
   const { isConnected, address, identity } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const selected = parseSelection(searchParams.get("scene"));
 
   const [status, setStatus] = useState<FetchStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [stats, setStats] = useState<CreatorScenesStats | null>(null);
   const [worldAccess, setWorldAccess] = useState<
     Record<string, "public" | "private">
@@ -83,27 +84,31 @@ export default function CreatorHubSceneAnalyticsRoute({
   }, []);
 
   useEffect(() => {
-    if (!identity || status !== "idle") return;
-    let cancelled = false;
-    setStatus("loading");
+    setStats(null);
     setError(null);
-    fetchCreatorScenesStats(identity)
+    if (!identity) {
+      setStatus("idle");
+      return;
+    }
+    const controller = new AbortController();
+    setStatus("loading");
+    fetchCreatorScenesStats(identity, { signal: controller.signal })
       .then((next) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setStats(next);
         setStatus("succeeded");
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setError(
           err instanceof Error ? err.message : "Failed to fetch scene metrics",
         );
         setStatus("failed");
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [identity, status]);
+  }, [identity, retryAttempt]);
 
   const selectedWorld =
     selected?.sceneType === "world" ? selected.sceneId : null;
@@ -156,7 +161,7 @@ export default function CreatorHubSceneAnalyticsRoute({
   }, [setSearchParams]);
 
   const handleRetry = useCallback(() => {
-    setStatus("idle");
+    setRetryAttempt((attempt) => attempt + 1);
   }, []);
 
   const handleExportCsv = useCallback(
@@ -188,6 +193,7 @@ export default function CreatorHubSceneAnalyticsRoute({
         openSignIn();
       }}
     >
+      {status === "succeeded" && <p role="note">Activity shows observed peaks from periodic occupancy snapshots, up to 5,000 per location. Visits, session time and retention are not collected. Missing values mean no measurement.</p>}
       <SceneAnalyticsView
         phase={phase}
         error={error}

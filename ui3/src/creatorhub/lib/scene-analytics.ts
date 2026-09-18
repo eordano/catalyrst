@@ -83,15 +83,15 @@ export type ChartSeries = {
 
 export type RetentionKey = "d1" | "d7" | "d30";
 
-export type CsvRow = {
+type CsvRow = {
   date: string;
-  visits: number;
-  uniqueUsers: number;
-  newUsers: number;
-  medianActiveTimeS: number;
-  peakConcurrentUsers: number;
-  messagesSent: number;
-  emotesPlayed: number;
+  visits: number | null;
+  uniqueUsers: number | null;
+  newUsers: number | null;
+  medianActiveTimeS: number | null;
+  peakConcurrentUsers: number | null;
+  messagesSent: number | null;
+  emotesPlayed: number | null;
 };
 
 export function sceneDisplayName(
@@ -136,18 +136,23 @@ function dailyInRange(
   return scene.daily.filter((row) => row.date >= start && row.date <= end);
 }
 
-function weightedMedian(pairs: Array<[value: number, weight: number]>): number {
+function weightedMedian(pairs: Array<[value: number, weight: number]>): number | null {
   const weighted = pairs
     .filter(([, weight]) => weight > 0)
     .sort((a, b) => a[0] - b[0]);
   const total = weighted.reduce((sum, [, weight]) => sum + weight, 0);
-  if (total === 0) return 0;
+  if (total === 0) return null;
   let cumulative = 0;
   for (const [value, weight] of weighted) {
     cumulative += weight;
     if (cumulative >= total / 2) return value;
   }
   return weighted[weighted.length - 1]![0];
+}
+
+function sumMeasured(values: Array<number | null>): number | null {
+  const measured = values.filter((value): value is number => value !== null);
+  return measured.length ? measured.reduce((sum, value) => sum + value, 0) : null;
 }
 
 export function buildCsvRows(
@@ -167,21 +172,18 @@ export function buildCsvRows(
     const rows = byDate.get(date) ?? [];
     return {
       date,
-      visits: rows.reduce((sum, row) => sum + (row.visits ?? 0), 0),
-      uniqueUsers: rows.reduce((sum, row) => sum + (row.uniqueUsers ?? 0), 0),
-      newUsers: rows.reduce((sum, row) => sum + (row.newUsers ?? 0), 0),
+      visits: sumMeasured(rows.map(row => row.visits)),
+      uniqueUsers: sumMeasured(rows.map(row => row.uniqueUsers)),
+      newUsers: sumMeasured(rows.map(row => row.newUsers)),
       medianActiveTimeS: weightedMedian(
-        rows.map((row): [number, number] => [
+        rows.filter(row => row.medianActiveTimeS !== null && row.visits !== null).map((row): [number, number] => [
           row.medianActiveTimeS ?? 0,
           row.visits ?? 0,
         ]),
       ),
-      peakConcurrentUsers: rows.reduce(
-        (max, row) => Math.max(max, row.peakConcurrentUsers ?? 0),
-        0,
-      ),
-      messagesSent: rows.reduce((sum, row) => sum + (row.messagesSent ?? 0), 0),
-      emotesPlayed: rows.reduce((sum, row) => sum + (row.emotesPlayed ?? 0), 0),
+      peakConcurrentUsers: rows.reduce<number | null>((max, row) => row.peakConcurrentUsers === null ? max : Math.max(max ?? 0, row.peakConcurrentUsers), null),
+      messagesSent: sumMeasured(rows.map(row => row.messagesSent)),
+      emotesPlayed: sumMeasured(rows.map(row => row.emotesPlayed)),
     };
   });
 }
@@ -244,17 +246,11 @@ export function buildSocialSeries(
   return {
     messages: dates.map((date) => ({
       date,
-      value: (byDate.get(date) ?? []).reduce(
-        (sum, row) => sum + (row.messagesSent ?? 0),
-        0,
-      ),
+      value: sumMeasured((byDate.get(date) ?? []).map(row => row.messagesSent)),
     })),
     emotes: dates.map((date) => ({
       date,
-      value: (byDate.get(date) ?? []).reduce(
-        (sum, row) => sum + (row.emotesPlayed ?? 0),
-        0,
-      ),
+      value: sumMeasured((byDate.get(date) ?? []).map(row => row.emotesPlayed)),
     })),
   };
 }
@@ -326,7 +322,7 @@ export function formatMinutes(seconds: number | null): string {
     : `${Math.round((seconds / 60) * 10) / 10} min`;
 }
 
-export function formatDate(date: string): string {
+function formatDate(date: string): string {
   const isTimestamp = date.includes("T");
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",

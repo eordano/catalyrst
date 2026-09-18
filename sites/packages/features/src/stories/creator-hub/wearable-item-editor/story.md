@@ -6,8 +6,7 @@ hypothesis:
   statement: >-
     Guiding a creator through adding/editing a wearable as four legible,
     URL-addressable steps (model -> category -> rarity -> price) increases the
-    share of opened item editors that reach a Save, even with the on-chain mint
-    and the builder-server write simulated.
+    share of opened item editors that save a persisted draft and return to edit it.
   because: >-
     Rarity and price are the two decisions creators most often stall on -- rarity
     silently caps max supply and price gates the primary sale -- so an opaque
@@ -45,7 +44,7 @@ The wearable item editor (`/create/wearables/item-editor`) walks a creator
 through the four decisions that define a sellable wearable as explicit,
 URL-addressable steps over the ui3 `BdItemEditor` surface:
 
-1. **model** -- pick the `.glb` representation (upload simulated).
+1. **model** -- pick a `.glb` or embedded `.gltf` representation. Saving uploads the file.
 2. **category** -- choose the `WearableCategory` (schemas) the item occupies.
 3. **rarity** -- pick the `Rarity` (schemas); the step shows the hard **max
    supply** that rarity implies (unique 1 ... common 100000).
@@ -61,8 +60,7 @@ editors that reach a Save.
 - **Events:** `experiment_exposed` (loader, once the wizard surface renders),
   `bd_item_rarity_set` (`{ item, rarity, max_supply }`) on committing the rarity,
   `bd_item_price_set` (`{ item, price, free }`) on committing the price,
-  `bd_item_saved` (`{ item, rarity, price }`, `stub: true`) on the simulated
-  persist. **Revert** discards unsaved edits and never crashes.
+  `bd_item_saved` (`{ item, rarity, price }`, `stub: false`) only after Builder confirms persistence. Storybook simulations use `stub: true`. **Revert** discards unsaved edits and never crashes.
 
 Data reality: there is NO fixture. The collection picker is read live from
 catalyrst-builder (`GET /v1/{address}/collections`, Zod-validated) at SSR; the
@@ -74,8 +72,13 @@ rarities, and max-supply are static domain constants mirroring
 `decentraland/schemas/src/dapps/rarity.ts` (Rarity + maxSupply); item `price` /
 `beneficiary` / `rarity` follow
 `decentraland/builder-server/src/Item/Item.types.ts`. A brand-new-item draft
-needs no wallet. The builder-server item `PUT /v1/items/:id`, the S3 `.glb` upload,
-and the on-chain mint/list that a real price implies are auth-gated and
-unreachable from this realm, so the **model upload, the price listing, and the
-final Save are SIMULATED** in the XState machine (the flow, states, and metrics
-are real; the commit is a clearly-noted stub). Noted as deferred.
+needs no wallet to edit; saving requires a connected session. Signed `PUT /v1/items/:id`
+and `POST /v1/items/:id/files` persist metadata and content in Builder. Signed
+`GET /v1/items` lists the wallet's unpublished items on the wearables home page;
+`GET /v1/items/:id` restores a draft when reopened. Failed saves retain the draft
+for retry. Content and metadata belonging to another wallet cannot be read or changed.
+
+Prices are stored as exact MANA wei. Saving a draft does not mint tokens or publish
+a marketplace listing; publication remains a separate collection workflow. The
+avatar preview still shows the avatar, not the uploaded wearable. Storybook keeps
+an explicit simulated save adapter for isolated previews.

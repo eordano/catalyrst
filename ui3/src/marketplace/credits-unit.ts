@@ -1,4 +1,4 @@
-export function isOneCredit(value: unknown): boolean {
+function isOneCredit(value: unknown): boolean {
   if (typeof value === "number") return value === 1;
   if (typeof value === "string") {
     const n = Number(value.trim().replace(/,/g, ""));

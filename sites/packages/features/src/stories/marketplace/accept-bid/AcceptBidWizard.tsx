@@ -16,7 +16,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type AcceptBidWizardProps = {
+type AcceptBidWizardProps = {
   trackCtx: TrackContext;
   bid: Bid;
   initialStep?: string;

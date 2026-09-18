@@ -26,33 +26,6 @@
   flex-wrap: wrap;
 }
 
-.acceptbid__btn {
-  appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: transparent;
-  color: #fff;
-  font: inherit;
-  font-weight: 600;
-  padding: 11px 22px;
-  border-radius: 8px;
-  cursor: pointer;
-  min-width: 140px;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.acceptbid__btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.acceptbid__btn--primary {
-  background: var(--brand-cta);
-  border-color: var(--brand-cta);
-}
-
-.acceptbid__btn--primary:hover {
-  background: #ff4d70;
-}
-
 .acceptbid__price {
   display: inline-flex;
   align-items: center;

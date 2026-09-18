@@ -18,6 +18,11 @@ pub(crate) struct BannedNames {
 }
 
 impl BannedNames {
+    /// Whether `world_name` passes the deny list this snapshot holds.
+    pub(crate) fn allows(&self, world_name: &str) -> bool {
+        !is_name_banned(&self.normalized, world_name)
+    }
+
     fn from_list(names: Vec<String>) -> Self {
         let normalized = names.iter().map(|n| n.to_lowercase()).collect();
         Self {
@@ -68,7 +73,12 @@ impl NameDenyListChecker {
     }
 
     pub async fn check_name_deny_list(&self, world_name: &str) -> bool {
-        !is_name_banned(&self.banned_names().await.normalized, world_name)
+        self.banned_names().await.allows(world_name)
+    }
+
+    /// One resolved snapshot for checking many names.
+    pub(crate) async fn snapshot(&self) -> Arc<BannedNames> {
+        self.banned_names().await
     }
 
     pub async fn get_banned_names(&self) -> Vec<String> {
@@ -87,13 +97,13 @@ async fn fetch_banned_names(http: &reqwest::Client, url: Option<&str>) -> Option
     match http.post(&endpoint).send().await {
         Ok(resp) => match resp.json::<Value>().await {
             Ok(body) => Some(parse_banned_names(&body)),
-            Err(e) => {
-                tracing::warn!(error = %e, url = %endpoint, "failed to parse name denylist (keeping last known)");
+            Err(_) => {
+                tracing::warn!("failed to parse name denylist; keeping last known list");
                 None
             }
         },
-        Err(e) => {
-            tracing::warn!(error = %e, url = %endpoint, "failed to fetch name denylist (keeping last known)");
+        Err(_) => {
+            tracing::warn!("failed to fetch name denylist; keeping last known list");
             None
         }
     }
@@ -129,6 +139,45 @@ fn is_name_banned(banned: &HashSet<String>, world_name: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::io::Write;
+
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn name_denylist_transport_logs_never_retain_the_configured_url() {
+        const CANARY: &str = "worlds-name-denylist-private-material-canary";
+        let checker = NameDenyListChecker::new(
+            reqwest::Client::new(),
+            Some(format!("http://127.0.0.1:1/{CANARY}")),
+        );
+        let buffer = LogBuffer::default();
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        assert!(checker.check_name_deny_list("safe.dcl.eth").await);
+
+        let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+        assert!(logs.contains("failed to fetch name denylist"));
+        assert!(!logs.contains(CANARY), "configured URL survived in {logs}");
+    }
 
     #[test]
     fn parse_banned_names_reads_data_array() {

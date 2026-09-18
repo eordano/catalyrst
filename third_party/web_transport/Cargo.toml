@@ -1,0 +1,31 @@
+[package]
+name = "web_transport"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/decentraland/rust-web-transport"
+description = "Rust-backed WebTransport server transport for Decentraland Pulse."
+
+[lib]
+name = "web_transport"
+crate-type = ["lib"]
+
+[dependencies]
+# web-transport-quinn enables rustls' aws-lc-rs provider by default (needs NASM on Windows +
+# cmake everywhere; CI provides both). To build without those, force ring instead:
+#   web-transport-quinn = { version = "0.11", default-features = false, features = ["ring"] }
+web-transport-quinn = "0.11"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "io-util", "time"] }
+bytes = "1"
+url = "2"
+rustls-pemfile = "2"
+rustls-pki-types = "1"
+
+[dev-dependencies]
+rcgen = "0.13"
+# Test-only WebTransport client used to drive the host over loopback.
+web-transport-quinn = "0.11"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+url = "2"
+sha2 = "0.10"
+bytes = "1"

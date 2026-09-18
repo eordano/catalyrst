@@ -1,6 +1,47 @@
 use crate::config::Config;
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, RwLock};
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
+
+const MEMO_MAX_ENTRIES: usize = 256;
+
+// Short-lived memo of successful responses for param-less methods.
+#[derive(Default)]
+pub struct RpcMemo {
+    entries: Mutex<HashMap<String, (Instant, Value)>>,
+}
+
+impl RpcMemo {
+    pub fn ttl_for(method: &str) -> Option<Duration> {
+        match method {
+            "eth_blockNumber" => Some(Duration::from_secs(1)),
+            "net_version" | "web3_clientVersion" => Some(Duration::from_secs(2)),
+            _ => None,
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<Value> {
+        let map = self.entries.lock().expect("memo lock poisoned");
+        let (until, body) = map.get(key)?;
+        (*until > Instant::now()).then(|| body.clone())
+    }
+
+    pub fn put(&self, key: String, ttl: Duration, body: &Value) {
+        if body.get("result").is_none() {
+            return;
+        }
+        let mut map = self.entries.lock().expect("memo lock poisoned");
+        let now = Instant::now();
+        if map.len() >= MEMO_MAX_ENTRIES {
+            map.retain(|_, (until, _)| *until > now);
+            if map.len() >= MEMO_MAX_ENTRIES {
+                map.clear();
+            }
+        }
+        map.insert(key, (now + ttl, body.clone()));
+    }
+}
 
 pub const READ_ONLY_METHODS: &[&str] = &[
     "eth_getTransactionReceipt",
@@ -28,6 +69,8 @@ pub struct AppStateInner {
     pub upstreams: RwLock<BTreeMap<String, String>>,
 
     pub admin_token: Option<String>,
+
+    pub memo: RpcMemo,
 }
 
 impl AppStateInner {

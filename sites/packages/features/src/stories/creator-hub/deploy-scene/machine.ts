@@ -14,7 +14,7 @@ export type { TrackFn };
 
 export type DeployResult = { jumpUrl: string };
 
-export type DeployTarget = "world" | "land";
+type DeployTarget = "world" | "land";
 
 export type DeployLand = { parcels: string[]; baseParcel: string };
 
@@ -24,7 +24,7 @@ export type DeployFn = (args: {
   signal?: AbortSignal;
 }) => Promise<DeployResult>;
 
-export type DeployInput = {
+type DeployInput = {
   trackCtx: TrackContext;
   files?: DeployFile[];
   maxFileSizeMb?: number;
@@ -36,7 +36,7 @@ export type DeployInput = {
   track?: TrackFn;
 };
 
-export type DeployContext = {
+type DeployContext = {
   trackCtx: TrackContext;
   files: DeployFile[];
   maxFileSizeMb: number;
@@ -51,7 +51,7 @@ export type DeployContext = {
   quotaError?: boolean;
 };
 
-export type DeployEvent =
+type DeployEvent =
   | { type: "CHOOSE_WORLDS" }
   | { type: "CHOOSE_LAND" }
   | { type: "PICK_NAME"; name: string }
@@ -84,8 +84,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type DeployStateId = keyof typeof STATE_TO_SLUG;
-export type DeployStepSlug = (typeof STATE_TO_SLUG)[DeployStateId];
+type DeployStateId = keyof typeof STATE_TO_SLUG;
+type DeployStepSlug = (typeof STATE_TO_SLUG)[DeployStateId];
 
 export const FIRST_STEP_SLUG: DeployStepSlug = STATE_TO_SLUG.destination;
 
@@ -362,8 +362,6 @@ export const deployWorldMachine = setup({
     },
   },
 });
-
-export type DeployWorldMachine = typeof deployWorldMachine;
 
 export function resolveDeploySnapshot(args: {
   step: DeployStateId;

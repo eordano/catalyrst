@@ -11,6 +11,8 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use crate::state::AppState;
 
+pub mod v4;
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AboutResponse {
@@ -116,6 +118,8 @@ pub struct AboutComms {
     pub adapter: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fixed_adapter: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v4: Option<v4::Discovery>,
 }
 
 #[derive(Serialize)]
@@ -137,6 +141,7 @@ struct AboutEnvConfig {
     comms_fixed_adapter: String,
     comms_version: Option<String>,
     comms_commit_hash: Option<String>,
+    comms_v4: Option<v4::Discovery>,
     max_users: Option<u64>,
 }
 
@@ -165,6 +170,7 @@ fn about_env() -> &'static AboutEnvConfig {
             comms_commit_hash: std::env::var("COMMS_COMMIT_HASH")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            comms_v4: v4::Discovery::from_env(),
             max_users: std::env::var("MAX_USERS")
                 .ok()
                 .and_then(|s| s.trim().parse::<u64>().ok()),
@@ -197,7 +203,7 @@ struct CommsProbe {
     user_count: u64,
 }
 
-const COMMS_PROBE_TTL: Duration = Duration::from_secs(5);
+const COMMS_PROBE_TTL: Duration = Duration::from_secs(15);
 
 const COMMS_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -311,9 +317,8 @@ async fn run_probe() -> CommsProbe {
     }
 }
 
-fn build_comms_config(probe: CommsProbe) -> AboutComms {
-    let env = about_env();
-    let adapter = match crate::handlers::comms_health::comms_health().is_alive() {
+fn build_comms_config(probe: CommsProbe, env: &AboutEnvConfig, online: bool) -> AboutComms {
+    let adapter = match online {
         true => env.comms_fixed_adapter.clone(),
         false => OFFLINE_ADAPTER.to_string(),
     };
@@ -326,13 +331,14 @@ fn build_comms_config(probe: CommsProbe) -> AboutComms {
         adapter: if adapter.is_empty() {
             None
         } else {
-            Some(adapter.clone())
+            Some(format!("fixed-adapter:{adapter}"))
         },
         fixed_adapter: if adapter.is_empty() {
             None
         } else {
             Some(adapter)
         },
+        v4: online.then(|| env.comms_v4.clone()).flatten(),
     }
 }
 
@@ -349,7 +355,11 @@ pub async fn get_about(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
     let comms = if about_env().configured {
         let comms_probe = probe_comms().await;
-        let comms = build_comms_config(comms_probe);
+        let comms = build_comms_config(
+            comms_probe,
+            about_env(),
+            crate::handlers::comms_health::comms_health().is_alive(),
+        );
         healthy = healthy && comms.healthy;
         let under_capacity = match about_env().max_users {
             Some(max) => comms_probe.user_count < max,
@@ -446,6 +456,88 @@ pub async fn get_about(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn advertised_adapter_preserves_the_transport_after_unwrapping() {
+        let mut env = AboutEnvConfig {
+            configured: true,
+            ws_connector_status_url: String::new(),
+            stats_core_status_url: String::new(),
+            comms_protocol: "v3".into(),
+            comms_fixed_adapter: String::new(),
+            comms_version: None,
+            comms_commit_hash: None,
+            comms_v4: None,
+            max_users: None,
+        };
+        for (configured, online, expected) in [
+            (
+                "archipelago:wss://realm.example/ws",
+                true,
+                Some("archipelago:wss://realm.example/ws"),
+            ),
+            (
+                "livekit:wss://realm.example?token=test",
+                true,
+                Some("livekit:wss://realm.example?token=test"),
+            ),
+            (
+                "archipelago:wss://realm.example/ws",
+                false,
+                Some("offline:offline"),
+            ),
+            ("", true, None),
+        ] {
+            env.comms_fixed_adapter = configured.into();
+            let response = build_comms_config(
+                CommsProbe {
+                    healthy: true,
+                    user_count: 0,
+                },
+                &env,
+                online,
+            );
+            let selected = response
+                .adapter
+                .as_deref()
+                .and_then(|adapter| adapter.split_once(':').map(|(_, transport)| transport));
+            assert_eq!(selected, expected);
+            assert_eq!(response.fixed_adapter.as_deref(), expected);
+        }
+    }
+
+    #[test]
+    fn offline_realms_do_not_advertise_v4_endpoints() {
+        let env = AboutEnvConfig {
+            configured: true,
+            ws_connector_status_url: String::new(),
+            stats_core_status_url: String::new(),
+            comms_protocol: "v3".into(),
+            comms_fixed_adapter: "archipelago:wss://realm.example/ws".into(),
+            comms_version: None,
+            comms_commit_hash: None,
+            comms_v4: Some(v4::Discovery {
+                control: Some(v4::ControlEndpoint {
+                    url: "wss://realm.example/ws/v4".into(),
+                    audience: "realm".into(),
+                }),
+                pulse: None,
+                island_refresh_url: None,
+            }),
+            max_users: None,
+        };
+        let probe = CommsProbe {
+            healthy: true,
+            user_count: 0,
+        };
+        let online = serde_json::to_value(build_comms_config(probe, &env, true)).unwrap();
+        assert_eq!(online["protocol"], "v3");
+        assert_eq!(online["fixedAdapter"], "archipelago:wss://realm.example/ws");
+        assert_eq!(online["v4"]["control"]["audience"], "realm");
+        let offline = serde_json::to_value(build_comms_config(probe, &env, false)).unwrap();
+        assert!(offline.get("v4").is_none());
+        assert_eq!(offline["fixedAdapter"], OFFLINE_ADAPTER);
+    }
 
     #[test]
     fn only_syncing_is_healthy() {

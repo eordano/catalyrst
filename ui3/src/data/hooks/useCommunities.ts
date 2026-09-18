@@ -9,20 +9,28 @@ import {
   loadCommunityPlaces,
 } from "../catalyst/communitiesSchema";
 import type { QueryParams } from "../catalyst/client";
-import { getDeployIdentity } from "../../overlay/bridge";
+import { useBridgeState } from "../../overlay/bridge";
+
+export function communitiesQuery(params: QueryParams = {}, viewer?: string | null) {
+  return {
+    queryKey: [...qk.communities(params), viewer],
+    queryFn: ({ signal }: { signal: AbortSignal }) => loadCommunities(params, { signal, authenticated: !!viewer }),
+    staleTime: STALE.communities,
+  };
+}
 
 export function useCommunities(params: QueryParams = {}) {
-  return useQuery({
-    queryKey: qk.communities(params),
-    queryFn: ({ signal }) => loadCommunities(params, { signal }),
-    staleTime: STALE.communities,
-  });
+  const identity = useBridgeState(s => s.identity);
+  const viewer = identity.address;
+  return useQuery(communitiesQuery(params, viewer));
 }
 
 export function useCommunity(id?: string | null) {
+  const identity = useBridgeState(s => s.identity);
+  const viewer = identity.address;
   return useQuery({
-    queryKey: qk.community(id),
-    queryFn: ({ signal }) => loadCommunity(id, { signal }),
+    queryKey: [...qk.community(id), viewer],
+    queryFn: ({ signal }) => loadCommunity(id, { signal, authenticated: !!viewer }),
     staleTime: STALE.community,
     enabled: Boolean(id),
   });
@@ -59,11 +67,11 @@ export function useJoinCommunity() {
 }
 
 export function useLeaveCommunity() {
+  const address = useBridgeState(s => s.identity.address);
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id }: { id: string }) => {
-      const ident = getDeployIdentity();
-      return leaveCommunity(id, { address: ident?.signerAddress });
+      return leaveCommunity(id, { address: address ?? undefined });
     },
     onSuccess: (_res, { id }) => {
       qc.invalidateQueries({ queryKey: qk.community(id) });

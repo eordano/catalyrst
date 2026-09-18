@@ -12,7 +12,7 @@ import type { SummaryView } from "@features/stories/creator-hub/wearable-publish
 
 export const MANA_PER_ITEM: number = DEFAULT_MANA_PER_ITEM;
 
-export function collectionName(id: string): string {
+function collectionName(id: string): string {
   return id ? `Collection ${id.slice(0, 8)}` : "";
 }
 

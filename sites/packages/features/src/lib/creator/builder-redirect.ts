@@ -35,7 +35,7 @@ export const REDIRECTS = {
   "collection-detail": {
     from: "collection-detail",
     to: "/create/wearables/collections/:id",
-    carry: ["tab", "variant"],
+    carry: ["address", "tab", "variant"],
     param: { name: "id" },
   },
   "item-detail": {

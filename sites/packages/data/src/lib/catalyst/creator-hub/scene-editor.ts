@@ -1,31 +1,30 @@
 import { z } from "zod";
 
-import { catalystBase } from "../client";
+import { catalystBase, worldsBase } from "../client";
 import { track } from "@core/lib/telemetry/track";
 import editorDefaults from "./scene-editor-defaults.data.json";
 
-export const Vector3Schema = z.object({
+const Vector3Schema = z.object({
   x: z.number(),
   y: z.number(),
   z: z.number(),
 });
-export type Vector3 = z.infer<typeof Vector3Schema>;
 
-export const QuaternionSchema = z.object({
+const QuaternionSchema = z.object({
   x: z.number(),
   y: z.number(),
   z: z.number(),
   w: z.number(),
 });
 
-export const TransformSchema = z.object({
+const TransformSchema = z.object({
   position: Vector3Schema,
   rotation: QuaternionSchema,
   scale: Vector3Schema,
 });
-export type Transform = z.infer<typeof TransformSchema>;
+type Transform = z.infer<typeof TransformSchema>;
 
-export const AssetSchema = z.object({
+const AssetSchema = z.object({
   id: z.string(),
   name: z.string(),
   pack: z.string(),
@@ -37,24 +36,24 @@ export const AssetSchema = z.object({
   glbFile: z.string().optional(),
   contents: z.record(z.string(), z.string()).optional(),
 });
-export type Asset = z.infer<typeof AssetSchema>;
+type Asset = z.infer<typeof AssetSchema>;
 
-export const AssetCatalogSchema = z.object({
+const AssetCatalogSchema = z.object({
   categories: z.array(z.string()),
   models: z.array(AssetSchema),
 });
-export type AssetCatalog = z.infer<typeof AssetCatalogSchema>;
+type AssetCatalog = z.infer<typeof AssetCatalogSchema>;
 
-export const ComponentDefSchema = z.object({
+const ComponentDefSchema = z.object({
   id: z.number(),
   key: z.string(),
   label: z.string(),
   componentName: z.string(),
   fields: z.array(z.string()),
 });
-export type ComponentDef = z.infer<typeof ComponentDefSchema>;
+type ComponentDef = z.infer<typeof ComponentDefSchema>;
 
-export const HierarchyNodeSchema = z.object({
+const HierarchyNodeSchema = z.object({
   entity: z.number(),
   name: z.string(),
   parent: z.number(),
@@ -63,7 +62,7 @@ export const HierarchyNodeSchema = z.object({
 });
 export type HierarchyNode = z.infer<typeof HierarchyNodeSchema>;
 
-export const SceneInfoSchema = z.object({
+const SceneInfoSchema = z.object({
   pointer: z.string(),
   title: z.string(),
   base: z.string(),
@@ -72,7 +71,7 @@ export const SceneInfoSchema = z.object({
   live: z.boolean(),
   template: z.string().optional(),
 });
-export type SceneInfo = z.infer<typeof SceneInfoSchema>;
+type SceneInfo = z.infer<typeof SceneInfoSchema>;
 
 export type SceneEditorSeed = {
   scene: SceneInfo;
@@ -167,11 +166,12 @@ const ActiveEntitySchema = z.object({
     .optional(),
 });
 
-export type LoadSeedOptions = {
+type LoadSeedOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   pointer?: string;
+  world?: string;
 };
 
 const DERIVED_ASSET_CAP = 64;
@@ -402,10 +402,10 @@ async function fetchCompositeJSON(
   hash: string,
   opts: LoadSeedOptions,
 ): Promise<unknown | null> {
-  const base = catalystBase(opts.base);
+  const base = opts.world ? worldsBase(opts.base) : `${catalystBase(opts.base)}/content`;
   const doFetch = opts.fetchImpl ?? fetch;
   try {
-    const res = await doFetch(`${base}/content/contents/${hash}`, {
+    const res = await doFetch(`${base}/contents/${hash}`, {
       signal: opts.signal,
       headers: { accept: "application/json" },
     });
@@ -433,39 +433,56 @@ async function fetchCompositeJSON(
   }
 }
 
-export type ActiveEntity = {
+type ActiveEntity = {
   info: SceneInfo;
   content: { file: string; hash: string }[];
 };
 
-export async function fetchActiveEntity(
+async function fetchActiveEntity(
   opts: LoadSeedOptions = {},
 ): Promise<ActiveEntity | null> {
-  const base = catalystBase(opts.base);
+  const base = opts.world ? worldsBase(opts.base) : `${catalystBase(opts.base)}/content`;
   const pointer = opts.pointer?.trim();
   if (!pointer) return null;
-  const url = `${base}/content/entities/active`;
   const doFetch = opts.fetchImpl ?? fetch;
 
   try {
-    const res = await doFetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ pointers: [pointer] }),
-      signal: opts.signal,
-    });
+    let res: Response;
+    if (opts.world) {
+      const list = await doFetch(`${base}/world/${encodeURIComponent(opts.world)}/scenes`, {
+        signal: opts.signal,
+      });
+      if (!list.ok) return null;
+      const scenes = z.object({ scenes: z.array(z.object({
+        entityId: z.string(), baseParcel: z.string(), parcels: z.array(z.string()),
+      })) }).safeParse(await list.json());
+      if (!scenes.success) return null;
+      const scene = scenes.data.scenes.find((entry) => entry.baseParcel === pointer || entry.parcels.includes(pointer));
+      if (!scene) return null;
+      res = await doFetch(`${base}/contents/${encodeURIComponent(scene.entityId)}`, { signal: opts.signal });
+    } else {
+      res = await doFetch(`${base}/entities/active`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ pointers: [pointer] }),
+        signal: opts.signal,
+      });
+    }
     if (!res.ok) return null;
-    const raw = (await res.json()) as unknown;
+    const json: unknown = await res.json();
+    const raw = opts.world ? [json] : json;
     if (!Array.isArray(raw) || raw.length === 0) return null;
 
-    const parsed = ActiveEntitySchema.safeParse(raw[0]);
-    if (!parsed.success) return null;
-    const e = parsed.data;
-    if (e.type !== "scene") return null;
+    const entities = raw.map((value) => ActiveEntitySchema.safeParse(value))
+      .flatMap((result) => result.success && result.data.type === "scene" ? [result.data] : []);
+    const e = opts.world
+      ? entities.find((entity) => entity.metadata?.scene?.base === pointer || entity.pointers.includes(pointer))
+      : entities[0];
+    if (!e) return null;
 
     return {
       info: {
-        pointer,
+        pointer: opts.world || pointer,
         title: e.metadata?.display?.title ?? "Untitled scene",
         base: e.metadata?.scene?.base ?? pointer,
         parcels: e.pointers,
@@ -522,6 +539,7 @@ export async function loadSceneEditorSeed(
   opts: LoadSeedOptions = {},
 ): Promise<SceneEditorSeed> {
   const seed = emptySeed(opts.pointer);
+  if (opts.world) seed.scene.pointer = opts.world;
 
   const entity = await fetchActiveEntity(opts);
   if (!entity) return seed;
@@ -546,7 +564,10 @@ export function buildViewportUrl(opts: {
   position?: string | null;
   preview?: boolean;
   systemScene?: string | null;
+  portables?: string;
   editorUi?: boolean;
+  editorSession?: string | null;
+  winitWorker?: boolean;
 }): string {
   const playUrl = (opts.playUrl || "https://catalyst.example.com/play").replace(/\/+$/, "");
   const q = new URLSearchParams();
@@ -554,6 +575,9 @@ export function buildViewportUrl(opts: {
   q.set("position", opts.position || "0,0");
   if (opts.preview) q.set("preview", "true");
   if (opts.systemScene) q.set("systemScene", opts.systemScene);
+  if (opts.portables !== undefined) q.set("portables", opts.portables);
   if (opts.editorUi) q.set("editorUi", "1");
+  if (opts.editorSession) q.set("editorSession", opts.editorSession);
+  if (opts.winitWorker) q.set("winitWorker", "1");
   return `${playUrl}/?${q.toString()}`;
 }

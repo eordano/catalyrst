@@ -10,6 +10,9 @@ use crate::extract::device_identifier;
 use crate::handlers::responses::SceneStreamAccessResponse;
 use crate::http::{auth_error, forbidden, not_implemented, service_unavailable, ApiError};
 use crate::livekit::{is_world_realm_name, scene_room_name, world_scene_room_name, IngressClient};
+use crate::ports::extra_addresses::{
+    place_info_from_row, PlaceInfo, PlaceLookup, PLACE_INFO_FIELDS,
+};
 use crate::AppState;
 
 use super::scene_adapter::{fetch_world_scene_id, meta_str, realm_name_from_metadata};
@@ -73,11 +76,12 @@ pub async fn scene_stream_access(
         raw_scene_id
     };
 
-    let place_id = resolve_place_id(&state, is_world, &realm_name, parcel.as_deref())
+    let (place_id, place) = resolve_place(&state, is_world, &realm_name, parcel.as_deref())
         .await?
         .ok_or_else(|| ApiError::not_found("place not found for this scene"))?;
 
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &place_id, sf.signer.as_str()).await? {
+    let place = PlaceLookup::resolved(&state, &place_id, Some(place));
+    if !crate::scene_perms::is_scene_owner_or_admin_for(&state, &place, sf.signer.as_str()).await? {
         return Err(forbidden("you are not authorized to stream to this scene"));
     }
 
@@ -129,22 +133,23 @@ async fn refuse_if_platform_banned(
     Ok(())
 }
 
-async fn resolve_place_id(
+/// Resolves the place and reads the row the owner/admin gate needs in one query.
+async fn resolve_place(
     state: &AppState,
     is_world: bool,
     realm_name: &str,
     parcel: Option<&str>,
-) -> Result<Option<String>, ApiError> {
+) -> Result<Option<(String, PlaceInfo)>, ApiError> {
     let Some(pool) = state.places_pool.as_ref() else {
         tracing::warn!("scene-stream-access: places pool unavailable; cannot resolve place");
         return Ok(None);
     };
     let row = if is_world {
-        sqlx::query(
-            "SELECT id FROM place \
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT id, {PLACE_INFO_FIELDS} FROM place \
              WHERE COALESCE((raw->>'world')::bool, false) = true \
-               AND lower(raw->>'world_name') = lower($1) LIMIT 1",
-        )
+               AND lower(raw->>'world_name') = lower($1) LIMIT 1"
+        )))
         .bind(realm_name)
         .fetch_optional(pool)
         .await?
@@ -154,15 +159,18 @@ async fn resolve_place_id(
                 "invalid signed-fetch request, no parcel",
             ));
         };
-        sqlx::query(
-            "SELECT id FROM place \
-             WHERE base_position = $1 OR raw->'positions' @> to_jsonb($1::text) LIMIT 1",
-        )
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT id, {PLACE_INFO_FIELDS} FROM place \
+             WHERE base_position = $1 OR raw->'positions' @> to_jsonb($1::text) LIMIT 1"
+        )))
         .bind(parcel)
         .fetch_optional(pool)
         .await?
     };
-    Ok(row.and_then(|r| r.try_get::<String, _>("id").ok()))
+    Ok(row.and_then(|r| {
+        let id = r.try_get::<String, _>("id").ok()?;
+        Some((id, place_info_from_row(&r)))
+    }))
 }
 
 async fn add_access(

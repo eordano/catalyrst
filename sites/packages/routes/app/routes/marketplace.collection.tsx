@@ -91,36 +91,29 @@ export async function loader({ request }: Route.LoaderArgs) {
   const contract = readContract(url.searchParams);
   const sortBy = readSort(url.searchParams);
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  let collection: Collection | null = null;
-  let items: CatalogItem[] = [];
   let fallback = false;
 
-  if (contract) {
-    const [liveCollection, liveItems] = await Promise.all([
-      fetchCollection(contract, { signal: request.signal }).catch(() => {
-        fallback = true;
-        return null;
-      }),
-      fetchCollectionItems(
-        contract,
-        { first: ITEMS_LIMIT, sortBy },
-        { signal: request.signal },
-      )
-        .then((r) => r.data)
-        .catch(() => {
+  const [{ sid, wrap }, collection, items] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    contract
+      ? fetchCollection(contract, { signal: request.signal }).catch(() => {
           fallback = true;
-          return [] as CatalogItem[];
-        }),
-    ]);
-    collection = liveCollection;
-    items = liveItems;
-  }
+          return null;
+        })
+      : Promise.resolve(null as Collection | null),
+    contract
+      ? fetchCollectionItems(
+          contract,
+          { first: ITEMS_LIMIT, sortBy },
+          { signal: request.signal },
+        )
+          .then((r) => r.data)
+          .catch(() => {
+            fallback = true;
+            return [] as CatalogItem[];
+          })
+      : Promise.resolve([] as CatalogItem[]),
+  ]);
 
   const header: CollectionHeader | null = collection
     ? toCollectionHeader(collection)

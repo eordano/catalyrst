@@ -1,4 +1,5 @@
 import Minimap from "@ui/explorer/frames/Minimap";
+import OverlayQueryProvider from "@ui/overlay/OverlayQueryProvider";
 
 import { loadMapJump } from "@data/lib/catalyst/overlay/map-jump.server";
 import {
@@ -7,7 +8,7 @@ import {
   type MapJumpData,
 } from "@data/lib/catalyst/overlay/map-jump";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import type { Route } from "./+types/bevy-overlay.minimap";
 import type { StoryId } from "@core/lib/telemetry/story-id";
@@ -39,13 +40,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const coordsParam = url.searchParams.get("coords")?.trim() || null;
   const heading = parseHeading(url.searchParams.get("heading"));
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: map } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () => loadMapJump({ signal: request.signal }),
   );
-
-  const map = await loadMapJump({ signal: request.signal });
   const coords = resolveCoords(coordsParam, map);
   const place = findPinByCoords(map.pins, coords)?.name ?? "";
 
@@ -64,7 +64,9 @@ export default function BevyOverlayMinimap({ loaderData }: Route.ComponentProps)
 
   return (
     <main className="bevy-overlay-minimap">
-      <Minimap place={place} coords={coords} heading={heading ?? undefined} />
+      <OverlayQueryProvider>
+        <Minimap place={place} coords={coords} heading={heading ?? undefined} />
+      </OverlayQueryProvider>
     </main>
   );
 }

@@ -12,7 +12,7 @@ import {
 import { fetchOpenBids, type Bid } from "@data/lib/catalyst/marketplace/bid";
 import { weiToManaOrNull } from "@data/lib/catalyst/marketplace/money";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import {
   hasWallet,
@@ -42,40 +42,45 @@ export async function loader({ request }: Route.LoaderArgs) {
   const step = url.searchParams.get("step")?.trim() || null;
   const id = url.searchParams.get("id")?.trim() || null;
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const parsed = id ? parseItemId(id) : null;
+  const { sid, assignment, wrap, data } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    async () => {
+      if (!parsed) return { item: null, bids: [] as Bid[], failed: false };
+      const signal = request.signal;
+      const [itemRes, bidsRes] = await Promise.all([
+        fetchCatalogItem(parsed.contractAddress, parsed.itemId, { signal })
+          .then((item) => ({ ok: true, item }))
+          .catch(() => ({ ok: false, item: null })),
+        fetchOpenBids(parsed.contractAddress, parsed.itemId, { signal })
+          .then((bids) => ({ ok: true, bids }))
+          .catch(() => ({ ok: false, bids: [] as Bid[] })),
+      ]);
+      return {
+        item: itemRes.item,
+        bids: itemRes.ok && bidsRes.ok ? bidsRes.bids : ([] as Bid[]),
+        failed: !itemRes.ok || !bidsRes.ok,
+      };
+    },
   );
 
   let asset: BidAsset | null = null;
-  let openBids: Bid[] = [];
-  let fallback = false;
-  const parsed = id ? parseItemId(id) : null;
-  if (parsed) {
-    try {
-      const signal = request.signal;
-      const item = await fetchCatalogItem(parsed.contractAddress, parsed.itemId, {
-        signal,
-      });
-      if (item) {
-        asset = {
-          id: item.id,
-          name: item.name ?? "Untitled",
-          category: item.category ?? "wearable",
-          rarity: item.rarity ?? "common",
-          network: toCardNetwork(item.network),
-          floorMana: weiToManaOrNull(item.minListingPrice) ?? weiToManaOrNull(item.price),
-          image: item.thumbnail ?? null,
-        };
-      }
-      openBids = await fetchOpenBids(parsed.contractAddress, parsed.itemId, {
-        signal,
-      });
-    } catch {
-      fallback = true;
-    }
+  const item = data.item;
+  if (item) {
+    asset = {
+      id: item.id,
+      name: item.name ?? "Untitled",
+      category: item.category ?? "wearable",
+      rarity: item.rarity ?? "common",
+      network: toCardNetwork(item.network),
+      floorMana: weiToManaOrNull(item.minListingPrice) ?? weiToManaOrNull(item.price),
+      image: item.thumbnail ?? null,
+    };
   }
+  const openBids: Bid[] = data.bids;
+  let fallback = data.failed;
   if (!asset && id) fallback = true;
 
   const payload = {

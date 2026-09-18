@@ -52,18 +52,19 @@ async fn process_event(ctx: &Context, event: Event) {
 
     let mut applied = 0usize;
     for instance in instances {
-        let quest = match ctx
-            .db()
-            .get_quest_with_decoded_definition(&instance.quest_id)
-            .await
-        {
+        let (quest, stored_events) = tokio::join!(
+            ctx.db()
+                .get_quest_with_decoded_definition(&instance.quest_id),
+            ctx.db().get_events(&instance.id)
+        );
+        let quest = match quest {
             Ok(q) => q,
             Err(e) => {
                 tracing::error!(error = %e, instance = %instance.id, "processing event > load quest failed");
                 continue;
             }
         };
-        let stored_events = match ctx.db().get_events(&instance.id).await {
+        let stored_events = match stored_events {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!(error = %e, instance = %instance.id, "processing event > load events failed");

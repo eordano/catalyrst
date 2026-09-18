@@ -9,7 +9,7 @@ use super::queries::{
     build_collections_items_count_query, build_search_query,
 };
 use super::rows::from_db_row_to_catalog_item;
-use super::types::{CatalogFilters, CatalogItem, DbRow};
+use super::types::{CatalogFilters, CatalogItem, DbRow, PickStats};
 
 pub struct CatalogComponent {
     pool: PgPool,
@@ -31,15 +31,27 @@ impl CatalogComponent {
         is_v2: bool,
     ) -> Result<std::sync::Arc<(Vec<CatalogItem>, i64)>, ApiError> {
         let key = (is_v2, filters.clone());
-        if let Some(page) = self.cache.lookup(&key) {
-            return Ok(page);
-        }
-        let page = std::sync::Arc::new(
-            self.fetch_uncached(filters, search_id, anon_id, is_v2)
-                .await?,
-        );
-        self.cache.store(key, std::sync::Arc::clone(&page));
-        Ok(page)
+        self.cache
+            .page_or_fetch(key, || async {
+                self.fetch_uncached(filters, search_id, anon_id, is_v2)
+                    .await
+                    .map(std::sync::Arc::new)
+            })
+            .await
+    }
+
+    pub async fn anonymous_picks<F, Fut>(
+        &self,
+        ids: Vec<String>,
+        fetch: F,
+    ) -> Result<std::sync::Arc<Vec<PickStats>>, ApiError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Vec<PickStats>, ApiError>>,
+    {
+        self.cache
+            .picks_or_fetch(ids, || async { fetch().await.map(std::sync::Arc::new) })
+            .await
     }
 
     async fn fetch_uncached(
@@ -85,13 +97,14 @@ impl CatalogComponent {
             sqlx::query_with(sqlx::AssertSqlSafe(count_sql), count_args);
 
         let items_fut = items_q.fetch_all(&self.pool);
-        let count_fut = count_q.fetch_one(&self.pool);
-        let (items_rows, count_row) = tokio::try_join!(items_fut, count_fut).map_err(|e| {
+        let count_fut = self.cache.total_or_fetch(&filters, || async {
+            let row = count_q.fetch_one(&self.pool).await?;
+            Ok::<i64, sqlx::Error>(row.try_get::<i64, _>("total").unwrap_or(0))
+        });
+        let (items_rows, total) = tokio::try_join!(items_fut, count_fut).map_err(|e| {
             tracing::error!(error = ?e, "catalog query failed");
             ApiError::bad_request("Couldn't fetch the catalog with the filters provided")
         })?;
-
-        let total: i64 = count_row.try_get::<i64, _>("total").unwrap_or(0);
 
         let mut items: Vec<CatalogItem> = Vec::with_capacity(items_rows.len());
         for r in &items_rows {

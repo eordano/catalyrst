@@ -85,7 +85,7 @@
   border: 2px solid #fff;
   text-decoration: none;
 }
-.gh__bannerbtn--discord { color: var(--brand); background: #fff; }
+.gh__bannerbtn--discord { color: var(--brand-cta); background: #fff; }
 .gh__bannerbtn--docs { color: #fff; background: transparent; }
 .gh__bannerclose {
   position: absolute;

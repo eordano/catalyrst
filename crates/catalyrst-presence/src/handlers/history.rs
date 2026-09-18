@@ -20,22 +20,22 @@ fn db_err(e: sqlx::Error) -> (StatusCode, Json<Value>) {
 pub async fn current(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let snap = state.queries.current().await.map_err(db_err)?;
-    Ok(Json(json!({ "current": snap })))
+    let bundle = state.queries.current_bundle().await.map_err(db_err)?;
+    Ok(Json(json!({ "current": bundle.current })))
 }
 
 pub async fn current_scenes(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let rows = state.queries.current_scenes().await.map_err(db_err)?;
-    Ok(Json(json!({ "scenes": rows })))
+    let bundle = state.queries.current_bundle().await.map_err(db_err)?;
+    Ok(Json(json!({ "scenes": bundle.scenes })))
 }
 
 pub async fn current_worlds(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let rows = state.queries.current_worlds().await.map_err(db_err)?;
-    Ok(Json(json!({ "worlds": rows })))
+    let bundle = state.queries.current_bundle().await.map_err(db_err)?;
+    Ok(Json(json!({ "worlds": bundle.worlds })))
 }
 
 #[derive(Debug, Deserialize)]

@@ -18,7 +18,7 @@ describe("unpublishWorldScene \u{2014} signed DELETE", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("DELETEs /world/{name}/scenes/{coord} signed with the ADR-44 chain", async () => {
+  it("DELETEs /world/{name}/scenes/{coord} signed with the ADR-44 chain and throws (never claims success) on 403 / 404 / 500", async () => {
     await unpublishWorldScene("my-world.dcl.eth", "0,0", { identity, base: BASE });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -28,9 +28,7 @@ describe("unpublishWorldScene \u{2014} signed DELETE", () => {
     const headers = init.headers as Headers;
     expect(headers.get("x-identity-auth-chain-0")).toBeTruthy();
     expect(headers.get("x-identity-timestamp")).toBeTruthy();
-  });
 
-  it("throws (never claims success) on a 403 / 404", async () => {
     for (const status of [403, 404, 500]) {
       fetchMock.mockResolvedValueOnce(new Response("nope", { status }));
       await expect(
@@ -53,16 +51,14 @@ describe("fetchParcelsPermission", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("GETs the deployment parcels path and parses the envelope", async () => {
+  it("GETs the deployment parcels path, parses the envelope, and reports a failed read as null rather than an empty list", async () => {
     const res = await fetchParcelsPermission("my-world.dcl.eth", "0xABC");
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toContain(
       "/world/my-world.dcl.eth/permissions/deployment/address/0xabc/parcels",
     );
     expect(res).toEqual({ total: 2, parcels: ["0,0", "0,1"] });
-  });
 
-  it("reports a failed read as null, not as an empty parcel list", async () => {
     fetchMock.mockResolvedValueOnce(new Response("boom", { status: 500 }));
     expect(await fetchParcelsPermission("w.dcl.eth", "0x1")).toBeNull();
   });

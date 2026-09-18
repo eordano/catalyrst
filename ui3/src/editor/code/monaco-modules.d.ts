@@ -9,6 +9,7 @@ declare module "monaco-editor" {
   export interface ITextModel {
     readonly uri: Uri;
     getValue(): string;
+    setValue(value: string): void;
     dispose(): void;
   }
 
@@ -52,55 +53,57 @@ declare module "monaco-editor" {
     KeyS,
   }
 
-  export namespace languages {
-    export namespace typescript {
-      export enum ScriptTarget {
-        ES3,
-        ES5,
-        ES2015,
-        ES2016,
-        ES2017,
-        ES2018,
-        ES2019,
-        ES2020,
-        ESNext,
-        Latest,
-      }
-      export enum ModuleKind {
-        None,
-        CommonJS,
-        AMD,
-        UMD,
-        System,
-        ES2015,
-        ESNext,
-      }
-      export enum ModuleResolutionKind {
-        Classic,
-        NodeJs,
-      }
-      export enum JsxEmit {
-        None,
-        Preserve,
-        React,
-        ReactNative,
-        ReactJSX,
-        ReactJSXDev,
-      }
-      export interface CompilerOptions {
-        [option: string]: unknown;
-      }
-      export interface IDisposable {
-        dispose(): void;
-      }
-      export interface LanguageServiceDefaults {
-        setCompilerOptions(options: CompilerOptions): void;
-        setEagerModelSync(value: boolean): void;
-        addExtraLib(content: string, filePath?: string): IDisposable;
-      }
-      export const typescriptDefaults: LanguageServiceDefaults;
-      export const javascriptDefaults: LanguageServiceDefaults;
+  export namespace typescript {
+    export enum ScriptTarget {
+      ES3,
+      ES5,
+      ES2015,
+      ES2016,
+      ES2017,
+      ES2018,
+      ES2019,
+      ES2020,
+      ESNext,
+      Latest,
     }
+    export enum ModuleKind {
+      None,
+      CommonJS,
+      AMD,
+      UMD,
+      System,
+      ES2015,
+      ESNext,
+    }
+    export enum ModuleResolutionKind {
+      Classic,
+      NodeJs,
+    }
+    export enum JsxEmit {
+      None,
+      Preserve,
+      React,
+      ReactNative,
+      ReactJSX,
+      ReactJSXDev,
+    }
+    export interface CompilerOptions {
+      [option: string]: unknown;
+    }
+    export interface IDisposable {
+      dispose(): void;
+    }
+    export interface LanguageServiceDefaults {
+      setCompilerOptions(options: CompilerOptions): void;
+      setEagerModelSync(value: boolean): void;
+      addExtraLib(content: string, filePath?: string): IDisposable;
+    }
+    export interface TypeScriptWorker {
+      getSyntacticDiagnostics(fileName: string): Promise<unknown[]>;
+    }
+    export function getTypeScriptWorker(): Promise<(...uris: Uri[]) => Promise<TypeScriptWorker>>;
+    export const typescriptDefaults: LanguageServiceDefaults;
+    export const javascriptDefaults: LanguageServiceDefaults;
   }
 }
 

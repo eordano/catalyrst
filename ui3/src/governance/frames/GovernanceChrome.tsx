@@ -7,7 +7,7 @@ import "./governancechrome.css";
 
 export type GovernanceNavId = "home" | "proposals" | "projects" | "transparency";
 
-export const GOV_TABS: { id: GovernanceNavId; label: string }[] = [
+const GOV_TABS: { id: GovernanceNavId; label: string }[] = [
   { id: "home", label: "DAO Home" },
   { id: "proposals", label: "Proposals" },
   { id: "projects", label: "Projects" },

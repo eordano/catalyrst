@@ -10,7 +10,7 @@ export type ProjectSnapshot = {
   mainPresent: boolean | null;
 };
 
-export function parcelsToSize(parcels: readonly unknown[]): string | null {
+function parcelsToSize(parcels: readonly unknown[]): string | null {
   const xs: number[] = [];
   const ys: number[] = [];
   for (const p of parcels) {

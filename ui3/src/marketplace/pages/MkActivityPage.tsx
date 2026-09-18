@@ -3,10 +3,10 @@ import type { ComponentType, ReactNode } from "react";
 import MkMySalesHistory from "../components/MkMySalesHistory";
 import "./activityfeed.css";
 
-export const ACTIVITY_TYPES = ["sale", "listing", "bid"] as const;
-export type MkActivityType = (typeof ACTIVITY_TYPES)[number];
+const ACTIVITY_TYPES = ["sale", "listing", "bid"] as const;
+type MkActivityType = (typeof ACTIVITY_TYPES)[number];
 
-export type MkActivityEntry = {
+type MkActivityEntry = {
   id: string;
   kind: MkActivityType;
   rawType: string;
@@ -60,13 +60,13 @@ type LinkComponentProps = {
   children?: ReactNode;
 };
 
-export type MkMySalesProps = {
+type MkMySalesProps = {
   me: string;
   mine: MkActivityEntry[];
   manaEarned: string;
 };
 
-export type MkActivityPageProps = {
+type MkActivityPageProps = {
   entries?: MkActivityEntry[];
   type?: MkActivityType | "";
   page?: number;
@@ -256,7 +256,7 @@ function FilterTab({
   );
 }
 
-export function relativeTime(ts: number, now: number = Date.now()): string {
+function relativeTime(ts: number, now: number = Date.now()): string {
   if (!ts) return "\u{2014}";
   const diff = Math.max(0, now - ts);
   const sec = Math.floor(diff / 1000);

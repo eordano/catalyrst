@@ -96,7 +96,7 @@
 
 .tcs__empty {
   margin: 8px 0 0;
-  color: rgba(255, 255, 255, .4);
+  color: rgba(255, 255, 255, .65);
 }
 
 @media (max-width: 760px) {

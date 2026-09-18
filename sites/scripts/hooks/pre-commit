@@ -15,6 +15,8 @@ set -euo pipefail
 repo="$(git rev-parse --show-toplevel)"
 # shellcheck source=../ts-crates.sh
 source "$repo/catalyrst/sites/scripts/ts-crates.sh"
+load_generated_crates
+bridge_crate_pattern="$(IFS='|'; echo "${BRIDGE_CRATES[*]}")"
 
 staged="$(git diff --cached --name-only)"
 
@@ -26,7 +28,7 @@ areas=()
 if grep -Eq "^(catalyrst/crates/[^/]+/(src/|Cargo\.toml$)|$GENERATED_DIR_REL/catalyst/)" <<<"$staged"; then
   areas+=(catalyrst)
 fi
-if grep -Eq "^(bevy-explorer/crates/$BRIDGE_CRATE/(src/|Cargo\.toml$)|$GENERATED_DIR_REL/bridge/)" <<<"$staged"; then
+if grep -Eq "^(bevy-explorer/crates/($bridge_crate_pattern)/(src/|Cargo\.toml$)|$GENERATED_DIR_REL/bridge/|bevy-explorer/(docs/MACHINES\.md|web/src/generated/lifecycle-models\.ts)$)" <<<"$staged"; then
   areas+=(bridge)
 fi
 zod_area=0

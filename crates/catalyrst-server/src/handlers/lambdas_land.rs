@@ -72,6 +72,17 @@ fn page_offset(page_num: i64, page_size: i64) -> i64 {
     page_num.saturating_sub(1).saturating_mul(page_size)
 }
 
+/// Bare COUNT for a `count(*) OVER ()` page that came back empty (past the end).
+async fn count_owned(pool: &sqlx::PgPool, predicate: &'static str, owner: &str) -> i64 {
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM squid_marketplace.nft WHERE {predicate} AND owner_address = lower($1)"
+    )))
+    .bind(owner)
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0)
+}
+
 pub async fn user_names(
     State(state): State<Arc<AppState>>,
     Path(addr): Path<String>,
@@ -85,20 +96,10 @@ pub async fn user_names(
     };
 
     let owner = addr.to_lowercase();
-
-    let total: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM squid_marketplace.nft \
-         WHERE category = 'ens' AND owner_address = lower($1)",
-    )
-    .bind(&owner)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
-
     let offset = page_offset(page_num, page_size);
 
-    let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT n.name, n.contract_address, n.token_id::text, o.price::text \
+    let rows: Vec<(String, String, String, Option<String>, i64)> = sqlx::query_as(
+        "SELECT n.name, n.contract_address, n.token_id::text, o.price::text, count(*) OVER () \
          FROM squid_marketplace.nft n \
          LEFT JOIN squid_marketplace.\"order\" o ON o.id = n.active_order_id \
          WHERE n.category = 'ens' AND n.owner_address = lower($1) \
@@ -112,9 +113,14 @@ pub async fn user_names(
     .await
     .unwrap_or_default();
 
+    let total = match rows.first() {
+        Some(row) => row.4,
+        None => count_owned(pool, "category = 'ens'", &owner).await,
+    };
+
     let elements: Vec<Value> = rows
         .into_iter()
-        .map(|(name, contract_address, token_id, price)| {
+        .map(|(name, contract_address, token_id, price, _)| {
             let mut obj = json!({
                 "name": name,
                 "contractAddress": contract_address,
@@ -149,16 +155,6 @@ pub async fn user_lands(
     };
 
     let owner = addr.to_lowercase();
-
-    let total: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM squid_marketplace.nft \
-         WHERE category IN ('parcel','estate') AND owner_address = lower($1)",
-    )
-    .bind(&owner)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
-
     let (limit, offset) = (page_size, page_offset(page_num, page_size));
 
     let rows: Vec<(
@@ -172,6 +168,7 @@ pub async fn user_lands(
         bool,
         Option<String>,
         Option<String>,
+        i64,
     )> = sqlx::query_as(
         "SELECT \
             n.name, \
@@ -183,16 +180,21 @@ pub async fn user_lands(
             COALESCE(pd.description, ed.description) AS description, \
             (pd.id IS NOT NULL OR ed.id IS NOT NULL) AS has_data, \
             o.price::text AS price, \
-            n.image \
-         FROM squid_marketplace.nft n \
+            n.image, \
+            n.total \
+         FROM ( \
+            SELECT n.*, count(*) OVER () AS total \
+            FROM squid_marketplace.nft n \
+            WHERE n.category IN ('parcel','estate') AND n.owner_address = lower($1) \
+            ORDER BY n.transferred_at DESC \
+            LIMIT $2 OFFSET $3 \
+         ) n \
          LEFT JOIN squid_marketplace.parcel p ON p.id = n.parcel_id \
          LEFT JOIN squid_marketplace.data pd ON pd.id = p.data_id \
          LEFT JOIN squid_marketplace.estate e ON e.id = n.estate_id \
          LEFT JOIN squid_marketplace.data ed ON ed.id = e.data_id \
          LEFT JOIN squid_marketplace.\"order\" o ON o.id = n.active_order_id \
-         WHERE n.category IN ('parcel','estate') AND n.owner_address = lower($1) \
-         ORDER BY n.transferred_at DESC \
-         LIMIT $2 OFFSET $3",
+         ORDER BY n.transferred_at DESC",
     )
     .bind(&owner)
     .bind(limit)
@@ -200,6 +202,11 @@ pub async fn user_lands(
     .fetch_all(pool)
     .await
     .unwrap_or_default();
+
+    let total = match rows.first() {
+        Some(row) => row.10,
+        None => count_owned(pool, "category IN ('parcel','estate')", &owner).await,
+    };
 
     let land_base = state.land_image_base_url.trim_end_matches('/').to_string();
     let rewrite_image = move |img: String| -> String {
@@ -223,6 +230,7 @@ pub async fn user_lands(
                 has_data,
                 price,
                 image,
+                _,
             )| {
                 let is_parcel = category == "parcel";
                 let mut obj = json!({
@@ -265,11 +273,13 @@ pub async fn user_lands(
 }
 
 /// `None` when there is no local index to answer from, which is the only case
-/// that still warrants a remote round trip.
+/// that still warrants a remote round trip. The page is cut in the query.
 async fn local_parcels_by_update_operator(
     state: &AppState,
     update_operator: &str,
-) -> Option<Result<Vec<Value>, sqlx::Error>> {
+    limit: i64,
+    offset: i64,
+) -> Option<Result<(Vec<Value>, i64), sqlx::Error>> {
     let pool = state.squid_pool.as_ref()?;
     if !crate::land_operators::local_index_present(pool).await {
         return None;
@@ -277,10 +287,10 @@ async fn local_parcels_by_update_operator(
     let store = catalyrst_land_authz::LandAuthzStore::new(pool.clone());
     Some(
         store
-            .parcels_with_update_operator(update_operator)
+            .parcels_with_update_operator_page(update_operator, limit, offset)
             .await
-            .map(|parcels| {
-                parcels
+            .map(|(parcels, total)| {
+                let page = parcels
                     .into_iter()
                     .map(|p| {
                         json!({
@@ -291,7 +301,8 @@ async fn local_parcels_by_update_operator(
                             "updateOperator": update_operator,
                         })
                     })
-                    .collect()
+                    .collect();
+                (page, total)
             }),
     )
 }
@@ -304,33 +315,42 @@ pub async fn user_lands_permissions(
     use crate::handlers::external_graph;
 
     let update_operator = addr.to_lowercase();
+    let (page_size, page_num) = parse_pagination(&req, MAX_PAGE_SIZE as i64);
+    let off = page_offset(page_num, page_size);
 
-    let elements = match local_parcels_by_update_operator(&state, &update_operator).await {
-        Some(Ok(e)) => e,
+    let (page, total) = match local_parcels_by_update_operator(
+        &state,
+        &update_operator,
+        page_size,
+        off,
+    )
+    .await
+    {
+        Some(Ok(page)) => page,
         Some(Err(e)) => {
             tracing::error!(update_operator = %update_operator, error = %e, "local lands-permissions lookup failed");
             return crate::errors::internal_server_error();
         }
         None => {
-            match external_graph::parcels_by_update_operator(&state.eth_network, &update_operator)
-                .await
+            let elements = match external_graph::parcels_by_update_operator(
+                &state.eth_network,
+                &update_operator,
+            )
+            .await
             {
                 Ok(e) => e,
                 Err(e) => return external_land_error("lands-permissions", &state.eth_network, &e),
-            }
+            };
+            let total = elements.len() as i64;
+            let start = off.max(0).min(total) as usize;
+            let end = off.saturating_add(page_size).max(0).min(total) as usize;
+            let page: Vec<Value> = if start < end {
+                elements[start..end].to_vec()
+            } else {
+                Vec::new()
+            };
+            (page, total)
         }
-    };
-
-    let (page_size, page_num) = parse_pagination(&req, MAX_PAGE_SIZE as i64);
-
-    let total = elements.len() as i64;
-    let off = page_offset(page_num, page_size);
-    let start = off.max(0).min(total) as usize;
-    let end = off.saturating_add(page_size).max(0).min(total) as usize;
-    let page: Vec<Value> = if start < end {
-        elements[start..end].to_vec()
-    } else {
-        Vec::new()
     };
 
     Json(json!({
@@ -367,25 +387,15 @@ pub async fn parcel_operators(
     if let Some(pool) = state.squid_pool.as_ref() {
         if crate::land_operators::local_index_present(pool).await {
             let store = catalyrst_land_authz::LandAuthzStore::new(pool.clone());
-            return match store.parcel_subject(xi as i32, yi as i32).await {
-                Ok(Some(subject)) => {
-                    let managers = store
-                        .account_grants(&subject.registry, &subject.owner, "update_manager")
-                        .await
-                        .unwrap_or_default();
-                    let approved = store
-                        .account_grants(&subject.registry, &subject.owner, "approved_for_all")
-                        .await
-                        .unwrap_or_default();
-                    Json(json!({
-                        "owner": subject.owner,
-                        "operator": subject.operator,
-                        "updateOperator": subject.update_operator,
-                        "updateManagers": managers,
-                        "approvedForAll": approved,
-                    }))
-                    .into_response()
-                }
+            return match store.rights(xi as i32, yi as i32).await {
+                Ok(Some(rights)) => Json(json!({
+                    "owner": rights.subject.owner,
+                    "operator": rights.subject.operator,
+                    "updateOperator": rights.subject.update_operator,
+                    "updateManagers": rights.operators.update_managers,
+                    "approvedForAll": rights.operators.approved_for_all,
+                }))
+                .into_response(),
                 Ok(None) => parcel_or_estate_not_found(xi, yi),
                 Err(e) => {
                     tracing::warn!(x = xi, y = yi, error = %e, "local parcel operators lookup failed");

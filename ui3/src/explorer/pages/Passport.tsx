@@ -1,10 +1,13 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
+import Spinner from "../../atoms/Spinner";
 import Tabs from "../components/Tabs";
 import { Avatar } from "../../atoms/primitives";
+import { sendBridge } from "../../overlay/bridge";
 import { hexToColor3 } from "../../data/catalyst/backpack";
 import { serviceBase, signedFetch } from "../../data/catalyst/client";
 import Lightbox from "../components/Lightbox";
+import WalletAddress from "../components/WalletAddress";
 import "./passport.css";
 
 type ReelPhoto = {
@@ -73,6 +76,7 @@ function EditPencil() {
 }
 
 type PassportProps = {
+  loading?: boolean;
   avatarPreview?: ReactNode;
   identity?: PassportIdentity | null;
   equipped?: EquippedItem[];
@@ -85,9 +89,13 @@ type PassportProps = {
   photos?: ReelPhoto[];
   isSelf?: boolean;
   onClose?: () => void;
+  onEditAvatar?: () => void;
+  tab?: string;
+  onTab?: (tab: string) => void;
 };
 
 export default function Passport({
+  loading = false,
   avatarPreview = null,
   identity = null,
   equipped = [],
@@ -100,8 +108,13 @@ export default function Passport({
   photos: photosProp,
   isSelf = true,
   onClose,
+  onEditAvatar,
+  tab: selectedTab,
+  onTab,
 }: PassportProps) {
-  const [tab, setTab] = useState("overview");
+  const [localTab, setLocalTab] = useState("overview");
+  const tab = selectedTab ?? localTab;
+  const setTab = onTab ?? setLocalTab;
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [fetchedPhotos, setFetchedPhotos] = useState<ReelPhoto[]>([]);
@@ -148,7 +161,7 @@ export default function Passport({
     setEditingName(false);
     if (!next || next === (identity?.name || base?.name || "")) return;
     try {
-      window.dclBridge?.send?.("SetAvatar", {
+      sendBridge("SetAvatar", {
         base: {
           bodyShapeUrn:
             base?.bodyShape ??
@@ -164,15 +177,29 @@ export default function Passport({
   }
 
   return (
-    <div className="ep__backdrop">
-      <div className="ps">
+    <div className="ep__backdrop ps__backdrop" onClick={event => { if (event.target === event.currentTarget) onClose?.(); }}>
+      <div className="ps" aria-busy={loading} data-loading={loading || undefined}>
+        {loading && <div className="ps__loading" role="status"><Spinner size={34} /><span>Loading profile&hellip;</span></div>}
         <button className="ep__close ps__close" aria-label="Close" onClick={onClose}>&#xD7;</button>
 
         <div className={"ps__preview" + (avatarPreview ? "" : " ps__preview--empty")}>
-          {avatarPreview ? (
-            avatarPreview
-          ) : (
-            <Avatar size={184} name={displayName} className="ps__avatar" />
+          <div className="ps__stage">
+            {avatarPreview ? (
+              avatarPreview
+            ) : (
+              <Avatar size={184} name={displayName} className="ps__avatar" />
+            )}
+          </div>
+          {isSelf && (
+            <button
+              type="button"
+              className="ps__editavatar"
+              data-sb-linkto="Explorer/Pages/Backpack"
+              onClick={onEditAvatar}
+            >
+              <span aria-hidden="true">&#x270E;</span>
+              EDIT AVATAR
+            </button>
           )}
         </div>
 
@@ -181,6 +208,7 @@ export default function Passport({
             <div className="ps__id">
               <div className="ps__idline">
                 {editingName ? (
+                  <form className="ps__name-form" onSubmit={event => { event.preventDefault(); saveName(); }}>
                   <input
                     className="ps__nameedit"
                     aria-label="Edit name"
@@ -188,10 +216,8 @@ export default function Passport({
                     maxLength={15}
                     value={nameDraft}
                     onChange={(e) => setNameDraft(e.target.value)}
-                    onBlur={saveName}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") saveName();
-                      else if (e.key === "Escape") setEditingName(false);
+                      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setEditingName(false); }
                     }}
                     style={{
                       font: "inherit",
@@ -206,6 +232,9 @@ export default function Passport({
                       maxWidth: "100%",
                     }}
                   />
+                  <button className="ps__name-save" type="submit">Save name</button>
+                  <button className="ps__icon" type="button" onClick={() => setEditingName(false)}>Cancel</button>
+                  </form>
                 ) : (
                   <>
                     <h2 className="ps__name" style={nameColor ? { color: nameColor } : undefined}>{displayName}{identity?.tag ? <span className="ps__tag">{identity.tag}</span> : null}</h2>
@@ -214,25 +243,7 @@ export default function Passport({
                 )}
               </div>
               {(identity?.wallet || identity?.address) ? (
-                <div className="ps__addrline">
-                  <span className="ps__addr">{identity?.wallet || identity?.address}</span>
-                  <button
-                    className="ps__icon ps__icon--sm"
-                    aria-label="Copy address"
-                    title="Copy address"
-                    onClick={() => {
-                      const addr = identity?.address || identity?.wallet;
-                      if (addr) {
-                        try {
-                          navigator.clipboard?.writeText(addr);
-                        } catch {
-                        }
-                      }
-                    }}
-                  >
-                    &#x29C9;
-                  </button>
-                </div>
+                <WalletAddress address={identity?.address || identity?.wallet || ""} />
               ) : null}
             </div>
             {hasClaimedName || !isSelf ? null : (
@@ -278,7 +289,7 @@ export default function Passport({
               )
             ) : (
             <>
-            <section className="ps__mod">
+            {tab === "badges" && <section className="ps__mod">
               <h3 className="ps__modtitle">Badges</h3>
               {badges.length === 0 ? (
                 <p className="ps__empty">No badges yet.</p>
@@ -301,9 +312,9 @@ export default function Passport({
                   ))}
                 </div>
               )}
-            </section>
+            </section>}
 
-            <section className="ps__mod">
+            {tab === "overview" && <><section className="ps__mod">
               <div className="ps__modhead">
                 <h3 className="ps__modtitle">About me</h3>
                 {isSelf && <EditPencil />}
@@ -372,7 +383,7 @@ export default function Passport({
                   ))
                 )}
               </div>
-            </section>
+            </section></>}
             </>
             )}
           </div>

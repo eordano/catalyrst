@@ -93,6 +93,11 @@ type WearablesHomeViewProps = {
   retrying?: boolean;
   rescoping?: boolean;
   collections?: CwhCollectionCard[];
+  drafts?: { id: string; name: string }[];
+  draftsError?: boolean;
+  draftsLoading?: boolean;
+  onOpenDraft?: (id: string) => void;
+  onRetryDrafts?: () => void;
   view?: "grid" | "list";
   onSignIn?: () => void;
   onSelectView?: (view: "grid" | "list") => void;
@@ -108,6 +113,11 @@ export default function WearablesHomeView({
   retrying = false,
   rescoping = false,
   collections = [],
+  drafts = [],
+  draftsError = false,
+  draftsLoading = false,
+  onOpenDraft,
+  onRetryDrafts,
   view = "grid",
   onSignIn,
   onSelectView,
@@ -146,6 +156,17 @@ export default function WearablesHomeView({
           </div>
         </header>
 
+        {draftsLoading && <p role="status" aria-busy="true">Loading saved drafts&hellip;</p>}
+        {draftsError && <div className="cwh__error" role="alert" style={errorBannerStyle}>
+          <span>Couldn&#x2019;t load your saved drafts.</span>
+          <button type="button" style={errorRetryStyle} onClick={onRetryDrafts}>Retry</button>
+        </div>}
+        {drafts.length > 0 && <section aria-label="Unpublished wearables" className="cwh__drafts">
+          <h2>Unpublished wearables</h2>
+          <ul>{drafts.map(draft => <li key={draft.id}>
+            <button type="button" onClick={() => onOpenDraft?.(draft.id)}>{draft.name}<span aria-hidden="true">&#x2192;</span></button>
+          </li>)}</ul>
+        </section>}
         {error && (
           <div role="alert" className="cwh__error" style={errorBannerStyle}>
             <span>
@@ -164,7 +185,7 @@ export default function WearablesHomeView({
         )}
 
         <div id="cwh-panel">
-          {rescoping ? (
+          {rescoping || (draftsLoading && collections.length === 0) ? (
             <div className="cwh__empty" role="status" aria-live="polite">
               <Spinner aria-hidden="true" />
               <p className="cwh__emptydesc" style={{ margin: 0 }}>

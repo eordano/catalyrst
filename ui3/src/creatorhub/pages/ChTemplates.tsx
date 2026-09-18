@@ -1,3 +1,4 @@
+import ChromeLink from "../../web/frames/ChromeLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CreatorHubChromeMaybe } from "../frames/CreatorHubChrome";
 import { ChevronLeft, Close } from "../../atoms/icons";
@@ -109,7 +110,7 @@ function ProjectCard({ title, description, thumb, tags, dropdownOptions, onClick
             <div className="chtpl__dropdown" role="menu">
               {dropdownOptions.map((opt) =>
                 opt.href ? (
-                  <a
+                  <ChromeLink
                     key={opt.text}
                     role="menuitem"
                     className="chtpl__dropitem"
@@ -123,7 +124,7 @@ function ProjectCard({ title, description, thumb, tags, dropdownOptions, onClick
                     }}
                   >
                     {opt.text}
-                  </a>
+                  </ChromeLink>
                 ) : (
                   <button
                     key={opt.text}

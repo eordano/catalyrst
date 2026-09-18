@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-worlds"
-version = "0.26.0"
+version = "0.31.0"
 edition = "2021"
 description = "Rust port of decentraland/worlds-content-server -- World realm /about, /permissions, LiveKit world/scene comms, content reads, wallet presence. Port 5141."
 
@@ -72,6 +72,7 @@ ts = ["dep:ts-rs"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { workspace = true }
 catalyrst-contract-gate = { workspace = true }
 # federation_mirror_routes.rs drives the real axum router with `ServiceExt::oneshot`,
 # so the "unauthenticated refresh contacts zero peers" claim is checked against a
@@ -85,5 +86,5 @@ catalyrst-testgate = { workspace = true }
 # TLS handshake instead of asserted in a comment. Same version catalyrst-pulse
 # already pins, so this adds no new crate to the lock.
 rcgen = "0.14"
-rustls = "0.23"
+rustls = { version = "0.23", features = ["ring"] }
 tokio-rustls = "0.26"

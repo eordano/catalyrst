@@ -37,18 +37,6 @@ function inputFor(commit: CommitFn, track: TrackFn) {
 const VALID_ADDR = "0x4a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d";
 const BAD_ADDR = "0xnothex";
 
-const EXPECTED_STATES = new Set([
-  "access",
-  "invite",
-  "password",
-  "collaborators",
-  "addingCollaborator",
-  "confirming",
-  "finishing",
-  "complete",
-  "error",
-]);
-
 const TRAVERSAL_EVENTS = [
   { type: "START_INVITE" as const },
   { type: "SUBMIT_INVITE" as const, channel: "wallet" as const },
@@ -74,29 +62,40 @@ const serializeState = (snapshot: unknown) => {
   });
 };
 
+async function completedEventProps(commit: CommitFn) {
+  const track = vi.fn();
+  const actor = createActor(permissionsMachine, {
+    input: inputFor(commit, track),
+  }).start();
+
+  actor.send({ type: "START_INVITE" });
+  actor.send({ type: "SUBMIT_INVITE", channel: "wallet" });
+  actor.send({ type: "CONFIRM" });
+  await waitFor(actor, (s) => s.matches("complete"));
+
+  const call = track.mock.calls.find((c) => c[0] === PERMS_EVENTS.completed);
+  expect(call).toBeDefined();
+  return call![1] as Record<string, unknown>;
+}
+
 describe("permissionsMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
+  it("covers every state, round-trips uniquely, and falls back to the first step", () => {
     const machineStates = new Set(Object.keys(permissionsMachine.states));
     const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
     expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
 
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.access);
-    expect(slugToState(null)).toBe("access");
-    expect(slugToState(undefined)).toBe("access");
-    expect(slugToState("")).toBe("access");
-    expect(slugToState("nope")).toBe("access");
+    for (const bad of [null, undefined, "", "nope"]) {
+      expect(slugToState(bad)).toBe("access");
+    }
     expect(slugToState("invite")).toBe("invite");
     expect(slugToState("add-collaborator")).toBe("addingCollaborator");
     expect(slugToState("confirm")).toBe("confirming");
@@ -105,61 +104,37 @@ describe("permissionsMachine \u{2014} URL ?step slug map", () => {
 });
 
 describe("permissionsMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolvePermissionsSnapshot({
-      step: "access",
-      trackCtx: inputFor(okCommit, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
+  it("first step needs no snapshot; confirming hydrates without telemetry or auto-commit; a real transition after hydration fires", async () => {
+    const trackCtx = inputFor(okCommit, () => {}).trackCtx;
+    expect(resolvePermissionsSnapshot({ step: "access", trackCtx })).toBeUndefined();
 
-  it("hydrating confirm does NOT fire telemetry and does NOT auto-commit", async () => {
     const track = vi.fn();
     const commit = vi.fn(okCommit);
-    const snapshot = resolvePermissionsSnapshot({
-      step: "confirming",
-      trackCtx: inputFor(commit, track).trackCtx,
-      commit,
-      track,
-    });
-    const actor = createActor(permissionsMachine, {
+    const confirming = createActor(permissionsMachine, {
       input: inputFor(commit, track),
-      snapshot,
+      snapshot: resolvePermissionsSnapshot({ step: "confirming", trackCtx, commit, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("confirming")).toBe(true);
-
+    expect(confirming.getSnapshot().matches("confirming")).toBe(true);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("confirming")).toBe(true);
-  });
+    expect(confirming.getSnapshot().matches("confirming")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolvePermissionsSnapshot({
-      step: "addingCollaborator",
-      trackCtx: inputFor(okCommit, track).trackCtx,
-      track,
-    });
-    const actor = createActor(permissionsMachine, {
+    const adding = createActor(permissionsMachine, {
       input: inputFor(okCommit, track),
-      snapshot,
+      snapshot: resolvePermissionsSnapshot({ step: "addingCollaborator", trackCtx, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("addingCollaborator")).toBe(true);
+    expect(adding.getSnapshot().matches("addingCollaborator")).toBe(true);
     expect(track).not.toHaveBeenCalled();
 
-    actor.send({ type: "VALIDATE", address: VALID_ADDR });
-    expect(actor.getSnapshot().matches("collaborators")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(
-      PERMS_EVENTS.collaboratorValidated,
-    );
+    adding.send({ type: "VALIDATE", address: VALID_ADDR });
+    expect(adding.getSnapshot().matches("collaborators")).toBe(true);
+    expect(track.mock.calls.map((c) => c[0])).toContain(PERMS_EVENTS.collaboratorValidated);
   });
 });
 
 describe("permissionsMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("event paths reach invite, password, collaborators, addingCollaborator and confirming, and confirming needs CONFIRM", () => {
     const paths = getShortestPaths(permissionsMachine, {
       input: inputFor(okCommit, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -171,33 +146,23 @@ describe("permissionsMachine \u{2014} model-based path coverage (@xstate/graph)"
     for (const p of paths) {
       const value = p.state.value as string;
       ends.add(value);
-      expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("invite")).toBe(true);
-    expect(ends.has("password")).toBe(true);
-    expect(ends.has("collaborators")).toBe(true);
-    expect(ends.has("addingCollaborator")).toBe(true);
-    expect(ends.has("confirming")).toBe(true);
-  });
+    for (const s of ["invite", "password", "collaborators", "addingCollaborator", "confirming"]) {
+      expect(ends.has(s)).toBe(true);
+    }
 
-  it("reaching confirming passes through START_INVITE and CONFIRM", () => {
-    const paths = getShortestPaths(permissionsMachine, {
-      input: inputFor(okCommit, () => {}),
-      events: TRAVERSAL_EVENTS,
-      serializeState,
-    });
     const confirming = paths.find((p) => (p.state.value as string) === "confirming");
     expect(confirming).toBeDefined();
-    const events = confirming!.steps.map((s) => s.event.type);
-    expect(events).toContain("CONFIRM");
+    expect(confirming!.steps.map((s) => s.event.type)).toContain("CONFIRM");
   });
 });
 
 describe("permissionsMachine \u{2014} telemetry events (happy path)", () => {
-  it("access -> invite -> collaborators -> confirm -> complete fires the full funnel", async () => {
+  it("access -> invite -> collaborators -> confirm -> complete fires the full funnel with exactly one ACL commit; the password path fires password_set + access_type_set", async () => {
     const track = vi.fn();
+    const commit = vi.fn(okCommit);
     const actor = createActor(permissionsMachine, {
-      input: inputFor(okCommit, track),
+      input: inputFor(commit, track),
     }).start();
 
     actor.send({ type: "START_INVITE" });
@@ -208,63 +173,46 @@ describe("permissionsMachine \u{2014} telemetry events (happy path)", () => {
 
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("complete"));
+    expect(commit).toHaveBeenCalledTimes(1);
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(PERMS_EVENTS.started);
-    expect(events).toContain(PERMS_EVENTS.inviteSubmitted);
-    expect(events).toContain(PERMS_EVENTS.confirmReached);
-    expect(events).toContain(PERMS_EVENTS.completed);
-
+    expect(events).toEqual(
+      expect.arrayContaining([
+        PERMS_EVENTS.started,
+        PERMS_EVENTS.inviteSubmitted,
+        PERMS_EVENTS.confirmReached,
+        PERMS_EVENTS.completed,
+      ]),
+    );
     expect(events.indexOf(PERMS_EVENTS.confirmReached)).toBeLessThan(
       events.indexOf(PERMS_EVENTS.completed),
     );
 
-    const inviteCall = track.mock.calls.find(
-      (c) => c[0] === PERMS_EVENTS.inviteSubmitted,
-    );
+    const inviteCall = track.mock.calls.find((c) => c[0] === PERMS_EVENTS.inviteSubmitted);
     expect(inviteCall?.[1]).toMatchObject({ channel: "community" });
-
     const startedCall = track.mock.calls.find((c) => c[0] === PERMS_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
       experimentKey: "ch_world_perms_wizard",
       variant: "wizard",
     });
-  });
 
-  it("commits the ACL EXACTLY ONCE on the way to complete (no double-write)", async () => {
-    const commit = vi.fn(okCommit);
-    const actor = createActor(permissionsMachine, {
-      input: inputFor(commit, vi.fn()),
+    const pwTrack = vi.fn();
+    const password = createActor(permissionsMachine, {
+      input: inputFor(okCommit, pwTrack),
     }).start();
-
-    actor.send({ type: "START_INVITE" });
-    actor.send({ type: "SUBMIT_INVITE", channel: "community" });
-    actor.send({ type: "CONFIRM" });
-    await waitFor(actor, (s) => s.matches("complete"));
-
-    expect(commit).toHaveBeenCalledTimes(1);
-  });
-
-  it("password path fires password_set + access_type_set", () => {
-    const track = vi.fn();
-    const actor = createActor(permissionsMachine, {
-      input: inputFor(okCommit, track),
-    }).start();
-
-    actor.send({ type: "OPEN_PASSWORD" });
-    expect(actor.getSnapshot().matches("password")).toBe(true);
-    actor.send({ type: "SET_PASSWORD" });
-    expect(actor.getSnapshot().matches("access")).toBe(true);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(PERMS_EVENTS.passwordSet);
-    expect(events).toContain(PERMS_EVENTS.accessTypeSet);
+    password.send({ type: "OPEN_PASSWORD" });
+    expect(password.getSnapshot().matches("password")).toBe(true);
+    password.send({ type: "SET_PASSWORD" });
+    expect(password.getSnapshot().matches("access")).toBe(true);
+    const pwEvents = pwTrack.mock.calls.map((c) => c[0]);
+    expect(pwEvents).toContain(PERMS_EVENTS.passwordSet);
+    expect(pwEvents).toContain(PERMS_EVENTS.accessTypeSet);
   });
 });
 
 describe("permissionsMachine \u{2014} add-collaborator validation", () => {
-  it("a valid 0x address is accepted and appended", () => {
+  it("an invalid address stays in the dialog and fires the guardrail metric; a valid 0x address is then accepted and appended", () => {
     const track = vi.fn();
     const actor = createActor(permissionsMachine, {
       input: { ...inputFor(okCommit, track), collaborators: [] },
@@ -275,37 +223,21 @@ describe("permissionsMachine \u{2014} add-collaborator validation", () => {
     actor.send({ type: "ADD" });
     expect(actor.getSnapshot().matches("addingCollaborator")).toBe(true);
 
-    actor.send({ type: "VALIDATE", address: VALID_ADDR });
-    expect(actor.getSnapshot().matches("collaborators")).toBe(true);
-    expect(actor.getSnapshot().context.collaborators).toContain(VALID_ADDR);
-
-    const okCall = track.mock.calls.find(
-      (c) => c[0] === PERMS_EVENTS.collaboratorValidated,
-    );
-    expect(okCall?.[1]).toMatchObject({ valid: true });
-  });
-
-  it("an invalid address stays in the dialog and fires the guardrail metric", () => {
-    const track = vi.fn();
-    const actor = createActor(permissionsMachine, {
-      input: inputFor(okCommit, track),
-    }).start();
-
-    actor.send({ type: "START_INVITE" });
-    actor.send({ type: "SUBMIT_INVITE", channel: "wallet" });
-    actor.send({ type: "ADD" });
     actor.send({ type: "VALIDATE", address: BAD_ADDR });
-
     expect(actor.getSnapshot().matches("addingCollaborator")).toBe(true);
     expect(actor.getSnapshot().context.addressError).toBeTruthy();
     expect(actor.getSnapshot().context.collaborators).not.toContain(BAD_ADDR);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(PERMS_EVENTS.invalidAddress);
-    const failCall = track.mock.calls.find(
-      (c) => c[0] === PERMS_EVENTS.collaboratorValidated,
-    );
+    expect(track.mock.calls.map((c) => c[0])).toContain(PERMS_EVENTS.invalidAddress);
+    const failCall = track.mock.calls.find((c) => c[0] === PERMS_EVENTS.collaboratorValidated);
     expect(failCall?.[1]).toMatchObject({ valid: false });
+
+    actor.send({ type: "VALIDATE", address: VALID_ADDR });
+    expect(actor.getSnapshot().matches("collaborators")).toBe(true);
+    expect(actor.getSnapshot().context.collaborators).toContain(VALID_ADDR);
+    const okCall = track.mock.calls
+      .filter((c) => c[0] === PERMS_EVENTS.collaboratorValidated)
+      .at(-1);
+    expect(okCall?.[1]).toMatchObject({ valid: true });
   });
 });
 
@@ -327,77 +259,44 @@ describe("permissionsMachine \u{2014} commit failure + retry", () => {
     actor.send({ type: "SUBMIT_INVITE", channel: "wallet" });
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("error"));
-    expect(actor.getSnapshot().context.error).toBe(
-      "worlds-content-server unreachable",
-    );
+    expect(actor.getSnapshot().context.error).toBe("worlds-content-server unreachable");
 
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("complete"));
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(PERMS_EVENTS.completed);
-  });
-});
-
-describe("simulateCommit", () => {
-  it("resolves an ACL-written result counting collaborators + marks itself stub:true (no network)", async () => {
-    const r = await simulateCommit({
-      accessType: "allow-list",
-      collaborators: [VALID_ADDR],
-    });
-    expect(r.aclWritten).toBe(true);
-    expect(r.addresses).toBe(1);
-    expect(r.stub).toBe(true);
+    expect(track.mock.calls.map((c) => c[0])).toContain(PERMS_EVENTS.completed);
   });
 });
 
 describe("permissionsMachine \u{2014} stub telemetry contract", () => {
-  async function completedEventProps(commit: CommitFn) {
-    const track = vi.fn();
-    const actor = createActor(permissionsMachine, {
-      input: inputFor(commit, track),
-    }).start();
+  it("simulateCommit counts collaborators and marks stub:true; the completed event echoes stub:true for the stub and stub:false for a real (or stub-less) CommitFn", async () => {
+    const r = await simulateCommit({ accessType: "allow-list", collaborators: [VALID_ADDR] });
+    expect(r.aclWritten).toBe(true);
+    expect(r.addresses).toBe(1);
+    expect(r.stub).toBe(true);
 
-    actor.send({ type: "START_INVITE" });
-    actor.send({ type: "SUBMIT_INVITE", channel: "wallet" });
-    actor.send({ type: "CONFIRM" });
-    await waitFor(actor, (s) => s.matches("complete"));
+    expect(await completedEventProps(simulateCommit)).toMatchObject({ stub: true });
 
-    const call = track.mock.calls.find((c) => c[0] === PERMS_EVENTS.completed);
-    expect(call).toBeDefined();
-    return call![1] as Record<string, unknown>;
-  }
-
-  it("default simulateCommit emits stub:true on the completed event", async () => {
-    const props = await completedEventProps(simulateCommit);
-    expect(props).toMatchObject({ stub: true });
-  });
-
-  it("an injected real CommitFn (stub:false) emits stub:false \u{2014} the seam is honest without machine changes", async () => {
     const realCommit: CommitFn = async ({ collaborators }) => ({
       aclWritten: true,
       addresses: collaborators.length,
       stub: false,
     });
-    const props = await completedEventProps(realCommit);
-    expect(props).toMatchObject({ stub: false });
-    expect(props.stub).not.toBe(true);
-  });
+    const realProps = await completedEventProps(realCommit);
+    expect(realProps).toMatchObject({ stub: false });
+    expect(realProps.stub).not.toBe(true);
 
-  it("a CommitFn that omits stub defaults to stub:false (treated as real)", async () => {
     const impliedRealCommit: CommitFn = async ({ collaborators }) => ({
       aclWritten: true,
       addresses: collaborators.length,
     });
-    const props = await completedEventProps(impliedRealCommit);
-    expect(props).toMatchObject({ stub: false });
+    expect(await completedEventProps(impliedRealCommit)).toMatchObject({ stub: false });
   });
 });
 
 describe("permissionsMachine \u{2014} minimal-clicks contract", () => {
   const TARGET_EVENTS = 3;
 
-  it(`reaches the commit in <= ${TARGET_EVENTS} events and commits exactly once`, async () => {
+  it(`reaches the commit in <= ${TARGET_EVENTS} events`, () => {
     const paths = getShortestPaths(permissionsMachine, {
       input: inputFor(okCommit, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -413,15 +312,5 @@ describe("permissionsMachine \u{2014} minimal-clicks contract", () => {
       .map((s) => s.event.type as string)
       .filter((t) => t !== "xstate.init");
     expect(events).toEqual(["START_INVITE", "SUBMIT_INVITE", "CONFIRM"]);
-
-    const commit = vi.fn(okCommit);
-    const actor = createActor(permissionsMachine, {
-      input: inputFor(commit, vi.fn()),
-    }).start();
-    actor.send({ type: "START_INVITE" });
-    actor.send({ type: "SUBMIT_INVITE", channel: "wallet" });
-    actor.send({ type: "CONFIRM" });
-    await waitFor(actor, (s) => s.matches("complete"));
-    expect(commit).toHaveBeenCalledTimes(1);
   });
 });

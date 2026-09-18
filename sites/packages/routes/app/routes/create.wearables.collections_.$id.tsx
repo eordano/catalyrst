@@ -13,9 +13,9 @@ import { loadCollectionDetail } from "@data/lib/catalyst/builder/collection-deta
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { useAuth } from "@data/lib/auth/context";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
@@ -44,19 +44,18 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   const id = (params.id ?? "").trim();
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
   const address =
     url.searchParams.get("address")?.trim().toLowerCase() ||
     readWallet(request) ||
     null;
 
-  const { collection, source, itemCount, fallback, missing } =
-    await loadCollectionDetail(id, { signal: request.signal }, address);
+  const {
+    sid,
+    wrap,
+    data: { collection, source, itemCount, fallback, missing },
+  } = await storyLoaderWith(request, STORY, FALLBACK, () =>
+    loadCollectionDetail(id, { signal: request.signal }, address),
+  );
 
   const payload = {
     sid,
@@ -86,7 +85,7 @@ export default function CreatorWearableCollectionDetail({
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
 
   const { items: live, pending, missing: liveMissing } = useLiveItems(
     d.id,

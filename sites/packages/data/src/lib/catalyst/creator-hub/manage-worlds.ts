@@ -1,13 +1,13 @@
 import { z } from "zod";
 
-export const NameSchema = z.object({
+const NameSchema = z.object({
   name: z.string(),
   contractAddress: z.string().nullish().transform((v) => v ?? null),
   tokenId: z.string().nullish().transform((v) => v ?? null),
 });
 export type DclName = z.infer<typeof NameSchema>;
 
-export const ManagedWorldSchema = z.object({
+const ManagedWorldSchema = z.object({
   name: z.string(),
   owner: z.string().nullish().transform((v) => v ?? null),
   title: z.string().nullish().transform((v) => v ?? null),
@@ -32,10 +32,10 @@ export const WalletStatsSchema = z.object({
 });
 export type WalletStats = z.infer<typeof WalletStatsSchema>;
 
-export const FILTERS = ["published", "unpublished"] as const;
+const FILTERS = ["published", "unpublished"] as const;
 export type WorldsFilter = (typeof FILTERS)[number];
 
-export const SORTS = ["last_published", "domain"] as const;
+const SORTS = ["last_published", "domain"] as const;
 export type WorldsSort = (typeof SORTS)[number];
 
 export function readFilter(raw: string | null | undefined): WorldsFilter {
@@ -59,7 +59,7 @@ export function normalizeAddress(addr: string | null | undefined): string {
   return (addr ?? "").trim().toLowerCase();
 }
 
-export function isPublished(w: ManagedWorld): boolean {
+function isPublished(w: ManagedWorld): boolean {
   return w.deployedScenes > 0;
 }
 
@@ -130,18 +130,6 @@ export function toWorldCard(w: ManagedWorld): WorldCardVM {
       : null,
   };
 }
-
-export type StorageVM = {
-  usedSpace: string;
-  maxAllowedSpace: string;
-  usedMb: number;
-  maxMb: number;
-  ownedLands: number;
-  ownedNames: number;
-  ownedMana: number;
-};
-
-const MB = 1024 * 1024;
 
 export function parseManagedWorlds(raw: unknown): ManagedWorld[] {
   if (!Array.isArray(raw)) return [];

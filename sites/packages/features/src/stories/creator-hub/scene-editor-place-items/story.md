@@ -104,3 +104,32 @@ save -- are **SIMULATED** in the XState machine. The flow, states, deep-linking,
 the loaded scene + entity list, and telemetry are all real (the modify phase
 reads the genuine entity ids/names from the live composite); only the
 persistence step is a clearly-noted stub.
+
+
+## Startup-data implementation (2026-09-18)
+
+Scene seed, asset catalog and experiment assignment now start together. The
+browser starts its signed server-draft read alongside the route request, then
+retains the existing newest local/server copy rule. A route test holds the
+assignment/server response to prove overlap and checks both draft precedence
+outcomes. Catalog/scene deadlines are 3/5 seconds. Full catalog serialization
+remains; no measured editor-interaction speedup is claimed.
+
+## Upstream integration alignment (2026-09-18)
+
+The ribbon is preserved. Viewport reloads now replace the bridge session,
+restore the authored scene with acknowledgement, and clear stale selection and
+history. Engine startup alone no longer marks the editor ready. Failed scene
+restoration offers Retry. Play cannot start without its restore snapshot, and
+publishing cannot fall back to the seed after a failed live export.
+
+Playback commands now await the editor agent, which pins the project scene before
+running or freezing it. Play releases editor camera/input ownership and hides
+selection tools; Pause freezes scene execution and rendered animation while
+preserving native navigation, as upstream does. Stop restores the editor camera
+pose and projection. Pause/Resume are accessible beside Stop in the ribbon.
+
+The upstream reference, adaptations, verification and remaining protocol/runtime
+differences are recorded in `catalyrst/ui3/src/editor/UPSTREAM.md`. Chromium
+stories under `Editor/Pages/Workspace bridge` exercise a simulated engine iframe;
+they are not evidence of a successful full Bevy/GPU run.

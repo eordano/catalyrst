@@ -18,7 +18,7 @@ const STORY: StoryId = "governance/submit-proposal";
 
 const noop = () => {};
 
-export type GvSubmitProposalProps = {
+type GvSubmitProposalProps = {
   sid: string;
   pageTitle: string;
   pageLead: string;

@@ -1,15 +1,13 @@
 
 import { z } from "zod";
-
 import type { ShopCard } from "@ui/marketplace/new-shop/NewShopHome";
-
-import type { AuthIdentity } from "./auth/types";
-import type { ThirdwebSession } from "./auth/thirdweb/session";
 import type { SimDraftFile, SimStore } from "./catalyst/builder/sim-collection-items";
 import type { PendingCheckout } from "./catalyst/marketplace/pending-checkout";
 import type { PendingTopup } from "./catalyst/marketplace/pending-topup";
+import type { ThirdwebSession } from "./auth/thirdweb/session";
+import type { AuthIdentity } from "./auth/types";
 
-export const AuthLinkSchema = z.looseObject({
+const AuthLinkSchema = z.looseObject({
   type: z.enum(["SIGNER", "ECDSA_EPHEMERAL", "ECDSA_SIGNED_ENTITY"]),
   payload: z.string(),
   signature: z.string(),
@@ -45,7 +43,7 @@ export const PendingCheckoutStoreSchema = z.record(
   z.looseObject({ checkoutId: z.number(), ts: z.number() }),
 );
 
-export const SimDraftFileSchema = z.looseObject({
+const SimDraftFileSchema = z.looseObject({
   name: z.string(),
   size: z.number(),
   fileType: z.string(),
@@ -60,7 +58,7 @@ export const DevSignerKeySchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 
 const ShopTextSchema = z.union([z.string(), z.number()]);
 
-export const PersistedShopCardSchema = z.looseObject({
+const PersistedShopCardSchema = z.looseObject({
   id: z.string(),
   name: ShopTextSchema.optional(),
   meta: ShopTextSchema.optional(),
@@ -74,24 +72,31 @@ export const PersistedShopCardSchema = z.looseObject({
 export const PersistedFavoritesSchema = z.array(PersistedShopCardSchema);
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Mutual<A, B> = AssignableTo<A, B> extends true ? AssignableTo<B, A> : false;
+
 type Assert<T extends true> = T;
 
 export type _AssertAuthIdentity = Assert<
   Mutual<AuthIdentity, z.infer<typeof AuthIdentitySchema>>
 >;
+
 export type _AssertThirdwebSession = Assert<
   Mutual<ThirdwebSession, z.infer<typeof ThirdwebSessionSchema>>
 >;
+
 export type _AssertPendingTopupStore = Assert<
   Mutual<Record<string, PendingTopup>, z.infer<typeof PendingTopupStoreSchema>>
 >;
+
 export type _AssertPendingCheckoutStore = Assert<
   Mutual<Record<string, PendingCheckout>, z.infer<typeof PendingCheckoutStoreSchema>>
 >;
+
 export type _AssertSimDraftFile = Assert<
   Mutual<SimDraftFile, z.infer<typeof SimDraftFileSchema>>
 >;
+
 export type _AssertSimCollectionItemsStore = Assert<
   Mutual<SimStore, z.infer<typeof SimCollectionItemsStoreSchema>>
 >;
@@ -99,3 +104,4 @@ export type _AssertSimCollectionItemsStore = Assert<
 export type _AssertPersistedShopCard = Assert<
   AssignableTo<z.infer<typeof PersistedShopCardSchema>, ShopCard>
 >;
+

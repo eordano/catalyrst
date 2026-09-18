@@ -1,7 +1,7 @@
 import type { GetOptions } from "../client";
 import { fetchOwnedAssets, type OwnedElement } from "./transfer";
 
-export type OwnedAssetsResult = {
+type OwnedAssetsResult = {
   owner: string;
   elements: OwnedElement[] | null;
   source: "catalyst" | "unavailable";

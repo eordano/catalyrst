@@ -1,7 +1,10 @@
 use chrono::{DateTime, Utc};
+use moka::future::Cache;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
 
 use super::types::{
     AchievedTier, Assets, BadgeData, BadgeProgress, LatestAchievedBadge, TierCriteria, TierData,
@@ -37,10 +40,22 @@ fn epoch_ms(ts: DateTime<Utc>) -> String {
     ts.timestamp_millis().to_string()
 }
 
+const CATALOG_TTL: Duration = Duration::from_secs(300);
+
 pub struct BadgesComponent {
     pool: PgPool,
     public_asset_base_url: String,
+    catalog: Cache<(), Arc<Catalog>>,
 }
+
+/// Definitions and tiers change only by migration, so every read shares one
+/// 300 s snapshot instead of re-reading both tables per request.
+struct Catalog {
+    defs: Vec<DefRow>,
+    tiers: HashMap<String, Vec<TierRow>>,
+}
+
+type AchievedMap = HashMap<String, Vec<(String, DateTime<Utc>)>>;
 
 struct DefRow {
     id: String,
@@ -54,6 +69,7 @@ struct DefRow {
 struct TierRow {
     tier_id: String,
     tier_name: String,
+    description: Option<String>,
     assets: Assets,
     criteria_steps: i32,
 }
@@ -63,7 +79,21 @@ impl BadgesComponent {
         Self {
             pool,
             public_asset_base_url,
+            catalog: Cache::builder()
+                .max_capacity(1)
+                .time_to_live(CATALOG_TTL)
+                .build(),
         }
+    }
+
+    async fn catalog(&self) -> Result<Arc<Catalog>, ApiError> {
+        if let Some(c) = self.catalog.get(&()).await {
+            return Ok(c);
+        }
+        let (defs, tiers) = tokio::try_join!(self.load_definitions(), self.load_all_tiers())?;
+        let c = Arc::new(Catalog { defs, tiers });
+        self.catalog.insert((), c.clone()).await;
+        Ok(c)
     }
 
     /// DB rows stay upstream-parity-faithful (always `badges.decentraland.org`); only the
@@ -104,7 +134,7 @@ impl BadgesComponent {
 
     async fn load_all_tiers(&self) -> Result<HashMap<String, Vec<TierRow>>, ApiError> {
         let rows = sqlx::query(
-            "SELECT badge_id, tier_id, tier_name, assets, criteria_steps \
+            "SELECT badge_id, tier_id, tier_name, description, assets, criteria_steps \
              FROM badge_tiers ORDER BY badge_id, ordinal",
         )
         .fetch_all(&self.pool)
@@ -115,6 +145,7 @@ impl BadgesComponent {
             map.entry(badge_id).or_default().push(TierRow {
                 tier_id: r.get("tier_id"),
                 tier_name: r.get("tier_name"),
+                description: r.get("description"),
                 assets: self.rewrite_assets(r.get("assets")),
                 criteria_steps: r.get("criteria_steps"),
             });
@@ -123,77 +154,75 @@ impl BadgesComponent {
     }
 
     pub async fn list_tiers(&self, badge_id: &str) -> Result<Vec<TierData>, ApiError> {
-        let exists = sqlx::query("SELECT 1 FROM badge_definitions WHERE id = $1")
-            .bind(badge_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        if exists.is_none() {
+        let catalog = self.catalog().await?;
+        if !catalog.defs.iter().any(|d| d.id == badge_id) {
             return Err(ApiError::not_found("Badge not found"));
         }
-        let rows = sqlx::query(
-            "SELECT tier_id, tier_name, description, assets, criteria_steps \
-             FROM badge_tiers WHERE badge_id = $1 ORDER BY ordinal",
-        )
-        .bind(badge_id)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| TierData {
-                tier_id: r.get("tier_id"),
-                tier_name: r.get("tier_name"),
-                description: r.get("description"),
-                assets: self.rewrite_assets(r.get("assets")),
-                criteria: TierCriteria {
-                    steps: r.get("criteria_steps"),
-                },
+        Ok(catalog
+            .tiers
+            .get(badge_id)
+            .map(|ts| {
+                ts.iter()
+                    .map(|t| TierData {
+                        tier_id: t.tier_id.clone(),
+                        tier_name: t.tier_name.clone(),
+                        description: t.description.clone(),
+                        assets: t.assets.clone(),
+                        criteria: TierCriteria {
+                            steps: t.criteria_steps,
+                        },
+                    })
+                    .collect()
             })
-            .collect())
+            .unwrap_or_default())
     }
 
-    async fn load_progress(&self, address: &str) -> Result<HashMap<String, ProgressRow>, ApiError> {
-        let rows = sqlx::query(
-            "SELECT badge_id, steps_done, completed_at \
-             FROM user_badge_progress WHERE address = $1",
-        )
-        .bind(address)
-        .fetch_all(&self.pool)
-        .await?;
-        let mut map = HashMap::new();
-        for r in rows {
-            let badge_id: String = r.get("badge_id");
-            map.insert(
-                badge_id,
-                ProgressRow {
-                    steps_done: r.get("steps_done"),
-                    completed_at: r.get("completed_at"),
-                },
-            );
-        }
-        Ok(map)
-    }
-
-    async fn load_achieved_tiers(
+    /// Both per-address tables in one statement; tier rows arrive in
+    /// `completed_at` order, which is the order the assemblers rely on.
+    async fn load_user_state(
         &self,
         address: &str,
-    ) -> Result<HashMap<String, Vec<(String, DateTime<Utc>)>>, ApiError> {
-        let rows = sqlx::query(
-            "SELECT badge_id, tier_id, completed_at FROM user_achieved_tiers \
-             WHERE address = $1 ORDER BY completed_at",
+    ) -> Result<(HashMap<String, ProgressRow>, AchievedMap), ApiError> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                Option<i32>,
+                Option<DateTime<Utc>>,
+                Option<String>,
+            ),
+        >(
+            "SELECT 'p' AS kind, badge_id, steps_done, completed_at, NULL::text AS tier_id \
+             FROM user_badge_progress WHERE address = $1 \
+             UNION ALL \
+             SELECT 't', badge_id, NULL::integer, completed_at, tier_id \
+             FROM user_achieved_tiers WHERE address = $1 \
+             ORDER BY 1, 4",
         )
         .bind(address)
         .fetch_all(&self.pool)
         .await?;
-        let mut map: HashMap<String, Vec<(String, DateTime<Utc>)>> = HashMap::new();
-        for r in rows {
-            let badge_id: String = r.get("badge_id");
-            let tier_id: String = r.get("tier_id");
-            let completed_at: DateTime<Utc> = r.get("completed_at");
-            map.entry(badge_id)
-                .or_default()
-                .push((tier_id, completed_at));
+        let mut progress = HashMap::new();
+        let mut achieved: AchievedMap = HashMap::new();
+        for (kind, badge_id, steps_done, completed_at, tier_id) in rows {
+            match (kind.as_str(), tier_id, completed_at) {
+                ("t", Some(tier_id), Some(at)) => {
+                    achieved.entry(badge_id).or_default().push((tier_id, at))
+                }
+                ("p", _, completed_at) => {
+                    progress.insert(
+                        badge_id,
+                        ProgressRow {
+                            steps_done: steps_done.unwrap_or(0),
+                            completed_at,
+                        },
+                    );
+                }
+                _ => {}
+            }
         }
-        Ok(map)
+        Ok((progress, achieved))
     }
 
     pub async fn user_badges(
@@ -201,17 +230,15 @@ impl BadgesComponent {
         address: &str,
         include_not_achieved: bool,
     ) -> Result<(Vec<BadgeData>, Vec<BadgeData>), ApiError> {
-        let defs = self.load_definitions().await?;
-        let tiers = self.load_all_tiers().await?;
-        let progress = self.load_progress(address).await?;
-        let achieved_tiers = self.load_achieved_tiers(address).await?;
+        let catalog = self.catalog().await?;
+        let (progress, achieved_tiers) = self.load_user_state(address).await?;
 
         let mut achieved = Vec::new();
         let mut not_achieved = Vec::new();
 
-        for def in &defs {
+        for def in &catalog.defs {
             let prog = progress.get(&def.id);
-            let badge_tiers = tiers.get(&def.id);
+            let badge_tiers = catalog.tiers.get(&def.id);
             let user_tiers = achieved_tiers.get(&def.id);
 
             let is_achieved = match prog {
@@ -305,52 +332,10 @@ impl BadgesComponent {
         }
     }
 
-    async fn badge_is_tier(&self, badge_id: &str) -> Result<Option<bool>, ApiError> {
-        let row = sqlx::query("SELECT is_tier FROM badge_definitions WHERE id = $1")
-            .bind(badge_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        Ok(row.map(|r| r.get::<bool, _>("is_tier")))
-    }
-
-    async fn resolve_tier(
-        &self,
-        badge_id: &str,
-        tier_id: Option<&str>,
-    ) -> Result<(String, i32), ApiError> {
-        match tier_id {
-            Some(tid) => {
-                let row = sqlx::query(
-                    "SELECT tier_id, criteria_steps FROM badge_tiers \
-                     WHERE badge_id = $1 AND tier_id = $2",
-                )
-                .bind(badge_id)
-                .bind(tid)
-                .fetch_optional(&self.pool)
-                .await?;
-                let row = row.ok_or_else(|| {
-                    ApiError::not_found(format!("no tier '{tid}' on badge '{badge_id}'"))
-                })?;
-                Ok((row.get("tier_id"), row.get("criteria_steps")))
-            }
-            None => {
-                let row = sqlx::query(
-                    "SELECT tier_id, criteria_steps FROM badge_tiers \
-                     WHERE badge_id = $1 ORDER BY ordinal DESC LIMIT 1",
-                )
-                .bind(badge_id)
-                .fetch_optional(&self.pool)
-                .await?;
-                let row = row.ok_or_else(|| {
-                    ApiError::bad_request(format!(
-                        "tiered badge '{badge_id}' has no tiers; specify tierId"
-                    ))
-                })?;
-                Ok((row.get("tier_id"), row.get("criteria_steps")))
-            }
-        }
-    }
-
+    /// One statement: resolves the badge and (for tiered badges) the tier, and
+    /// only when that resolves writes the tier, the progress row and the audit
+    /// row. `Ok(false)` is "no such badge"; an unresolvable tier keeps its own
+    /// error and writes nothing.
     pub async fn grant_badge(
         &self,
         address: &str,
@@ -358,79 +343,64 @@ impl BadgesComponent {
         tier_id: Option<&str>,
         granted_by: &str,
     ) -> Result<bool, ApiError> {
-        let is_tier = match self.badge_is_tier(badge_id).await? {
-            Some(v) => v,
-            None => return Ok(false),
-        };
-
-        let mut tx = self.pool.begin().await?;
-
-        if is_tier {
-            let (resolved_tier, steps) = self.resolve_tier(badge_id, tier_id).await?;
-            sqlx::query(
-                "INSERT INTO user_achieved_tiers \
+        let row: Option<(bool, bool)> = sqlx::query_as(
+            "WITH def AS ( \
+                 SELECT d.is_tier, t.tier_id, t.criteria_steps \
+                 FROM badge_definitions d \
+                 LEFT JOIN LATERAL ( \
+                     SELECT tier_id, criteria_steps FROM badge_tiers \
+                     WHERE badge_id = d.id AND ($3::text IS NULL OR tier_id = $3) \
+                     ORDER BY ordinal DESC LIMIT 1 \
+                 ) t ON TRUE \
+                 WHERE d.id = $2 \
+             ), ok AS ( \
+                 SELECT * FROM def WHERE NOT is_tier OR tier_id IS NOT NULL \
+             ), tier AS ( \
+                 INSERT INTO user_achieved_tiers \
                    (address, badge_id, tier_id, completed_at, granted_by, granted_at) \
-                 VALUES ($1, $2, $3, now(), $4, now()) \
+                 SELECT $1, $2, tier_id, now(), $4, now() FROM ok WHERE is_tier \
                  ON CONFLICT (address, badge_id, tier_id) DO UPDATE \
-                   SET granted_by = EXCLUDED.granted_by, granted_at = now()",
-            )
-            .bind(address)
-            .bind(badge_id)
-            .bind(&resolved_tier)
-            .bind(granted_by)
-            .execute(&mut *tx)
-            .await?;
-
-            sqlx::query(
-                "INSERT INTO user_badge_progress \
+                   SET granted_by = EXCLUDED.granted_by, granted_at = now() \
+             ), prog AS ( \
+                 INSERT INTO user_badge_progress \
                    (address, badge_id, steps_done, completed_at, last_completed_tier_id, \
                     updated_at, granted_by) \
-                 VALUES ($1, $2, $3, now(), $4, now(), $5) \
+                 SELECT $1, $2, \
+                        CASE WHEN is_tier THEN criteria_steps ELSE 1 END, \
+                        now(), \
+                        CASE WHEN is_tier THEN tier_id END, \
+                        now(), $4 \
+                 FROM ok \
                  ON CONFLICT (address, badge_id) DO UPDATE SET \
                    steps_done = GREATEST(user_badge_progress.steps_done, EXCLUDED.steps_done), \
                    completed_at = COALESCE(user_badge_progress.completed_at, EXCLUDED.completed_at), \
-                   last_completed_tier_id = EXCLUDED.last_completed_tier_id, \
+                   last_completed_tier_id = COALESCE(EXCLUDED.last_completed_tier_id, \
+                                                     user_badge_progress.last_completed_tier_id), \
                    updated_at = now(), \
-                   granted_by = EXCLUDED.granted_by",
-            )
-            .bind(address)
-            .bind(badge_id)
-            .bind(steps)
-            .bind(&resolved_tier)
-            .bind(granted_by)
-            .execute(&mut *tx)
-            .await?;
-        } else {
-            sqlx::query(
-                "INSERT INTO user_badge_progress \
-                   (address, badge_id, steps_done, completed_at, updated_at, granted_by) \
-                 VALUES ($1, $2, 1, now(), now(), $3) \
-                 ON CONFLICT (address, badge_id) DO UPDATE SET \
-                   steps_done = GREATEST(user_badge_progress.steps_done, 1), \
-                   completed_at = COALESCE(user_badge_progress.completed_at, now()), \
-                   updated_at = now(), \
-                   granted_by = EXCLUDED.granted_by",
-            )
-            .bind(address)
-            .bind(badge_id)
-            .bind(granted_by)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        sqlx::query(
-            "INSERT INTO badge_admin_audit (action, address, badge_id, tier_id, actor) \
-             VALUES ('grant', $1, $2, $3, $4)",
+                   granted_by = EXCLUDED.granted_by \
+             ), audit AS ( \
+                 INSERT INTO badge_admin_audit (action, address, badge_id, tier_id, actor) \
+                 SELECT 'grant', $1, $2, $3, $4 FROM ok \
+             ) \
+             SELECT is_tier, tier_id IS NOT NULL FROM def",
         )
         .bind(address)
         .bind(badge_id)
         .bind(tier_id)
         .bind(granted_by)
-        .execute(&mut *tx)
+        .fetch_optional(&self.pool)
         .await?;
 
-        tx.commit().await?;
-        Ok(true)
+        match row {
+            None => Ok(false),
+            Some((true, false)) => Err(match tier_id {
+                Some(tid) => ApiError::not_found(format!("no tier '{tid}' on badge '{badge_id}'")),
+                None => ApiError::bad_request(format!(
+                    "tiered badge '{badge_id}' has no tiers; specify tierId"
+                )),
+            }),
+            Some(_) => Ok(true),
+        }
     }
 
     pub async fn revoke_badge(
@@ -439,31 +409,27 @@ impl BadgesComponent {
         badge_id: &str,
         revoked_by: &str,
     ) -> Result<bool, ApiError> {
-        if self.badge_is_tier(badge_id).await?.is_none() {
-            return Ok(false);
-        }
-        let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM user_achieved_tiers WHERE address = $1 AND badge_id = $2")
-            .bind(address)
-            .bind(badge_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM user_badge_progress WHERE address = $1 AND badge_id = $2")
-            .bind(address)
-            .bind(badge_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "INSERT INTO badge_admin_audit (action, address, badge_id, actor) \
-             VALUES ('revoke', $1, $2, $3)",
+        let exists: bool = sqlx::query_scalar(
+            "WITH def AS ( \
+                 SELECT id FROM badge_definitions WHERE id = $2 \
+             ), tiers AS ( \
+                 DELETE FROM user_achieved_tiers USING def \
+                 WHERE address = $1 AND badge_id = def.id \
+             ), prog AS ( \
+                 DELETE FROM user_badge_progress USING def \
+                 WHERE address = $1 AND badge_id = def.id \
+             ), audit AS ( \
+                 INSERT INTO badge_admin_audit (action, address, badge_id, actor) \
+                 SELECT 'revoke', $1, id, $3 FROM def \
+             ) \
+             SELECT EXISTS (SELECT 1 FROM def)",
         )
         .bind(address)
         .bind(badge_id)
         .bind(revoked_by)
-        .execute(&mut *tx)
+        .fetch_one(&self.pool)
         .await?;
-        tx.commit().await?;
-        Ok(true)
+        Ok(exists)
     }
 
     pub async fn latest_achieved(
@@ -471,11 +437,11 @@ impl BadgesComponent {
         address: &str,
         limit: i64,
     ) -> Result<Vec<LatestAchievedBadge>, ApiError> {
-        let defs = self.load_definitions().await?;
-        let def_by_id: HashMap<&str, &DefRow> = defs.iter().map(|d| (d.id.as_str(), d)).collect();
-        let tiers = self.load_all_tiers().await?;
-        let progress = self.load_progress(address).await?;
-        let achieved_tiers = self.load_achieved_tiers(address).await?;
+        let catalog = self.catalog().await?;
+        let def_by_id: HashMap<&str, &DefRow> =
+            catalog.defs.iter().map(|d| (d.id.as_str(), d)).collect();
+        let tiers = &catalog.tiers;
+        let (progress, achieved_tiers) = self.load_user_state(address).await?;
 
         let mut rows: Vec<(DateTime<Utc>, LatestAchievedBadge)> = Vec::new();
 

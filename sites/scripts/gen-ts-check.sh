@@ -55,7 +55,7 @@ if [[ $check_catalyrst -eq 1 ]]; then
     feature_list+="${feature_list:+,}$crate/ts"
   done
   ts_rs_shell_run catalyrst "set -e; export TS_RS_EXPORT_DIR='$TMP/catalyst'; cd '$ROOT/catalyrst'; \
-cargo test --features '$feature_list'$pkg_flags export_bindings" || fail_toolchain
+cargo test --lib --features '$feature_list'$pkg_flags export_bindings" || fail_toolchain
   spec_set_rc=0
   node "$SITES/scripts/gen-openapi-ts.mts" "$TMP/catalyst/openapi" \
     "${OPENAPI_SPECS[@]}" || spec_set_rc=$?
@@ -63,7 +63,7 @@ cargo test --features '$feature_list'$pkg_flags export_bindings" || fail_toolcha
 fi
 if [[ $check_bridge -eq 1 ]]; then
   ts_rs_shell_run bridge "set -e; export TS_RS_EXPORT_DIR='$TMP'; cd '$ROOT/bevy-explorer'; \
-cargo test --features ts -p $BRIDGE_CRATE export_bindings" || fail_toolchain
+cargo test $BRIDGE_CARGO_ARGS --lib export_bindings" || fail_toolchain
 fi
 
 fail=0
@@ -72,6 +72,7 @@ if [[ $check_catalyrst -eq 1 ]]; then
   diff -r -x 'README.md' "$TMP/catalyst" "$COMMITTED/catalyst" || fail=1
 fi
 if [[ $check_bridge -eq 1 ]]; then
+  ts_rs_shell_run bridge "cd '$ROOT/bevy-explorer' && cargo run -p explorer_lifecycle --bin lifecycle-models -- --check" || fail=1
   diff -r -x 'README.md' "$TMP/bridge" "$COMMITTED/bridge" || fail=1
   diff -r -x 'README.md' "$TMP/webbridge" "$COMMITTED/webbridge" || fail=1
   assemble_editor_bus "$TMP/editor-bus" "$TMP/editor-bus.ts"
@@ -85,7 +86,8 @@ if [[ $fail -eq 0 ]]; then
   echo "OK: generated TS types match $COMMITTED"
 else
   echo "" >&2
-  echo "DRIFT: the committed generated types are stale (see diff above)." >&2
+  echo "DRIFT: committed generated types or lifecycle diagrams are stale (see output above)." >&2
   echo "Regenerate them with:  npm run gen:types  (in catalyrst/sites/)" >&2
+  echo "Lifecycle diagrams: cargo run -p explorer_lifecycle --bin lifecycle-models -- --write (in bevy-explorer/)" >&2
   exit 1
 fi

@@ -21,7 +21,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type ModerateWizardProps = {
+type ModerateWizardProps = {
   trackCtx: TrackContext;
   pending: AdminEventCard[];
   approved: AdminEventCard[];

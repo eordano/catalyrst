@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use alloy::signers::{local::PrivateKeySigner, Signer};
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+use axum::response::IntoResponse;
 use catalyrst_contract_gate::pg::ScratchSchema;
 use rand::Rng;
 use serde_json::json;
@@ -18,6 +19,7 @@ use catalyrst_social_service::gatekeeper::Gatekeeper;
 use catalyrst_social_service::rest::content_store::{ContentStore, MAX_BODY_BYTES};
 use catalyrst_social_service::rest::fed::replay::Replay;
 use catalyrst_social_service::rest::handlers::client;
+use catalyrst_social_service::rest::handlers::members::{get_members, get_members_v2};
 use catalyrst_social_service::rest::handlers::writes;
 use catalyrst_social_service::rest::ports::bans::BansComponent;
 use catalyrst_social_service::rest::ports::communities::CommunitiesComponent;
@@ -796,6 +798,263 @@ async fn the_already_member_refusal_names_the_community() {
         pending_requests(&pool, cid, &member_addr).await,
         0,
         "the refused request must not be stored"
+    );
+
+    scratch.drop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+async fn client_join(state: &AppState, wallet: &PrivateKeySigner, id: Uuid) -> StatusCode {
+    let headers = signed_headers(wallet, "post", &format!("/v1/communities/{}/members", id)).await;
+    client::add_member(State(state.clone()), headers, Path(id.to_string()))
+        .await
+        .status()
+}
+
+#[tokio::test]
+async fn client_direct_join_runs_its_guards_and_insert_in_one_statement() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    let (state, dir) = build_state(&pool).await;
+
+    let owner = "0x0000000000000000000000000000000000000001";
+    let joiner = mk_wallet(78);
+    let joiner_addr = wallet_addr(&joiner);
+
+    assert_eq!(
+        client_join(&state, &joiner, rand_uuid()).await,
+        StatusCode::NOT_FOUND
+    );
+
+    let inactive = rand_uuid();
+    seed_community(&pool, inactive, owner, false).await;
+    deactivate_community(&pool, inactive).await;
+    assert_eq!(
+        client_join(&state, &joiner, inactive).await,
+        StatusCode::BAD_REQUEST
+    );
+    assert!(!is_member(&pool, inactive, &joiner_addr).await);
+
+    let private_id = rand_uuid();
+    seed_community(&pool, private_id, owner, true).await;
+    assert_eq!(
+        client_join(&state, &joiner, private_id).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert!(!is_member(&pool, private_id, &joiner_addr).await);
+
+    let banned_id = rand_uuid();
+    seed_community(&pool, banned_id, owner, false).await;
+    seed_ban(&pool, banned_id, &joiner_addr, owner).await;
+    assert_eq!(
+        client_join(&state, &joiner, banned_id).await,
+        StatusCode::FORBIDDEN
+    );
+    assert!(
+        !is_member(&pool, banned_id, &joiner_addr).await,
+        "a banned wallet must not be inserted"
+    );
+
+    let public_id = rand_uuid();
+    seed_community(&pool, public_id, owner, false).await;
+    assert_eq!(
+        client_join(&state, &joiner, public_id).await,
+        StatusCode::NO_CONTENT
+    );
+    assert!(is_member(&pool, public_id, &joiner_addr).await);
+    assert_eq!(
+        client_join(&state, &joiner, public_id).await,
+        StatusCode::NO_CONTENT,
+        "joining twice is idempotent"
+    );
+
+    scratch.drop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+async fn list_members_status(
+    state: &AppState,
+    wallet: Option<&PrivateKeySigner>,
+    id: Uuid,
+    v2: bool,
+) -> StatusCode {
+    let version = if v2 { "v2" } else { "v1" };
+    let path = format!("/{}/communities/{}/members", version, id);
+    let headers = match wallet {
+        Some(w) => signed_headers(w, "get", &path).await,
+        None => HeaderMap::new(),
+    };
+    if v2 {
+        get_members_v2(
+            State(state.clone()),
+            headers,
+            Path(id.to_string()),
+            Query(Vec::new()),
+        )
+        .await
+        .into_response()
+        .status()
+    } else {
+        get_members(
+            State(state.clone()),
+            headers,
+            Path(id.to_string()),
+            Query(Vec::new()),
+        )
+        .await
+        .into_response()
+        .status()
+    }
+}
+
+#[tokio::test]
+async fn member_listing_gate_folds_existence_privacy_and_membership() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    let (state, dir) = build_state(&pool).await;
+
+    let owner = "0x0000000000000000000000000000000000000001";
+    let member = mk_wallet(79);
+    let stranger = mk_wallet(80);
+
+    for v2 in [false, true] {
+        assert_eq!(
+            list_members_status(&state, None, rand_uuid(), v2).await,
+            StatusCode::NOT_FOUND
+        );
+
+        let inactive = rand_uuid();
+        seed_community(&pool, inactive, owner, false).await;
+        deactivate_community(&pool, inactive).await;
+        assert_eq!(
+            list_members_status(&state, Some(&member), inactive, v2).await,
+            StatusCode::NOT_FOUND
+        );
+
+        let public_id = rand_uuid();
+        seed_community(&pool, public_id, owner, false).await;
+        seed_member(&pool, public_id, owner, "owner").await;
+        assert_eq!(
+            list_members_status(&state, None, public_id, v2).await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            list_members_status(&state, Some(&stranger), public_id, v2).await,
+            StatusCode::OK
+        );
+
+        let private_id = rand_uuid();
+        seed_community(&pool, private_id, owner, true).await;
+        seed_member(&pool, private_id, owner, "owner").await;
+        seed_member(&pool, private_id, &wallet_addr(&member), "member").await;
+        assert_eq!(
+            list_members_status(&state, None, private_id, v2).await,
+            StatusCode::NOT_FOUND,
+            "anonymous viewers see a private community as missing"
+        );
+        assert_eq!(
+            list_members_status(&state, Some(&stranger), private_id, v2).await,
+            StatusCode::UNAUTHORIZED,
+            "a signed non-member is refused"
+        );
+        assert_eq!(
+            list_members_status(&state, Some(&member), private_id, v2).await,
+            StatusCode::OK
+        );
+    }
+
+    scratch.drop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+async fn client_kick(
+    state: &AppState,
+    wallet: &PrivateKeySigner,
+    id: Uuid,
+    target: &str,
+) -> StatusCode {
+    let path = format!("/v1/communities/{}/members/{}", id, target);
+    let headers = signed_headers(wallet, "delete", &path).await;
+    client::remove_member(
+        State(state.clone()),
+        headers,
+        Path(client::PathIdAddr {
+            id: id.to_string(),
+            address: target.to_string(),
+        }),
+    )
+    .await
+    .status()
+}
+
+#[tokio::test]
+async fn kick_reads_both_standings_from_one_query() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    let (state, dir) = build_state(&pool).await;
+
+    let owner = mk_wallet(81);
+    let moderator = mk_wallet(82);
+    let member = mk_wallet(83);
+    let stranger = mk_wallet(84);
+    let (owner_addr, moderator_addr, member_addr) = (
+        wallet_addr(&owner),
+        wallet_addr(&moderator),
+        wallet_addr(&member),
+    );
+
+    let cid = rand_uuid();
+    seed_community(&pool, cid, &owner_addr, false).await;
+    seed_member(&pool, cid, &owner_addr, "owner").await;
+    seed_member(&pool, cid, &moderator_addr, "moderator").await;
+    seed_member(&pool, cid, &member_addr, "member").await;
+
+    assert_eq!(
+        client_kick(&state, &stranger, cid, &member_addr).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        client_kick(&state, &member, cid, &owner_addr).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        client_kick(&state, &moderator, cid, &owner_addr).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        client_kick(&state, &member, cid, &moderator_addr).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert!(
+        is_member(&pool, cid, &owner_addr).await && is_member(&pool, cid, &moderator_addr).await
+    );
+
+    assert_eq!(
+        client_kick(&state, &moderator, cid, &member_addr).await,
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        !is_member(&pool, cid, &member_addr).await,
+        "a moderator kicks an ordinary member"
+    );
+    assert_eq!(
+        client_kick(&state, &owner, cid, &moderator_addr).await,
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        !is_member(&pool, cid, &moderator_addr).await,
+        "the owner kicks a moderator"
+    );
+    assert_eq!(
+        client_kick(&state, &owner, cid, &owner_addr).await,
+        StatusCode::UNAUTHORIZED,
+        "the owner cannot leave"
     );
 
     scratch.drop().await;

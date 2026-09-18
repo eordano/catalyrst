@@ -133,14 +133,3 @@
   color: var(--text);
 }
 .es__cta--ghost:hover { background: var(--fill-2); }
-
-.u-light-marketplace .es--card {
-  border-color: var(--lm-line);
-  background: var(--lm-surface);
-}
-.u-light-marketplace .es__icon { color: var(--lm-ink-3); }
-.u-light-marketplace .es__icon--wash { background: var(--lm-bg); border-color: var(--lm-line); }
-.u-light-marketplace .es__title { color: var(--lm-ink); }
-.u-light-marketplace .es__sub { color: var(--lm-ink-3); }
-.u-light-marketplace .es__cta--ghost { border-color: var(--lm-line); color: var(--lm-ink); }
-.u-light-marketplace .es__cta--ghost:hover { background: var(--lm-bg); }

@@ -8,10 +8,11 @@ import CreatorHubBreadcrumb from "@ui/creatorhub/components/CreatorHubBreadcrumb
 import "@ui/creatorhub/frames/creatorhubchrome.css";
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
+import { loadWorldSettings } from "@data/lib/catalyst/creator-hub/world-settings";
 import { worldsBase } from "@data/lib/catalyst/client";
 import { loadWorldPermissions } from "@data/lib/catalyst/creator-hub/world-permissions.server";
 import {
@@ -23,7 +24,6 @@ import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { fetchParcelsPermission } from "@data/lib/catalyst/creator-hub/unpublish-scene";
 import WorldSettingsWizard, {
   type WorldSceneVM,
-  type WorldSettingsField,
 } from "@features/stories/creator-hub/world-settings/WorldSettingsWizard";
 import {
   WorldGateView,
@@ -38,17 +38,6 @@ import type { StoryId } from "@core/lib/telemetry/story-id";
 export const meta = () => creatorHubMeta("World settings");
 
 const STORY: StoryId = "creator-hub/world-settings";
-
-const FIELDS: WorldSettingsField[] = [
-  { tab: "details", field: "title", label: "World Title" },
-  { tab: "details", field: "description", label: "Description" },
-  { tab: "details", field: "thumbnail", label: "Thumbnail" },
-  { tab: "details", field: "categories", label: "Categories" },
-  { tab: "layout", field: "spawnCoordinates", label: "Parcel Layout" },
-  { tab: "misc", field: "skyboxTime", label: "Skybox Time" },
-  { tab: "misc", field: "singlePlayer", label: "Single Player" },
-  { tab: "misc", field: "showInPlaces", label: "Show in Places" },
-];
 
 function tabToStep(tab: string): string | null {
   if (tab === "layout") return "layout";
@@ -119,12 +108,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       (tabParam ? tabToStep(tabParam) : null)) ||
     null;
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
   const worldName = url.searchParams.get("world")?.trim() || "";
   const noWorld = worldName === "";
   const viewer = (
@@ -133,23 +116,37 @@ export async function loader({ request }: Route.LoaderArgs) {
     ""
   ).toLowerCase();
 
-  let scenes: WorldSceneVM[] = [];
-  let isOwner = false;
-  let gate: WorldGate = noWorld ? "no-world" : "none";
-  if (!noWorld) {
-    const loaded = await loadWorldSettingsScenes(
-      worldName,
-      viewer,
-      request.signal,
-    ).catch(() => ({
-      scenes: [] as WorldSceneVM[],
-      isOwner: false,
-      gate: "load-failed" as const,
-    }));
-    scenes = loaded.scenes;
-    isOwner = loaded.isOwner;
-    gate = loaded.gate;
-  }
+  const { sid, assignment, wrap, data } = await storyLoaderWith(
+    request,
+    STORY,
+    FALLBACK,
+    async () => {
+      let scenes: WorldSceneVM[] = [];
+      let isOwner = false;
+      let gate: WorldGate = noWorld ? "no-world" : "none";
+      if (!noWorld) {
+        const loaded = await loadWorldSettingsScenes(
+          worldName,
+          viewer,
+          request.signal,
+        ).catch(() => ({
+          scenes: [] as WorldSceneVM[],
+          isOwner: false,
+          gate: "load-failed" as const,
+        }));
+        scenes = loaded.scenes;
+        isOwner = loaded.isOwner;
+        gate = loaded.gate;
+      }
+      return { scenes, isOwner, gate };
+    },
+  );
+  const { scenes, isOwner } = data;
+  let gate = data.gate;
+  const settings = gate === "none" && isOwner
+    ? await loadWorldSettings(worldName, { signal: request.signal }).catch(() => null)
+    : null;
+  if (gate === "none" && isOwner && !settings) gate = "load-failed";
 
   const payload = {
     sid,
@@ -161,16 +158,16 @@ export async function loader({ request }: Route.LoaderArgs) {
     viewer,
     scenes,
     isOwner,
-    fields: FIELDS,
+    settings,
   };
   return wrap(payload);
 }
 
 export default function CreatorHubWorldSettings({ loaderData }: Route.ComponentProps) {
-  const { sid, step, assignment, worldName, gate, viewer, scenes, isOwner, fields } =
+  const { sid, step, assignment, worldName, gate, viewer, scenes, isOwner, settings } =
     loaderData;
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
   const navigate = useNavigate();
   const [, setSearchParams] = useSearchParams();
 
@@ -224,23 +221,6 @@ export default function CreatorHubWorldSettings({ loaderData }: Route.ComponentP
           </Link>
         </nav>
 
-        {isOwner && (
-          <p
-            role="note"
-            style={{
-              background: "var(--fill-2)",
-              border: "1px solid var(--line)",
-              color: "var(--ink-85)",
-              borderRadius: "var(--r-control)",
-              padding: "10px 14px",
-              fontSize: 13,
-              marginBottom: 14,
-            }}
-          >
-            Preview &#x2014; metadata saving is simulated; World Details aren&rsquo;t
-            persisted yet. Removing a scene from the Layout tab is live.
-          </p>
-        )}
 
         <WorldSettingsWizard
           trackCtx={{
@@ -249,10 +229,11 @@ export default function CreatorHubWorldSettings({ loaderData }: Route.ComponentP
             variant: assignment.variant,
             experimentKey: assignment.experimentKey,
           }}
+          key={`${worldName}:${address ?? ""}`}
           worldName={worldName}
-          fields={fields}
+          settings={settings ?? { title: "", description: "", categories: [], spawnCoordinates: "0,0", skyboxTime: null, singlePlayer: false, showInPlaces: true, thumbnailUrl: null }}
           scenes={scenes}
-          isOwner={isOwner}
+          isOwner={isOwner && address?.toLowerCase() === viewer.toLowerCase()}
           initialStep={step ?? undefined}
           onClose={() => navigate("/creator-hub/manage")}
         />

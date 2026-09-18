@@ -28,23 +28,33 @@ export function useSceneMeters({ busRef, busLive, scene }: Options): RibbonMeter
       return undefined;
     }
     let gone = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (!gone) timer = setTimeout(read, POLL_MS);
+    };
     const read = () => {
-      busRef.current
-        ?.rpc("sceneStats")
+      if (gone) return;
+      const bus = busRef.current;
+      if (!bus) {
+        setEntities(null);
+        schedule();
+        return;
+      }
+      void bus.rpc("sceneStats")
         .then((res) => {
-          if (gone) return;
+          if (gone || busRef.current !== bus) return;
           const m = ENTITIES.exec(String(res ?? ""));
           setEntities(m ? Number(m[1]) : null);
         })
         .catch(() => {
-          if (!gone) setEntities(null);
-        });
+          if (!gone && busRef.current === bus) setEntities(null);
+        })
+        .finally(schedule);
     };
     read();
-    const id = setInterval(read, POLL_MS);
     return () => {
       gone = true;
-      clearInterval(id);
+      if (timer !== null) clearTimeout(timer);
     };
   }, [busLive, busRef]);
 

@@ -1,2 +1,9 @@
+pub mod drafts;
 pub mod items;
+pub mod linked_publication;
+pub mod linked_publication_review;
+pub mod linked_publication_store;
 pub mod marketplace;
+pub mod publication;
+pub mod publication_chain;
+pub mod publication_store;

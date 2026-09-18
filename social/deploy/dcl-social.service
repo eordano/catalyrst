@@ -1,0 +1,32 @@
+[Unit]
+Description=Decentraland standalone chat
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+DynamicUser=yes
+StateDirectory=dcl-social
+StateDirectoryMode=0700
+WorkingDirectory=/opt/dcl-social/current
+Environment=SOCIAL_BIND=127.0.0.1:5191
+Environment=SOCIAL_DATABASE=/var/lib/dcl-social/chat.sqlite
+Environment=SOCIAL_ASSETS=/opt/dcl-social/current/public
+Environment=SOCIAL_UPSTREAM=https://social-api.decentraland.org
+ExecStart=/opt/dcl-social/current/bin/dcl-social-api
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

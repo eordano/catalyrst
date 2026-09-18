@@ -53,7 +53,7 @@ function readFixture() {
   return cached;
 }
 
-export type ReferralLoad = {
+type ReferralLoad = {
   referrer: ReferrerVM;
   referral: ReferralState;
   faqs: Faq[];

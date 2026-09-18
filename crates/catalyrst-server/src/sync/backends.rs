@@ -311,18 +311,13 @@ async fn flush_batch(pool: &PgPool, entities: &[ParsedEntity]) -> Result<(), Syn
         .map_err(|e| SyncError::Storage(e.to_string()))?;
 
     {
-        let mut all_pointers: Vec<&String> = entities
+        let all_pointers: Vec<String> = entities
             .iter()
-            .flat_map(|e| e.entity_pointers.iter())
+            .flat_map(|e| e.entity_pointers.iter().cloned())
             .collect();
-        all_pointers.sort();
-        all_pointers.dedup();
-        for p in all_pointers {
-            sqlx::query!("SELECT pg_advisory_xact_lock(hashtext($1))", p)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| SyncError::Storage(e.to_string()))?;
-        }
+        crate::write_deployer::lock_deployment_pointers(&mut tx, &all_pointers)
+            .await
+            .map_err(|e| SyncError::Storage(e.to_string()))?;
     }
 
     let mut deployer_addrs: Vec<String> = Vec::with_capacity(count);
@@ -699,6 +694,22 @@ impl LiveProcessedSnapshotStore {
             .execute(&self.pool).await.map_err(|e| SyncError::Storage(e.to_string()))?;
         Ok(())
     }
+
+    pub async fn mark_processed_many(&self, hashes: &[String]) -> Result<(), SyncError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+        sqlx::query(
+            "INSERT INTO processed_snapshots (hash, process_time)
+             SELECT h, now() FROM unnest($1::text[]) AS h
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(hashes)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| SyncError::Storage(e.to_string()))?;
+        Ok(())
+    }
 }
 
 pub struct LiveFailedDeploymentsStore {
@@ -963,31 +974,30 @@ impl LiveDeploymentRepository {
         let start = std::time::Instant::now();
         let result = sqlx::query!(
             r#"
+            WITH pointer_successors AS (
+                SELECT id AS older_id,
+                       lead(id) OVER (
+                           PARTITION BY entity_type, pointer
+                           ORDER BY entity_timestamp, entity_id
+                       ) AS newer_id
+                FROM (
+                    SELECT DISTINCT id, entity_type, entity_timestamp, entity_id,
+                           unnest(entity_pointers) AS pointer
+                    FROM deployments
+                    WHERE deleter_deployment IS NULL
+                ) pointers
+                WHERE pointer IS NOT NULL
+            ), successors AS (
+                SELECT DISTINCT ON (p.older_id) p.older_id, newer.id AS newer_id
+                FROM pointer_successors p
+                JOIN deployments newer ON newer.id = p.newer_id
+                ORDER BY p.older_id, newer.entity_timestamp, newer.entity_id
+            )
             UPDATE deployments older
-            SET deleter_deployment = newer.id
-            FROM deployments newer
-            WHERE older.deleter_deployment IS NULL
-              AND newer.entity_type = older.entity_type
-              AND newer.entity_id != older.entity_id
-              AND newer.entity_pointers && older.entity_pointers
-              AND newer.deleter_deployment IS NULL
-              AND (newer.entity_timestamp > older.entity_timestamp
-                   OR (newer.entity_timestamp = older.entity_timestamp
-                       AND newer.entity_id > older.entity_id))
-              AND NOT EXISTS (
-                  SELECT 1 FROM deployments mid
-                  WHERE mid.entity_type = older.entity_type
-                    AND mid.entity_id != older.entity_id
-                    AND mid.entity_id != newer.entity_id
-                    AND mid.entity_pointers && older.entity_pointers
-                    AND mid.deleter_deployment IS NULL
-                    AND (mid.entity_timestamp > older.entity_timestamp
-                         OR (mid.entity_timestamp = older.entity_timestamp
-                             AND mid.entity_id > older.entity_id))
-                    AND (mid.entity_timestamp < newer.entity_timestamp
-                         OR (mid.entity_timestamp = newer.entity_timestamp
-                             AND mid.entity_id < newer.entity_id))
-              )
+            SET deleter_deployment = successors.newer_id
+            FROM successors
+            WHERE older.id = successors.older_id
+              AND older.deleter_deployment IS NULL
             "#,
         )
         .execute(&self.pool)

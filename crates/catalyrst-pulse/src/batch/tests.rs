@@ -27,6 +27,7 @@ fn subject(id: u32, baseline: u32, new_seq: u32) -> BatchSubject {
         baseline_seq: baseline,
         new_seq,
         state_flags: 1,
+        state_flags_present: true,
         fields: [None; FIELD_COUNT],
     }
 }
@@ -311,6 +312,21 @@ fn oversized_lone_subject_still_ships_alone() {
 }
 
 #[test]
+fn non_representable_delta_fields_must_use_the_legacy_wire() {
+    let mut value = grounded_run(8191, 1);
+    assert!(value.is_representable());
+    value.subject_id = 8192;
+    assert!(!value.is_representable());
+    value.subject_id = 1;
+    value.fields[JUMP] = Some(65536);
+    assert!(!value.is_representable());
+    value.fields[JUMP] = Some(65535);
+    assert!(value.is_representable());
+    value.fields[PARCEL] = Some(u32::MAX);
+    assert!(!value.is_representable());
+}
+
+#[test]
 fn from_delta_to_delta_preserves_present_fields() {
     let mut delta = PlayerStateDeltaTier0 {
         subject_id: 4096,
@@ -495,6 +511,7 @@ prop_compose! {
             baseline_seq: baseline,
             new_seq: baseline.wrapping_add(seq_delta),
             state_flags,
+            state_flags_present: true,
             fields: [f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16],
         }
     }
@@ -510,6 +527,48 @@ fn arb_subjects() -> impl Strategy<Value = Vec<BatchSubject>> {
 }
 
 proptest! {
+    #[test]
+    fn dictionary_palettes_roundtrip_across_mtu_and_rollover(
+        templates in prop::collection::vec(arb_subject(), 1..10),
+        count in 1usize..160,
+        cap in 64usize..1200,
+        unit_gap in any::<bool>(),
+    ) {
+        let subjects: Vec<_> = (0..count).map(|id| {
+            let mut s = templates[id % templates.len()].clone();
+            s.subject_id = id as u32;
+            s.new_seq = s.baseline_seq.wrapping_add(if unit_gap { 1 } else { 1 + s.seq_delta() % ((1 << 31) - 1) });
+            s.state_flags_present = id % 2 == 0;
+            s
+        }).collect();
+        let mut actual = Vec::new();
+        for batch in encode_dictionary_batches(1, &subjects, cap) {
+            prop_assert!(batch.payload.len() <= cap);
+            actual.extend(decode_baseline_batch(batch.subject_count, &batch.payload).unwrap().iter().map(|s| s.to_delta(1)));
+        }
+        prop_assert_eq!(actual, subjects.iter().map(|s| s.to_delta(1)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn baseline_batches_preserve_dependencies_and_optional_flags(subjects in arb_subjects(), cap in 40usize..1200) {
+        let mut subjects = subjects;
+        for subject in &mut subjects {
+            subject.state_flags_present = subject.subject_id % 2 == 0;
+        }
+        let batches = encode_batches(1, &subjects, cap, SeqEncoding::AbsoluteBaseline);
+        let mut actual = Vec::new();
+        for batch in batches {
+            let mut reader = BitReader::new(&batch.payload);
+            prop_assert_eq!(reader.read_bits(1).unwrap(), 1);
+            for _ in 0..batch.subject_count {
+                let decoded = BatchSubject::decode_from(&mut reader, SeqEncoding::AbsoluteBaseline, &mut |_| panic!("no implicit baseline")).unwrap();
+                actual.push(decoded.to_delta(1));
+            }
+            prop_assert!(reader.bits_remaining() <= 7);
+        }
+        prop_assert_eq!(actual, subjects.iter().map(|subject| subject.to_delta(1)).collect::<Vec<_>>());
+    }
+
     #[test]
     fn arbitrary_batches_roundtrip(subjects in arb_subjects(), cap in 40usize..1400) {
         let baselines: HashMap<u32, u32> =

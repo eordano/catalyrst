@@ -1,0 +1,59 @@
+name: dcl.social
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: social-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  social:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Locate Cargo workspace
+        id: workspace
+        shell: bash
+        run: |
+          if [ -f catalyrst/Cargo.toml ]; then
+            echo 'path=catalyrst' >> "$GITHUB_OUTPUT"
+          else
+            echo 'path=.' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable @ 2026-07-08
+        with:
+          toolchain: "1.97.0"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ${{ steps.workspace.outputs.path }}
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: ${{ steps.workspace.outputs.path }}/social/package-lock.json
+      - name: Build and test API
+        working-directory: ${{ steps.workspace.outputs.path }}
+        run: |
+          cargo test --locked -p dcl-social-api
+          cargo build --locked -p dcl-social-api
+      - name: Build frontend and run browser fixtures
+        working-directory: ${{ steps.workspace.outputs.path }}/social
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          npx playwright install --with-deps chromium
+          npm run test:browser
+          SOCIAL_TEST_PREFIX=/chat npm run test:browser
+          npm run test:friends
+          npm run test:discovery
+          npm run test:activity

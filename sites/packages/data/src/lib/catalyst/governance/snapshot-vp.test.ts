@@ -29,7 +29,7 @@ function hubOk(body: unknown): typeof fetch {
 }
 
 describe("toVpDistribution", () => {
-  it("maps the snapshot strategy order onto the DAO breakdown", () => {
+  it("maps the snapshot strategy order onto the DAO breakdown and treats missing strategy slots as zero", () => {
     const vp = toVpDistribution(12195.939625551151, [
       0, 2000, 8000, 600, 1.1234242518934, 5, 0, 100.74277568, 1489.073425619257,
     ]);
@@ -42,16 +42,13 @@ describe("toVpDistribution", () => {
     expect(vp.wMana).toBe(0);
     expect(vp.mana).toBeCloseTo(100.74277568 + 1489.073425619257, 9);
     expect(vp.own).toBeCloseTo(12195.939625551151 - 1.1234242518934, 9);
-  });
 
-  it("treats missing strategy slots as zero, never as unknown-but-positive", () => {
-    const vp = toVpDistribution(0, []);
-    expect(vp).toMatchObject({ total: 0, own: 0, delegated: 0, mana: 0, land: 0 });
+    expect(toVpDistribution(0, [])).toMatchObject({ total: 0, own: 0, delegated: 0, mana: 0, land: 0 });
   });
 });
 
 describe("fetchVpDistributions", () => {
-  it("asks the hub for every address in one aliased query", async () => {
+  it("asks the hub for every address in one aliased query and chunks past the five-root-selection cap", async () => {
     const fetchImpl = hubOk(HUB_RESPONSE);
     const out = await fetchVpDistributions({
       space: "snapshot.dcl.eth",
@@ -71,17 +68,15 @@ describe("fetchVpDistributions", () => {
       a0: VOTER,
       a1: OTHER,
     });
-
     expect(out.get(VOTER)?.total).toBeCloseTo(12195.939625551151, 9);
     expect(out.get(OTHER)?.names).toBe(100);
-  });
 
-  it("chunks past the hub's five-root-selection cap", async () => {
+    clearVpCache();
     const addresses = Array.from(
       { length: 7 },
       (_, i) => `0x${String(i).repeat(40)}`.slice(0, 42),
     );
-    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const chunked = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { variables: Record<string, string> };
       const data: Record<string, unknown> = {};
       Object.keys(body.variables)
@@ -91,20 +86,18 @@ describe("fetchVpDistributions", () => {
         });
       return new Response(JSON.stringify({ data }), { status: 200 });
     }) as unknown as typeof fetch;
-
-    const out = await fetchVpDistributions({
+    const many = await fetchVpDistributions({
       space: "snapshot.dcl.eth",
       addresses,
       hubUrl: "https://hub.example",
-      fetchImpl,
+      fetchImpl: chunked,
     });
-
-    expect(vi.mocked(fetchImpl)).toHaveBeenCalledTimes(2);
-    expect(out.size).toBe(7);
+    expect(vi.mocked(chunked)).toHaveBeenCalledTimes(2);
+    expect(many.size).toBe(7);
   });
 
-  it("surfaces the hub's own message when it answers 500", async () => {
-    const fetchImpl = vi.fn(async () =>
+  it("surfaces the hub's own message on a 500 or an errors payload rather than defaulting to zero, and returns no entry for an address it has no answer for", async () => {
+    const failing = vi.fn(async () =>
       new Response(
         JSON.stringify({
           errors: [{ message: "'vpBatch exceeds the maximum number of root selections: 5" }],
@@ -112,18 +105,24 @@ describe("fetchVpDistributions", () => {
         { status: 500 },
       ),
     ) as unknown as typeof fetch;
+    await expect(
+      fetchVpDistributions({
+        space: "snapshot.dcl.eth",
+        addresses: [VOTER],
+        hubUrl: "https://hub.example",
+        fetchImpl: failing,
+      }),
+    ).rejects.toThrow(/maximum number of root selections/);
 
     await expect(
       fetchVpDistributions({
         space: "snapshot.dcl.eth",
         addresses: [VOTER],
         hubUrl: "https://hub.example",
-        fetchImpl,
+        fetchImpl: hubOk({ errors: [{ message: "rate limited" }] }),
       }),
-    ).rejects.toThrow(/maximum number of root selections/);
-  });
+    ).rejects.toThrow(/rate limited/);
 
-  it("returns no entry for an address the hub has no answer for", async () => {
     const out = await fetchVpDistributions({
       space: "snapshot.dcl.eth",
       addresses: [VOTER],
@@ -133,18 +132,7 @@ describe("fetchVpDistributions", () => {
     expect(out.size).toBe(0);
   });
 
-  it("throws when the hub reports an error rather than defaulting to zero", async () => {
-    await expect(
-      fetchVpDistributions({
-        space: "snapshot.dcl.eth",
-        addresses: [VOTER],
-        hubUrl: "https://hub.example",
-        fetchImpl: hubOk({ errors: [{ message: "rate limited" }] }),
-      }),
-    ).rejects.toThrow(/rate limited/);
-  });
-
-  it("reuses a fresh read and re-reads once the ttl lapses", async () => {
+  it("reuses a fresh read, re-reads once the ttl lapses, and makes no request when there is nothing to score", async () => {
     const fetchImpl = hubOk(HUB_RESPONSE);
     const args = {
       space: "snapshot.dcl.eth",
@@ -159,16 +147,14 @@ describe("fetchVpDistributions", () => {
 
     await fetchVpDistributions({ ...args, now: 1_000 + 6 * 60_000 });
     expect(vi.mocked(fetchImpl)).toHaveBeenCalledTimes(2);
-  });
 
-  it("makes no request when there is nothing to score", async () => {
-    const fetchImpl = hubOk(HUB_RESPONSE);
-    const out = await fetchVpDistributions({
+    const idle = hubOk(HUB_RESPONSE);
+    const none = await fetchVpDistributions({
       space: "snapshot.dcl.eth",
       addresses: ["not-an-address"],
-      fetchImpl,
+      fetchImpl: idle,
     });
-    expect(out.size).toBe(0);
-    expect(vi.mocked(fetchImpl)).not.toHaveBeenCalled();
+    expect(none.size).toBe(0);
+    expect(vi.mocked(idle)).not.toHaveBeenCalled();
   });
 });

@@ -83,7 +83,8 @@ export function fixture<T>(name: string): T {
   return hit as T;
 }
 
-export const CATALYST_BASE = "https://catalyst.example.com";
+export const CATALYST_BASE =
+  typeof window === "undefined" ? "https://catalyst.example.com" : window.location.origin;
 
 type JsonHandlerInit = { status?: number; delayMs?: number };
 

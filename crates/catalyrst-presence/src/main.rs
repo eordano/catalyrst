@@ -11,8 +11,8 @@ use clap::{Parser, Subcommand};
 use tokio_util::sync::CancellationToken;
 
 use catalyrst_presence::config::Config;
-use catalyrst_presence::ports::collector::{Collector, SnapshotSummary};
-use catalyrst_presence::{api_router, build_collector, build_state, handlers};
+use catalyrst_presence::ports::collector::SnapshotSummary;
+use catalyrst_presence::{api_router, build_collector, build_state, handlers, AppState};
 
 const ENV_HELP: &str = "environment variables:
   HTTP_SERVER_HOST                              bind address (default 127.0.0.1)
@@ -115,7 +115,6 @@ async fn serve(cfg: &Config) -> Result<()> {
 
 async fn run_daemon(cfg: &Config, interval_secs: u64) -> Result<()> {
     let state = build_state(cfg).await?;
-    let collector = state.collector.clone();
 
     let app = finish_app(
         Router::new()
@@ -136,10 +135,13 @@ async fn run_daemon(cfg: &Config, interval_secs: u64) -> Result<()> {
         Duration::from_secs(interval_secs),
         PeriodicCfg::default(),
         shutdown.clone(),
-        move || {
-            let collector = collector.clone();
-            let last_aggregated = last_aggregated.clone();
-            async move { collector_pass(&collector, &last_aggregated).await }
+        {
+            let state = state.clone();
+            move || {
+                let state = state.clone();
+                let last_aggregated = last_aggregated.clone();
+                async move { collector_pass(&state, &last_aggregated).await }
+            }
         },
     );
 
@@ -151,18 +153,24 @@ async fn run_daemon(cfg: &Config, interval_secs: u64) -> Result<()> {
 }
 
 async fn collector_pass(
-    collector: &Collector,
+    state: &AppState,
     last_aggregated: &Mutex<Option<chrono::NaiveDate>>,
 ) -> Result<()> {
+    let collector = &state.collector;
     match collector.snapshot().await {
-        Ok(s) => tracing::info!(
-            snapshot_id = s.snapshot_id,
-            peers = s.peers,
-            hot_scenes = s.hot_scenes,
-            scene_users = s.scene_users,
-            world_users = s.world_users,
-            "snapshot complete"
-        ),
+        Ok(s) => {
+            tracing::info!(
+                snapshot_id = s.snapshot_id,
+                peers = s.peers,
+                hot_scenes = s.hot_scenes,
+                scene_users = s.scene_users,
+                world_users = s.world_users,
+                "snapshot complete"
+            );
+            if let Err(e) = state.queries.refresh_current().await {
+                tracing::warn!(error = %e, "current memo refresh failed; serving on demand");
+            }
+        }
         Err(e) => tracing::error!(error = %e, "snapshot failed; retrying next tick"),
     }
 

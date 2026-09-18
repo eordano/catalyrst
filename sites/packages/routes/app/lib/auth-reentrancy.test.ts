@@ -13,7 +13,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void; reject: (e: 
 }
 
 describe("runExclusive", () => {
-  it("drops a second call made before the first has finished", async () => {
+  it("holds the latch while a call is in flight, drops re-entrant calls, then lets a genuine retry run", async () => {
     const latch: ReentryLatch = { current: false };
     const gate = deferred();
     let runs = 0;
@@ -23,28 +23,21 @@ describe("runExclusive", () => {
     };
 
     const first = runExclusive(latch, run);
+    expect(latch.current).toBe(true);
     await runExclusive(latch, run);
     expect(runs).toBe(1);
 
     gate.resolve();
     await first;
     expect(runs).toBe(1);
-  });
+    expect(latch.current).toBe(false);
 
-  it("lets a genuine retry run once the first call has finished", async () => {
-    const latch: ReentryLatch = { current: false };
-    let runs = 0;
-    const run = async () => {
-      runs += 1;
-    };
-
-    await runExclusive(latch, run);
     await runExclusive(latch, run);
     expect(runs).toBe(2);
     expect(latch.current).toBe(false);
   });
 
-  it("releases the latch when the call throws, and passes the failure on", async () => {
+  it("releases the latch when the call throws, passes the failure on, and keeps one latch from blocking another", async () => {
     const latch: ReentryLatch = { current: false };
     await expect(
       runExclusive(latch, async () => {
@@ -58,31 +51,20 @@ describe("runExclusive", () => {
       ran = true;
     });
     expect(ran).toBe(true);
-  });
 
-  it("holds the latch for as long as the call is in flight", async () => {
-    const latch: ReentryLatch = { current: false };
-    const gate = deferred();
-    const first = runExclusive(latch, () => gate.promise);
-    expect(latch.current).toBe(true);
-    gate.resolve();
-    await first;
-    expect(latch.current).toBe(false);
-  });
-
-  it("keeps one latch from blocking another", async () => {
     const approving: ReentryLatch = { current: false };
     const signingIn: ReentryLatch = { current: false };
     const gate = deferred();
     let signedIn = false;
-
     const first = runExclusive(approving, () => gate.promise);
     await runExclusive(signingIn, async () => {
       signedIn = true;
     });
     expect(signedIn).toBe(true);
+    expect(approving.current).toBe(true);
 
     gate.resolve();
     await first;
+    expect(approving.current).toBe(false);
   });
 });

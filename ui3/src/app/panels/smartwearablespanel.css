@@ -6,6 +6,7 @@
   max-width: 340px;
   color: #fff;
 }
+.swpanel--floating { padding: 0; max-width: none; }
 .swpanel__title {
   margin: 0;
   font-size: 13px;
@@ -61,3 +62,6 @@
   cursor: pointer;
 }
 .swpanel__stop:hover { background: var(--brand, #ff2d55); }
+.swpanel__stop:disabled { opacity: 0.5; cursor: default; }
+.swpanel__activate { display: grid; gap: 10px; border-top: 1px solid var(--border-subtle, #ffffff24); padding-top: 16px; }
+.swpanel__activate input { min-width: 0; width: 100%; box-sizing: border-box; padding: 10px; color: inherit; background: var(--fill-5, #ffffff0d); border: 1px solid var(--border-subtle, #ffffff24); border-radius: 6px; }

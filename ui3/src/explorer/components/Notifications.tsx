@@ -2,6 +2,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { useHideMinimapWhileMounted } from "../../overlay/minimapVisibility";
 import { requestFriendAction, FRIEND_ACTIONS } from "../../data/hooks/friendActions";
+import { FLOATING_PANEL_TITLES } from "./FloatingPanel";
+import ContentStatus from "../../components/ContentStatus";
 import "./notifications.css";
 
 function Name({ name, tag }: { name: string; tag: string }) {
@@ -95,12 +97,16 @@ const ITEMS: NotifItem[] = [
 
 type PanelProps = {
   items?: NotifItem[];
+  floating?: boolean;
   onMarkRead?: (id: string) => void;
   onMarkAllRead?: () => void;
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
 };
 
-function Panel({ items: itemsProp, onMarkRead, onMarkAllRead }: PanelProps) {
-  const source = itemsProp ?? ITEMS;
+function Panel({ items: itemsProp, floating = false, onMarkRead, onMarkAllRead, loading, error, onRetry }: PanelProps) {
+  const source = itemsProp ?? (loading || error ? [] : ITEMS);
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
 
   const items = useMemo(
@@ -119,12 +125,14 @@ function Panel({ items: itemsProp, onMarkRead, onMarkAllRead }: PanelProps) {
     });
 
   return (
-    <div className="nf">
+    <div className={"nf" + (floating ? " nf--floating" : "")}>
       <div className="nf__header">
-        <span className="nf__titlewrap">
-          <span className="nf__title">NOTIFICATIONS</span>
-          {unread > 0 && <span className="nf__unread-badge">{unread > 99 ? "99+" : unread}</span>}
-        </span>
+        {floating ? null : (
+          <span className="nf__titlewrap">
+            <span className="nf__title">{FLOATING_PANEL_TITLES.notifications}</span>
+            {unread > 0 && <span className="nf__unread-badge">{unread > 99 ? "99+" : unread}</span>}
+          </span>
+        )}
         <div className="nf__headeractions">
           {unread > 0 && onMarkAllRead && (
             <button type="button" className="nf__markread" onClick={onMarkAllRead}>Mark all read</button>
@@ -134,7 +142,8 @@ function Panel({ items: itemsProp, onMarkRead, onMarkAllRead }: PanelProps) {
           )}
         </div>
       </div>
-      {items.length === 0 ? (
+      {error && <ContentStatus message="Couldn't load notifications." onRetry={onRetry} />}
+      {loading && items.length === 0 ? <ContentStatus pending message="Loading notifications&hellip;" /> : items.length === 0 && error ? null : items.length === 0 ? (
         <div className="nf__empty">
           <span className="nf__empty-icon" aria-hidden="true">
             {R(<><path d="M5.5 8a4.5 4.5 0 0 1 9 0c0 4 1.5 5 1.5 5H4s1.5-1 1.5-5z" /><path d="M8.5 16a1.5 1.5 0 0 0 3 0" /></>)}
@@ -153,7 +162,7 @@ function Panel({ items: itemsProp, onMarkRead, onMarkAllRead }: PanelProps) {
                 key={it.id}
                 onClick={isUnread ? () => onMarkRead?.(it.id) : undefined}
               >
-                {isUnread && <span className="nf__unread-dot" aria-label="unread" />}
+                {isUnread && <span className="nf__unread-dot" role="img" aria-label="unread" />}
                 {it.avatar ? (
                   <span className="nf__avatar" aria-hidden="true" style={{ background: it.avatar }} />
                 ) : it.thumb ? (
@@ -225,12 +234,8 @@ function Panel({ items: itemsProp, onMarkRead, onMarkAllRead }: PanelProps) {
   );
 }
 
-type NotificationsProps = {
+type NotificationsProps = PanelProps & {
   bare?: boolean;
-  items?: NotifItem[];
-  floating?: boolean;
-  onMarkRead?: (id: string) => void;
-  onMarkAllRead?: () => void;
 };
 
 export default function Notifications({
@@ -239,13 +244,17 @@ export default function Notifications({
   floating = false,
   onMarkRead,
   onMarkAllRead,
+  ...status
 }: NotificationsProps) {
   useHideMinimapWhileMounted(floating);
 
+  if (floating) {
+    return <Panel floating items={items} onMarkRead={onMarkRead} onMarkAllRead={onMarkAllRead} {...status} />;
+  }
   if (bare) {
     return (
-      <div className={"nf__bare" + (floating ? " nf__bare--floating" : "")}>
-        <Panel items={items} onMarkRead={onMarkRead} onMarkAllRead={onMarkAllRead} />
+      <div className="nf__bare">
+        <Panel items={items} onMarkRead={onMarkRead} onMarkAllRead={onMarkAllRead} {...status} />
       </div>
     );
   }
@@ -273,7 +282,7 @@ export default function Notifications({
           ))}
         </div>
       </nav>
-      <Panel items={items} onMarkRead={onMarkRead} onMarkAllRead={onMarkAllRead} />
+      <Panel items={items} onMarkRead={onMarkRead} onMarkAllRead={onMarkAllRead} {...status} />
     </div>
   );
 }

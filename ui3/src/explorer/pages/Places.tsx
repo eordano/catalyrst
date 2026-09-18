@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { PageHeader, FilterButton } from "../../components/Surface";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ExploreChrome, { type TabId } from "../frames/ExploreChrome";
 import SearchField from "../../atoms/SearchField";
@@ -158,10 +158,6 @@ const CAT_ICONS: Record<string, string> = {
   business: "M4 8h16v12H4zM9 8V5h6v3M4 13h16",
 };
 
-const skeletonStyle = (i: number): CSSProperties & { "--hue": number } => ({
-  "--hue": (i * 47) % 360,
-  opacity: 0.5,
-});
 
 type PlacesProps = {
   places?: PlaceCardData[];
@@ -220,18 +216,16 @@ export default function Places({
 
   return (
     <ExploreChrome active={tab} onTab={setTab}>
-      <div className="pl">
-        <div className="pl__head">
-          <h1 className="pl__title">Places</h1>
+      <div className="pl ui-surface">
+        <PageHeader title="Places" className="pl__head">
 
-          <div className="pl__sections" role="tablist" aria-label="Places sections">
+          <div className="pl__sections" role="group" aria-label="Places sections">
             {SECTIONS.map((s) => (
-              <button
+              <FilterButton
                 key={s.id}
                 type="button"
-                role="tab"
-                aria-selected={s.id === section}
-                className={"pl__sectab" + (s.id === section ? " is-active" : "")}
+                selected={s.id === section}
+                className="pl__sectab"
                 onClick={() => setSection(s.id)}
               >
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
@@ -240,7 +234,7 @@ export default function Places({
                   <path d={PILL_ICONS[s.icon]} />
                 </svg>
                 {s.label}
-              </button>
+              </FilterButton>
             ))}
           </div>
 
@@ -257,27 +251,26 @@ export default function Places({
               </div>
             )}
           </div>
-        </div>
+        </PageHeader>
 
-        <div className="pl__cats" role="tablist" aria-label="Place categories">
+        <div className="pl__cats" role="group" aria-label="Place categories">
           {categories.map((c) => (
-            <button
+            <FilterButton
               key={c.id}
               type="button"
-              role="tab"
-              aria-selected={c.id === cat}
-              className={"pl__pill" + (c.id === cat ? " is-active" : "")}
+              selected={c.id === cat}
+              className="pl__pill"
               onClick={() => setCat(c.id)}
             >
-              <span className="pl__pillicon" style={{ background: c.c }}>
+              <span className="pl__pillicon" >
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none"
-                  stroke="#fff" strokeWidth="2" strokeLinecap="round"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round"
                   strokeLinejoin="round" aria-hidden="true">
                   <path d={CAT_ICONS[c.icon]} />
                 </svg>
               </span>
               {c.label}
-            </button>
+            </FilterButton>
           ))}
         </div>
 
@@ -300,9 +293,7 @@ export default function Places({
         <div className="pl__grid" aria-busy={loading || undefined}>
           {loading ? (
             Array.from({ length: 8 }).map((_, i) => (
-              <article className="pl__card" key={"sk" + i} aria-hidden="true">
-                <div className="pl__thumb" style={skeletonStyle(i)} />
-              </article>
+              <PlaceCard skeleton key={"sk" + i} />
             ))
           ) : error ? (
             <div className="pl__statemsg" role="alert" style={{ gridColumn: "1 / -1", padding: "32px 8px", color: "rgba(255,255,255,.6)" }}>

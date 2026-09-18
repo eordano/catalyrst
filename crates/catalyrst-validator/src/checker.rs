@@ -657,7 +657,9 @@ fn extract_outfit_wearable_urns(metadata: &serde_json::Value) -> Vec<String> {
             {
                 for w in wearables {
                     if let Some(urn) = w.as_str() {
-                        urns.push(urn.to_string());
+                        if classify_item_urn(urn) != ItemUrnType::OffChain && !is_old_emote(urn) {
+                            urns.push(urn.to_string());
+                        }
                     }
                 }
             }
@@ -889,6 +891,23 @@ mod tests {
     }
 
     #[test]
+    fn outfits_require_ownership_only_for_collection_items() {
+        let metadata = serde_json::json!({"outfits": [{"slot": 0, "outfit": {"wearables": [
+            "urn:decentraland:off-chain:base-avatars:f_glasses_city",
+            "urn:decentraland:off-chain:base-avatars:eyes_04",
+            "urn:decentraland:matic:collections-v2:0xabc123:0",
+            "invalid-urn"
+        ]}}]});
+        assert_eq!(
+            extract_outfit_wearable_urns(&metadata),
+            vec![
+                "urn:decentraland:matic:collections-v2:0xabc123:0",
+                "invalid-urn"
+            ]
+        );
+    }
+
+    #[test]
     fn extract_profile_item_urns_excludes_default_off_chain_emotes_and_wearables() {
         let metadata = serde_json::json!({
             "avatars": [
@@ -909,7 +928,7 @@ mod tests {
                             { "slot": 6, "urn": "urn:decentraland:off-chain:base-emotes:kiss" },
                             { "slot": 7, "urn": "urn:decentraland:off-chain:base-emotes:headexplode" },
                             { "slot": 8, "urn": "urn:decentraland:off-chain:base-emotes:shrug" },
-                            { "slot": 9, "urn": "urn:decentraland:off-chain:base-emotes:handsair" }
+                            { "slot": 9, "urn": "urn:decentraland:off-chain:base-scene-emotes:handsair" }
                         ]
                     }
                 }

@@ -16,7 +16,5 @@ const accept = {
   safeParse: (value: unknown) => ({ success: true as const, data: value }),
 } as never;
 
-export const AuthLinkSchema = accept;
 export const StoredAuthIdentitySchema = accept;
-export const RecentPlaceSchema = accept;
 export const RecentPlacesSchema = accept;

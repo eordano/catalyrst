@@ -2,15 +2,15 @@ import { z } from "zod";
 
 import { shortAddress } from "../format/address";
 
-export const REPORT_STATUSES = [
+const REPORT_STATUSES = [
   "open",
   "resolved",
   "dismissed",
   "actioned",
 ] as const;
-export type ReportStatus = (typeof REPORT_STATUSES)[number];
+type ReportStatus = (typeof REPORT_STATUSES)[number];
 
-export const MODERATION_DECISIONS = [
+const MODERATION_DECISIONS = [
   "resolve",
   "dismiss",
   "action",
@@ -31,14 +31,14 @@ export function decisionToStatus(decision: ModerationDecision): ReportStatus {
   }
 }
 
-export type ReportPatchBody = {
+type ReportPatchBody = {
   status: ReportStatus;
   resolution?: string;
   notes?: string;
   resolved_by?: string;
 };
 
-export type DisablePlaceBody = {
+type DisablePlaceBody = {
   disabled: boolean;
   reason?: string;
 };
@@ -67,7 +67,7 @@ export const ReportRowSchema = z.object({
 });
 export type ReportRow = z.infer<typeof ReportRowSchema>;
 
-export const OptionSchema = z.object({ code: z.string(), label: z.string() });
+const OptionSchema = z.object({ code: z.string(), label: z.string() });
 export type Option = z.infer<typeof OptionSchema>;
 
 export const REPORT_REASONS: Option[] = [
@@ -87,19 +87,11 @@ export const RESOLUTION_OPTIONS: Option[] = [
   { code: "insufficient_evidence", label: "Insufficient evidence" },
 ];
 
-export const ModerationFixtureSchema = z.object({
+z.object({
   reports: z.array(ReportRowSchema),
   reasons: z.array(OptionSchema),
   resolutions: z.array(OptionSchema),
 });
-export type ModerationFixture = z.infer<typeof ModerationFixtureSchema>;
-
-function liftReason(row: ReportRow): ReportRow {
-  if (row.reason) return row;
-  const payload = row.payload as Record<string, unknown> | null | undefined;
-  const reason = payload && typeof payload.reason === "string" ? payload.reason : null;
-  return reason ? { ...row, reason } : row;
-}
 
 function hueFor(id: string): number {
   let h = 0;
@@ -107,7 +99,7 @@ function hueFor(id: string): number {
   return h;
 }
 
-export function reportTimeLabel(iso: string | null): string {
+function reportTimeLabel(iso: string | null): string {
   if (!iso) return "\u{2014}";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "\u{2014}";
@@ -123,28 +115,8 @@ export function reportTimeLabel(iso: string | null): string {
     .toUpperCase();
 }
 
-export function shortAddr(addr: string): string {
+function shortAddr(addr: string): string {
   return addr ? shortAddress(addr) : "unknown";
-}
-
-export function reasonLabel(reasons: Option[], code: string | null): string {
-  if (!code) return "Unspecified";
-  const hit = reasons.find((r) => r.code === code);
-  if (hit) return hit.label;
-  return code.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-export function statusLabel(status: ReportStatus): string {
-  switch (status) {
-    case "open":
-      return "Open";
-    case "resolved":
-      return "Resolved";
-    case "dismissed":
-      return "Dismissed";
-    case "actioned":
-      return "Actioned";
-  }
 }
 
 export type ReportCard = {
@@ -185,7 +157,7 @@ export function toReportCard(row: ReportRow): ReportCard {
   };
 }
 
-export type QueueBuckets = {
+type QueueBuckets = {
   open: ReportCard[];
   resolved: ReportCard[];
   dismissed: ReportCard[];
@@ -205,7 +177,7 @@ export type ModerationResult = {
   disableBody?: DisablePlaceBody;
 };
 
-export const ModerationResultSchema = z.object({
+const ModerationResultSchema = z.object({
   report: ReportRowSchema,
   placeDisabled: z.boolean(),
   reportBody: z.object({
@@ -278,11 +250,11 @@ export async function simulateModerateReport(
   };
 }
 
-export const MODERATION_ACTION_PATH = "/admin/places-decision";
+const MODERATION_ACTION_PATH = "/admin/places-decision";
 
 const ActionErrorSchema = z.object({ error: z.string() });
 
-export type ModerateWriteOptions = {
+type ModerateWriteOptions = {
   signal?: AbortSignal;
   actionPath?: string;
 };

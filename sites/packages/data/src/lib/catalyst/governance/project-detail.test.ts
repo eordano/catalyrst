@@ -45,14 +45,7 @@ const liveDetail = {
 };
 
 describe("loadProjectDetail", () => {
-  it("returns null for a missing id (never queries the backend)", async () => {
-    const fetchImpl = vi.fn();
-    const res = await loadProjectDetail(undefined, { fetchImpl });
-    expect(res).toBeNull();
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it("adapts the per-id detail document into the view model", async () => {
+  it("adapts the per-id detail document into the view model, bare or { data } enveloped", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(liveDetail));
     const res = await loadProjectDetail(KNOWN_ID, { fetchImpl });
 
@@ -70,13 +63,11 @@ describe("loadProjectDetail", () => {
     expect(p.milestones[0].date).toBe("2025-01-01");
     expect(p.personnel[0].name).toBe("Team");
     expect(p.authorLabel).toMatch(/^0xabcd\u2026ef01$/);
-  });
 
-  it("accepts a { data } enveloped detail body", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ data: liveDetail }));
-    const res = await loadProjectDetail(KNOWN_ID, { fetchImpl });
-    expect(res!.source).toBe("live");
-    expect(res!.project!.title).toBe("Live Detail Title");
+    const enveloped = vi.fn(async () => jsonResponse({ data: liveDetail }));
+    const wrapped = await loadProjectDetail(KNOWN_ID, { fetchImpl: enveloped });
+    expect(wrapped!.source).toBe("live");
+    expect(wrapped!.project!.title).toBe("Live Detail Title");
   });
 
   it("falls back to the list endpoint when the per-id route 404s", async () => {
@@ -99,20 +90,22 @@ describe("loadProjectDetail", () => {
     expect(res!.project!.vestings.length).toBe(1);
   });
 
-  it("returns an explicit fallback (NOT a fixture) when the backend is unreachable", async () => {
-    const fetchImpl = vi.fn(async () => {
+  it("returns null for a missing id without querying, and an explicit fallback (NOT a fixture) when the backend is unreachable or answers junk", async () => {
+    const idle = vi.fn();
+    expect(await loadProjectDetail(undefined, { fetchImpl: idle })).toBeNull();
+    expect(idle).not.toHaveBeenCalled();
+
+    const down = vi.fn(async () => {
       throw new Error("network down");
     });
-    const res = await loadProjectDetail(KNOWN_ID, { fetchImpl });
-    expect(res).not.toBeNull();
-    expect(res!.source).toBe("fallback");
-    expect(res!.project).toBeNull();
-  });
+    const unreachable = await loadProjectDetail(KNOWN_ID, { fetchImpl: down });
+    expect(unreachable).not.toBeNull();
+    expect(unreachable!.source).toBe("fallback");
+    expect(unreachable!.project).toBeNull();
 
-  it("returns a fallback when the backend returns junk JSON", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ nope: true }));
-    const res = await loadProjectDetail(KNOWN_ID, { fetchImpl });
-    expect(res!.source).toBe("fallback");
-    expect(res!.project).toBeNull();
+    const junk = vi.fn(async () => jsonResponse({ nope: true }));
+    const garbage = await loadProjectDetail(KNOWN_ID, { fetchImpl: junk });
+    expect(garbage!.source).toBe("fallback");
+    expect(garbage!.project).toBeNull();
   });
 });

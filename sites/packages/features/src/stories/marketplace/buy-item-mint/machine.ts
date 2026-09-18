@@ -13,7 +13,7 @@ export type MintAssetInput = {
 
 export type { TrackFn };
 
-export type MintPhase = "connect" | "approve" | "submit";
+type MintPhase = "connect" | "approve" | "submit";
 
 export type MintResult = { txHash: string };
 
@@ -23,14 +23,14 @@ export type SimulateFn = (args: {
   signal?: AbortSignal;
 }) => Promise<MintResult>;
 
-export type MintInput = {
+type MintInput = {
   asset: MintAssetInput;
   trackCtx: TrackContext;
   simulate?: SimulateFn;
   track?: TrackFn;
 };
 
-export type MintContext = {
+type MintContext = {
   asset: MintAssetInput;
   trackCtx: TrackContext;
   simulate: SimulateFn;
@@ -40,7 +40,7 @@ export type MintContext = {
   error?: string;
 };
 
-export type MintEvent =
+type MintEvent =
   | { type: "START_MINT" }
   | { type: "CONFIRM" }
   | { type: "BACK" }
@@ -67,8 +67,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type MintStateId = keyof typeof STATE_TO_SLUG;
-export type MintStepSlug = (typeof STATE_TO_SLUG)[MintStateId];
+type MintStateId = keyof typeof STATE_TO_SLUG;
+type MintStepSlug = (typeof STATE_TO_SLUG)[MintStateId];
 
 export const FIRST_STEP_SLUG: MintStepSlug = STATE_TO_SLUG.review;
 
@@ -244,8 +244,6 @@ export const buyMintMachine = setup({
     },
   },
 });
-
-export type BuyMintMachine = typeof buyMintMachine;
 
 export function resolveMintSnapshot(args: {
   step: MintStateId;

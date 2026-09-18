@@ -55,7 +55,7 @@ export type ClientEvents = {
     action?: "join" | "request";
     community_id?: string;
     pending: boolean;
-    stub: true;
+    stub: boolean;
   };
   cl_community_request_submitted: {
     community_id?: string;
@@ -107,7 +107,8 @@ export type ClientEvents = {
     jump_url?: string;
     place_id?: string;
     set_home: boolean;
-    simulated: true;
+    simulated: boolean;
+    outcome?: "arrived" | "degraded";
   };
   cl_map_jump_done: {
     coords?: string;

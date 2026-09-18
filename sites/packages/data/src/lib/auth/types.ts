@@ -1,4 +1,4 @@
-export type AuthLinkType = "SIGNER" | "ECDSA_EPHEMERAL" | "ECDSA_SIGNED_ENTITY";
+type AuthLinkType = "SIGNER" | "ECDSA_EPHEMERAL" | "ECDSA_SIGNED_ENTITY";
 
 export type AuthLink = {
   type: AuthLinkType;

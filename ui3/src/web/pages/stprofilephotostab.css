@@ -296,17 +296,6 @@
   font-style: italic;
   color: var(--pp-muted);
 }
-
-.stprofilephotostab__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.85);
-}
 .stprofilephotostab__dialog {
   position: relative;
   width: 100%;

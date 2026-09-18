@@ -20,6 +20,31 @@ pub struct WorldRecord {
     pub preview_wearable_urns: Option<Vec<String>>,
 }
 
+/// Which companions `WorldsComponent::lookup_world` evaluates alongside the world row.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorldProbe<'a> {
+    pub wallet_blocked: Option<&'a str>,
+    pub world_wide_deployer: Option<&'a str>,
+    pub scene_id: Option<&'a str>,
+    pub has_scenes: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorldLookup {
+    pub world: Option<WorldRecord>,
+    pub wallet_blocked: bool,
+    pub world_wide_deployer: bool,
+    pub has_scenes: bool,
+    /// The probed scene's base parcel; `None` when it is not deployed in this world.
+    pub scene_base: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorldAbout {
+    pub world: Option<WorldRecord>,
+    pub scenes: Vec<WorldScene>,
+}
+
 #[derive(Debug, Clone)]
 pub struct WorldScene {
     pub entity_id: String,
@@ -177,6 +202,27 @@ pub struct WorldManifest {
     pub parcels: Vec<String>,
     pub spawn_coordinates: Option<String>,
     pub total: i64,
+}
+
+pub const MAX_ACCESS_WALLETS: i32 = 1000;
+pub const MAX_ACCESS_COMMUNITIES: i32 = 50;
+
+/// One edit to an allow-list access setting; wallets arrive lowercased.
+#[derive(Debug, Clone, Copy)]
+pub enum AllowListEdit<'a> {
+    AddWallet(&'a str),
+    RemoveWallet(&'a str),
+    AddCommunity(&'a str),
+    RemoveCommunity(&'a str),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllowListEditOutcome {
+    Applied,
+    /// No worlds row, or its access type is not `allow-list`.
+    NotAllowList,
+    /// The list is at its maximum size.
+    CapExceeded,
 }
 
 #[derive(Debug, Clone)]

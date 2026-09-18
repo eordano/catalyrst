@@ -1,6 +1,5 @@
-use sqlx::Row;
-
 use crate::http::ApiError;
+use crate::ports::extra_addresses::PlaceLookup;
 use crate::AppState;
 
 fn parse_xy(s: &str) -> Option<(i32, i32)> {
@@ -16,13 +15,23 @@ pub async fn is_scene_owner_or_admin(
     place_id: &str,
     signer: &str,
 ) -> Result<bool, ApiError> {
+    is_scene_owner_or_admin_for(state, &PlaceLookup::new(state, place_id), signer).await
+}
+
+/// Same gate over a place row the caller shares with its other steps.
+pub async fn is_scene_owner_or_admin_for(
+    state: &AppState,
+    place: &PlaceLookup<'_>,
+    signer: &str,
+) -> Result<bool, ApiError> {
     let signer = signer.to_lowercase();
+    let place_id = place.place_id();
 
     if state.scene_admin.is_admin(place_id, &signer).await? {
         return Ok(true);
     }
 
-    let (Some(places), Some(squid)) = (state.places_pool.as_ref(), state.dapps_pool.as_ref())
+    let (Some(_places), Some(squid)) = (state.places_pool.as_ref(), state.dapps_pool.as_ref())
     else {
         tracing::warn!(
             place_id,
@@ -31,35 +40,23 @@ pub async fn is_scene_owner_or_admin(
         return Ok(false);
     };
 
-    let row = sqlx::query(
-        "SELECT COALESCE((raw->>'world')::bool, false) AS world, \
-                raw->>'world_name' AS world_name, \
-                raw->'positions' AS positions, \
-                base_position \
-         FROM place WHERE id = $1",
-    )
-    .bind(place_id)
-    .fetch_optional(places)
-    .await?;
-
-    let Some(row) = row else {
+    let place = place.get().await.map_err(|error| {
+        tracing::error!(error, "sqlx error");
+        ApiError::internal("Internal Server Error")
+    })?;
+    let Some(place) = place else {
         return Ok(false);
     };
 
     let schema = state.dapps_schema.as_str();
-    let is_world: bool = row.try_get("world").unwrap_or(false);
 
-    if is_world {
-        let Some(world_name) = row
-            .try_get::<Option<String>, _>("world_name")
-            .ok()
-            .flatten()
-        else {
+    if place.world {
+        let Some(world_name) = place.world_name.as_deref() else {
             return Ok(false);
         };
         let base = world_name
             .strip_suffix(".dcl.eth")
-            .unwrap_or(&world_name)
+            .unwrap_or(world_name)
             .to_lowercase();
         let q = format!(
             "SELECT 1 FROM {schema}.nft \
@@ -73,21 +70,10 @@ pub async fn is_scene_owner_or_admin(
         return Ok(found.is_some());
     }
 
-    let mut coords: Vec<(i32, i32)> = Vec::new();
-    if let Ok(serde_json::Value::Array(arr)) = row.try_get::<serde_json::Value, _>("positions") {
-        for p in arr {
-            if let Some(s) = p.as_str() {
-                if let Some(c) = parse_xy(s) {
-                    coords.push(c);
-                }
-            }
-        }
-    }
+    let mut coords: Vec<(i32, i32)> = place.positions.iter().filter_map(|p| parse_xy(p)).collect();
     if coords.is_empty() {
-        if let Ok(bp) = row.try_get::<String, _>("base_position") {
-            if let Some(c) = parse_xy(&bp) {
-                coords.push(c);
-            }
+        if let Some(c) = place.base_position.as_deref().and_then(parse_xy) {
+            coords.push(c);
         }
     }
 

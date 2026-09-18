@@ -18,8 +18,5 @@ const accept = {
 
 export const AvatarSchema = accept;
 export const ProfileEnvelopeSchema = accept;
-export const CategoriesEnvelopeSchema = accept;
-export const BadgeDataSchema = accept;
 export const UserBadgesEnvelopeSchema = accept;
-export const GalleryImageSchema = accept;
 export const GalleryEnvelopeSchema = accept;

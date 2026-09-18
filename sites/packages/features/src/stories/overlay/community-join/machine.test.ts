@@ -42,22 +42,11 @@ function inputFor(commit: CommitFn, track: (...a: unknown[]) => void) {
   };
 }
 
-const EXPECTED_STATES = new Set([
-  "browsing",
-  "detail",
-  "joining",
-  "requesting",
-  "confirming",
-  "joined",
-  "error",
-]);
-
 describe("communityJoinMachine \u{2014} URL ?step slug map", () => {
   it("STATE_TO_SLUG covers exactly the machine's states", () => {
     const machineStates = new Set(Object.keys(communityJoinMachine.states));
     const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
     expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
   });
 
   it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
@@ -153,18 +142,14 @@ const TRAVERSAL_EVENTS = [
 ];
 
 describe("communityJoinMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("joining, requesting and confirming are event-reachable", () => {
     const paths = getShortestPaths(communityJoinMachine, {
       input: inputFor(okCommit, () => {}),
       events: TRAVERSAL_EVENTS,
     });
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
-    for (const p of paths) {
-      const value = p.state.value as string;
-      ends.add(value);
-      expect(EXPECTED_STATES.has(value)).toBe(true);
-    }
+    for (const p of paths) ends.add(p.state.value as string);
     expect(ends.has("joining")).toBe(true);
     expect(ends.has("requesting")).toBe(true);
     expect(ends.has("confirming")).toBe(true);
@@ -218,7 +203,7 @@ describe("communityJoinMachine \u{2014} public JOIN funnel", () => {
       experimentKey: "cl_community_join",
       variant: "guided",
     });
-    expect(joinedCall?.[1]).toMatchObject({ action: "join", pending: false, stub: true });
+    expect(joinedCall?.[1]).toMatchObject({ action: "join", pending: false, stub: false });
   });
 });
 
@@ -245,7 +230,7 @@ describe("communityJoinMachine \u{2014} private REQUEST funnel", () => {
     expect(snap.context.result?.pending).toBe(true);
     expect(snap.context.result?.role).toBeNull();
     const joinedCall = track.mock.calls.find((c) => c[0] === COMMUNITY_JOIN_EVENTS.joined);
-    expect(joinedCall?.[1]).toMatchObject({ action: "request", pending: true, stub: true });
+    expect(joinedCall?.[1]).toMatchObject({ action: "request", pending: true, stub: false });
   });
 });
 

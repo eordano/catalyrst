@@ -1,4 +1,5 @@
-import { EDITOR_BUS_CHANNEL, type BusEnvelope } from "../generated/editor-bus";
+import type { BusEnvelope } from "../generated/editor-bus";
+import { editorBusChannelFromViewportSrc } from "./editor-bus";
 import { SceneToPageMessageSchema } from "../generated/editor-bus-schemas";
 import { check } from "../validate";
 import { PROJECT_CACHE } from "./project-cache";
@@ -110,7 +111,6 @@ export const RELAY_CLOSE = {
   HEARTBEAT: 4408,
 } as const
 
-const BUS_CHANNEL = EDITOR_BUS_CHANNEL;
 const LOCALSTORAGE_KEY = "dcl-mcp-relay";
 const PLAY_REPLY_TIMEOUT_MS = 5000;
 const SCREENSHOT_RETRIES = 5;
@@ -122,10 +122,20 @@ export interface ConnectOptions {
   token?: string | null;
   getViewportEl?: () => HTMLIFrameElement | null;
   takeover?: boolean;
+  onPairingChange?: (paired: boolean, error?: string) => void;
 }
 
 export interface AutoConnectOptions extends Omit<ConnectOptions, "url" | "token"> {
   confirmRemote?: (host: string) => Promise<boolean>;
+}
+
+function scopedEditorChannel(opts: ConnectOptions): string | null {
+  try {
+    const viewport = opts.getViewportEl?.() ?? document.querySelector<HTMLIFrameElement>('iframe[src*="/_play"]');
+    return editorBusChannelFromViewportSrc(viewport?.src);
+  } catch {
+    return null;
+  }
 }
 
 interface BridgeStatus {
@@ -245,7 +255,12 @@ export function connect(opts: ConnectOptions): () => void {
     { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
   >();
 
-  const channel = new BroadcastChannel(BUS_CHANNEL);
+  const busChannel = scopedEditorChannel(opts);
+  if (!busChannel) {
+    opts.onPairingChange?.(false, "The editor transport is not ready.");
+    return () => {};
+  }
+  const channel = new BroadcastChannel(busChannel);
 
   let badge: HTMLDivElement | null = null;
   const setBadge = (text: string, color: string) => {
@@ -560,6 +575,7 @@ export function connect(opts: ConnectOptions): () => void {
       switch (frame.kind) {
         case "hello-ok":
           paired = true;
+          opts.onPairingChange?.(true);
           reconnectMs = RECONNECT_MIN_MS;
           setBadge("MCP \u{25CF}", "#4ade80");
           break;
@@ -592,10 +608,12 @@ export function connect(opts: ConnectOptions): () => void {
         ev.code === RELAY_CLOSE.REPLACED
       ) {
         detachedReason = ev.reason || `close ${ev.code}`;
+        opts.onPairingChange?.(false, detachedReason);
         setBadge("MCP detached", "#f87171");
         console.warn(`[mcp-bridge] detached: ${detachedReason}`);
         return;
       }
+      opts.onPairingChange?.(false);
       scheduleReconnect();
     };
     socket.onerror = () => {

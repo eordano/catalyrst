@@ -33,7 +33,7 @@ async fn state_for(pool: PgPool) -> AppState {
 }
 
 async fn scratch() -> Option<ScratchSchema> {
-    std::env::set_var("PLACES_REPORT_LOCAL_FALLBACK", "true");
+    std::env::set_var("PLACES_REPORT_STORAGE", "database");
     ScratchSchema::create("CATALYRST_PLACES_TEST_PG", "places_report_authz").await
 }
 
@@ -193,4 +193,35 @@ async fn reporter_uploads_evidence_to_own_report() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(after, json!({ "detail": "screenshot" }));
+}
+
+#[tokio::test]
+async fn database_report_upload_url_preserves_the_public_gateway_prefix() {
+    let Some(scratch) = scratch().await else {
+        return;
+    };
+    let app = api_router().with_state(state_for(scratch.pool.clone()).await);
+    let reporter = test_wallet(3);
+    let mut req = signed_request(
+        &reporter,
+        "post",
+        "/api/report",
+        &json!({"entity_id":"test-place"}),
+    );
+    req.headers_mut()
+        .insert("host", "gateway.example.test".parse().unwrap());
+    req.headers_mut()
+        .insert("x-forwarded-proto", "https".parse().unwrap());
+    req.headers_mut()
+        .insert("x-original-path", "/places/api/report".parse().unwrap());
+    let resp = app.oneshot(req).await.unwrap();
+    let status = resp.status();
+    let bytes = to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    scratch.drop().await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["data"]["signed_url"]
+        .as_str()
+        .unwrap()
+        .starts_with("https://gateway.example.test/places/api/report/upload/"));
 }

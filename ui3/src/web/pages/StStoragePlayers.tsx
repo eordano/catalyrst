@@ -293,4 +293,3 @@ export default function StStoragePlayers({
   return <SitesChromeMaybe chrome={chrome && !embedded} active="create">{body}</SitesChromeMaybe>;
 }
 
-export { truncateAddress };

@@ -4,7 +4,7 @@ import { catalystBase, postJSON } from "../client";
 import { signedFetch } from "../../auth/signer";
 import type { AuthIdentity } from "../../auth/types";
 
-export const REPORT_REASONS = [
+const REPORT_REASONS = [
   "scam_phishing",
   "illegal_content",
   "harassment",
@@ -20,25 +20,25 @@ export const REPORT_LIMITS = {
   maxFileSizeMb: 10,
 } as const;
 
-export const ReasonOptionSchema = z.object({
+const ReasonOptionSchema = z.object({
   value: z.string().min(1),
   label: z.string().min(1),
 });
 export type ReasonOption = z.infer<typeof ReasonOptionSchema>;
 
-export const EvidenceFileSchema = z.object({
+const EvidenceFileSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   size: z.number().nonnegative(),
 });
-export type EvidenceFile = z.infer<typeof EvidenceFileSchema>;
+type EvidenceFile = z.infer<typeof EvidenceFileSchema>;
 
 export type EvidenceUpload = EvidenceFile & {
   blob?: Blob;
   contentType?: string;
 };
 
-export const ReportCopySchema = z
+const ReportCopySchema = z
   .object({
     reportedLabel: z.string(),
     reportedHelper: z.string(),
@@ -68,7 +68,7 @@ export const ReportCopySchema = z
   })
   .partial();
 
-export const ReportFixtureSchema = z.object({
+const ReportFixtureSchema = z.object({
   title: z.string(),
   successTitle: z.string(),
   successBody: z.string(),
@@ -115,7 +115,7 @@ export function isEthAddress(v: string | undefined | null): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test((v ?? "").trim());
 }
 
-export type ReportFieldErrors = {
+type ReportFieldErrors = {
   reportedAddress: string;
   reason: string;
   description: string;
@@ -131,7 +131,7 @@ const E = {
   mustConfirm: "You must confirm this information is accurate",
 } as const;
 
-export function validateTarget(reportedAddress: string): string {
+function validateTarget(reportedAddress: string): string {
   return isEthAddress(reportedAddress) ? "" : E.invalidAddress;
 }
 
@@ -165,12 +165,12 @@ export const failClosedSubmitReport: SubmitReportFn = async () => {
   throw new Error("report submission unavailable: report service not configured");
 };
 
-export const COMMS_PREFIX = "/comms";
-export const REPORT_PRESIGN_PATH = "/reports/players/presign";
-export const REPORT_CREATE_PATH = "/reports/players";
+const COMMS_PREFIX = "/comms";
+const REPORT_PRESIGN_PATH = "/reports/players/presign";
+const REPORT_CREATE_PATH = "/reports/players";
 
-export const NOT_CONNECTED_MESSAGE = "Connect your wallet to submit a report.";
-export const MISSING_BYTES_MESSAGE =
+const NOT_CONNECTED_MESSAGE = "Connect your wallet to submit a report.";
+const MISSING_BYTES_MESSAGE =
   "Re-attach your evidence files before submitting.";
 
 const PresignSlotSchema = z.object({

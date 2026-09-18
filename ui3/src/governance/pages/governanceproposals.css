@@ -198,13 +198,6 @@
   transition: background 0.12s ease;
 }
 .gp__submit:hover { background: var(--brand-hover); }
-.gp__submit--ghost {
-  margin-top: 14px;
-  background: var(--gv-surface);
-  color: var(--brand);
-  border: 1px solid var(--brand);
-}
-.gp__submit--ghost:hover { background: var(--gv-tint); }
 
 .gp__toolbar {
   display: flex;
@@ -346,20 +339,6 @@
   border: 1px solid var(--gv-line);
   border-radius: var(--r-card);
 }
-.gp__emptyicon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  margin-bottom: 8px;
-  color: var(--gv-faint);
-  background: var(--gv-wash);
-  border: 1px solid var(--gv-line);
-}
-.gp__emptytitle { margin: 0; font-size: 17px; font-weight: 700; color: var(--gv-ink); }
-.gp__emptysub { margin: 0; font-size: 13px; font-weight: 600; color: var(--gv-muted); }
 
 .gp__pager {
   display: flex;

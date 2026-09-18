@@ -12,6 +12,9 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 
+/// Parallel content-blob fetches per scene entity.
+const BLOB_FETCH_CONCURRENCY: usize = 8;
+
 const ZERO_ADDR: &str = "0x0000000000000000000000000000000000000000";
 
 struct Args {
@@ -300,19 +303,39 @@ async fn mirror_world(
     let mut new_blobs = 0usize;
     let mut scene_base_spawn: Option<String> = None;
     let mut records: Vec<(String, Value, Vec<String>, i64)> = Vec::new();
+    let blob_sem = Arc::new(Semaphore::new(BLOB_FETCH_CONCURRENCY));
     for (cid, base) in refs {
         let entity_bytes = fetch_blob(http, contents_dir, &base, &cid, &mut new_blobs).await?;
         let entity: Value =
             serde_json::from_slice(&entity_bytes).with_context(|| format!("parse entity {cid}"))?;
 
+        // Content blobs are independent hash-addressed files: fetch them concurrently.
+        let hashes: Vec<String> = entity["content"]
+            .as_array()
+            .map(|content| {
+                content
+                    .iter()
+                    .filter_map(|c| c["hash"].as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut set = tokio::task::JoinSet::new();
+        for hash in hashes {
+            let permit = blob_sem.clone().acquire_owned().await.unwrap();
+            let (http, contents_dir, base) =
+                (http.clone(), contents_dir.to_path_buf(), base.clone());
+            set.spawn(async move {
+                let _permit = permit;
+                let mut fetched = 0usize;
+                let bytes = fetch_blob(&http, &contents_dir, &base, &hash, &mut fetched).await?;
+                Ok::<_, anyhow::Error>((bytes.len() as i64, fetched))
+            });
+        }
         let mut size: i64 = 0;
-        if let Some(content) = entity["content"].as_array() {
-            for c in content {
-                if let Some(hash) = c["hash"].as_str() {
-                    let bytes = fetch_blob(http, contents_dir, &base, hash, &mut new_blobs).await?;
-                    size += bytes.len() as i64;
-                }
-            }
+        while let Some(joined) = set.join_next().await {
+            let (len, fetched) = joined.context("blob fetch task")??;
+            size += len;
+            new_blobs += fetched;
         }
 
         let parcels: Vec<String> = entity["pointers"]
@@ -355,23 +378,30 @@ async fn mirror_world(
     .await
     .with_context(|| format!("upsert world {name}"))?;
 
-    for (cid, entity, parcels, size) in &records {
+    if !records.is_empty() {
+        let cids: Vec<&str> = records.iter().map(|r| r.0.as_str()).collect();
+        let entities: Vec<Value> = records.iter().map(|r| r.1.clone()).collect();
+        let parcels: Vec<Value> = records.iter().map(|r| Value::from(r.2.clone())).collect();
+        let sizes: Vec<i64> = records.iter().map(|r| r.3).collect();
         sqlx::query(
             r#"INSERT INTO world_scenes
                  (world_name, entity_id, deployment_auth_chain, entity, deployer, parcels, size)
-               VALUES ($1, $2, '[]'::json, $3, $4, $5, $6)
+               SELECT $1, t.cid, '[]'::json, t.entity, $2,
+                      ARRAY(SELECT jsonb_array_elements_text(t.parcels)), t.size
+               FROM unnest($3::text[], $4::jsonb[], $5::jsonb[], $6::bigint[])
+                    AS t(cid, entity, parcels, size)
                ON CONFLICT (world_name, entity_id) DO UPDATE
                  SET entity = EXCLUDED.entity, parcels = EXCLUDED.parcels, size = EXCLUDED.size"#,
         )
         .bind(name)
-        .bind(cid)
-        .bind(entity)
         .bind(ZERO_ADDR)
-        .bind(parcels)
-        .bind(*size)
+        .bind(&cids)
+        .bind(&entities)
+        .bind(&parcels)
+        .bind(&sizes)
         .execute(&mut *tx)
         .await
-        .with_context(|| format!("upsert scene {cid}"))?;
+        .with_context(|| format!("upsert {} scenes of {name}", records.len()))?;
     }
     tx.commit().await.context("commit tx")?;
 

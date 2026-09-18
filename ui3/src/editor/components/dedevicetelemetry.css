@@ -1,0 +1,16 @@
+.device-telemetry { display: flex; flex-direction: column; gap: 12px; }
+.device-telemetry summary { cursor: pointer; padding-block: 8px; }
+.device-telemetry__metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 8px 0; }
+.device-telemetry__metrics dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; }
+.device-telemetry__metrics dt { color: var(--eui-muted, #a8adb8); }
+.device-telemetry__chart { width: 100%; max-height: 80px; color: var(--eui-accent, #ff2d55); }
+.device-telemetry__filters { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 12px; }
+.device-telemetry__filters label { display: flex; flex: 1; flex-direction: column; gap: 6px; min-width: 160px; }
+.device-telemetry :is(input, select, button) { background: var(--eui-surface, #1b1e25); color: inherit; border: 1px solid var(--eui-border, #333844); padding: 8px; border-radius: 4px; font: inherit; }
+.device-telemetry button { cursor: pointer; width: 100%; text-align: start; }
+.device-telemetry button[aria-pressed=true] { border-color: var(--eui-accent, #ff2d55); }
+.device-telemetry :is(input, select, button, summary):focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.device-telemetry__split { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(180px, 2fr); gap: 16px; }
+.device-telemetry__entities, .device-telemetry__components { min-width: 0; max-height: 320px; overflow: auto; }
+.device-telemetry pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .device-telemetry__split { grid-template-columns: 1fr; } }

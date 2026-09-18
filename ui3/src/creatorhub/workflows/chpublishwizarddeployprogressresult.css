@@ -385,17 +385,6 @@
   background: transparent;
   cursor: pointer;
 }
-
-.cpd__success-content {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 16px;
-  min-height: 380px;
-  padding-bottom: 80px;
-}
 .cpd__success-icon { width: 80px; height: 80px; }
 .cpd__success-message {
   color: var(--ink-6);
@@ -491,14 +480,6 @@
   align-items: center;
   justify-content: center;
   width: max-content;
-}
-.cpd__spinner {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 3px solid var(--fill-4);
-  border-top-color: var(--cpd-primary);
-  animation: u-spin 0.9s linear infinite;
 }
 
 .cpd__success {

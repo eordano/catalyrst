@@ -9,9 +9,7 @@ import {
   toPublishItems,
 } from "./wearable-publish-collection";
 
-export { MANA_PER_ITEM };
-
-export type PublishCollectionData = {
+type PublishCollectionData = {
   collection: PublishCollection;
   summary: SummaryView;
   manaPerItem: number;

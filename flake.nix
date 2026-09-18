@@ -3,7 +3,7 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   inputs.rust-overlay = { url = "github:oxalica/rust-overlay"; inputs.nixpkgs.follows = "nixpkgs"; };
-  inputs.abgen.url = "github:decentraland/abgen/v0.17.10";
+  inputs.abgen.url = "github:decentraland/abgen/v0.17.13";
   inputs.crane.url = "github:ipetkov/crane/v0.21.0";
 
   outputs = inputs@{ self, nixpkgs, rust-overlay, ... }:
@@ -35,6 +35,8 @@
 
           librusty_v8 = pkgs.callPackage ./crates/catalyrst-scene-state/nix/librusty_v8.nix { };
 
+          releaseVersion = (builtins.fromTOML (builtins.readFile ./crates/catalyrst-types/Cargo.toml)).package.version;
+
           commonArgs = {
             src = rustSrc;
             strictDeps = true;
@@ -54,7 +56,7 @@
 
           cargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
             pname = "catalyrst-workspace-deps";
-            version = "0.1.0";
+            version = releaseVersion;
             cargoExtraArgs = "--locked --workspace --features catalyrst-social-service/rpc";
           });
 
@@ -62,7 +64,7 @@
 
           svc = name: mkPkg {
             pname = name;
-            version = "0.1.0";
+            version = releaseVersion;
             cargoExtraArgs = "--locked -p ${name} --bin ${name}";
           };
 
@@ -78,14 +80,14 @@
 
             pulse = mkPkg {
               pname = "catalyrst-pulse";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-pulse --bin catalyrst-pulse";
               meta.mainProgram = "catalyrst-pulse";
             };
 
             catalyrst = mkPkg {
               pname = "catalyrst";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-server --bin catalyrst-live";
               postInstall = migrationsPostInstall;
             };
@@ -102,7 +104,7 @@
 
             catalyrst-communities = mkPkg {
               pname = "catalyrst-communities";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-social-service --bin catalyrst-communities";
             };
 
@@ -128,7 +130,7 @@
 
             catalyrst-worlds = mkPkg {
               pname = "catalyrst-worlds";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-worlds --bin catalyrst-worlds --bin worlds-mirror";
             };
 
@@ -138,11 +140,13 @@
 
             catalyrst-archipelago = svc "catalyrst-archipelago";
 
+            catalyrst-pulse = pulse;
+
             catalyrst-bvimposters = svc "catalyrst-bvimposters";
 
             catalyrst-preview-tunnel = mkPkg {
               pname = "catalyrst-preview-tunnel";
-              version = "0.14.1";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-preview-tunnel --bin catalyrst-preview-tunnel";
             };
 
@@ -150,7 +154,7 @@
 
             catalyrst-all = mkPkg {
               pname = "catalyrst-all";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-server --bin catalyrst-live -p catalyrst-explore --bin catalyrst-explore -p catalyrst-create --bin catalyrst-create -p catalyrst-data --bin catalyrst-data -p catalyrst-social --bin catalyrst-social -p catalyrst-social-service --features catalyrst-social-service/rpc --bin catalyrst-social-rpc -p catalyrst-explorer-api --bin catalyrst-explorer-api -p catalyrst-profile-images --bin catalyrst-profile-images -p catalyrst-scene-state --bin catalyrst-scene-state -p catalyrst-signatures --bin catalyrst-signatures -p catalyrst-telemetry --bin catalyrst-telemetry -p catalyrst-worlds --bin catalyrst-world-storage -p catalyrst-land-authz --bin catalyrst-land-authz-index";
               postInstall = migrationsPostInstall;
             };
@@ -192,6 +196,8 @@
         }
         // pkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
           module-first-boot = import ./nixos/tests/first-boot.nix { inherit pkgs self; };
+          module-comms-wiring = import ./nixos/tests/comms-wiring.nix { inherit pkgs; };
+          module-comms-v4-boot = import ./nixos/tests/comms-v4-boot.nix { inherit pkgs self; };
         });
 
       devShells = forAllSystems (pkgs:

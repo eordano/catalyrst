@@ -35,10 +35,9 @@ pub async fn get_notifications(
     };
     let only_unread = q.only_unread.unwrap_or(false);
 
-    state.notifications.touch_reader_seen(signer.as_str()).await;
     let items = state
         .notifications
-        .list(signer.as_str(), limit, q.from, only_unread)
+        .list_and_touch(signer.as_str(), limit, q.from, only_unread)
         .await?;
 
     Ok(Json(NotificationsListResponse {

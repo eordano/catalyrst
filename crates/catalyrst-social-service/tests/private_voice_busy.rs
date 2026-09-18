@@ -218,6 +218,63 @@ async fn start_call(
     .await
 }
 
+const TICK_CALLER: &str = "0x00000000000000000000000000000000cafe0001";
+const TICK_CALLEE: &str = "0x00000000000000000000000000000000cafe0002";
+
+#[tokio::test]
+async fn sweep_tick_issues_no_delete_until_a_call_is_due() {
+    let Some((db, scratch)) = connect().await else {
+        return;
+    };
+    cleanup(&db, TICK_CALLER, TICK_CALLEE).await;
+    let profiles = catalyrst_social_service::rpc::profiles::Profiles::new(None, String::new());
+    let ctx = Context::new(test_cfg(), db.clone(), profiles);
+
+    // A fresh process sweeps on its first tick; an empty table then arms the idle cadence.
+    assert_eq!(
+        ctx.sweep_private_voice_chats_if_due(EXPIRATION_MS, 20)
+            .await,
+        0
+    );
+    let now = chrono::Utc::now().timestamp_millis();
+    assert!(
+        !db.private_voice_sweep_due(now + 1_000),
+        "with nothing pending the next tick must not sweep"
+    );
+
+    let id = db
+        .start_private_voice_chat_if_free(TICK_CALLER, TICK_CALLEE, EXPIRATION_MS)
+        .await
+        .expect("start")
+        .expect("both parties are free");
+    assert!(
+        !db.private_voice_sweep_due(now + 1_000),
+        "a call started here is not due on the next tick"
+    );
+    assert!(
+        db.private_voice_sweep_due(now + EXPIRATION_MS + 1_000),
+        "a call started here is due once its TTL elapses"
+    );
+
+    backdate(&db, id, EXPIRATION_MS + 5_000).await;
+    assert_eq!(
+        ctx.sweep_private_voice_chats_if_due(EXPIRATION_MS, 20)
+            .await,
+        0,
+        "a tick before the noted due instant issues no DELETE"
+    );
+    db.note_private_voice_due(0);
+    assert_eq!(
+        ctx.sweep_private_voice_chats_if_due(EXPIRATION_MS, 20)
+            .await,
+        1,
+        "the tick at the due instant reclaims the expired call"
+    );
+
+    cleanup(&db, TICK_CALLER, TICK_CALLEE).await;
+    scratch.drop().await;
+}
+
 #[tokio::test]
 async fn self_call_is_forbidden() {
     let pool = PgPoolOptions::new()

@@ -4,6 +4,8 @@ fn main() {
         [
             "proto/decentraland/pulse/pulse_client.proto",
             "proto/decentraland/pulse/pulse_server.proto",
+            "proto/decentraland/pulse/pulse_clusters.proto",
+            "proto/decentraland/kernel/comms/v3/archipelago.proto",
             "proto/decentraland/common/vectors.proto",
         ],
         ["proto"],

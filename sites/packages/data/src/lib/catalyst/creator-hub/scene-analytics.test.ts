@@ -68,7 +68,7 @@ function wireScene(overrides: Record<string, unknown> = {}) {
 describe("when resolving the creators-data base URL", () => {
   it("should default to the production mount and strip trailing slashes", () => {
     expect(creatorsDataBase()).toBe(
-      "https://decentraland.org/creators-data/api",
+      "/api/creator-hub",
     );
     expect(creatorsDataBase("http://localhost:8787/api/")).toBe(
       "http://localhost:8787/api",
@@ -77,7 +77,7 @@ describe("when resolving the creators-data base URL", () => {
 });
 
 describe("when parsing the wire payload", () => {
-  it("should convert snake_case fields to the camelCase model", () => {
+  it("should convert snake_case to the camelCase model and reject missing collections or an unknown scene type", () => {
     const parsed = parseCreatorScenesStats({
       address: "0xabc",
       as_of: "2026-07-21",
@@ -96,9 +96,7 @@ describe("when parsing the wire payload", () => {
     expect(scene.retentionSeries[0].d30).toBeNull();
     expect(scene.daily[0].uniqueUsers).toBe(25);
     expect(scene.deployDates).toEqual(["2026-07-15"]);
-  });
 
-  it("should reject a scene whose measurement collections are missing", () => {
     expect(() =>
       parseCreatorScenesStats({
         address: "0xabc",
@@ -112,9 +110,6 @@ describe("when parsing the wire payload", () => {
         ],
       }),
     ).toThrow();
-  });
-
-  it("should reject a payload with an unknown scene type", () => {
     expect(() =>
       parseCreatorScenesStats({
         address: "0xabc",
@@ -130,7 +125,7 @@ describe("when fetching creator scene stats", () => {
     vi.mocked(signedGetJSON).mockReset();
   });
 
-  it("should issue one signed GET against the creators-data mount", async () => {
+  it("should issue one signed GET against the creators-data mount without doubling the /api segment", async () => {
     vi.mocked(signedGetJSON).mockResolvedValue({
       address: "0xabc",
       as_of: "2026-07-21",
@@ -138,24 +133,16 @@ describe("when fetching creator scene stats", () => {
     });
     const stats = await fetchCreatorScenesStats(identity);
     expect(signedGetJSON).toHaveBeenCalledTimes(1);
-    expect(signedGetJSON).toHaveBeenCalledWith(SCENE_STATS_PATH, {
-      identity,
-      base: "https://decentraland.org/creators-data/api",
-      signal: undefined,
-    });
+    expect(signedGetJSON).toHaveBeenCalledWith(
+      SCENE_STATS_PATH,
+      expect.objectContaining({ identity, base: "/api/creator-hub" }),
+    );
     expect(stats.scenes).toEqual([]);
-  });
 
-  it("should not double the /api segment", async () => {
-    vi.mocked(signedGetJSON).mockResolvedValue({
-      address: "0xabc",
-      as_of: "2026-07-21",
-      scenes: [],
-    });
     await fetchCreatorScenesStats(identity, {
       base: "http://localhost:8787/api",
     });
-    const call = vi.mocked(signedGetJSON).mock.calls[0];
+    const call = vi.mocked(signedGetJSON).mock.calls[1];
     expect(`${(call[1] as { base: string }).base}${call[0]}`).toBe(
       "http://localhost:8787/api/creators/me/scenes/stats",
     );

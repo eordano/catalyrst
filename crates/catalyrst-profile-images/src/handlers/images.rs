@@ -27,11 +27,12 @@ async fn serve(state: AppState, entity: String, kind: ImageKind) -> Response {
 
     if let Some(queue) = state.render_queue.as_ref() {
         match queue.render_once(&entity).await {
-            RenderOutcome::Rendered => {
-                if let Some(bytes) = state.cache.get(&entity, kind).await {
-                    return png_response(bytes, "RENDER");
-                }
-                tracing::error!(entity = %entity, kind = ?kind, "render reported success but cache miss");
+            RenderOutcome::Rendered { body, face } => {
+                let bytes = match kind {
+                    ImageKind::Body => body,
+                    ImageKind::Face => face,
+                };
+                return png_response(bytes, "RENDER");
             }
             RenderOutcome::NotFound => {
                 return (StatusCode::NOT_FOUND, "image not available").into_response();

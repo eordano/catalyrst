@@ -1,0 +1,31 @@
+.fp--chat { width: min(340px, calc(100vw - var(--sidebar-width, 46px) - 32px)); height: min(400px, 70vh); }
+.fp--chat .fp__body { overflow: hidden; }
+.fp--chat .fp__head { padding: 7px 12px; }
+.chat-channels { display: flex; flex: none; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--border-subtle, #ffffff24); }
+.chat-channels button { flex: 1; min-width: 0; color: var(--text-muted, #c9c3d0); background: transparent; border: 0; border-radius: 8px; padding: 10px 6px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.chat-channels button[aria-pressed="true"] { background: var(--fill-10, #ffffff1a); color: var(--text, #fff); }
+.chat-channels button:hover { background: var(--fill-5, #ffffff0d); }
+.chat-channel { display: flex; flex: 1; min-height: 0; }
+.chat-channel[hidden] { display: none; }
+.cchat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; font-size: 14px; }
+.cchat__heading { display: flex; align-items: center; gap: 10px; padding: 12px; border-bottom: 1px solid var(--border-subtle, #ffffff24); flex: none; }
+.cchat__heading > div:last-child { min-width: 0; }
+.cchat strong { display: block; overflow-wrap: anywhere; }
+.cchat small { display: block; margin-top: 3px; color: var(--text-muted, #c9c3d0); font-size: 12px; }
+.cchat__back { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border: 0; background: transparent; color: inherit; border-radius: 8px; cursor: pointer; }
+.cchat__back:hover { background: var(--fill-5, #ffffff0d); }
+.cchat__search { min-width: 0; box-sizing: border-box; margin: 12px; padding: 12px; color: inherit; font: inherit; background: var(--fill-5, #ffffff0d); border: 1px solid var(--border-subtle, #ffffff24); border-radius: 8px; flex: none; }
+.cchat__search::placeholder { color: var(--text-muted, #c9c3d0); }
+.cchat__conversations { list-style: none; margin: 0; padding: 0 6px 10px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.cchat__conversations button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 8px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cchat__conversations button:hover { background: var(--fill-5, #ffffff0d); }
+.cchat__conversations button > span { flex: 1; min-width: 0; }
+.cchat__conversations button > .u-avatar { flex: none; }
+.cchat__conversations svg { flex: none; color: var(--text-muted, #c9c3d0); }
+.cchat__notice { margin: 0; padding: 16px; color: var(--text-muted, #c9c3d0); font-size: 14px; line-height: 1.5; }
+.cchat [role="alert"] button { background: transparent; border: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
+.chat-channels :focus-visible, .cchat :focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: 2px; }
+@media (max-width: 600px) { .cchat__search { font-size: 16px; } }
+
+.cchat__empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center; }
+.cchat__empty p { margin: 0; max-width: 28ch; }

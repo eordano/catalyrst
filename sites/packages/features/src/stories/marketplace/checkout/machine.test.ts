@@ -48,8 +48,12 @@ const throwRun: FulfillFn = async () => {
   throw new Error("auth chain: Invalid Auth Chain");
 };
 
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
+
 describe("checkout machine", () => {
-  it("slug mappings are bijective", () => {
+  it("slugs are bijective with a review fallback, review needs no snapshot, and simulateFulfill resolves done", async () => {
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
@@ -58,13 +62,18 @@ describe("checkout machine", () => {
     expect(slugToState(undefined)).toBe("review");
     expect(slugToState("garbage")).toBe("review");
     expect(FIRST_STEP_SLUG).toBe("review");
+
+    const base = { totalCredits: "10", idempotencyKey: "k", trackCtx: TRACK_CTX };
+    expect(resolveCheckoutSnapshot({ step: "review", ...base })).toBeUndefined();
+    expect(resolveCheckoutSnapshot({ step: "fulfilling", ...base })).toBeDefined();
+
+    const r: FulfillResult = await simulateFulfill({ idempotencyKey: "k" });
+    expect(r.phase).toBe("done");
   });
 
   it("happy path review -> fulfilling -> done (one-step confirm)", async () => {
     const track = vi.fn();
-    const actor = createActor(checkoutMachine, { input: inputFor(okRun, track) });
-    actor.start();
-
+    const actor = createActor(checkoutMachine, { input: inputFor(okRun, track) }).start();
     expect(actor.getSnapshot().value).toBe("review");
     actor.send({ type: "CONFIRM" });
 
@@ -72,79 +81,41 @@ describe("checkout machine", () => {
     const snap = actor.getSnapshot();
     expect(snap.value).toBe("done");
     expect(snap.context.result?.checkoutId).toBe(42);
-
-    const events = track.mock.calls.map((c) => c[0]);
+    const events = names(track);
     expect(events).toContain(CHECKOUT_EVENTS.started);
     expect(events).toContain(CHECKOUT_EVENTS.confirmReached);
     expect(events).toContain(CHECKOUT_EVENTS.succeeded);
   });
 
-  it("failed terminal status routes to failed and can RETRY", async () => {
-    const track = vi.fn();
-    const actor = createActor(checkoutMachine, { input: inputFor(failRun, track) });
-    actor.start();
-    actor.send({ type: "CONFIRM" });
+  it("refunded and thrown fulfilments route to failed (RETRY re-runs); a pending poll-timeout routes to processing, not failed", async () => {
+    const refundedTrack = vi.fn();
+    const refunded = createActor(checkoutMachine, {
+      input: inputFor(failRun, refundedTrack),
+    }).start();
+    refunded.send({ type: "CONFIRM" });
+    await waitFor(refunded, (s) => s.value === "failed");
+    expect(refunded.getSnapshot().context.result?.status).toBe("refunded");
+    expect(names(refundedTrack)).toContain(CHECKOUT_EVENTS.failed);
+    refunded.send({ type: "RETRY" });
+    expect(refunded.getSnapshot().value).toBe("fulfilling");
 
-    await waitFor(actor, (s) => s.value === "failed");
-    expect(actor.getSnapshot().context.result?.status).toBe("refunded");
-    expect(track.mock.calls.map((c) => c[0])).toContain(CHECKOUT_EVENTS.failed);
+    const thrown = createActor(checkoutMachine, { input: inputFor(throwRun, vi.fn()) }).start();
+    thrown.send({ type: "CONFIRM" });
+    await waitFor(thrown, (s) => s.value === "failed");
+    expect(thrown.getSnapshot().context.error).toMatch(/Invalid Auth Chain/);
 
-    actor.send({ type: "RETRY" });
-    expect(actor.getSnapshot().value).toBe("fulfilling");
-  });
-
-  it("poll-timeout (phase pending) routes to processing, not failed", async () => {
-    const track = vi.fn();
-    const actor = createActor(checkoutMachine, {
-      input: inputFor(pendingRun, track),
-    });
-    actor.start();
-    actor.send({ type: "CONFIRM" });
-
-    await waitFor(actor, (s) => s.value === "processing");
-    const snap = actor.getSnapshot();
-    expect(snap.value).toBe("processing");
+    const pendingTrack = vi.fn();
+    const pending = createActor(checkoutMachine, {
+      input: inputFor(pendingRun, pendingTrack),
+    }).start();
+    pending.send({ type: "CONFIRM" });
+    await waitFor(pending, (s) => s.value === "processing");
+    const snap = pending.getSnapshot();
     expect(snap.context.result?.status).toBe("fulfilling");
     expect(snap.context.result?.checkoutId).toBe(44);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CHECKOUT_EVENTS.processing);
-    expect(events).not.toContain(CHECKOUT_EVENTS.failed);
-
-    actor.send({ type: "RETRY" });
-    expect(actor.getSnapshot().value).toBe("processing");
-  });
-
-  it("thrown fulfilment error routes to failed with the message", async () => {
-    const track = vi.fn();
-    const actor = createActor(checkoutMachine, { input: inputFor(throwRun, track) });
-    actor.start();
-    actor.send({ type: "CONFIRM" });
-
-    await waitFor(actor, (s) => s.value === "failed");
-    expect(actor.getSnapshot().context.error).toMatch(/Invalid Auth Chain/);
-  });
-
-  it("resolveCheckoutSnapshot returns undefined for review and a snapshot otherwise", () => {
-    expect(
-      resolveCheckoutSnapshot({
-        step: "review",
-        totalCredits: "10",
-        idempotencyKey: "k",
-        trackCtx: TRACK_CTX,
-      }),
-    ).toBeUndefined();
-    const snap = resolveCheckoutSnapshot({
-      step: "fulfilling",
-      totalCredits: "10",
-      idempotencyKey: "k",
-      trackCtx: TRACK_CTX,
-    });
-    expect(snap).toBeDefined();
-  });
-
-  it("simulateFulfill resolves done", async () => {
-    const r: FulfillResult = await simulateFulfill({ idempotencyKey: "k" });
-    expect(r.phase).toBe("done");
+    expect(names(pendingTrack)).toContain(CHECKOUT_EVENTS.processing);
+    expect(names(pendingTrack)).not.toContain(CHECKOUT_EVENTS.failed);
+    pending.send({ type: "RETRY" });
+    expect(pending.getSnapshot().value).toBe("processing");
   });
 });

@@ -12,7 +12,7 @@ const STEPS = [
   },
 ];
 
-export type MkCreditsGoal = {
+type MkCreditsGoal = {
   title: string;
   status: "progress" | "claim" | "completed" | "claimed";
   completed: number;
@@ -20,7 +20,7 @@ export type MkCreditsGoal = {
   reward: number;
 };
 
-export type MkCreditsHubData = {
+type MkCreditsHubData = {
   available: number;
   earned: number;
   paid: number;

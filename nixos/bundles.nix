@@ -132,6 +132,7 @@ let
       port,
       extraEnv ? { },
       needsLivekit ? false,
+      envCredentials ? { },
       mem ? cfg.resources.bundleMemoryMax,
       afterExtra ? [ ],
       path ? [ ],
@@ -141,11 +142,16 @@ let
     }:
     let
       exe = "${pkg}/bin/${bin}";
+      credentials =
+        lib.optionalAttrs needsLivekit { livekit-env = "${cfg.secretsDir}/livekit-api.env"; }
+        // envCredentials;
       execStart =
-        if needsLivekit then
+        if credentials != { } then
           pkgs.writeShellScript "${name}-launcher" ''
             set -a
-            . "$CREDENTIALS_DIRECTORY/livekit-env"
+            ${lib.concatMapStringsSep "\n" (credential: ". \"$CREDENTIALS_DIRECTORY/${credential}\"") (
+              lib.attrNames credentials
+            )}
             set +a
             exec ${exe}
           ''
@@ -188,8 +194,8 @@ let
         // lib.optionalAttrs (preStart != null) {
           ExecStartPre = preStart;
         }
-        // lib.optionalAttrs needsLivekit {
-          LoadCredential = "livekit-env:${cfg.secretsDir}/livekit-api.env";
+        // lib.optionalAttrs (credentials != { }) {
+          LoadCredential = lib.mapAttrsToList (credential: path: "${credential}:${path}") credentials;
         };
     };
 in
@@ -228,6 +234,7 @@ lib.mkIf cfg.enable {
           BUNDLE_HTTP_PORT = "5144";
           API_URL = d.publicUrl;
           BUILDER_CONTENT_BUCKET_URL = "${d.publicUrl}/content";
+          BUILDER_CATALOG_DIR = "${cfg.stateDir}/builder-catalog";
         };
       };
     }
@@ -237,7 +244,14 @@ lib.mkIf cfg.enable {
         bin = "catalyrst-social";
         port = 5145;
         needsLivekit = true;
-        afterExtra = [ "livekit.service" ];
+        envCredentials = lib.optionalAttrs d.v4.relay.enabled {
+          pulse-room-authority-env = d.v4.relay.keyFile;
+        };
+        afterExtra = [
+          "livekit.service"
+        ]
+        ++ lib.optional d.v4.enabled "nats.service"
+        ++ lib.optional d.v4.relay.enabled "pulse-relay-secret.service";
         extraEnv = {
           BUNDLE_HTTP_PORT = "5145";
           LAMBDAS_URL = "http://127.0.0.1:5141/lambdas";
@@ -248,6 +262,12 @@ lib.mkIf cfg.enable {
           TRANSLATE_BACKEND_URL = "http://127.0.0.1:${toString facts.units.libretranslate.port}";
           BADGES_ASSETS_DIR = "${badgesAssets}";
           BADGES_PUBLIC_ASSET_BASE_URL = "${d.scheme}://badges.${cfg.domain}";
+        }
+        // lib.optionalAttrs d.v4.enabled {
+          COMMS_CONTROL_V4_AUDIENCE = d.v4.audience;
+          COMMS_CONTROL_PG_CONNECTION_STRING = d.v4.controlConn "catalyrst";
+          NATS_URL = "nats://127.0.0.1:4222";
+          CLUSTER_SUBSCRIBER_ENABLED = "true";
         };
       };
     }

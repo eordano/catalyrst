@@ -1,9 +1,9 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::crdt::{decode_batch, CrdtMessage};
 use crate::loader::load_or_reload;
@@ -94,8 +94,8 @@ struct InspectResp {
     #[serde(rename = "messageCount")]
     message_count: usize,
 
-    #[serde(rename = "snapshotHex")]
-    snapshot_hex: String,
+    #[serde(rename = "snapshotHex", skip_serializing_if = "Option::is_none")]
+    snapshot_hex: Option<String>,
 
     messages: Vec<CrdtMsgView>,
 }
@@ -156,10 +156,18 @@ fn to_hex(bytes: &[u8]) -> String {
     s
 }
 
+#[derive(Deserialize, Default)]
+struct InspectQuery {
+    /// `snapshotHex=false` leaves the raw hex dump out; it is included by default.
+    #[serde(rename = "snapshotHex")]
+    snapshot_hex: Option<bool>,
+}
+
 async fn inspect_crdt(
     State(s): State<AppState>,
     headers: HeaderMap,
     Path(scene_name): Path<String>,
+    Query(q): Query<InspectQuery>,
 ) -> axum::response::Response {
     if let Err(resp) = authorize(&s, &headers) {
         return resp;
@@ -175,7 +183,7 @@ async fn inspect_crdt(
         connections: scene.client_count(),
         snapshot_bytes: snapshot.len(),
         message_count: messages.len(),
-        snapshot_hex: to_hex(&snapshot),
+        snapshot_hex: q.snapshot_hex.unwrap_or(true).then(|| to_hex(&snapshot)),
         messages,
     })
     .into_response()

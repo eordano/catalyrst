@@ -4,6 +4,8 @@ declare module "three" {
     y: number;
     z: number;
     set(x: number, y: number, z: number): this;
+    setScalar(value: number): this;
+    length(): number;
   }
 
   export class Color {
@@ -39,11 +41,17 @@ declare module "three" {
     visible: boolean;
     position: Vector3;
     rotation: Euler;
+    scale: Vector3;
     isMesh?: boolean;
     material?: Material | Material[];
     geometry?: BufferGeometry;
+    children: Object3D[];
     add(...objects: Object3D[]): this;
+    remove(...objects: Object3D[]): this;
+    getObjectByName(name: string): Object3D | undefined;
+    lookAt(target: Vector3): void;
     traverse(callback: (object: Object3D) => void): void;
+    updateWorldMatrix(updateParents: boolean, updateChildren: boolean): void;
   }
 
   export class Group extends Object3D {}
@@ -84,6 +92,11 @@ declare module "three" {
     dispose(): void;
   }
 
+  export class BoxGeometry {
+    constructor(width?: number, height?: number, depth?: number);
+    dispose(): void;
+  }
+
   export class CylinderGeometry {
     constructor(
       radiusTop?: number,
@@ -106,8 +119,8 @@ declare module "three" {
 
   export class Mesh extends Object3D {
     constructor(
-      geometry?: BufferGeometry | CylinderGeometry,
-      material?: MeshBasicMaterial | MeshBasicMaterial[],
+      geometry?: BufferGeometry | BoxGeometry | CylinderGeometry,
+      material?: MeshBasicMaterial | MeshBasicMaterial[] | MeshStandardMaterial,
     );
   }
 
@@ -124,6 +137,10 @@ declare module "three" {
     constructor(skyColor?: number | string, groundColor?: number | string, intensity?: number);
   }
 
+  export class AmbientLight extends Object3D {
+    constructor(color?: number | string, intensity?: number);
+  }
+
   export class DirectionalLight extends Object3D {
     constructor(color?: number | string, intensity?: number);
   }
@@ -132,7 +149,13 @@ declare module "three" {
     name: string;
   }
 
-  export interface AnimationClip {
+  export class VectorKeyframeTrack implements KeyframeTrack {
+    constructor(name: string, times: ArrayLike<number>, values: ArrayLike<number>);
+    name: string;
+  }
+
+  export class AnimationClip {
+    constructor(name?: string, duration?: number, tracks?: KeyframeTrack[]);
     tracks: KeyframeTrack[];
     duration: number;
   }
@@ -143,9 +166,21 @@ declare module "three" {
 
   export class AnimationMixer {
     constructor(root: Object3D);
-    update(deltaSeconds: number): void;
-    stopAllAction(): void;
+    time: number;
+    update(deltaSeconds: number): this;
+    setTime(seconds: number): this;
+    stopAllAction(): this;
     clipAction(clip: AnimationClip): AnimationAction;
+  }
+
+  export class PropertyBinding {
+    static parseTrackName(trackName: string): {
+      nodeName: string;
+      objectName?: string;
+      objectIndex?: string;
+      propertyName: string;
+      propertyIndex?: string;
+    };
   }
 
   export class Clock {
@@ -154,7 +189,7 @@ declare module "three" {
 
   export class Box3 {
     min: Vector3;
-    setFromObject(object: Object3D): this;
+    setFromObject(object: Object3D, precise?: boolean): this;
     isEmpty(): boolean;
     getSize(target: Vector3): Vector3;
     getCenter(target: Vector3): Vector3;
@@ -165,6 +200,7 @@ declare module "three" {
   }
 
   export interface WebGLRendererParameters {
+    preserveDrawingBuffer?: boolean;
     antialias?: boolean;
     alpha?: boolean;
   }
@@ -204,6 +240,7 @@ declare module "three/examples/jsm/loaders/GLTFLoader.js" {
   export class GLTFLoader {
     constructor(manager?: LoadingManager);
     loadAsync(url: string): Promise<GLTF>;
+    parseAsync(data: string | ArrayBuffer, path: string): Promise<GLTF>;
   }
 }
 

@@ -118,7 +118,7 @@
 .gd__pill--ghost {
   background: rgba(255, 255, 255, .14);
   border: 1px solid rgba(255, 255, 255, .55);
-  color: #fff;
+  color: #161518;
 }
 .gd__pill--cat {
   background: var(--tone-bg, var(--gv-wash));
@@ -489,8 +489,6 @@
   min-height: 420px;
   text-align: center;
 }
-.gd__notfoundtitle { font-size: 22px; font-weight: 700; color: var(--gv-ink); }
-.gd__notfoundsub { font-size: 14px; color: var(--gv-muted); max-width: 360px; }
 
 @media (max-width: 1100px) {
   .gd__cols { flex-direction: column; }

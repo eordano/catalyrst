@@ -10,7 +10,7 @@ export const NOTIFICATION_CATEGORIES = [
   "marketplace",
   "system",
 ] as const;
-export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export function categoryForType(type: string): NotificationCategory {
   const t = type.toLowerCase();
@@ -32,10 +32,10 @@ export function categoryForType(type: string): NotificationCategory {
   return "system";
 }
 
-export const NotificationSchema = NotificationItemSchema;
+const NotificationSchema = NotificationItemSchema;
 export type Notification = z.infer<typeof NotificationSchema>;
 
-export const ListEnvelopeSchema = z.object({
+const ListEnvelopeSchema = z.object({
   notifications: z.array(z.unknown()),
 });
 
@@ -49,13 +49,6 @@ export function parseNotifications(raw: unknown): Notification[] {
   }
   out.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
   return out;
-}
-
-export function humanizeType(type: string): string {
-  return type
-    .split("_")
-    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
-    .join(" ");
 }
 
 export function unreadCount(rows: Notification[]): number {

@@ -23,7 +23,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const categoryRaw = url.searchParams.get("category")?.trim() ?? "";
   const requestRaw = url.searchParams.get("request")?.trim() ?? "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,

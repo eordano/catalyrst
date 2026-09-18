@@ -33,32 +33,25 @@ afterEach(() => {
 
 const CARD: ShopCard = { id: "urn:a:1", name: "Hat", price: "500", rarity: "rare", network: "polygon" };
 
-test("toggle adds then removes; getFavorites + isFavorite reflect it", () => {
-  expect(getFavorites()).toEqual([]);
-  expect(toggleFavorite(CARD)).toBe(true);
-  expect(isFavorite("urn:a:1")).toBe(true);
-  expect(getFavorites().map((c) => c.id)).toEqual(["urn:a:1"]);
-  expect(toggleFavorite(CARD)).toBe(false);
-  expect(isFavorite("urn:a:1")).toBe(false);
-  expect(getFavorites()).toEqual([]);
-});
-
-test("newest favourite is prepended (most-recent first)", () => {
-  toggleFavorite(CARD);
-  toggleFavorite({ ...CARD, id: "urn:b:2", name: "Boots" });
-  expect(getFavorites().map((c) => c.id)).toEqual(["urn:b:2", "urn:a:1"]);
-});
-
-test("subscribe fires on write and unsubscribes cleanly", () => {
+test("toggle adds newest-first then removes, getFavorites + isFavorite reflect it, and subscribers fire per write until unsubscribed", () => {
   let n = 0;
   const off = subscribe(() => {
     n += 1;
   });
-  toggleFavorite(CARD);
+
+  expect(getFavorites()).toEqual([]);
+  expect(toggleFavorite(CARD)).toBe(true);
+  expect(isFavorite("urn:a:1")).toBe(true);
   expect(n).toBe(1);
+  toggleFavorite({ ...CARD, id: "urn:b:2", name: "Boots" });
+  expect(getFavorites().map((c) => c.id)).toEqual(["urn:b:2", "urn:a:1"]);
+  expect(n).toBe(2);
+
   off();
-  toggleFavorite(CARD);
-  expect(n).toBe(1);
+  expect(toggleFavorite(CARD)).toBe(false);
+  expect(isFavorite("urn:a:1")).toBe(false);
+  expect(getFavorites().map((c) => c.id)).toEqual(["urn:b:2"]);
+  expect(n).toBe(2);
 });
 
 test("favorites are isolated per account and hidden when signed out", () => {

@@ -43,49 +43,43 @@ function inputFor(save: SaveFn, track: TrackFn): EmotesInput {
   };
 }
 
-const EXPECTED_STATES = new Set([
-  "opening",
-  "picking",
-  "browsing",
-  "assigning",
-  "reviewing",
-  "saving",
-  "done",
-  "error",
-]);
+const WAVE = { urn: "urn:decentraland:off-chain:base-emotes:wave", name: "Wave" };
+
+const TRAVERSAL_EVENTS = [
+  { type: "OPEN" as const },
+  { type: "PICK_SLOT" as const, slot: 3 },
+  { type: "ASSIGN" as const, ...WAVE },
+  { type: "CONFIRM" as const },
+  { type: "REVIEW" as const },
+  { type: "SAVE" as const },
+  { type: "BACK" as const },
+  { type: "RETRY" as const },
+];
+
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
 
 describe("emotesMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(emotesMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
+  it("maps every state to a unique round-tripping slug, resolves step+slot URLs, and falls back to opening", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(emotesMachine.states)));
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.opening);
-    expect(slugToState(null)).toBe("opening");
-    expect(slugToState(undefined)).toBe("opening");
-    expect(slugToState("")).toBe("opening");
-    expect(slugToState("nope")).toBe("opening");
     expect(slugToState("browse")).toBe("browsing");
     expect(slugToState("assign")).toBe("assigning");
     expect(slugToState("review")).toBe("reviewing");
     expect(slugToState("save")).toBe("saving");
     expect(slugToState("done")).toBe("done");
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.opening);
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("opening");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
 
-  it("resolveStep maps the spec's step+slot URLs", () => {
     expect(resolveStep(null, null)).toBe("opening");
     expect(resolveStep(null, 3)).toBe("picking");
     expect(resolveStep(undefined, 0)).toBe("picking");
@@ -98,186 +92,109 @@ describe("emotesMachine \u{2014} URL ?step slug map", () => {
 });
 
 describe("emotesMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveEmotesSnapshot({
-      step: "opening",
-      trackCtx: inputFor(okSave, () => {}).trackCtx,
-      loadout: SEED,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating a later step does NOT fire telemetry and does NOT auto-save", async () => {
+  it("boots opening without a snapshot, hydrates save/assign silently with seeded context, and only real transitions track", async () => {
     const track = vi.fn();
     const save = vi.fn(okSave);
-    const snapshot = resolveEmotesSnapshot({
-      step: "saving",
-      trackCtx: inputFor(save, track).trackCtx,
-      loadout: SEED,
-      save,
-      track,
-    });
-    const actor = createActor(emotesMachine, {
-      input: inputFor(save, track),
-      snapshot,
-    }).start();
+    const trackCtx = inputFor(save, track).trackCtx;
+    expect(resolveEmotesSnapshot({ step: "opening", trackCtx, loadout: SEED })).toBeUndefined();
 
-    expect(actor.getSnapshot().matches("saving")).toBe(true);
+    const saving = createActor(emotesMachine, {
+      input: inputFor(save, track),
+      snapshot: resolveEmotesSnapshot({ step: "saving", trackCtx, loadout: SEED, save, track }),
+    }).start();
+    expect(saving.getSnapshot().matches("saving")).toBe(true);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("saving")).toBe(true);
-  });
+    expect(saving.getSnapshot().matches("saving")).toBe(true);
 
-  it("hydrating assign seeds the slot + staged emote", () => {
-    const track = vi.fn();
-    const snapshot = resolveEmotesSnapshot({
-      step: "assigning",
-      trackCtx: inputFor(okSave, track).trackCtx,
-      loadout: SEED,
-      slot: 5,
-      urn: "urn:decentraland:off-chain:base-emotes:wave",
-      name: "Wave",
-      track,
-    });
-    const actor = createActor(emotesMachine, {
+    const assigning = createActor(emotesMachine, {
       input: inputFor(okSave, track),
-      snapshot,
+      snapshot: resolveEmotesSnapshot({
+        step: "assigning",
+        trackCtx,
+        loadout: SEED,
+        slot: 5,
+        ...WAVE,
+        track,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("assigning")).toBe(true);
-    expect(actor.getSnapshot().context.activeSlot).toBe(5);
-    expect(actor.getSnapshot().context.pendingUrn).toContain("wave");
-    expect(track).not.toHaveBeenCalled();
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveEmotesSnapshot({
-      step: "browsing",
-      trackCtx: inputFor(okSave, track).trackCtx,
-      loadout: SEED,
-      slot: 4,
-      track,
-    });
-    const actor = createActor(emotesMachine, {
-      input: inputFor(okSave, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("browsing")).toBe(true);
+    expect(assigning.getSnapshot().matches("assigning")).toBe(true);
+    expect(assigning.getSnapshot().context.activeSlot).toBe(5);
+    expect(assigning.getSnapshot().context.pendingUrn).toContain("wave");
     expect(track).not.toHaveBeenCalled();
 
-    actor.send({
-      type: "ASSIGN",
-      urn: "urn:decentraland:off-chain:base-emotes:wave",
-      name: "Wave",
-    });
-    expect(actor.getSnapshot().matches("assigning")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(EMOTES_EVENTS.assigned);
+    const browsing = createActor(emotesMachine, {
+      input: inputFor(okSave, track),
+      snapshot: resolveEmotesSnapshot({ step: "browsing", trackCtx, loadout: SEED, slot: 4, track }),
+    }).start();
+    expect(browsing.getSnapshot().matches("browsing")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+    browsing.send({ type: "ASSIGN", ...WAVE });
+    expect(browsing.getSnapshot().matches("assigning")).toBe(true);
+    expect(names(track)).toContain(EMOTES_EVENTS.assigned);
   });
 });
 
-const TRAVERSAL_EVENTS = [
-  { type: "OPEN" as const },
-  { type: "PICK_SLOT" as const, slot: 3 },
-  {
-    type: "ASSIGN" as const,
-    urn: "urn:decentraland:off-chain:base-emotes:wave",
-    name: "Wave",
-  },
-  { type: "CONFIRM" as const },
-  { type: "REVIEW" as const },
-  { type: "SAVE" as const },
-  { type: "BACK" as const },
-  { type: "RETRY" as const },
-];
-
 describe("emotesMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("event paths reach picking, browsing, assigning, reviewing and saving, and saving needs OPEN, REVIEW, SAVE", () => {
     const paths = getShortestPaths(emotesMachine, {
       input: inputFor(okSave, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
       const value = p.state.value as string;
       ends.add(value);
-      expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("picking")).toBe(true);
-    expect(ends.has("browsing")).toBe(true);
-    expect(ends.has("assigning")).toBe(true);
-    expect(ends.has("reviewing")).toBe(true);
-    expect(ends.has("saving")).toBe(true);
-  });
-
-  it("reaching saving passes through OPEN, PICK_SLOT, REVIEW, SAVE", () => {
-    const paths = getShortestPaths(emotesMachine, {
-      input: inputFor(okSave, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["picking", "browsing", "assigning", "reviewing", "saving"]) {
+      expect(ends.has(s)).toBe(true);
+    }
     const saving = paths.find((p) => (p.state.value as string) === "saving");
-    expect(saving).toBeDefined();
     const events = saving!.steps.map((s) => s.event.type);
-    expect(events).toContain("OPEN");
-    expect(events).toContain("REVIEW");
-    expect(events).toContain("SAVE");
+    for (const e of ["OPEN", "REVIEW", "SAVE"]) expect(events).toContain(e);
   });
 });
 
 describe("emotesMachine \u{2014} telemetry events (happy path)", () => {
   it("open -> pick -> assign -> confirm -> review -> save fires the full funnel", async () => {
     const track = vi.fn();
-    const actor = createActor(emotesMachine, {
-      input: inputFor(okSave, track),
-    }).start();
+    const actor = createActor(emotesMachine, { input: inputFor(okSave, track) }).start();
 
     actor.send({ type: "OPEN" });
     expect(actor.getSnapshot().matches("picking")).toBe(true);
-
     actor.send({ type: "PICK_SLOT", slot: 5 });
     expect(actor.getSnapshot().matches("browsing")).toBe(true);
-
-    actor.send({
-      type: "ASSIGN",
-      urn: "urn:decentraland:off-chain:base-emotes:wave",
-      name: "Wave",
-    });
+    actor.send({ type: "ASSIGN", ...WAVE });
     expect(actor.getSnapshot().matches("assigning")).toBe(true);
-
     actor.send({ type: "CONFIRM" });
     expect(actor.getSnapshot().matches("picking")).toBe(true);
     const slot5 = actor.getSnapshot().context.loadout.find((b) => b.slot === 5);
     expect(slot5?.urn).toContain("wave");
-
     actor.send({ type: "REVIEW" });
     expect(actor.getSnapshot().matches("reviewing")).toBe(true);
-
     actor.send({ type: "SAVE" });
     await waitFor(actor, (s) => s.matches("done"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(EMOTES_EVENTS.started);
-    expect(events).toContain(EMOTES_EVENTS.slotPicked);
-    expect(events).toContain(EMOTES_EVENTS.browse);
-    expect(events).toContain(EMOTES_EVENTS.assigned);
-    expect(events).toContain(EMOTES_EVENTS.review);
-    expect(events).toContain(EMOTES_EVENTS.saved);
-    expect(events).toContain(EMOTES_EVENTS.done);
-
-    expect(events.indexOf(EMOTES_EVENTS.started)).toBeLessThan(
-      events.indexOf(EMOTES_EVENTS.saved),
-    );
-
+    const events = names(track);
+    for (const e of [
+      EMOTES_EVENTS.started,
+      EMOTES_EVENTS.slotPicked,
+      EMOTES_EVENTS.browse,
+      EMOTES_EVENTS.assigned,
+      EMOTES_EVENTS.review,
+      EMOTES_EVENTS.saved,
+      EMOTES_EVENTS.done,
+    ]) {
+      expect(events).toContain(e);
+    }
+    expect(events.indexOf(EMOTES_EVENTS.started)).toBeLessThan(events.indexOf(EMOTES_EVENTS.saved));
     const pickedCall = track.mock.calls.find((c) => c[0] === EMOTES_EVENTS.slotPicked);
     expect(pickedCall?.[1]).toMatchObject({ slot: 5 });
     const assignedCall = track.mock.calls.find((c) => c[0] === EMOTES_EVENTS.assigned);
     expect(assignedCall?.[1]).toMatchObject({ slot: 5 });
     expect((assignedCall?.[1] as { urn: string }).urn).toContain("wave");
-
     expect(pickedCall?.[2]).toMatchObject({
       sid: "sid-abc",
       experimentKey: "cl_backpack_emotes",
@@ -295,28 +212,23 @@ describe("emotesMachine \u{2014} save failure + retry", () => {
       if (calls === 1) throw new Error("content server unreachable");
       return okSave(args);
     };
-
-    const snapshot = resolveEmotesSnapshot({
-      step: "reviewing",
-      trackCtx: inputFor(save, track).trackCtx,
-      loadout: SEED,
-      save,
-      track,
-    });
     const actor = createActor(emotesMachine, {
       input: inputFor(save, track),
-      snapshot,
+      snapshot: resolveEmotesSnapshot({
+        step: "reviewing",
+        trackCtx: inputFor(save, track).trackCtx,
+        loadout: SEED,
+        save,
+        track,
+      }),
     }).start();
 
     actor.send({ type: "SAVE" });
     await waitFor(actor, (s) => s.matches("error"));
     expect(actor.getSnapshot().context.error).toBe("content server unreachable");
-
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("done"));
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(EMOTES_EVENTS.saved);
+    expect(names(track)).toContain(EMOTES_EVENTS.saved);
   });
 });
 

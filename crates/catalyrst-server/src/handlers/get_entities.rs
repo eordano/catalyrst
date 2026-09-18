@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use axum::extract::{Path, Request, State};
-use axum::response::IntoResponse;
+use axum::http::header::CONTENT_TYPE;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::Value;
 
 use crate::errors::{AppError, AppResult, InvalidRequestError};
 use crate::formatters::{mask_entity, EntityField};
 use crate::query_params::{parse_query_string, qs_get_array, qs_get_string};
-use crate::state::{retain_non_denylisted, AppState};
+use crate::state::{retain_non_denylisted_docs, AppState, EntityDoc};
 use crate::validation::{validate_ids_or_pointers, MAX_IDS_OR_POINTERS};
 
 pub async fn get_entities(
@@ -51,34 +52,48 @@ pub async fn get_entities(
             .collect()
     });
 
-    let mut entities: Vec<Value> = if use_ids {
+    let mut entities = if use_ids {
         state
             .database
-            .active_entities_by_ids(&ids)
+            .active_entity_docs_by_ids(&ids)
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?
     } else {
         state
             .database
-            .active_entities_by_pointers(&pointers)
+            .active_entity_docs_by_pointers(&pointers)
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?
     };
 
-    retain_non_denylisted(&mut entities, state.denylist.as_ref());
+    retain_non_denylisted_docs(&mut entities, state.denylist.as_ref());
 
-    let masked: Vec<Value> = entities
-        .iter()
-        .map(|e| mask_entity(e, fields.as_deref()))
-        .collect();
-
-    let mut response = Json(Value::Array(masked)).into_response();
+    // Cached documents already carry exactly the unmasked key set, so only a `fields` selection parses.
+    let mut response = match fields {
+        Some(fields) => {
+            let masked: Vec<Value> = entities
+                .iter()
+                .filter_map(EntityDoc::to_value)
+                .map(|e| mask_entity(&e, Some(&fields)))
+                .collect();
+            Json(Value::Array(masked)).into_response()
+        }
+        None => json_docs_response(&entities),
+    };
     if let Some(cache_control) = entities_cache_control(state.entities_cache_control_max_age) {
         if let Ok(hv) = cache_control.parse() {
             response.headers_mut().insert("Cache-Control", hv);
         }
     }
     Ok(response)
+}
+
+pub(crate) fn json_docs_response(docs: &[EntityDoc]) -> Response {
+    (
+        [(CONTENT_TYPE, "application/json")],
+        EntityDoc::json_array(docs),
+    )
+        .into_response()
 }
 
 pub(crate) fn entities_cache_control(max_age: u64) -> Option<String> {

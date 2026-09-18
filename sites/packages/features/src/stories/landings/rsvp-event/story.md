@@ -6,7 +6,7 @@ hypothesis:
   statement: >-
     A clear RSVP flow (sign-in gate -> confirm "going" -> confirmed, with a
     one-tap cancel) increases the share of started RSVPs that reach the "going"
-    state, even with the auth signature stubbed.
+    state through a real signed attendee write.
   because: >-
     Making the steps explicit (who you are -> what you're committing to ->
     confirmation) reduces uncertainty about a wallet-signed action, so more
@@ -36,31 +36,28 @@ decision:
     error/auth-rejected path stays graceful); otherwise hold.
 ---
 
-# Attend / RSVP to an event (going) + cancel RSVP
+# Attend an event or cancel an RSVP
 
-The RSVP flow on an event landing (`/landings/rsvp-event`) lets an attendee mark
-themselves **going** to a live What's On event and later **cancel** that RSVP.
-Because the action is wallet-signed, the wizard breaks it into explicit steps: a
-sign-in gate, a confirm step that states what you're committing to, a submitting
-state, and a confirmed ("going") state with a one-tap cancel.
+## Current capability
 
-- **Primary metric:** `lp_rsvp_going_rate` = `lp_rsvp_going` / `lp_rsvp_started`.
-- **Guardrails:** RSVP-start volume (`lp_rsvp_started`), cancel volume
-  (`lp_rsvp_cancelled`), and the error/auth-rejected path (`lp_rsvp_error`) must
-  stay healthy.
-- **Events:** `lp_rsvp_started` (tap Going from idle), `lp_rsvp_signin`
-  (auth-gate passed, simulated), `lp_rsvp_confirmed` (confirm step reached),
-  `lp_rsvp_submitting`, `lp_rsvp_going` (`{event_id}`), `lp_rsvp_cancelling`,
-  `lp_rsvp_cancelled` (`{event_id}`), `lp_rsvp_error` (`{reason}`).
+The production route reads event/attendee data and injects `buildRsvpCommit`.
+Going and cancellation are real signed POST/DELETE requests to
+`/events/api/events/{id}/attendees`. The commit reads the current identity when
+invoked, so a sign-in after mounting works and a sign-out refuses subsequent
+writes. The sign-in button opens the shared authentication dialog and advances
+only when authentication succeeds.
 
-## Data reality (simulated / deferred)
+The production result follows the endpoint acknowledgement. A returned total
+updates the count; without a usable count the previous count is retained rather
+than inventing a new one. Missing identity/event and request failures do not
+produce a confirmed RSVP. Standalone preview machines can still explicitly use
+`simulateCommit`; telemetry marks those results as stubs, while injected real
+commits emit `stub: false`.
 
-The attendee LIST + COUNT (GET `/events/api/events/{id}/attendees`) is LIVE and
-unauthenticated, so the wizard seeds the roster/count from the real catalyst.
-The RSVP **write** (POST) and **cancel** (DELETE) on the same path are LIVE in
-catalyrst-events (`handlers/attendees.rs`) but auth-gated via a signed
-**auth-chain** header (`require_signer`). The wizard does NOT mint a real
-signature: the signed auth-chain header is **SIMULATED**. Flow, states, and
-telemetry are real; the final RSVP commit/cancel is a clearly-noted stub that
-updates the local count optimistically rather than hitting the auth-gated
-endpoint.
+## Assumptions and measurement
+
+RSVP is intent to attend, not proof of attendance. Public attendee reads do not
+establish the current user's membership. The primary is `lp_rsvp_going` divided
+by `lp_rsvp_started`; preserve cancel and error counts as guardrails. This is a
+single-arm draft, so it cannot establish lift without a comparison.
+Use the shared [Events assumptions](../../../../../../docs/product-capabilities.md#events-profiles-and-community-landings).

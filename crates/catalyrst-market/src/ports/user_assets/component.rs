@@ -18,6 +18,11 @@ use super::types::{
     UserAssetsFilters,
 };
 
+const NAMES_COUNT_SQL: &str = "\
+            SELECT COUNT(*) FROM squid_marketplace.nft nft \
+            WHERE owner_address = $1 \
+              AND nft.category = 'ens'";
+
 pub async fn usage_grants_present(pool: &PgPool) -> bool {
     sqlx::query_scalar::<_, bool>(
         "SELECT to_regclass('marketplace.usage_grants') IS NOT NULL \
@@ -41,6 +46,15 @@ impl UserAssetsComponent {
         }
     }
 
+    // Standalone count for a page past the end: only rows carry the window total.
+    async fn count_or_zero(&self, sql: String, owner: &str, binds: &[String]) -> i64 {
+        let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql)).bind(owner);
+        for b in binds {
+            q = q.bind(b);
+        }
+        q.fetch_one(&self.pool).await.unwrap_or(0)
+    }
+
     pub async fn get_wearables_by_owner(
         &self,
         owner: &str,
@@ -55,19 +69,14 @@ impl UserAssetsComponent {
             .fetch_all(&self.pool)
             .await?;
 
-        let count_sql = wearables_count_sql(self.grants_present);
-        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql))
-            .bind(owner)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0);
-
-        let unique_sql = wearables_unique_sql(self.grants_present);
-        let total_items: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(unique_sql))
-            .bind(owner)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0);
+        let (total, total_items) = match rows.first() {
+            Some(r) => (r.total, r.total_items),
+            None if skip > 0 => tokio::join!(
+                self.count_or_zero(wearables_count_sql(self.grants_present), owner, &[]),
+                self.count_or_zero(wearables_unique_sql(self.grants_present), owner, &[])
+            ),
+            None => (0, 0),
+        };
 
         let data = rows.into_iter().map(from_db_row_to_wearable).collect();
         Ok((data, total, total_items))
@@ -80,23 +89,25 @@ impl UserAssetsComponent {
         skip: i64,
     ) -> Result<(Vec<UrnToken>, i64), ApiError> {
         let data_sql = wearables_urn_token_data_sql(self.grants_present);
-        let rows: Vec<(String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(data_sql))
+        let rows: Vec<(String, String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(data_sql))
             .bind(owner)
             .bind(first)
             .bind(skip)
             .fetch_all(&self.pool)
             .await?;
 
-        let count_sql = wearables_count_sql(self.grants_present);
-        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql))
-            .bind(owner)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0);
+        let total = match rows.first() {
+            Some((_, _, total)) => *total,
+            None if skip > 0 => {
+                self.count_or_zero(wearables_count_sql(self.grants_present), owner, &[])
+                    .await
+            }
+            None => 0,
+        };
 
         let data = rows
             .into_iter()
-            .map(|(urn, token_id)| UrnToken {
+            .map(|(urn, token_id, _)| UrnToken {
                 urn: fix_urn(&urn),
                 token_id,
             })
@@ -118,19 +129,14 @@ impl UserAssetsComponent {
             .fetch_all(&self.pool)
             .await?;
 
-        let count_sql = emotes_count_sql(self.grants_present);
-        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql))
-            .bind(owner)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0);
-
-        let unique_sql = emotes_unique_sql(self.grants_present);
-        let total_items: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(unique_sql))
-            .bind(owner)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0);
+        let (total, total_items) = match rows.first() {
+            Some(r) => (r.total, r.total_items),
+            None if skip > 0 => tokio::join!(
+                self.count_or_zero(emotes_count_sql(self.grants_present), owner, &[]),
+                self.count_or_zero(emotes_unique_sql(self.grants_present), owner, &[])
+            ),
+            None => (0, 0),
+        };
 
         let data = rows.into_iter().map(from_db_row_to_emote).collect();
         Ok((data, total, total_items))
@@ -143,23 +149,25 @@ impl UserAssetsComponent {
         skip: i64,
     ) -> Result<(Vec<UrnToken>, i64), ApiError> {
         let data_sql = emotes_urn_token_data_sql(self.grants_present);
-        let rows: Vec<(String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(data_sql))
+        let rows: Vec<(String, String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(data_sql))
             .bind(owner)
             .bind(first)
             .bind(skip)
             .fetch_all(&self.pool)
             .await?;
 
-        let count_sql = emotes_count_sql(self.grants_present);
-        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql))
-            .bind(owner)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0);
+        let total = match rows.first() {
+            Some((_, _, total)) => *total,
+            None if skip > 0 => {
+                self.count_or_zero(emotes_count_sql(self.grants_present), owner, &[])
+                    .await
+            }
+            None => 0,
+        };
 
         let data = rows
             .into_iter()
-            .map(|(urn, token_id)| UrnToken {
+            .map(|(urn, token_id, _)| UrnToken {
                 urn: fix_urn(&urn),
                 token_id,
             })
@@ -191,7 +199,8 @@ impl UserAssetsComponent {
               nft.item_type, \
               NULL::text AS description, \
               transferred_at::int8 AS transferred_at, \
-              orders.price::text AS price \
+              orders.price::text AS price, \
+              COUNT(*) OVER() AS total \
             FROM squid_marketplace.nft nft \
             LEFT JOIN squid_marketplace.ens ens ON ens.id = nft.ens_id \
             LEFT JOIN squid_marketplace.order orders ON orders.id = nft.active_order_id \
@@ -207,15 +216,14 @@ impl UserAssetsComponent {
             .fetch_all(&self.pool)
             .await?;
 
-        let count_sql = "\
-            SELECT COUNT(*) FROM squid_marketplace.nft nft \
-            WHERE owner_address = $1 \
-              AND nft.category = 'ens'";
-        let total: i64 = sqlx::query_scalar(count_sql)
-            .bind(&owner_lc)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.total,
+            None if filters.skip > 0 => {
+                self.count_or_zero(NAMES_COUNT_SQL.to_string(), &owner_lc, &[])
+                    .await
+            }
+            None => 0,
+        };
 
         let data = rows.into_iter().map(from_db_row_to_name).collect();
         Ok((data, total))
@@ -229,33 +237,32 @@ impl UserAssetsComponent {
     ) -> Result<(Vec<NameOnly>, i64), ApiError> {
         let owner_lc = owner.to_lowercase();
         let data_sql = "\
-            SELECT ens.subdomain AS name \
+            SELECT ens.subdomain AS name, COUNT(*) OVER() AS total \
             FROM squid_marketplace.nft nft \
             LEFT JOIN squid_marketplace.ens ens ON ens.id = nft.ens_id \
             WHERE owner_address = $1 \
               AND nft.category = 'ens' \
             ORDER BY nft.id ASC \
             LIMIT $2 OFFSET $3";
-        let rows: Vec<(Option<String>,)> = sqlx::query_as(data_sql)
+        let rows: Vec<(Option<String>, i64)> = sqlx::query_as(data_sql)
             .bind(&owner_lc)
             .bind(first)
             .bind(skip)
             .fetch_all(&self.pool)
             .await?;
 
-        let count_sql = "\
-            SELECT COUNT(*) FROM squid_marketplace.nft nft \
-            WHERE owner_address = $1 \
-              AND nft.category = 'ens'";
-        let total: i64 = sqlx::query_scalar(count_sql)
-            .bind(&owner_lc)
-            .fetch_one(&self.pool)
-            .await
-            .unwrap_or(0);
+        let total = match rows.first() {
+            Some((_, total)) => *total,
+            None if skip > 0 => {
+                self.count_or_zero(NAMES_COUNT_SQL.to_string(), &owner_lc, &[])
+                    .await
+            }
+            None => 0,
+        };
 
         let data = rows
             .into_iter()
-            .map(|(name,)| NameOnly {
+            .map(|(name, _)| NameOnly {
                 name: name.unwrap_or_default(),
             })
             .collect();
@@ -331,46 +338,53 @@ impl UserAssetsComponent {
         q = q.bind(filters.first).bind(filters.skip);
         let rows = q.fetch_all(&self.pool).await?;
 
-        let mut count_bind_idx: usize = 1;
-        let mut count_where = String::new();
-        let mut count_binds: Vec<String> = Vec::new();
+        let total = match rows.first() {
+            Some(r) => r.total,
+            None if filters.skip > 0 => {
+                let mut count_bind_idx: usize = 1;
+                let mut count_where = String::new();
+                let mut count_binds: Vec<String> = Vec::new();
 
-        if let Some(category) = &filters.category {
-            count_bind_idx += 1;
-            count_where.push_str(&format!(" AND wearable.category = ${}", count_bind_idx));
-            count_binds.push(category.clone());
-        }
-        if let Some(rarity) = &filters.rarity {
-            count_bind_idx += 1;
-            count_where.push_str(&format!(" AND wearable.rarity = ${}", count_bind_idx));
-            count_binds.push(rarity.clone());
-        }
-        if let Some(name) = &filters.name {
-            count_bind_idx += 1;
-            count_where.push_str(&format!(" AND wearable.name ILIKE ${}", count_bind_idx));
-            count_binds.push(format!("%{}%", name));
-        }
-        let count_item_type = match &filters.item_type {
-            Some(types) if !types.is_empty() => {
-                let mut placeholders = Vec::new();
-                for t in types {
+                if let Some(category) = &filters.category {
                     count_bind_idx += 1;
-                    placeholders.push(format!("${}", count_bind_idx));
-                    count_binds.push(t.clone());
+                    count_where.push_str(&format!(" AND wearable.category = ${}", count_bind_idx));
+                    count_binds.push(category.clone());
                 }
-                format!(" AND nft.item_type IN ({})", placeholders.join(", "))
-            }
-            _ => " AND nft.item_type IN ('wearable_v1', 'wearable_v2', 'smart_wearable_v1')"
-                .to_string(),
-        };
+                if let Some(rarity) = &filters.rarity {
+                    count_bind_idx += 1;
+                    count_where.push_str(&format!(" AND wearable.rarity = ${}", count_bind_idx));
+                    count_binds.push(rarity.clone());
+                }
+                if let Some(name) = &filters.name {
+                    count_bind_idx += 1;
+                    count_where.push_str(&format!(" AND wearable.name ILIKE ${}", count_bind_idx));
+                    count_binds.push(format!("%{}%", name));
+                }
+                let count_item_type = match &filters.item_type {
+                    Some(types) if !types.is_empty() => {
+                        let mut placeholders = Vec::new();
+                        for t in types {
+                            count_bind_idx += 1;
+                            placeholders.push(format!("${}", count_bind_idx));
+                            count_binds.push(t.clone());
+                        }
+                        format!(" AND nft.item_type IN ({})", placeholders.join(", "))
+                    }
+                    _ => {
+                        " AND nft.item_type IN ('wearable_v1', 'wearable_v2', 'smart_wearable_v1')"
+                            .to_string()
+                    }
+                };
 
-        let count_sql =
-            grouped_wearables_count_sql(self.grants_present, &count_where, &count_item_type);
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql)).bind(owner);
-        for b in &count_binds {
-            cq = cq.bind(b);
-        }
-        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+                let count_sql = grouped_wearables_count_sql(
+                    self.grants_present,
+                    &count_where,
+                    &count_item_type,
+                );
+                self.count_or_zero(count_sql, owner, &count_binds).await
+            }
+            None => 0,
+        };
 
         let data = rows.into_iter().map(from_grouped_row_to_wearable).collect();
         Ok((data, total))
@@ -429,32 +443,34 @@ impl UserAssetsComponent {
         q = q.bind(filters.first).bind(filters.skip);
         let rows = q.fetch_all(&self.pool).await?;
 
-        let mut count_bind_idx: usize = 1;
-        let mut count_where = String::new();
-        let mut count_binds: Vec<String> = Vec::new();
-        if let Some(category) = &filters.category {
-            count_bind_idx += 1;
-            count_where.push_str(&format!(" AND emote.category = ${}", count_bind_idx));
-            count_binds.push(category.clone());
-        }
-        if let Some(rarity) = &filters.rarity {
-            count_bind_idx += 1;
-            count_where.push_str(&format!(" AND emote.rarity = ${}", count_bind_idx));
-            count_binds.push(rarity.clone());
-        }
-        if let Some(name) = &filters.name {
-            count_bind_idx += 1;
-            count_where.push_str(&format!(" AND emote.name ILIKE ${}", count_bind_idx));
-            count_binds.push(format!("%{}%", name));
-        }
-        let _ = count_bind_idx;
+        let total = match rows.first() {
+            Some(r) => r.total,
+            None if filters.skip > 0 => {
+                let mut count_bind_idx: usize = 1;
+                let mut count_where = String::new();
+                let mut count_binds: Vec<String> = Vec::new();
+                if let Some(category) = &filters.category {
+                    count_bind_idx += 1;
+                    count_where.push_str(&format!(" AND emote.category = ${}", count_bind_idx));
+                    count_binds.push(category.clone());
+                }
+                if let Some(rarity) = &filters.rarity {
+                    count_bind_idx += 1;
+                    count_where.push_str(&format!(" AND emote.rarity = ${}", count_bind_idx));
+                    count_binds.push(rarity.clone());
+                }
+                if let Some(name) = &filters.name {
+                    count_bind_idx += 1;
+                    count_where.push_str(&format!(" AND emote.name ILIKE ${}", count_bind_idx));
+                    count_binds.push(format!("%{}%", name));
+                }
+                let _ = count_bind_idx;
 
-        let count_sql = grouped_emotes_count_sql(self.grants_present, &count_where);
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql)).bind(owner);
-        for b in &count_binds {
-            cq = cq.bind(b);
-        }
-        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+                let count_sql = grouped_emotes_count_sql(self.grants_present, &count_where);
+                self.count_or_zero(count_sql, owner, &count_binds).await
+            }
+            None => 0,
+        };
 
         let data = rows.into_iter().map(from_grouped_row_to_emote).collect();
         Ok((data, total))

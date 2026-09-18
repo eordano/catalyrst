@@ -15,7 +15,6 @@ export const MACHINE_PATHS: Record<string, string> = {
   BootGate: "catalyrst/ui3/src/app/BootGate.tsx",
   LobbyNew: "catalyrst/ui3/src/explorer/workflows/LobbyNew.tsx",
   SignInModalView: "catalyrst/ui3/src/components/SignInModalView.tsx",
-  PlacesPicker: "catalyrst/ui3/src/explorer/workflows/PlacesPicker.tsx",
   Loading: "catalyrst/ui3/src/explorer/workflows/Loading.tsx",
   "crash-overlay": "bevy-explorer/web/src/inline/crash-overlay.ts",
   AppLayout: "catalyrst/ui3/src/app/AppLayout.tsx",
@@ -50,7 +49,7 @@ export const SECTIONS: FlowSection[] = [
     id: "entry",
     num: "01",
     title: "Entry & Lobby",
-    machines: ["BootGate", "LobbyNew", "SignInModalView", "PlacesPicker"],
+    machines: ["BootGate", "LobbyNew", "SignInModalView"],
     blurb:
       "One nginx-served page hosts the wasm engine and the DOM overlay. BootGate decides: fresh visitors get the guest lobby; a stored identity still valid for 24h skips straight to loading. Sign-in is an escape hatch, not a gate.",
     tracks: [

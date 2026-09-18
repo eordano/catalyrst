@@ -13,18 +13,3 @@ export type EditorBridgeRequest =
       requestId?: string | number;
     };
 
-export type EditorBridgeReply =
-  | {
-      type: "dcl-bridge-reply";
-      action: EditorBridgeAction;
-      requestId?: string | number;
-      ok: true;
-      result: string;
-    }
-  | {
-      type: "dcl-bridge-reply";
-      action: EditorBridgeAction;
-      requestId?: string | number;
-      ok: false;
-      error: string;
-    };

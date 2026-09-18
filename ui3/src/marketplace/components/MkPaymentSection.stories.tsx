@@ -86,3 +86,15 @@ export const ManaUnavailable: Story = {
     </MkPaymentSection>
   ),
 };
+
+export const ManaInsufficient: Story = {
+  render: () => (
+    <MkPaymentSection method="mana" shortfallCredits="29">
+      <MkPaymentManaPane
+        credits="29"
+        phase={{ step: "insufficient", haveWei: "0", needWei: "39580378408756389366" }}
+        onPayWithCard={() => {}}
+      />
+    </MkPaymentSection>
+  ),
+};

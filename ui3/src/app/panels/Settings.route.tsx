@@ -1,4 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
+
+import { useNavigate, useSearchParams } from "react-router";
 
 import SettingsPanel from "../../explorer/pages/Settings";
 import { useEngineSettings } from "../../overlay/engineSettings";
@@ -9,10 +11,14 @@ import {
   type SettingModule,
 } from "../../data/settings/catalog";
 
+const TABS = [...SETTINGS_CATALOG.tabs, { id: "flags", label: "Feature Flags" }];
 const DEFAULTS = defaultValues(SETTINGS_CATALOG);
 
 export default function SettingsRoute() {
-  const [tab, setTab] = useState(SETTINGS_CATALOG.tabs[0]?.id ?? "graphics");
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.find(tab => tab.id === params.get("section"))?.id ?? TABS[0]!.id;
+  const setTab = (id: string) => setParams(previous => { previous.set("section", id); return previous; }, { replace: true });
   const { info, values, setValue, connected } = useEngineSettings();
   const groups = groupsForTab(SETTINGS_CATALOG, tab);
 
@@ -34,7 +40,8 @@ export default function SettingsRoute() {
 
   return (
     <SettingsPanel
-      tabs={SETTINGS_CATALOG.tabs}
+      onClose={() => navigate("/")}
+      tabs={TABS}
       tab={tab}
       onTab={setTab}
       groups={groups}

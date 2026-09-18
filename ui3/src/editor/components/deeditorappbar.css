@@ -1,9 +1,7 @@
 .editor-wizard .eui-root {
-  --eui-appbar-h: 53px;
-  --eui-bottom-inset: 64px;
-}
-.editor-wizard[data-step="place"] .eui-root {
   --eui-appbar-h: 0px;
+  --eui-ribbon-h: 164px;
+  --eui-bottom-inset: 12px;
 }
 
 .editor-wizard__controls {
@@ -29,16 +27,6 @@
 }
 
 .editor-wizard__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.editor-wizard__axes,
-.editor-wizard__assets,
-.editor-wizard__components,
-.editor-wizard__entities {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -81,26 +69,14 @@
   background: color-mix(in srgb, var(--brand) 24%, transparent);
 }
 
-.editor-wizard__btn--danger {
-  border-color: color-mix(in srgb, var(--error) 60%, var(--line));
-  color: var(--error);
-}
-
-.editor-wizard__btn--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--error) 16%, transparent);
-}
-
 .editor-wizard__appbar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: var(--z-toast);
+  position: relative;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   height: 52px;
-  padding: 0 16px;
+  padding: 0 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   color: var(--text);
@@ -112,16 +88,9 @@
   z-index: 1;
 }
 
-@media (max-width: 768px) {
-  .editor-wizard__appbar,
-  .editor-wizard__controls {
-    display: none;
-  }
-}
-
 .editor-wizard__appbar-title {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 1 180px;
+  min-width: 64px;
   font-weight: 600;
   font-size: 14px;
   color: var(--text);
@@ -211,14 +180,6 @@
   box-shadow: var(--shadow-modal);
 }
 
-.editor-wizard__menu-title {
-  padding: 4px 8px 6px;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-45);
-}
-
 .editor-wizard__menu-item {
   display: flex;
   align-items: center;
@@ -236,27 +197,6 @@
 
 .editor-wizard__menu-item:hover {
   background: var(--fill-2);
-}
-
-.editor-wizard__menu-sep {
-  height: 1px;
-  margin: 6px 8px;
-  background: var(--line);
-}
-
-.editor-wizard__menu-check {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--r-control);
-  border: 1px solid var(--ink-45);
-  background: transparent;
-}
-
-.editor-wizard__menu-check.is-checked {
-  border-color: var(--brand);
-  background: var(--brand);
-  box-shadow: inset 0 0 0 2px var(--panel);
 }
 
 .editor-wizard__chip {
@@ -290,26 +230,6 @@
   background: var(--online);
 }
 
-.editor-wizard__search {
-  flex: 1 1 200px;
-  min-width: 160px;
-  padding: 8px 12px;
-  font: 13px/1.5 var(--font-sans);
-  color: var(--text);
-  background: var(--fill-2);
-  border: 1px solid var(--line);
-  border-radius: var(--r-control);
-}
-
-.editor-wizard__search::placeholder {
-  color: var(--ink-6);
-}
-
-.editor-wizard__search:focus {
-  outline: none;
-  border-color: var(--brand);
-}
-
 .editor-wizard__saved {
   color: var(--success);
   font-weight: 600;
@@ -331,4 +251,49 @@
   border-top-color: var(--brand);
   border-radius: 50%;
   animation: u-spin 0.8s linear infinite;
+}
+
+.editor-wizard__navigation {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.editor-wizard__back {
+  flex: none;
+  padding: 8px;
+}
+.editor-wizard__project-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+@media (max-width: 1200px) {
+  .editor-wizard .eui-root { --eui-ribbon-h: 204px; }
+  .editor-wizard__appbar { height: 92px; flex-wrap: wrap; align-content: center; }
+  .editor-wizard__appbar-title { flex: 1 1 auto; }
+  .editor-wizard__navigation { order: 1; flex-basis: 100%; height: 32px; }
+}
+@media (max-width: 600px) {
+  .editor-wizard__chip { display: none; }
+  .editor-wizard__project-tools { display: none; }
+  .editor-wizard__appbar .editor-wizard__btn { padding: 6px 8px; }
+}
+
+.editor-wizard__title-input {
+  width: 180px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-control);
+  background: transparent;
+  font-family: inherit;
+}
+.editor-wizard__title-input:hover { border-color: var(--line); }
+.editor-wizard__title-input:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: 1px;
+  background: var(--fill-2);
 }

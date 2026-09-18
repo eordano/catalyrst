@@ -67,7 +67,7 @@ export function buildSegmentBody(
     properties: {
       ...props,
       story: ctx.story,
-      variant: ctx.variant,
+      ...(ctx.variant !== undefined ? { variant: ctx.variant } : {}),
       exp_key: ctx.experimentKey,
     },
   };

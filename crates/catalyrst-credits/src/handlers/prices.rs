@@ -3,7 +3,6 @@ use std::time::Duration;
 use axum::extract::State;
 use axum::Json;
 use catalyrst_commons::cache::TtlMap;
-use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 
 use crate::handlers::cart::{validate_collection, validate_item_id};
@@ -12,8 +11,6 @@ use crate::ports::pricing::{ensure_charge_covers_payment, QUOTE_ORDER_SCAN_MAX_P
 use crate::AppState;
 
 const MAX_ENTRIES: usize = 60;
-
-const QUOTE_BATCH_CONCURRENCY: usize = 8;
 
 pub const QUOTE_CACHE_TTL: Duration = Duration::from_secs(60);
 
@@ -123,49 +120,26 @@ pub async fn quote(
         .collect();
     let misses: Vec<usize> = (0..refs.len()).filter(|&i| quoted[i].is_none()).collect();
 
-    let mana_usd = if !misses.is_empty() || !body.amounts.is_empty() {
-        Some(state.pricing.fetch_mana_usd().await?)
-    } else {
-        None
-    };
+    let valid_amounts: Vec<(usize, String)> = body
+        .amounts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, raw)| valid_wei(raw).map(|wei| (i, wei.to_string())))
+        .collect();
+    let mut amounts: Vec<Option<String>> = vec![None; body.amounts.len()];
 
-    if let Some(mana_usd) = &mana_usd {
-        let jobs: Vec<_> = misses
-            .iter()
-            .map(|&i| {
-                let (collection, item_id) = refs[i].clone();
-                let state = state.clone();
-                let mana_usd = mana_usd.clone();
-                async move {
-                    let basis = state
-                        .pricing
-                        .fetch_charge_basis_scanning(
-                            &collection,
-                            &item_id,
-                            &state.checkout_fulfillment_mode,
-                            QUOTE_ORDER_SCAN_MAX_PAGES,
-                        )
-                        .await
-                        .ok()?;
-                    let credits = state
-                        .pricing
-                        .compute_credit_price(&state.credits.pool, &basis.basis_wei, &mana_usd)
-                        .await
-                        .ok()?;
-                    ensure_charge_covers_payment(&basis.basis_wei, &credits).ok()?;
-                    Some(credits)
-                }
-            })
-            .collect();
-        let fresh: Vec<Option<String>> = stream::iter(jobs)
-            .buffered(QUOTE_BATCH_CONCURRENCY)
-            .collect()
-            .await;
-
+    if !misses.is_empty() || !valid_amounts.is_empty() {
+        let mana_usd = state.pricing.fetch_mana_usd().await?;
+        let amount_weis: Vec<String> = valid_amounts.iter().map(|(_, wei)| wei.clone()).collect();
+        let (fresh, priced_amounts) =
+            quote_misses(&state, &refs, &misses, &amount_weis, &mana_usd).await;
         for (&i, credits) in misses.iter().zip(fresh) {
             let (collection, item_id) = &refs[i];
             state.quote_cache.put(collection, item_id, credits.clone());
             quoted[i] = Some(credits);
+        }
+        for ((i, _), credit) in valid_amounts.iter().zip(priced_amounts) {
+            amounts[*i] = credit;
         }
     }
 
@@ -179,29 +153,58 @@ pub async fn quote(
         })
         .collect();
 
-    let mut amounts: Vec<Option<String>> = vec![None; body.amounts.len()];
-    if let Some(mana_usd) = mana_usd.as_ref() {
-        let valid: Vec<(usize, String)> = body
-            .amounts
-            .iter()
-            .enumerate()
-            .filter_map(|(i, raw)| valid_wei(raw).map(|wei| (i, wei.to_string())))
-            .collect();
-        if !valid.is_empty() {
-            let weis: Vec<String> = valid.iter().map(|(_, wei)| wei.clone()).collect();
-            if let Ok(priced) = state
-                .pricing
-                .compute_credit_prices_batch(&state.credits.pool, &weis, mana_usd)
-                .await
-            {
-                for ((i, _), credit) in valid.iter().zip(priced) {
-                    amounts[*i] = Some(credit);
-                }
-            }
-        }
-    }
-
     Ok(Json(PriceQuotesOut { items, amounts }))
+}
+
+/// Prices the cache misses the way [`PricingClient::fetch_charge_basis_scanning`] does one
+/// item, with the market calls collapsed to one catalog batch and one open-by-items call,
+/// and the credit conversion of the misses AND the raw `amount_weis` folded into one batched
+/// query. A miss that fails at any step prices to `None`, as before; the second vector
+/// answers `amount_weis` element-wise.
+async fn quote_misses(
+    state: &AppState,
+    refs: &[(String, String)],
+    misses: &[usize],
+    amount_weis: &[String],
+    mana_usd: &str,
+) -> (Vec<Option<String>>, Vec<Option<String>>) {
+    let none = || (vec![None; misses.len()], vec![None; amount_weis.len()]);
+    let pairs: Vec<(String, String)> = misses.iter().map(|&i| refs[i].clone()).collect();
+    let mode = state.checkout_fulfillment_mode.as_str();
+    let bases = match state
+        .pricing
+        .fetch_charge_bases_batch(&pairs, mode, QUOTE_ORDER_SCAN_MAX_PAGES)
+        .await
+    {
+        Ok(bases) => bases,
+        Err(_) => return none(),
+    };
+
+    let mut weis: Vec<String> = bases
+        .iter()
+        .filter_map(|b| b.as_ref().ok())
+        .map(|b| b.basis_wei.clone())
+        .collect();
+    weis.extend_from_slice(amount_weis);
+    let mut priced = match state
+        .pricing
+        .compute_credit_prices_batch(&state.credits.pool, &weis, mana_usd)
+        .await
+    {
+        Ok(p) if p.len() == weis.len() => p.into_iter(),
+        _ => return none(),
+    };
+    let items = bases
+        .into_iter()
+        .map(|basis| {
+            let basis = basis.ok()?;
+            let credits = priced.next()?;
+            ensure_charge_covers_payment(&basis.basis_wei, &credits).ok()?;
+            Some(credits)
+        })
+        .collect();
+    let amounts = priced.map(Some).collect();
+    (items, amounts)
 }
 
 #[cfg(test)]

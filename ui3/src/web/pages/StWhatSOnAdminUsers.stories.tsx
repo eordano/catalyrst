@@ -84,7 +84,7 @@ export const Catalog: Story = {
       {CATALOG.map(({ key, userSet, feedback }) => (
         // <section> demotes each entry's unnamed header/footer/aside to `generic`
         <section key={key}>
-          <StWhatSOnAdminUsers users={USER_SETS[userSet]} initialFeedback={FEEDBACK[feedback]} chrome={false} />
+          <StWhatSOnAdminUsers users={USER_SETS[userSet]} initialFeedback={FEEDBACK[feedback]} chrome={false} labelSuffix={key} />
         </section>
       ))}
     </div>

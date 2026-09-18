@@ -2,9 +2,7 @@ import type { paths as EventsPaths } from "@ui/generated/catalyst/openapi/events
 import type { paths as PlacesPaths } from "@ui/generated/catalyst/openapi/places";
 import type { paths as WorldsPaths } from "@ui/generated/catalyst/openapi/worlds";
 
-export type { EventsPaths, PlacesPaths, WorldsPaths };
-
-export type Method = "get" | "post" | "put" | "patch" | "delete" | "head";
+type Method = "get" | "post" | "put" | "patch" | "delete" | "head";
 
 type PathParams<K extends string> = K extends `${string}{${infer P}}${infer R}`
   ? P | PathParams<R>
@@ -35,17 +33,3 @@ export const eventsApiPath = servicePath<EventsPaths>("/events");
 export const placesApiPath = servicePath<PlacesPaths>("/places");
 export const worldsApiPath = servicePath<WorldsPaths>("");
 
-type JsonOf<T> = T extends { content: { "application/json": infer J } }
-  ? J
-  : never;
-
-export type ServiceResponse<
-  P,
-  K extends keyof P,
-  M extends keyof P[K],
-  S extends number,
-> = P[K][M] extends { responses: infer R }
-  ? S extends keyof R
-    ? JsonOf<R[S]>
-    : never
-  : never;

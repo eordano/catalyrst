@@ -4,8 +4,6 @@ import { dataOf } from "../envelope";
 import { SaleSchema } from "../generated-schemas/market";
 import { warnInvalid } from "../warn";
 
-export { SaleSchema };
-
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 const nullableNum = z.number().nullish().transform((v) => v ?? null);
 
@@ -13,7 +11,7 @@ export type Sale = z.infer<typeof SaleSchema>;
 
 export type SalesEnvelope = { data: Sale[]; total: number };
 
-export const TradeSchema = z.object({
+const TradeSchema = z.object({
   id: z.string(),
   chain_id: nullableNum,
   created_at: nullableStr,
@@ -37,7 +35,7 @@ export const TradesEnvelopeSchema = dataOf(
     .nullish(),
 );
 
-export function parseSale(raw: unknown): Sale | null {
+function parseSale(raw: unknown): Sale | null {
   const r = SaleSchema.safeParse(raw);
   if (r.success) return r.data;
   warnInvalid("Sale", r.error.issues);
@@ -53,7 +51,7 @@ export function parseSales(raw: unknown[]): Sale[] {
   return out;
 }
 
-export function parseTrade(raw: unknown): Trade | null {
+function parseTrade(raw: unknown): Trade | null {
   const r = TradeSchema.safeParse(raw);
   if (r.success) return r.data;
   warnInvalid("Trade", r.error.issues);

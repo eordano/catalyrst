@@ -31,15 +31,14 @@ impl SocialServiceImpl {
         let ctx = context.server_context.clone();
         let mut rx = ctx.pubsub().subscribe(&me);
 
-        let online_candidates: Vec<String> = {
-            let friends = ctx.db().friend_addresses(&me).await.unwrap_or_default();
-            friends.into_iter().filter(|f| ctx.is_online(f)).collect()
-        };
-        let online_now = ctx
+        let online_now: Vec<String> = ctx
             .db()
-            .online_friends(&me, &online_candidates)
+            .friend_addresses_unblocked(&me)
             .await
-            .unwrap_or(online_candidates);
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|f| ctx.is_online(f))
+            .collect();
         let snapshot = ctx.profiles().friend_profiles(&online_now).await;
 
         let (generator, yielder) = Generator::create();

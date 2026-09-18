@@ -119,3 +119,7 @@
   line-height: 1.5;
   text-align: center;
 }
+
+.nfx__empty { display: grid; align-content: center; min-height: 160px; padding: 28px 18px; }
+.nfx__empty > :first-child { margin-top: 0; }
+.nfx__empty > :last-child { margin-bottom: 0; }

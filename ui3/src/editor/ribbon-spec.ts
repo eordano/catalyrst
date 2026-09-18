@@ -1,7 +1,7 @@
 
 export type RibbonTabId = "home" | "insert" | "interact" | "scene";
 
-export type RibbonCommandKind = "big" | "toggle";
+type RibbonCommandKind = "big" | "toggle";
 
 export type RibbonRequires = "engine" | "selection" | "playing" | "undoable" | "redoable";
 
@@ -14,12 +14,11 @@ export interface RibbonCommand {
   key?: string;
 }
 
-export type RibbonSlot = "numeric" | "wiring" | "selection";
+type RibbonSlot = "numeric" | "wiring" | "selection";
 
 export interface RibbonGroup {
   name: string;
   cmds: RibbonCommand[];
-  optIn?: boolean;
   slot?: RibbonSlot;
 }
 
@@ -178,10 +177,9 @@ export const RIBBON_TABS: RibbonTab[] = [
             requires: "playing",
             hint: "Pause the preview and step one tick at a time to see what changes",
           })] },
-      { name: "Code", optIn: true, cmds: [c("code", "Open code editor", { kind: "big" })] },
+      { name: "Code", cmds: [c("code", "Open code editor", { kind: "big" }), c("agent", "Scene assistant")] },
       {
         name: "Render",
-        optIn: true,
         cmds: [
           c("render.tuning", "Render tuning", {
             kind: "toggle",
@@ -192,7 +190,6 @@ export const RIBBON_TABS: RibbonTab[] = [
       },
       {
         name: "Reference",
-        optIn: true,
         cmds: [c("ref.docs", "SDK docs"), c("ref.playground", "Playground")],
       },
     ],
@@ -204,10 +201,20 @@ export const RIBBON_TABS: RibbonTab[] = [
     blurb: "Set up your scene and put it online.",
     empty: "Saving and publishing run from the app bar in this build.",
     groups: [
-      { name: "Project", cmds: [c("save", "Save to disk", { kind: "big" })] },
+      {
+        name: "Project",
+        cmds: [
+          c("save", "Save to disk", { kind: "big", requires: "engine" }),
+          c("scene.settings", "Scene settings", { hint: "Name, description, thumbnail, parcels and spawn position" }),
+          c("open", "Open from disk", {
+            kind: "big",
+            hint: "Open a project folder saved on this computer \u{2014} replaces the scene you are editing",
+          }),
+        ],
+      },
       {
         name: "Deploy",
-        cmds: [c("publish", "Publish", { kind: "big" })],
+        cmds: [c("publish", "Publish", { kind: "big", requires: "engine" })],
       },
     ],
   },
@@ -215,9 +222,9 @@ export const RIBBON_TABS: RibbonTab[] = [
 
 export const DEFAULT_TAB: RibbonTabId = "home";
 
-export const RIBBON_CHROME_IDS: readonly string[] = ["undo", "redo", "play", "stop"];
+export const RIBBON_CHROME_IDS: readonly string[] = ["undo", "redo"];
 
-export interface RibbonDeferred {
+interface RibbonDeferred {
   id: string;
   label: string;
   tab: RibbonTabId;
@@ -455,64 +462,16 @@ export const RIBBON_DEFERRED: RibbonDeferred[] = [
     why: "No script CRUD in this build.",
   },
   {
-    id: "agent",
-    label: "Scene agent",
-    tab: "interact",
-    why: "The MCP bridge exists but has no ribbon-level entry point to hang an agent off.",
-  },
-  {
     id: "mcp",
     label: "MCP server",
     tab: "interact",
     why: "The relay opts in from the URL or local storage; a ribbon toggle would report a state it does not own.",
   },
   {
-    id: "scene.name",
-    label: "Name and description",
-    tab: "scene",
-    why: "Scene metadata lives in scene.json, which is not reachable over the editor bus at all.",
-  },
-  {
-    id: "scene.thumb",
-    label: "Thumbnail",
-    tab: "scene",
-    why: "Scene metadata lives in scene.json, which is not reachable over the editor bus at all.",
-  },
-  {
-    id: "scene.category",
-    label: "Category",
-    tab: "scene",
-    why: "Scene metadata lives in scene.json, which is not reachable over the editor bus at all.",
-  },
-  {
-    id: "scene.parcels",
-    label: "Parcels",
-    tab: "scene",
-    why: "Scene layout lives in scene.json, which is not reachable over the editor bus at all.",
-  },
-  {
     id: "scene.spawn",
     label: "Spawn points",
     tab: "scene",
-    why: "Scene layout lives in scene.json, which is not reachable over the editor bus at all.",
-  },
-  {
-    id: "scene.skybox",
-    label: "Skybox time",
-    tab: "scene",
-    why: "Environment settings are not on the editor bus.",
-  },
-  {
-    id: "scene.terrain",
-    label: "Terrain",
-    tab: "scene",
-    why: "Environment settings are not on the editor bus.",
-  },
-  {
-    id: "scene.voice",
-    label: "Voice chat",
-    tab: "scene",
-    why: "Scene restrictions live in scene.json, which is not reachable over the editor bus at all.",
+    why: "Scene settings edit the default spawn; adding or removing additional spawn points is not yet available.",
   },
   {
     id: "scene.wearables",

@@ -137,9 +137,9 @@ pub async fn order_status(
     let path = format!("/credits/orders/{}", order_id);
     let signer = signer_from(&headers, "get", &path).await?;
 
-    let order = state
+    let (order, available) = state
         .credits
-        .get_order(&order_id, signer.as_str())
+        .get_order_with_balance(&order_id, signer.as_str())
         .await?
         .ok_or_else(|| ApiError::not_found("order not found"))?;
 
@@ -151,12 +151,6 @@ pub async fn order_status(
         0
     };
 
-    let available = state
-        .credits
-        .user_credits(signer.as_str())
-        .await?
-        .map(|c| c.available)
-        .unwrap_or(0.0);
     let new_balance = available.floor() as i64;
 
     let error = if status == "failed" {

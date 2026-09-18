@@ -1,5 +1,6 @@
+use axum::body::Bytes;
 use axum::extract::{OriginalUri, Path, State};
-use axum::http::{header, HeaderName, HeaderValue, StatusCode};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
@@ -12,10 +13,7 @@ pub async fn ping(OriginalUri(uri): OriginalUri) -> impl IntoResponse {
 }
 
 pub async fn status(State(state): State<AppState>) -> impl IntoResponse {
-    let store = state.store.clone();
-    let usage = tokio::task::spawn_blocking(move || store.usage())
-        .await
-        .unwrap_or_default();
+    let usage = state.store.usage_snapshot();
     let (bake_queue, bake_inflight) = state
         .bake
         .as_ref()
@@ -45,6 +43,7 @@ pub async fn status(State(state): State<AppState>) -> impl IntoResponse {
 pub async fn imposter(
     State(state): State<AppState>,
     Path((_realm, level, file)): Path<(String, String, String)>,
+    headers: HeaderMap,
 ) -> Response {
     if file.ends_with("-spec.json") {
         return spec(&state, &level, &file).await;
@@ -52,9 +51,12 @@ pub async fn imposter(
     let Some(key) = parse_zip_request(&level, &file) else {
         return StatusCode::NOT_FOUND.into_response();
     };
+    if etag_matches(&headers, key.crc) {
+        return not_modified(key.crc);
+    }
     let result = if state.quarantine_list.contains(&key) {
         tracing::debug!(%level, %file, "read-through quarantined");
-        state.supply.get(&key, || async { Ok(None) }).await
+        Ok(state.supply.get_stored(&key).await)
     } else {
         state.supply.get(&key, || state.cdn.fetch(&key)).await
     };
@@ -78,11 +80,8 @@ async fn spec(state: &AppState, level: &str, file: &str) -> Response {
     let Some(key) = parse_spec_request(level, file) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let Some(bytes) = state.store.read_hit(&key).await else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    match crate::zips::extract_spec(&bytes, &key) {
-        Ok(spec) => (
+    match state.supply.spec(&key).await {
+        Ok(Some(spec)) => (
             [(
                 header::CONTENT_TYPE,
                 HeaderValue::from_static("application/json"),
@@ -90,11 +89,43 @@ async fn spec(state: &AppState, level: &str, file: &str) -> Response {
             spec,
         )
             .into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::warn!(%level, %file, error = %e, "stored zip missing spec member");
             StatusCode::NOT_FOUND.into_response()
         }
     }
+}
+
+fn etag_value(crc: u32) -> Option<HeaderValue> {
+    HeaderValue::from_str(&format!("\"{crc}\"")).ok()
+}
+
+// The crc in the key is the ETag; a matching If-None-Match needs no store work.
+fn etag_matches(headers: &HeaderMap, crc: u32) -> bool {
+    let Some(raw) = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+    else {
+        return false;
+    };
+    let wanted = format!("\"{crc}\"");
+    raw.split(',').map(str::trim).any(|tag| {
+        tag == "*" || tag == wanted || tag.strip_prefix("W/").is_some_and(|t| t == wanted)
+    })
+}
+
+fn not_modified(crc: u32) -> Response {
+    let mut response = StatusCode::NOT_MODIFIED.into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+    if let Some(etag) = etag_value(crc) {
+        headers.insert(header::ETAG, etag);
+    }
+    response
 }
 
 fn maybe_enqueue_bake(state: &AppState, tile: TileKey) {
@@ -110,7 +141,7 @@ fn maybe_enqueue_bake(state: &AppState, tile: TileKey) {
     }
 }
 
-fn zip_response(bytes: Vec<u8>, crc: u32, source: Source) -> Response {
+fn zip_response(bytes: Bytes, crc: u32, source: Source) -> Response {
     let source_value = match source {
         Source::Store => HeaderValue::from_static("store"),
         Source::Cdn => HeaderValue::from_static("cdn"),
@@ -129,7 +160,7 @@ fn zip_response(bytes: Vec<u8>, crc: u32, source: Source) -> Response {
         bytes,
     )
         .into_response();
-    if let Ok(etag) = HeaderValue::from_str(&format!("\"{crc}\"")) {
+    if let Some(etag) = etag_value(crc) {
         response.headers_mut().insert(header::ETAG, etag);
     }
     response
@@ -182,7 +213,7 @@ mod tests {
             .collect();
         std::fs::write(&list_path, lines.join("\n")).unwrap();
         let quarantine = Arc::new(Quarantine::load(store.quarantine_path(), 3, 86400));
-        let supply = Supply::new(store.clone());
+        let supply = Supply::new(store.clone(), 64 << 20);
         let cdn = CdnClient::new(cdn_base, "content".to_string(), 5).unwrap();
         Arc::new(AppStateInner {
             store,
@@ -195,6 +226,10 @@ mod tests {
     }
 
     async fn get_zip(state: &AppState, key: &ImposterKey) -> Response {
+        get_zip_with(state, key, HeaderMap::new()).await
+    }
+
+    async fn get_zip_with(state: &AppState, key: &ImposterKey, headers: HeaderMap) -> Response {
         imposter(
             State(state.clone()),
             Path((
@@ -202,8 +237,70 @@ mod tests {
                 key.tile.level.to_string(),
                 key.zip_name(),
             )),
+            headers,
         )
         .await
+    }
+
+    #[tokio::test]
+    async fn if_none_match_on_the_crc_etag_short_circuits() {
+        let dir = tempfile::tempdir().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let base = mock_cdn(hits.clone()).await;
+        let state = state_with(dir.path(), base, &[]);
+        let key = ImposterKey::new(0, 2, 100, 777).unwrap();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("\"777\""));
+        let response = get_zip_with(&state, &key, headers).await;
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(response.headers()[header::ETAG], "\"777\"");
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        assert!(!state.store.zip_path(&key).exists());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::IF_NONE_MATCH,
+            HeaderValue::from_static("W/\"1\", \"777\""),
+        );
+        let response = get_zip_with(&state, &key, headers).await;
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, HeaderValue::from_static("\"778\""));
+        let response = get_zip_with(&state, &key, headers).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::ETAG], "\"777\"");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn spec_is_served_from_the_stored_zip() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = mock_cdn(Arc::new(AtomicUsize::new(0))).await;
+        let state = state_with(dir.path(), base, &[]);
+        let key = ImposterKey::new(0, 0, 100, 3504527830).unwrap();
+        let path = |state: &AppState| {
+            imposter(
+                State(state.clone()),
+                Path((
+                    "content".to_string(),
+                    "0".to_string(),
+                    "0,100.3504527830-spec.json".to_string(),
+                )),
+                HeaderMap::new(),
+            )
+        };
+        assert_eq!(path(&state).await.status(), StatusCode::NOT_FOUND);
+        std::fs::create_dir_all(state.store.level_dir(0)).unwrap();
+        std::fs::write(
+            state.store.zip_path(&key),
+            crate::zips::test_zip_bytes(0, 100, 3504527830),
+        )
+        .unwrap();
+        let response = path(&state).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
     }
 
     #[tokio::test]

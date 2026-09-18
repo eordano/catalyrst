@@ -1,3 +1,4 @@
+use prost::Message as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -9,8 +10,9 @@ use crate::decentraland::pulse::{
 };
 use crate::interest::{
     InterestCollector, InterestEntry, PeerViewSimulationTier, SceneListenerState,
-    SpatialAreaOfInterest, SpatialGrid,
+    SpatialAreaOfInterest,
 };
+use crate::realm_grids::RealmSpatialGrids;
 use crate::snapshot::{EmoteState, IdentityBoard, PeerSnapshot, ProfileBoard, SnapshotBoard};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +38,12 @@ pub enum PeerConnectionState {
     Disconnecting,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandshakeProtocol {
+    Legacy,
+    V4,
+}
+
 #[derive(Debug, Clone)]
 pub struct PeerState {
     pub wallet_id: Option<String>,
@@ -44,6 +52,8 @@ pub struct PeerState {
     pub disconnection_time: u32,
 
     pub handshake_attempts: u8,
+    pub handshake_fingerprint: Option<[u8; 32]>,
+    pub handshake_protocol: Option<HandshakeProtocol>,
 
     pub ip: Option<String>,
 
@@ -64,6 +74,8 @@ impl PeerState {
             connection_time: now,
             disconnection_time: 0,
             handshake_attempts: 0,
+            handshake_fingerprint: None,
+            handshake_protocol: None,
             ip: None,
             features: 0,
             scene_listener: None,
@@ -270,6 +282,7 @@ pub struct PeerSimulation {
 
     observer_features: u32,
     delta_batch_buffer: Vec<BatchSubject>,
+    delta_batch_legacy: Vec<PlayerStateDeltaTier0>,
 
     tick_scan_cache: HashMap<(u32, u32), Arc<IntermediateScan>>,
     tick_delta_cache: HashMap<(u32, u32, u8), Arc<PlayerStateDeltaTier0>>,
@@ -307,6 +320,7 @@ impl PeerSimulation {
             collector: InterestCollector::default(),
             observer_features: 0,
             delta_batch_buffer: Vec::new(),
+            delta_batch_legacy: Vec::new(),
             tick_scan_cache: HashMap::new(),
             tick_delta_cache: HashMap::new(),
         }
@@ -328,7 +342,7 @@ impl PeerSimulation {
         &mut self,
         peers: &mut HashMap<u32, PeerState>,
         board: &SnapshotBoard,
-        grid: &SpatialGrid,
+        grids: &RealmSpatialGrids,
         aoi: &SpatialAreaOfInterest,
         identity: &IdentityBoard,
         profiles: &ProfileBoard,
@@ -385,6 +399,7 @@ impl PeerSimulation {
 
             self.observer_features = peers.get(&observer_id).map(|s| s.features).unwrap_or(0);
             self.delta_batch_buffer.clear();
+            self.delta_batch_legacy.clear();
 
             let mut resync = peers
                 .get_mut(&observer_id)
@@ -396,19 +411,19 @@ impl PeerSimulation {
 
             let mut collector = std::mem::take(&mut self.collector);
             let positional_only = if let Some(listener) = &listener {
-                listener.get_visible_subjects(board, grid, observer_id, &mut collector);
+                listener.get_visible_subjects(board, grids, observer_id, &mut collector);
                 true
             } else {
                 let snap = observer_snapshot.as_ref().unwrap();
                 aoi.get_visible_subjects(
                     board,
-                    grid,
+                    grids,
                     observer_id,
                     snap.realm.as_deref(),
                     snap.global_position,
                     &mut collector,
                 );
-                if self.self_mirror_enabled {
+                if self.self_mirror_enabled && snap.realm.is_some() {
                     collector.add(observer_id, self.self_mirror_tier);
                 }
                 false
@@ -941,13 +956,18 @@ impl PeerSimulation {
         view.last_sent_seq = target.seq;
 
         if mode == PacketMode::UnreliableSequenced
-            && (self.observer_features & crate::server::FEATURE_DELTA_BATCH) != 0
+            && (self.observer_features
+                & (crate::server::FEATURE_DELTA_BATCH
+                    | crate::server::FEATURE_DELTA_BATCH_BASELINE
+                    | crate::server::FEATURE_DELTA_BATCH_DICTIONARY))
+                != 0
         {
-            self.delta_batch_buffer.push(BatchSubject::from_delta(
-                &delta,
-                target.animation_flags as u32,
-            ));
-            return;
+            let subject = BatchSubject::from_delta(&delta, target.animation_flags as u32);
+            if subject.is_representable() {
+                self.delta_batch_buffer.push(subject);
+                self.delta_batch_legacy.push(*delta);
+                return;
+            }
         }
 
         self.send(
@@ -963,28 +983,71 @@ impl PeerSimulation {
         if self.delta_batch_buffer.is_empty() {
             return;
         }
-        let batches = crate::batch::encode_batches(
-            server_tick,
-            &self.delta_batch_buffer,
-            crate::batch::MAX_BATCH_BYTES,
-            self.seq_encoding,
-        );
-        for b in batches {
-            self.send(
-                observer_id,
-                ServerMessage {
-                    message: Some(server_message::Message::PlayerStateDeltaBatch(
-                        PlayerStateDeltaBatch {
-                            server_tick: b.server_tick,
-                            subject_count: b.subject_count,
-                            payload: b.payload,
-                        },
-                    )),
+        let dictionary =
+            self.observer_features & crate::server::FEATURE_DELTA_BATCH_DICTIONARY != 0;
+        let baseline =
+            dictionary || self.observer_features & crate::server::FEATURE_DELTA_BATCH_BASELINE != 0;
+        let batches = if dictionary {
+            crate::batch::encode_dictionary_batches(
+                server_tick,
+                &self.delta_batch_buffer,
+                crate::batch::MAX_BATCH_BYTES,
+            )
+        } else {
+            crate::batch::encode_batches(
+                server_tick,
+                &self.delta_batch_buffer,
+                crate::batch::MAX_BATCH_BYTES,
+                if baseline {
+                    SeqEncoding::AbsoluteBaseline
+                } else {
+                    self.seq_encoding
                 },
-                PacketMode::UnreliableSequenced,
-            );
+            )
+        };
+        let mut offset = 0;
+        for b in batches {
+            let count = b.subject_count as usize;
+            let payload = PlayerStateDeltaBatch {
+                server_tick: b.server_tick,
+                subject_count: b.subject_count,
+                payload: b.payload,
+            };
+            let message = ServerMessage {
+                message: Some(if baseline {
+                    server_message::Message::PlayerStateDeltaBatchBaseline(payload)
+                } else {
+                    server_message::Message::PlayerStateDeltaBatch(payload)
+                }),
+            };
+            let legacy_bytes = self.delta_batch_legacy[offset..offset + count]
+                .iter()
+                .map(|delta| {
+                    ServerMessage {
+                        message: Some(server_message::Message::PlayerStateDelta(*delta)),
+                    }
+                    .encoded_len()
+                })
+                .sum::<usize>();
+            if baseline && legacy_bytes <= message.encoded_len() {
+                for index in offset..offset + count {
+                    self.send(
+                        observer_id,
+                        ServerMessage {
+                            message: Some(server_message::Message::PlayerStateDelta(
+                                self.delta_batch_legacy[index],
+                            )),
+                        },
+                        PacketMode::UnreliableSequenced,
+                    );
+                }
+            } else {
+                self.send(observer_id, message, PacketMode::UnreliableSequenced);
+            }
+            offset += count;
         }
         self.delta_batch_buffer.clear();
+        self.delta_batch_legacy.clear();
     }
 
     fn try_announce_profile(&mut self, observer_id: u32, subject_id: u32, profiles: &ProfileBoard) {

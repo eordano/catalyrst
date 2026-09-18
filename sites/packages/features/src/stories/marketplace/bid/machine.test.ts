@@ -17,9 +17,6 @@ import {
 } from "./machine";
 
 const okChain: ChainFn = async () => {};
-const failChain: ChainFn = async () => {
-  throw new Error("federation unreachable");
-};
 
 function inputFor(chain: ChainFn, track: TrackFn, manaBalance = 50000) {
   return {
@@ -35,18 +32,6 @@ function inputFor(chain: ChainFn, track: TrackFn, manaBalance = 50000) {
   };
 }
 
-const EXPECTED_STATES = new Set([
-  "asset",
-  "setAmount",
-  "setExpiration",
-  "approveMana",
-  "signing",
-  "confirming",
-  "success",
-  "insufficient",
-  "failed",
-]);
-
 const TRAVERSAL_EVENTS = [
   { type: "REVIEW" as const },
   { type: "SET_AMOUNT" as const, price: 1000 },
@@ -56,162 +41,118 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
-describe("bidMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(bidMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
+describe("bidMachine \u{2014} URL ?step slug map", () => {
+  it("maps every state to a unique round-tripping audit slug and falls back to asset", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(bidMachine.states)));
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("the audit step slugs map to the right states", () => {
-    expect(slugToState("asset")).toBe("asset");
     expect(slugToState("set-amount")).toBe("setAmount");
     expect(slugToState("set-expiration")).toBe("setExpiration");
     expect(slugToState("approve-mana")).toBe("approveMana");
     expect(slugToState("sign-bid")).toBe("signing");
     expect(slugToState("confirm")).toBe("confirming");
-    expect(slugToState("success")).toBe("success");
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.asset);
-    expect(slugToState(null)).toBe("asset");
-    expect(slugToState(undefined)).toBe("asset");
-    expect(slugToState("")).toBe("asset");
-    expect(slugToState("nope")).toBe("asset");
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("asset");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("bidMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveBidSnapshot({
-      step: "asset",
-      trackCtx: inputFor(okChain, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating a later step does NOT fire telemetry and does NOT auto-run the chain", async () => {
+  it("boots asset without a snapshot, hydrates signing silently, and only real transitions track", async () => {
     const track = vi.fn();
     const chain = vi.fn(okChain);
-    const snapshot = resolveBidSnapshot({
-      step: "signing",
-      trackCtx: inputFor(chain, track).trackCtx,
-      chain,
-      track,
-    });
-    const actor = createActor(bidMachine, {
+    const trackCtx = inputFor(chain, track).trackCtx;
+    expect(resolveBidSnapshot({ step: "asset", trackCtx })).toBeUndefined();
+
+    const signing = createActor(bidMachine, {
       input: inputFor(chain, track),
-      snapshot,
+      snapshot: resolveBidSnapshot({ step: "signing", trackCtx, chain, track, price: 1234 }),
     }).start();
-
-    expect(actor.getSnapshot().matches("signing")).toBe(true);
-    expect(actor.getSnapshot().context.price).toBe(1000);
-
+    expect(signing.getSnapshot().matches("signing")).toBe(true);
+    expect(signing.getSnapshot().context.price).toBe(1234);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(chain).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("signing")).toBe(true);
-  });
+    expect(signing.getSnapshot().matches("signing")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveBidSnapshot({
-      step: "setAmount",
-      trackCtx: inputFor(okChain, track).trackCtx,
-      track,
-    });
-    const actor = createActor(bidMachine, {
+    const amount = createActor(bidMachine, {
       input: inputFor(okChain, track),
-      snapshot,
+      snapshot: resolveBidSnapshot({ step: "setAmount", trackCtx, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("setAmount")).toBe(true);
+    expect(amount.getSnapshot().matches("setAmount")).toBe(true);
     expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "SET_AMOUNT", price: 1000 });
-    expect(actor.getSnapshot().matches("setExpiration")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(BID_EVENTS.amountSet);
+    amount.send({ type: "SET_AMOUNT", price: 1000 });
+    expect(amount.getSnapshot().matches("setExpiration")).toBe(true);
+    expect(names(track)).toContain(BID_EVENTS.amountSet);
   });
 });
 
 describe("bidMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("event paths reach setExpiration, insufficient and approveMana, and approveMana needs REVIEW, SET_AMOUNT, SET_EXPIRATION", () => {
     const paths = getShortestPaths(bidMachine, {
       input: inputFor(okChain, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
       const value = p.state.value as string;
       ends.add(value);
-      expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("setExpiration")).toBe(true);
-    expect(ends.has("insufficient")).toBe(true);
-    expect(ends.has("approveMana")).toBe(true);
-  });
-
-  it("reaching approveMana passes through REVIEW, SET_AMOUNT, SET_EXPIRATION", () => {
-    const paths = getShortestPaths(bidMachine, {
-      input: inputFor(okChain, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["setExpiration", "insufficient", "approveMana"]) expect(ends.has(s)).toBe(true);
     const approve = paths.find((p) => (p.state.value as string) === "approveMana");
-    expect(approve).toBeDefined();
     const events = approve!.steps.map((s) => s.event.type);
-    expect(events).toContain("REVIEW");
-    expect(events).toContain("SET_AMOUNT");
-    expect(events).toContain("SET_EXPIRATION");
+    for (const e of ["REVIEW", "SET_AMOUNT", "SET_EXPIRATION"]) expect(events).toContain(e);
   });
 });
 
 describe("bidMachine \u{2014} telemetry events (happy path)", () => {
-  it("review -> amount -> expiration -> approve -> sign -> confirm -> success fires the full funnel", async () => {
+  it("review -> amount -> expiration -> approve -> sign -> confirm -> success fires the full funnel over the simulated chain", async () => {
+    await expect(simulateChain({ phase: "approve" })).resolves.toBeUndefined();
+    await expect(simulateChain({ phase: "sign" })).resolves.toBeUndefined();
+    await expect(simulateChain({ phase: "place" })).resolves.toBeUndefined();
+
     const track = vi.fn();
     const actor = createActor(bidMachine, {
-      input: inputFor(okChain, track),
+      input: inputFor(simulateChain, track),
     }).start();
 
     actor.send({ type: "REVIEW" });
     expect(actor.getSnapshot().matches("setAmount")).toBe(true);
-
     actor.send({ type: "SET_AMOUNT", price: 1000 });
     expect(actor.getSnapshot().matches("setExpiration")).toBe(true);
-
     actor.send({ type: "SET_EXPIRATION", expiration: "2026-07-20" });
     await waitFor(actor, (s) => s.matches("success"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BID_EVENTS.started);
-    expect(events).toContain(BID_EVENTS.amountSet);
-    expect(events).toContain(BID_EVENTS.expirationSet);
-    expect(events).toContain(BID_EVENTS.manaApproved);
-    expect(events).toContain(BID_EVENTS.signReached);
-    expect(events).toContain(BID_EVENTS.signed);
-    expect(events).toContain(BID_EVENTS.confirmed);
-    expect(events).toContain(BID_EVENTS.completed);
-
+    const events = names(track);
+    for (const e of [
+      BID_EVENTS.started,
+      BID_EVENTS.amountSet,
+      BID_EVENTS.expirationSet,
+      BID_EVENTS.manaApproved,
+      BID_EVENTS.signReached,
+      BID_EVENTS.signed,
+      BID_EVENTS.confirmed,
+      BID_EVENTS.completed,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(BID_EVENTS.started)).toBeLessThan(
       events.indexOf(BID_EVENTS.signReached),
     );
     expect(events.indexOf(BID_EVENTS.signReached)).toBeLessThan(
       events.indexOf(BID_EVENTS.completed),
     );
-
     const amountCall = track.mock.calls.find((c) => c[0] === BID_EVENTS.amountSet);
     expect(amountCall?.[1]).toMatchObject({ price: 1000 });
     expect(amountCall?.[2]).toMatchObject({
@@ -231,10 +172,8 @@ describe("bidMachine \u{2014} telemetry events (happy path)", () => {
     actor.send({ type: "REVIEW" });
     actor.send({ type: "SET_AMOUNT", price: 10000 });
     expect(actor.getSnapshot().matches("insufficient")).toBe(true);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BID_EVENTS.insufficientMana);
-    expect(events).not.toContain(BID_EVENTS.signReached);
+    expect(names(track)).toContain(BID_EVENTS.insufficientMana);
+    expect(names(track)).not.toContain(BID_EVENTS.signReached);
     expect(chain).not.toHaveBeenCalled();
 
     actor.send({ type: "BACK" });
@@ -253,7 +192,6 @@ describe("bidMachine \u{2014} chain failure + retry", () => {
       if (calls === 1) throw new Error("federation unreachable");
       return okChain(args);
     };
-
     const actor = createActor(bidMachine, {
       input: inputFor(chain, track),
     }).start();
@@ -266,17 +204,7 @@ describe("bidMachine \u{2014} chain failure + retry", () => {
 
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("success"));
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BID_EVENTS.failed);
-    expect(events).toContain(BID_EVENTS.completed);
-  });
-});
-
-describe("simulateChain", () => {
-  it("resolves for every phase (no network)", async () => {
-    await expect(simulateChain({ phase: "approve" })).resolves.toBeUndefined();
-    await expect(simulateChain({ phase: "sign" })).resolves.toBeUndefined();
-    await expect(simulateChain({ phase: "place" })).resolves.toBeUndefined();
+    expect(names(track)).toContain(BID_EVENTS.failed);
+    expect(names(track)).toContain(BID_EVENTS.completed);
   });
 });

@@ -1,11 +1,13 @@
 import { useMemo } from "react";
 
+import { useAudioMixer } from "../../overlay/audioMixer";
 import Toggle from "../../atoms/Toggle";
 import { useBridgeState } from "../../overlay/bridge";
 import { useVoiceParticipants } from "../../overlay/voiceParticipants";
 
 export default function VoiceParticipantList() {
   const { participants: roster, setVolume } = useVoiceParticipants();
+  const mixer = useAudioMixer();
   const blocked = useBridgeState((s) => s.friends.blocked);
 
   const participants = useMemo(() => {
@@ -39,7 +41,11 @@ export default function VoiceParticipantList() {
               <Toggle
                 ariaLabel={"Mute " + p.name}
                 checked={muted}
-                onChange={(next: boolean) => setVolume(p.address, next ? 0 : 1)}
+                onChange={(next: boolean) => {
+                  const source = mixer?.saved[`voice:${p.address.toLowerCase()}`];
+                  if (source) void mixer?.setVolume({ ...source, volume: p.volume }, next ? 0 : 1);
+                  else setVolume(p.address, next ? 0 : 1);
+                }}
               />
             </span>
           </li>

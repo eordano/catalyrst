@@ -1,38 +1,26 @@
-import { siteUrl } from "../../data/site";
 import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useSidebarAnchor } from "../components/FloatingPanel";
 import { Avatar, Badge } from "../../atoms/primitives";
 import Tooltip from "../../atoms/Tooltip";
+import ContextMenu, { type ContextMenuItem } from "../../components/ContextMenu";
 import { useBridgeState } from "../../overlay/bridge";
+import { useMinimapVisibility } from "../../overlay/minimapVisibility";
+import { SIDEBAR_LOWER, SIDEBAR_UPPER, type IconName, type NavItem } from "./sidebarNav";
 import "./sidebar.css";
+import SidebarOptions, { useSidebarPreferences } from "./SidebarOptions";
 
-type IcoProps = { d?: string; viewBox?: string; children?: ReactNode };
+type IcoProps = { d?: string; viewBox?: string; sw?: number; children?: ReactNode };
 
-function Ico({ d, viewBox = "0 0 24 24", children }: IcoProps) {
+function Ico({ d, viewBox = "0 0 24 24", sw, children }: IcoProps) {
+  const body = d ? <path d={d} /> : children;
   return (
     <svg className="sb__icon" viewBox={viewBox} aria-hidden="true" focusable="false">
-      {d ? <path d={d} /> : children}
+      {sw ? <g strokeWidth={sw}>{body}</g> : body}
     </svg>
   );
 }
-
-type IconName =
-  | "overflow"
-  | "bell"
-  | "backpackRotate"
-  | "places"
-  | "people"
-  | "backpack"
-  | "marketplace"
-  | "gallery"
-  | "settings"
-  | "help"
-  | "voice"
-  | "wearables"
-  | "skybox"
-  | "camera"
-  | "emote"
-  | "friends"
-  | "chat";
 
 const ICONS: Record<IconName, ReactNode> = {
   overflow: <Ico><circle cx="5" cy="12" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="19" cy="12" r="1.9" /></Ico>,
@@ -43,8 +31,23 @@ const ICONS: Record<IconName, ReactNode> = {
       <path d="M14.6 14.2a2.4 2.4 0 0 1-4.5.6l1.1.5a1.3 1.3 0 0 0 2.3-.3l-.9.1.7-1.4 1.4.8-.1.1Zm-5.2-.6a2.4 2.4 0 0 1 4.5-.6l-1.1-.5a1.3 1.3 0 0 0-2.3.3l.9-.1-.7 1.4-1.4-.8.1-.1Z" />
     </Ico>
   ),
+  events: (
+    <Ico sw={2}>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="4" />
+      <path d="M3.5 10.5h17M8.3 2.8v4M15.7 2.8v4" />
+    </Ico>
+  ),
   places: <Ico d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z" />,
-  people: <Ico d="M8.5 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-7 1.5C5.5 12.5 2 14 2 16.5V19h8v-2.5c0-1 .5-2 1.4-2.7a7 7 0 0 0-2.9-.8Zm7 0c-.6 0-1.2.1-1.8.2 1 .8 1.8 1.8 1.8 3.3V19h6v-2.5c0-2.5-3.5-4-6-4Z" />,
+  people: (
+    <Ico sw={2}>
+      <circle cx="12" cy="8.8" r="3.1" />
+      <path d="M6.6 18.3a5.4 3.9 0 0 1 10.8 0Z" />
+      <circle cx="5.1" cy="11.1" r="1.8" />
+      <circle cx="18.9" cy="11.1" r="1.8" />
+      <path d="M1.7 18.5c0-2.6 1.6-4.4 4-4.4 1.2 0 2.2.5 3 1.3" />
+      <path d="M22.3 18.5c0-2.6-1.6-4.4-4-4.4-1.2 0-2.2.5-3 1.3" />
+    </Ico>
+  ),
   backpack: (
     <Ico>
       <path
@@ -76,15 +79,22 @@ const ICONS: Record<IconName, ReactNode> = {
     </Ico>
   ),
   camera: <Ico d="M9 4 7.5 6H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-2.5L15 4H9Zm3 5a4.2 4.2 0 1 1 0 8.4A4.2 4.2 0 0 1 12 9Zm0 2a2.2 2.2 0 1 0 0 4.4A2.2 2.2 0 0 0 12 11Z" />,
-  emote: <Ico d="M13.5 4.2a1.7 1.7 0 1 1-3.4 0 1.7 1.7 0 0 1 3.4 0ZM10 7l-3.5 2 .8 1.7L9.5 9.4 9 12l-3 5.5 1.6 1L11 13l1.7 2.8L11 21h2l2-5-2-3.5.6-3 2.2 1.5 1-1.6L13.5 7H10Z" />,
+  emote: (
+    <Ico>
+      <circle cx="12" cy="4.2" r="1.9" />
+      <path d="M3.2 5.4 5 2.9l5.4 5.7h3.2L19 2.9l1.8 2.5-4.4 5.2-.8 4.8 1.8 6-2.8.6-2.6-4.4-2.6 4.4-2.8-.6 1.8-6-.8-4.8Z" />
+    </Ico>
+  ),
   friends: <Ico d="M9 11.5a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4Zm0 1.4c-3 0-5.5 1.6-5.5 3.8V19H11v-2.3c0-1.4.7-2.6 1.8-3.4a9 9 0 0 0-3.8-.4Zm8.1-3.9c1 .9 2.5 2.3 2.5 3.6 0 1.1-1 2-2.5 3.4-1.5-1.4-2.5-2.3-2.5-3.4 0-1.3 1.5-2.7 2.5-3.6Z" />,
   chat: <Ico d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-4 3.5V16H6a2 2 0 0 1-2-2V5Z" />,
 };
 
-const STROKE_ICONS = new Set<IconName>(["skybox", "voice"]);
+const STROKE_ICONS = new Set<IconName>(["skybox", "voice", "people", "emote", "events"]);
 
-function openExternal(url: string) {
-  if (typeof window !== "undefined") window.open(url, "_blank", "noopener,noreferrer");
+export function SidebarGlyph({ name }: { name: IconName }) {
+  return (
+    <span className={"sb__glyph" + (STROKE_ICONS.has(name) ? " is-stroke" : "")}>{ICONS[name]}</span>
+  );
 }
 
 type BtnProps = {
@@ -98,12 +108,15 @@ type BtnProps = {
   dot?: boolean;
   notifDot?: boolean;
   to?: string;
+  panel?: string;
+  menu?: boolean;
+  expanded?: boolean;
   onClick?: () => void;
 };
 
-function Btn({ icon, label, shortcut, active, tile, badge, badgeKind, dot, notifDot, to, onClick }: BtnProps) {
+function Btn({ icon, label, shortcut, active, tile, badge, badgeKind, dot, notifDot, to, panel, menu, expanded, onClick }: BtnProps) {
   return (
-    <Tooltip label={label} shortcut={shortcut} side="right">
+    <Tooltip label={label} shortcut={shortcut} side="right" portal>
       <button
         className={
           "sb__btn" +
@@ -112,7 +125,10 @@ function Btn({ icon, label, shortcut, active, tile, badge, badgeKind, dot, notif
           (STROKE_ICONS.has(icon) ? " is-stroke" : "")
         }
         aria-label={label}
+        aria-haspopup={menu ? "menu" : undefined}
+        aria-expanded={menu ? !!expanded : undefined}
         data-sb-linkto={to || undefined}
+        data-sb-panel={panel}
         onClick={onClick}
       >
         {ICONS[icon]}
@@ -128,39 +144,70 @@ function Btn({ icon, label, shortcut, active, tile, badge, badgeKind, dot, notif
   );
 }
 
-type NavItem = {
-  icon: IconName;
-  label: string;
-  shortcut?: string;
-  div?: boolean;
-  to?: string;
-  onClick?: () => void;
+const MENU_ICONS = {
+  map: (
+    <svg className="sb__menuicon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M9 4 3.5 6.2v13.3L9 17.3l6 2.4 5.5-2.2V4.2L15 6.4 9 4Zm0 0v13.3M15 6.4v13.3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </svg>
+  ),
+  places: (
+    <svg className="sb__menuicon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7Zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5Z" />
+    </svg>
+  ),
 };
 
-const UPPER: NavItem[] = [
-  { icon: "backpackRotate", label: "Backpack", div: true, to: "Explorer/Pages/Backpack" },
-  { icon: "places", label: "Places", shortcut: "Z", to: "Explorer/Pages/Places" },
-  { icon: "people", label: "Communities", shortcut: "O", to: "Explorer/Pages/Communities" },
-  { icon: "backpack", label: "Wearables", shortcut: "I", to: "Explorer/Pages/Backpack" },
-  { icon: "marketplace", label: "Marketplace", onClick: () => openExternal(siteUrl("/shop")) },
-  { icon: "gallery", label: "Camera Reel", shortcut: "K", to: "Explorer/Pages/Reel" },
-  { icon: "settings", label: "Settings", shortcut: "P", to: "Explorer/Pages/Settings" },
-  { icon: "help", label: "Help & Support", div: true, onClick: () => openExternal("https://decentraland.org/help/") },
-];
+function PlacesBtn({ item }: { item: NavItem }) {
+  const { userHidden, toggleUserHidden } = useMinimapVisibility();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useSidebarAnchor("places-menu", menuRef, open);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e: PointerEvent) => {
+      if (ref.current && e.target instanceof Node && !ref.current.contains(e.target) && !menuRef.current?.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+  if (!userHidden) return <Btn {...item} />;
+  const items: ContextMenuItem[] = [
+    {
+      kind: "button",
+      label: "Show minimap",
+      icon: MENU_ICONS.map,
+      onClick: () => {
+        setOpen(false);
+        toggleUserHidden();
+      },
+    },
+    { kind: "button", label: "Open Places", icon: MENU_ICONS.places, to: item.to, onClick: () => setOpen(false) },
+  ];
+  return (
+    <span ref={ref} className={"sb__pop" + (open ? " is-open" : "")}>
+      <Btn {...item} to={undefined} panel="places-menu" active={open} menu expanded={open} onClick={() => setOpen((o) => !o)} />
+      {open ? createPortal(
+        <div ref={menuRef} className="sb__menu">
+          <ContextMenu items={items} autoFocus onClose={() => setOpen(false)} />
+        </div>, document.body
+      ) : null}
+    </span>
+  );
+}
 
-const LOWER: NavItem[] = [
-  { icon: "voice", label: "Voice Chat", to: "Explorer/Components/VoiceChat" },
-  { icon: "wearables", label: "Portable Experiences", to: "Explorer/Components/SmartWearables" },
-  { icon: "skybox", label: "Skybox", div: true, to: "Explorer/Components/SkyboxHUD" },
-  { icon: "camera", label: "Camera", to: "Explorer/Pages/Camera" },
-  { icon: "emote", label: "Emotes", shortcut: "B" },
-  { icon: "friends", label: "Friends", div: true, to: "Explorer/Pages/Friends" },
-  { icon: "chat", label: "Chat", shortcut: "Enter", to: "Explorer/Frames/Chat" },
-];
-
-type SidebarProps = {
+export type SidebarProps = {
   avatarPreview?: string | null;
   onProfileToggle?: () => void;
+  onLobbyOpen?: () => void;
+  profileOpen?: boolean;
   chatOpen?: boolean;
   onChatToggle?: () => void;
   notifOpen?: boolean;
@@ -181,6 +228,8 @@ type SidebarProps = {
 export default function Sidebar({
   avatarPreview,
   onProfileToggle,
+  onLobbyOpen,
+  profileOpen,
   chatOpen,
   onChatToggle,
   notifOpen,
@@ -199,24 +248,29 @@ export default function Sidebar({
 }: SidebarProps) {
   const mic = useBridgeState((s) => s.mic);
   const friends = useBridgeState((s) => s.friends);
+  const preferences = useSidebarPreferences();
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsButton = useRef<HTMLButtonElement>(null);
+  const panelOpen = optionsOpen || profileOpen || chatOpen || notifOpen || voiceOpen || skyboxOpen || portablesOpen || friendsOpen || emoteOpen;
   return (
-    <div className="sb__stage">
+    <div className="sb__stage" data-panel-open={!!panelOpen}>
       <nav className="sb" aria-label="Main menu">
-        <Tooltip label="More options" side="right">
-          <button className="sb__cfg" aria-label="More options" data-sb-linkto="Explorer/Pages/Settings">
+        <Tooltip label="More options" side="right" portal>
+          <button ref={optionsButton} className="sb__cfg" aria-label="More options" aria-haspopup="menu" aria-expanded={optionsOpen} onClick={() => setOptionsOpen((o) => !o)}>
             {ICONS.overflow}
           </button>
         </Tooltip>
-        <Tooltip label="Profile" side="right">
-          <button className="sb__profile" type="button" aria-label="Profile" onClick={onProfileToggle}>
+        <Tooltip label={onLobbyOpen ? "Open lobby" : "Profile"} side="right" portal>
+          <button className="sb__profile" type="button" aria-label={onLobbyOpen ? "Open lobby" : "Profile"} data-sb-panel="profile" aria-expanded={onLobbyOpen ? undefined : !!profileOpen} onClick={onLobbyOpen ?? onProfileToggle}>
             <Avatar hue={320} size={38} src={avatarPreview || undefined} className="sb__avatar" />
           </button>
         </Tooltip>
-        <Tooltip label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"} side="right">
+        <Tooltip label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"} side="right" portal>
           <button
             className={"sb__btn" + (notifOpen ? " is-active" : "")}
             type="button"
             aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"}
+            data-sb-panel="notifications"
             onClick={onNotifToggle}
           >
             {ICONS.bell}
@@ -229,10 +283,10 @@ export default function Sidebar({
         </Tooltip>
 
         <div className="sb__group">
-          {UPPER.map((b) => (
+          {SIDEBAR_UPPER.map((b) => (
             <span key={b.icon} className="sb__item">
               {b.div ? <span className="sb__divider" /> : null}
-              <Btn {...b} />
+              {b.icon === "places" ? <PlacesBtn item={b} /> : <Btn {...b} />}
             </span>
           ))}
         </div>
@@ -240,21 +294,21 @@ export default function Sidebar({
         <div className="sb__spacer" />
 
         <div className="sb__group">
-          {LOWER.map((b) => (
+          {SIDEBAR_LOWER.map((b) => (
             <span key={b.icon} className="sb__item">
               {b.div ? <span className="sb__divider" /> : null}
               {b.icon === "chat" ? (
-                <Btn icon="chat" label="Chat" shortcut={b.shortcut} active={chatOpen} onClick={onChatToggle} />
+                <Btn icon="chat" label="Chat" panel="chat" shortcut={b.shortcut} active={chatOpen} onClick={onChatToggle} />
               ) : b.icon === "voice" ? (
-                <Btn {...b} to={undefined} active={voiceOpen} dot={mic.enabled} onClick={onVoiceToggle} />
+                <Btn {...b} to={undefined} panel="voice" active={voiceOpen} dot={mic.enabled} onClick={onVoiceToggle} />
               ) : b.icon === "skybox" ? (
-                <Btn {...b} to={undefined} active={skyboxOpen} onClick={onSkyboxToggle} />
+                <Btn {...b} to={undefined} panel="skybox" active={skyboxOpen} onClick={onSkyboxToggle} />
               ) : b.icon === "wearables" ? (
-                <Btn {...b} to={undefined} active={portablesOpen} onClick={onPortablesToggle} />
+                <Btn {...b} to={undefined} panel="portables" active={portablesOpen} onClick={onPortablesToggle} />
               ) : b.icon === "emote" ? (
                 <Btn icon="emote" label="Emotes" shortcut={b.shortcut} active={emoteOpen} onClick={onEmoteToggle} />
               ) : b.icon === "friends" ? (
-                <Btn {...b} to={undefined} active={friendsOpen} notifDot={friends.onlineCount > 0} onClick={onFriendsToggle} />
+                <Btn {...b} to={undefined} panel="friends" active={friendsOpen} notifDot={friends.onlineCount > 0} onClick={onFriendsToggle} />
               ) : (
                 <Btn {...b} />
               )}
@@ -262,6 +316,7 @@ export default function Sidebar({
           ))}
         </div>
       </nav>
+      {optionsOpen && <SidebarOptions {...preferences} onClose={(restoreFocus = true) => { setOptionsOpen(false); if (restoreFocus) optionsButton.current?.focus(); }} />}
     </div>
   );
 }

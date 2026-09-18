@@ -1,15 +1,22 @@
 #![allow(clippy::result_large_err)]
 
 pub mod access_gate;
+pub mod assignment_fence;
 pub mod auth_chain;
+pub mod cluster_gateway;
+pub mod cluster_subscriber;
 pub mod config;
 pub mod extract;
 pub mod handlers;
 pub mod http;
 pub mod livekit;
+pub mod metrics;
 pub mod mls;
 pub mod moderator;
+pub mod nats;
+pub mod peer_state;
 pub mod ports;
+pub mod relay_authority;
 pub mod room_metadata_sync;
 pub mod scene_perms;
 pub mod util;
@@ -24,6 +31,8 @@ use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use catalyrst_db::{PoolError, PoolSettings};
 use sqlx::PgPool;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 
@@ -106,6 +115,262 @@ impl AppStateInner {
 pub type AppState = Arc<AppStateInner>;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub async fn connect_assignment_authority(
+    cfg: &config::ClusterConfig,
+) -> Result<Option<Arc<assignment_fence::PgAssignmentFence>>> {
+    match (
+        cfg.control_database_url.as_deref(),
+        cfg.control_v4_audience.clone(),
+    ) {
+        (Some(url), Some(audience)) => Ok(Some(Arc::new(
+            assignment_fence::PgAssignmentFence::connect(url, audience).await?,
+        ))),
+        (None, None) => Ok(None),
+        _ => anyhow::bail!("control assignment database and audience must be configured together"),
+    }
+}
+
+#[derive(Clone)]
+struct AssignmentAuthority {
+    reader: Arc<dyn assignment_fence::RealmAssignmentReader>,
+    fence: Arc<dyn assignment_fence::AssignmentFence>,
+}
+
+impl AssignmentAuthority {
+    fn eager(authority: Arc<assignment_fence::PgAssignmentFence>) -> Self {
+        Self {
+            reader: authority.clone(),
+            fence: authority,
+        }
+    }
+
+    fn reconnecting(authority: Arc<assignment_fence::ReconnectingPgAssignmentReader>) -> Self {
+        Self {
+            reader: authority.clone(),
+            fence: authority,
+        }
+    }
+
+    fn reader(&self) -> Arc<dyn assignment_fence::RealmAssignmentReader> {
+        self.reader.clone()
+    }
+
+    fn fence(&self) -> Arc<dyn assignment_fence::AssignmentFence> {
+        self.fence.clone()
+    }
+}
+
+fn reconnecting_assignment_authority(
+    cfg: &config::ClusterConfig,
+) -> Result<Option<AssignmentAuthority>> {
+    match (
+        cfg.control_database_url.as_deref(),
+        cfg.control_v4_audience.clone(),
+    ) {
+        (Some(url), Some(audience)) => {
+            let authority = Arc::new(
+                assignment_fence::ReconnectingPgAssignmentReader::new(url, audience)
+                    .map_err(anyhow::Error::from)?,
+            );
+            Ok(Some(AssignmentAuthority::reconnecting(authority)))
+        }
+        (None, None) => Ok(None),
+        _ => anyhow::bail!("control assignment database and audience must be configured together"),
+    }
+}
+
+pub fn reconnecting_assignment_reader(
+    cfg: &config::ClusterConfig,
+) -> Result<Option<Arc<dyn assignment_fence::RealmAssignmentReader>>> {
+    Ok(reconnecting_assignment_authority(cfg)?.map(|authority| authority.reader()))
+}
+
+pub struct CommsRuntime {
+    cluster: Arc<cluster_subscriber::ClusterSubscriber>,
+    assignments: Option<AssignmentAuthority>,
+    state: AppState,
+    shutdown: CancellationToken,
+    voice_job: Option<JoinHandle<()>>,
+    started: bool,
+}
+
+impl CommsRuntime {
+    pub async fn eager(state: AppState, cfg: &config::ClusterConfig) -> Result<Self> {
+        let assignments = connect_assignment_authority(cfg)
+            .await?
+            .map(AssignmentAuthority::eager);
+        Ok(Self::new(state, cfg, assignments))
+    }
+
+    pub fn embedded(state: AppState, cfg: &config::ClusterConfig) -> Result<Self> {
+        let assignments = reconnecting_assignment_authority(cfg)?;
+        validate_embedded_cluster_config(cfg, assignments.is_some())?;
+        Ok(Self::new(state, cfg, assignments))
+    }
+
+    fn new(
+        state: AppState,
+        cfg: &config::ClusterConfig,
+        assignments: Option<AssignmentAuthority>,
+    ) -> Self {
+        let cluster = cluster_subscriber::ClusterSubscriber::new_with_assignment_fence(
+            production_cluster_bus(cfg),
+            Arc::new(cluster_gateway::StateGateway::new(state.clone())),
+            Arc::new(peer_state::ClusterPeerState::new(
+                cfg.peer_state_max,
+                cfg.peer_state_ttl_ms,
+                cfg.assignment_mirror_max,
+                cfg.assignment_mirror_ttl_ms,
+            )),
+            cfg.clone(),
+            assignments.as_ref().map(AssignmentAuthority::fence),
+        );
+        Self {
+            cluster,
+            assignments,
+            state,
+            shutdown: CancellationToken::new(),
+            voice_job: None,
+            started: false,
+        }
+    }
+
+    pub fn assignment_reader(&self) -> Option<Arc<dyn assignment_fence::RealmAssignmentReader>> {
+        self.assignments.as_ref().map(AssignmentAuthority::reader)
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.cluster.is_ready()
+    }
+
+    pub fn start(&mut self) {
+        if self.started {
+            return;
+        }
+        self.voice_job = Some(voice_logic::spawn_expiration_job(
+            self.state.clone(),
+            self.shutdown.clone(),
+        ));
+        self.cluster.start();
+        self.started = true;
+    }
+
+    pub async fn shutdown(mut self) {
+        if !self.started {
+            return;
+        }
+        self.shutdown.cancel();
+        self.cluster.stop().await;
+        if let Some(mut job) = self.voice_job.take() {
+            tokio::select! {
+                _ = &mut job => {}
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                    job.abort();
+                    let _ = job.await;
+                }
+            }
+        }
+        self.started = false;
+    }
+}
+
+fn validate_embedded_cluster_config(cfg: &config::ClusterConfig, protected: bool) -> Result<()> {
+    if !protected {
+        return Ok(());
+    }
+    if !cfg.enabled || cfg.nats_url.is_none() {
+        anyhow::bail!(
+            "protected embedded comms requires CLUSTER_SUBSCRIBER_ENABLED=true and NATS_URL"
+        );
+    }
+    if !cfg!(feature = "nats") {
+        anyhow::bail!("protected embedded comms requires the nats crate feature");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod comms_runtime_tests {
+    use super::validate_embedded_cluster_config;
+    use crate::config::ClusterConfig;
+
+    #[test]
+    fn embedded_legacy_mode_keeps_the_inert_defaults() {
+        validate_embedded_cluster_config(&ClusterConfig::default(), false).unwrap();
+    }
+
+    #[test]
+    fn embedded_protected_mode_requires_an_enabled_real_broker() {
+        let mut config = ClusterConfig::default();
+        assert!(validate_embedded_cluster_config(&config, true).is_err());
+
+        config.enabled = true;
+        assert!(validate_embedded_cluster_config(&config, true).is_err());
+
+        config.nats_url = Some("nats://127.0.0.1:4222".into());
+        if cfg!(feature = "nats") {
+            validate_embedded_cluster_config(&config, true).unwrap();
+        } else {
+            assert!(validate_embedded_cluster_config(&config, true).is_err());
+        }
+    }
+}
+
+impl Drop for CommsRuntime {
+    fn drop(&mut self) {
+        self.shutdown.cancel();
+        if let Some(job) = &self.voice_job {
+            job.abort();
+        }
+    }
+}
+
+#[cfg(feature = "nats")]
+fn production_cluster_bus(cfg: &config::ClusterConfig) -> Arc<dyn nats::NatsBus> {
+    Arc::new(nats::BrokerBus::new(
+        cfg.nats_url.clone(),
+        "catalyrst-comms",
+    ))
+}
+
+#[cfg(not(feature = "nats"))]
+fn production_cluster_bus(cfg: &config::ClusterConfig) -> Arc<dyn nats::NatsBus> {
+    if cfg.nats_url.is_some() {
+        tracing::error!(
+            "NATS_URL is set but this build lacks the nats feature; the cluster subscriber is disabled"
+        );
+    }
+    Arc::new(nats::DisabledBus)
+}
+
+pub fn connection_router(
+    state: AppState,
+    assignments: Option<Arc<dyn assignment_fence::RealmAssignmentReader>>,
+    service_key: Option<[u8; 32]>,
+) -> Result<Router<AppState>> {
+    let mut routes = Router::new();
+    if let Some(reader) = assignments.clone() {
+        routes = routes.merge(
+            Router::new()
+                .route("/island-refresh", post(handlers::island_refresh::refresh))
+                .layer(axum::extract::DefaultBodyLimit::max(0))
+                .layer(axum::Extension(reader)),
+        );
+    }
+    if let Some(key) = service_key {
+        let policy = relay_authority::policy::CurrentRoomPolicy::new(state.clone(), assignments)?;
+        let authority = relay_authority::RelayAuthority::new(
+            Arc::new(policy),
+            state.livekit_api_key.clone(),
+            state.livekit_api_secret.as_bytes().to_vec(),
+            key,
+        )
+        .map_err(anyhow::Error::msg)?;
+        routes = routes.merge(relay_authority::router(Arc::new(authority)));
+    }
+    Ok(routes)
+}
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let pool = catalyrst_db::connect_pool(&cfg.database_url, &pool_settings(20))

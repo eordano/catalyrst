@@ -31,13 +31,6 @@
   gap: 24px;
   align-items: center;
 }
-.gvsubmitgrant__logo {
-  width: 37px;
-  height: 37px;
-  object-fit: contain;
-  opacity: 1;
-  transition: opacity 0.1s ease-in;
-}
 .gvsubmitgrant__h1 {
   margin: 0;
   font-weight: 600;
@@ -256,14 +249,6 @@
   line-height: 22px;
   color: var(--gv-muted);
   opacity: 0.5;
-}
-.gvsubmitgrant__sccardempty {
-  display: block;
-  width: 220px;
-  max-width: 100%;
-  height: 22px;
-  border-radius: 4px;
-  background: var(--gv-wash);
 }
 .gvsubmitgrant__sccardsub {
   font-weight: 400;

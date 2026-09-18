@@ -69,3 +69,16 @@ describe("buildRsvpCommit \u{2014} real events attendee write", () => {
     expect(mPostJSON).not.toHaveBeenCalled();
   });
 });
+
+it("uses the current identity after sign-in and refuses after sign-out", async () => {
+  let identity: AuthIdentity | null = null;
+  const commit = buildRsvpCommit(() => identity);
+  const args = { eventId: EVENT_ID, direction: "going" as const, count: 0 };
+  await expect(commit(args)).rejects.toThrow(/sign in/i);
+  identity = IDENTITY;
+  mPostJSON.mockResolvedValue({ ok: true, data: [], total: 1 });
+  await expect(commit(args)).resolves.toEqual({ count: 1 });
+  identity = null;
+  await expect(commit(args)).rejects.toThrow(/sign in/i);
+  expect(mPostJSON).toHaveBeenCalledTimes(1);
+});

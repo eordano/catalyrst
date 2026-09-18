@@ -1,13 +1,6 @@
 import { z } from "zod";
 
-export type RecurrenceOption = {
-  value: string;
-  label: string;
-  frequency: "YEARLY" | "MONTHLY" | "WEEKLY" | "DAILY" | "HOURLY";
-  interval: number;
-};
-
-export const HANGOUT_BOUNDS = {
+const HANGOUT_BOUNDS = {
   nameMax: 250,
   descriptionMax: 5000,
   coordMin: -150,
@@ -62,7 +55,7 @@ export function emptyDraft(): HangoutDraft {
   };
 }
 
-export type CreateEventBody = {
+type CreateEventBody = {
   name: string;
   description: string;
   start_at: string | null;
@@ -71,14 +64,14 @@ export type CreateEventBody = {
   y: number;
 };
 
-export function toIso(date: string, time: string): string | null {
+function toIso(date: string, time: string): string | null {
   if (!date) return null;
   const t = time && /^\d{1,2}:\d{2}$/.test(time) ? time : "00:00";
   const d = new Date(`${date}T${t}:00.000Z`);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export function toCreateEventBody(draft: HangoutDraft): CreateEventBody {
+function toCreateEventBody(draft: HangoutDraft): CreateEventBody {
   const start = toIso(draft.startDate, draft.startTime);
   let finish: string | null = null;
   if (start) {
@@ -95,9 +88,9 @@ export function toCreateEventBody(draft: HangoutDraft): CreateEventBody {
   };
 }
 
-export type DraftIssues = Partial<Record<keyof HangoutDraft, string>>;
+type DraftIssues = Partial<Record<keyof HangoutDraft, string>>;
 
-export function validateStep(step: string, draft: HangoutDraft): DraftIssues {
+function validateStep(step: string, draft: HangoutDraft): DraftIssues {
   const issues: DraftIssues = {};
   if (step === "details") {
     if (!draft.name.trim()) issues.name = "Hangout name is required";
@@ -130,7 +123,7 @@ export function isStepValid(step: string, draft: HangoutDraft): boolean {
   return Object.keys(validateStep(step, draft)).length === 0;
 }
 
-export const SubmitResultSchema = z.object({
+const SubmitResultSchema = z.object({
   id: z.string(),
   approved: z.boolean(),
 });

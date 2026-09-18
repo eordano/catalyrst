@@ -1,0 +1,100 @@
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { createAvatarScene } from "./bevy";
+import { resolveOutfit } from "./outfit";
+import type { BevyPreviewSession } from "./bevy-host";
+vi.mock("./outfit", () => ({ resolveOutfit: vi.fn() }));
+const resolved = { bodyShape: "body", wearables: ["shirt"], colors: { skin: null, hair: null, eyes: null } };
+const send = vi.fn();
+const dispose = vi.fn();
+const present = vi.fn();
+let onFrame: (bitmap: ImageBitmap, generation: number) => void;
+const flush = async () => { for (let i=0;i<6;i++) await Promise.resolve(); };
+const bitmap = () => ({ width: 640, height: 1024, close: vi.fn() }) as unknown as ImageBitmap;
+beforeEach(() => {
+  vi.mocked(resolveOutfit).mockResolvedValue(resolved);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 320, height: 512 } as DOMRect);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ transferFromImageBitmap: present } as unknown as ImageBitmapRenderingContext);
+  window.dclAvatarPreview = { create: vi.fn(async (callback) => { onFrame = callback; return { send, dispose }; }) };
+});
+afterEach(() => { delete window.dclAvatarPreview; vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+test("reduced motion waits for a frame at the new size after resizing", async () => {
+  vi.stubGlobal("matchMedia", () => ({ matches: true }));
+  const node = document.createElement("div");
+  const scene = createAvatarScene(node, {});
+  await flush();
+  onFrame(bitmap(), 1);
+  present.mockClear(); send.mockClear();
+  vi.spyOn(node, "getBoundingClientRect").mockReturnValue({ width: 256, height: 256 } as DOMRect);
+  scene.resize();
+  const old = bitmap(); onFrame(old, 1);
+  expect(old.close).toHaveBeenCalledOnce();
+  expect(present).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalledWith({ op: "active", active: false });
+  const resized = { width: 512, height: 512, close: vi.fn() } as unknown as ImageBitmap;
+  onFrame(resized, 1);
+  expect(present).toHaveBeenCalledWith(resized);
+  expect(send).toHaveBeenCalledWith({ op: "active", active: false });
+  scene.dispose();
+});
+test("presents only the current outfit and closes stale or disposed frames", async () => {
+  const node = document.createElement("div");
+  const status = vi.fn();
+  const scene = createAvatarScene(node, { onStatus: status });
+  await flush();
+  const current = bitmap(); onFrame(current, 1);
+  expect(present).toHaveBeenCalledWith(current);
+  expect(status).toHaveBeenCalledWith("ready");
+  await scene.setOutfit({ urns: ["new-shirt"] });
+  const stale = bitmap(); onFrame(stale, 1);
+  expect(stale.close).toHaveBeenCalled();
+  scene.dispose();
+  const late = bitmap(); onFrame(late, 2);
+  expect(late.close).toHaveBeenCalled();
+  expect(dispose).toHaveBeenCalledOnce();
+  expect(node.children).toHaveLength(0);
+});
+test("an older profile response cannot overwrite a newer outfit", async () => {
+  const scene = createAvatarScene(document.createElement("div"), {});
+  await flush();
+  let resolveOld!: (value: typeof resolved) => void;
+  vi.mocked(resolveOutfit).mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve; }));
+  const old = scene.setOutfit({ profile: "old" });
+  await scene.setOutfit({ urns: ["new"] });
+  resolveOld({ ...resolved, wearables: ["stale"] }); await old;
+  expect(send.mock.calls.some(([command]) => command.wearables?.includes("stale"))).toBe(false);
+  scene.dispose();
+});
+test("unmounting during engine boot disposes the late session without loading assets", async () => {
+  let boot!: (session: BevyPreviewSession) => void;
+  window.dclAvatarPreview = { create: () => new Promise(resolve => { boot = resolve; }) };
+  const scene = createAvatarScene(document.createElement("div"), {});
+  scene.dispose(); boot({ send, dispose }); await flush();
+  expect(dispose).toHaveBeenCalledOnce();
+  expect(resolveOutfit).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalled();
+});
+
+test("waits for the engine host when the overlay loads first", async () => {
+  const { previewHost } = await import("./bevy-host");
+  const host = window.dclAvatarPreview;
+  delete window.dclAvatarPreview;
+  window.dclAvatarPreviewExpected = true;
+  let settled = false;
+  const waiting = previewHost(new AbortController().signal).then(value => { settled = true; return value; });
+  await flush(); expect(settled).toBe(false);
+  window.dclAvatarPreview = host;
+  window.dclAvatarPreviewExpected = false;
+  window.dispatchEvent(new Event("dcl-avatar-preview-ready"));
+  expect(await waiting).toBe(host);
+});
+
+test("cancels waiting for the engine host when the preview unmounts", async () => {
+  const { previewHost } = await import("./bevy-host");
+  delete window.dclAvatarPreview;
+  window.dclAvatarPreviewExpected = true;
+  const abort = new AbortController();
+  const waiting = previewHost(abort.signal);
+  abort.abort();
+  await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
+  window.dclAvatarPreviewExpected = false;
+});

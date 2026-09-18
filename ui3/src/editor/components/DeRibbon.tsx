@@ -19,15 +19,16 @@ export interface RibbonMeter {
   limit: number;
 }
 
-export interface DeRibbonProps {
+interface DeRibbonProps {
   commands?: Record<string, (() => void) | undefined>;
   pressed?: Record<string, boolean>;
   labels?: Record<string, string>;
   hasSelection?: boolean;
   selectionLabel?: string;
+  selectionHint?: string;
+  selectionHints?: Record<string, string>;
   busLive?: boolean;
-  showDeveloper?: boolean;
-  onToggleDeveloper?: (next: boolean) => void;
+  renderHeader?: (navigation: ReactNode) => ReactNode;
   saveLabel?: string;
   saveClass?: string;
   playing?: boolean;
@@ -94,9 +95,10 @@ export default function DeRibbon({
   labels = {},
   hasSelection = false,
   selectionLabel = "Selection",
+  selectionHint = undefined,
+  selectionHints = {},
   busLive = false,
-  showDeveloper = false,
-  onToggleDeveloper,
+  renderHeader,
   saveLabel = "Saved",
   saveClass = "ok",
   playing = false,
@@ -165,7 +167,13 @@ export default function DeRibbon({
         className={
           "rb-cmd" + (cmd.kind === "big" ? " big" : "") + (isToggle ? " rb-toggle" : "") + (on ? " on" : "")
         }
-        title={blocked ? BLOCKED_REASON[blocked] : (cmd.hint ?? text)}
+        title={
+          blocked
+            ? blocked === "selection"
+              ? (selectionHints[cmd.id] ?? selectionHint ?? BLOCKED_REASON.selection)
+              : BLOCKED_REASON[blocked]
+            : (cmd.hint ?? text)
+        }
         aria-label={text}
         aria-pressed={
           (isToggle || cmd.id.startsWith("tool.")) && cmd.id in pressed ? on : undefined
@@ -180,7 +188,6 @@ export default function DeRibbon({
   };
 
   const renderGroup = (g: RibbonGroup): ReactElement | null => {
-    if (g.optIn === true && !showDeveloper) return null;
 
     if (g.slot === "numeric" || g.slot === "wiring") {
       const slot =
@@ -250,11 +257,7 @@ export default function DeRibbon({
 
   const deck = current ? current.groups.map(renderGroup).filter((el) => el !== null) : [];
 
-  return (
-    <div className="rb" role="region" aria-label="Editor ribbon">
-      <div className="rb-chrome">
-        {
-}
+  const navigation = <>
         <div className="rb-qat" role="group" aria-label="Quick access">
           {chromeButton("undo", "Undo", "\u{21B6}", "rb-icon", "Undo", "Nothing to undo", canUndo)}
           {chromeButton("redo", "Redo", "\u{21B7}", "rb-icon", "Redo", "Nothing to redo", canRedo)}
@@ -286,39 +289,11 @@ export default function DeRibbon({
           ))}
         </div>
 
-        <div className="rb-always" role="group" aria-label="Always available">
-          {playing
-            ? chromeButton(
-                "stop",
-                "Stop preview",
-                "Stop",
-                "rb-btn primary",
-                "Stop the preview",
-                "Preview is not running",
-              )
-            : chromeButton(
-                "play",
-                "Play",
-                "Play",
-                "rb-btn primary",
-                "Run the scene in the editor",
-                "Play is not available here",
-                busLive,
-              )}
-          <button
-            type="button"
-            className={"rb-icon" + (showDeveloper ? " on" : "")}
-            title={
-              showDeveloper ? "Hide the code tools in Test & Code" : "Show the code tools in Test & Code"
-            }
-            aria-label="Code tools"
-            aria-pressed={showDeveloper}
-            onClick={() => onToggleDeveloper?.(!showDeveloper)}
-          >
-            {"\u{22EF}"}
-          </button>
-        </div>
-      </div>
+  </>;
+
+  return (
+    <div className="rb" role="region" aria-label="Editor ribbon">
+      {renderHeader ? renderHeader(navigation) : <div className="rb-chrome">{navigation}</div>}
 
       {current ? (
         <div

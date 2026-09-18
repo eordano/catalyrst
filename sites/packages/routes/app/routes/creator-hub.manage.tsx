@@ -12,7 +12,7 @@ import "@ui/creatorhub/pages/chmanage.css";
 
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import {
   applyFilter,
   applySearch,
@@ -60,13 +60,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const search = url.searchParams.get("search")?.trim() ?? "";
   const address = url.searchParams.get("address")?.trim() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const d = await loadManageWorlds(address, request.signal).catch(() => null);
+  const [{ sid, wrap }, d] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    loadManageWorlds(address, request.signal).catch(() => null),
+  ]);
 
   const worlds = d?.worlds ?? [];
   const filtered = applyFilter(worlds, filter);
@@ -117,7 +114,7 @@ function ManageView({
   const navigate = useNavigate();
   const revalidator = useRevalidator();
   const { isConnected, address: walletAddress } = useAuth();
-  const name = useProfileName(walletAddress, isConnected);
+  const { name } = useChromeAuth();
   const isEmpty = cards.length === 0;
   const rescoping = isConnected && Boolean(walletAddress) && !address;
 

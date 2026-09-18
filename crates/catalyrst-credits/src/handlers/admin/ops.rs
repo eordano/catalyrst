@@ -348,25 +348,20 @@ pub(super) async fn refund_checkout(
         checkout_id = id,
         "admin manual refund"
     );
-    let (outcome, closed) = state
+    let (outcome, _closed) = state
         .credits
-        .refund_checkout_manual(id, &checkout.address, &checkout.total_credits)
-        .await?;
-
-    let detail = json!({
-        "checkoutId": id, "address": checkout.address,
-        "requested": checkout.total_credits, "applied": outcome.applied,
-        "replayed": outcome.replayed, "closed": closed, "reason": reason,
-    });
-    state
-        .credits
-        .admin_audit_op(
-            "checkout.refund",
-            Some(&checkout.address),
-            Some(id),
-            Some(&checkout.total_credits),
+        .refund_checkout_manual_audited(
+            id,
+            &checkout.address,
+            &checkout.total_credits,
             actor.as_deref(),
-            &detail,
+            |outcome| {
+                json!({
+                    "checkoutId": id, "address": checkout.address,
+                    "requested": checkout.total_credits, "applied": outcome.applied,
+                    "replayed": outcome.replayed, "reason": reason,
+                })
+            },
         )
         .await?;
 

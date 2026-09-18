@@ -6,7 +6,7 @@ export type BreadcrumbOrigin = {
   active: CreatorHubNavId;
 };
 
-export const ORIGINS: Record<string, BreadcrumbOrigin> = {
+const ORIGINS: Record<string, BreadcrumbOrigin> = {
   scenes: { to: "/create/scenes", label: "Back to scenes", active: "scenes" },
   templates: { to: "/create/templates", label: "Back to templates", active: "templates" },
   home: { to: "/create", label: "Back to Creator Hub", active: "home" },

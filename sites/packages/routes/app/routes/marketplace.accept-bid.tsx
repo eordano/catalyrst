@@ -23,16 +23,13 @@ const FALLBACK: Assignment = {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    "marketplace/accept-bid",
-    FALLBACK,
-  );
-
   const owner = url.searchParams.get("owner")?.trim() || readWallet(request);
-  const { bids, source, reason } = await loadReceivedBids(owner, {
+  const [{ sid, assignment, wrap }, { bids, source, reason }] = await Promise.all([
+    storyLoader(request, "marketplace/accept-bid", FALLBACK),
+    loadReceivedBids(owner, {
     signal: request.signal,
-  });
+  }),
+  ]);
   const requestedBidId = url.searchParams.get("bid");
   const bid: Bid | null = findBid(bids, requestedBidId) ?? bids[0] ?? null;
 

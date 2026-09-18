@@ -57,7 +57,8 @@ export const UnavailableActionsDisabled: Story = {
   args: {},
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByRole("button", { name: /Undo/ })).toBeDisabled();
-    await expect(canvas.getByRole("button", { name: /Redo/ })).toBeDisabled();
+    for (const name of ["Hide hierarchy", "Move (W)", "Rotate (E)", "Scale (R)", "Select (Q)", "Run the scene", "Advance one tick", "Hide inspector", "Camera and hierarchy options need a running engine"]) {
+      await expect(canvas.getByRole("button", { name })).toBeDisabled();
+    }
   },
 };

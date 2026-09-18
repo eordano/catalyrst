@@ -62,5 +62,6 @@ pub async fn build_state(cfg: Config) -> Result<AppState> {
         allowed_methods: RwLock::new(allowed_methods),
         upstreams: RwLock::new(upstreams),
         admin_token,
+        memo: Default::default(),
     }))
 }

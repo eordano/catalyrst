@@ -151,40 +151,6 @@
   gap: 16px;
   margin-top: 4px;
 }
-.mktransferpage__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  min-width: 132px;
-  height: 44px;
-  padding: 0 26px;
-  border: none;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease;
-}
-.mktransferpage__btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.mktransferpage__btn--secondary {
-  background: var(--fill-4);
-  color: #fff;
-}
-.mktransferpage__btn--secondary:not(:disabled):hover {
-  background: var(--fill-5);
-}
-.mktransferpage__btn--primary {
-  background: var(--brand-cta);
-  color: #fff;
-}
-.mktransferpage__btn--primary:not(:disabled):hover {
-  background: var(--brand-hover);
-}
 
 .mktransferpage__spinner {
   width: 15px;
@@ -245,8 +211,5 @@
   .mktransferpage__buttons {
     flex-direction: column-reverse;
     align-items: stretch;
-  }
-  .mktransferpage__btn {
-    width: 100%;
   }
 }

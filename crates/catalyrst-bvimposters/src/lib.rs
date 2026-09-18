@@ -67,7 +67,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         cfg.cdn_realm_segment.clone(),
         cfg.readthrough_timeout_secs,
     )?;
-    let supply = Supply::new(store.clone());
+    let supply = Supply::new(store.clone(), cfg.mem_cache_bytes);
 
     let bake = if cfg.bake_enabled {
         let queue = BakeQueue::new(

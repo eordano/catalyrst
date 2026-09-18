@@ -115,10 +115,10 @@ Keep a separate export only for something args cannot reach:
   (`ManaMark`'s `InBalance` puts the atom inside a balance row);
 - a `Catalog`, below.
 
-`Catalog` stories buy back the coverage a collapse removes. `vitest.browser.config.ts` turns
-every story into a render + axe test (`preview.tsx` sets `a11y: { test: "error" }`, so violations
-fail), and `tools/story-shots` takes one screenshot per story, so collapsing N variant stories
-drops N-1 rendered states out of both gates. When the collapsed states exercise structurally
+`Catalog` stories buy back the coverage a collapse removes. The browser gate always retains
+catalog files and turns their stories into render + axe tests (`preview.tsx` sets
+`a11y: { test: "error" }`, so violations fail); `tools/story-shots` still takes one screenshot
+per story. When the collapsed states exercise structurally
 different subtrees, add one export rendering them all together with
 `parameters: { controls: { disable: true } }` -- precedent `Atoms/Primitives`, then
 `EmptyState`, `World Permissions` and `SubmitProposalForm`. One story, one baseline, every state
@@ -185,15 +185,23 @@ Interaction tests live in the stories as Storybook `play` functions (`*.interact
 
 | Command | Runner | DOM | Scope |
 | --- | --- | --- | --- |
-| `npm test` | vitest + jsdom, portable stories (`composeStories`) | jsdom | 35 files / 254 tests |
-| `npm run test:browser` | `@storybook/addon-vitest` + `@vitest/browser` + playwright | real Chromium | every story: 191 files / 681 tests |
+| `npm test` | vitest + jsdom, portable stories (`composeStories`) | jsdom | unit and explicit interaction contracts |
+| `npm run test:browser` | `@storybook/addon-vitest` + `@vitest/browser` + playwright | real Chromium | explicit interaction and consolidated accessibility contracts |
 | `npm run test:all` | both |||
 
 - jsdom -- `vitest.config.ts` (jsdom + `@vitejs/plugin-react`): unit tests and bridge-mocking `*.interactions.test.tsx` files. No browser needed.
-- real-DOM -- `vitest.browser.config.ts`: the `storybookTest` plugin turns EVERY story into a browser test (opt out per story with `tags: ["no-test"]`), running its `play` function and the a11y (axe) gate in headless Chromium. Browser resolution order: `$CHROMIUM_BIN`, a `/nix/store/*chromium*` install, playwright's managed Chromium.
+- real-DOM -- `vitest.browser.config.ts`: every interaction file, story carrying
+  `play()`, and deliberately consolidated `Catalog` accessibility story runs.
+  Static presentation stories remain available as Storybook documentation but
+  are not automatic tests. This keeps the gate tied to user-visible behavior
+  and accessibility contracts instead of freezing every current variant. The
+  runner still respects `tags: ["no-test"]`. Browser resolution order: `$CHROMIUM_BIN`, a
+  `/nix/store/*chromium*` install, or Playwright's managed Chromium.
 - Shared setup: `.storybook/vitest.setup.ts` applies the Storybook preview decorators (`setProjectAnnotations`) + `@testing-library/jest-dom` matchers.
 
 ### Add a test
 
-1. Add a story (a `play` function makes it an interaction test; without one it is still a render + a11y test). The browser runner picks up every story automatically, no registration. Opt out with `tags: ["no-test"]`.
+1. Add a story for documentation. Add a `play` function only when it asserts a
+   durable user-visible contract; that makes the file part of the browser gate.
+   Use a consolidated `Catalog` story for intentional accessibility coverage.
 2. If it needs a mocked module dependency, give it a dedicated `*.interactions.test.tsx` that `vi.mock`s the module and asserts on the mock (jsdom only; the browser runner asserts the observable UI effect via the `play`).

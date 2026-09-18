@@ -11,18 +11,14 @@ import {
 import { createIdentityFromPrivateKey } from "../../auth/identity";
 import { hashV1Raw } from "../hashing";
 
-describe("buildTombstoneSceneJson", () => {
-  it("is a valid empty scene with no worldConfiguration / navmapThumbnail", () => {
+describe("buildSceneDeletion", () => {
+  it("builds an empty tombstone scene hashed to a CIDv1 entityId over the pointers", async () => {
     const meta = buildTombstoneSceneJson(["1,2", "1,3"], "1,2", 123);
     expect(meta.scene).toEqual({ base: "1,2", parcels: ["1,2", "1,3"] });
     expect(meta).not.toHaveProperty("worldConfiguration");
     expect((meta.display as Record<string, unknown>).navmapThumbnail).toBeUndefined();
     expect(meta.dclDeleted).toBe(true);
-  });
-});
 
-describe("buildSceneDeletion", () => {
-  it("builds a tombstone deployment hashed to a CIDv1 entityId over the pointers", async () => {
     const prepared = await buildSceneDeletion({ pointers: ["12,34"], timestamp: 1 });
     expect(prepared.entity.type).toBe("scene");
     expect(prepared.entity.pointers).toEqual(["12,34"]);
@@ -31,19 +27,14 @@ describe("buildSceneDeletion", () => {
     expect(JSON.parse(new TextDecoder().decode(prepared.entityFile)).id).toBeUndefined();
   });
 
-  it("rejects non-parcel pointers (won't tombstone arbitrary pointers)", async () => {
-    await expect(
-      buildSceneDeletion({ pointers: ["0xdeadbeef"] }),
-    ).rejects.toThrow(/not a parcel/i);
-  });
-
-  it("requires at least one pointer", async () => {
+  it("rejects non-parcel pointers and requires at least one pointer", async () => {
+    await expect(buildSceneDeletion({ pointers: ["0xdeadbeef"] })).rejects.toThrow(/not a parcel/i);
     await expect(buildSceneDeletion({ pointers: [] })).rejects.toThrow(/pointer/i);
   });
 });
 
 describe("resolveActiveScene", () => {
-  it("returns the active scene's id + pointers for a parcel", async () => {
+  it("returns the active scene's id + pointers for a parcel, or null when none is active", async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       expect(String(url)).toContain("/content/entities/scene?pointer=5%2C6");
       return new Response(
@@ -53,13 +44,8 @@ describe("resolveActiveScene", () => {
     }) as unknown as typeof fetch;
     const live = await resolveActiveScene("5,6", { base: "http://cat", fetchImpl });
     expect(live).toEqual({ id: "bafkreitest", pointers: ["5,6", "5,7"], timestamp: 9 });
-  });
-
-  it("returns null when no scene is active at the pointer", async () => {
-    const fetchImpl = vi.fn(async () =>
-      new Response(JSON.stringify([]), { status: 200 }),
-    ) as unknown as typeof fetch;
-    expect(await resolveActiveScene("9,9", { base: "http://cat", fetchImpl })).toBeNull();
+    const empty = vi.fn(async () => new Response(JSON.stringify([]), { status: 200 })) as unknown as typeof fetch;
+    expect(await resolveActiveScene("9,9", { base: "http://cat", fetchImpl: empty })).toBeNull();
   });
 });
 
@@ -97,22 +83,19 @@ describe("deleteScene (HTTP contract, mocked transport)", () => {
     expect(recovered.toLowerCase()).toBe(identity.ephemeral.address.toLowerCase());
   });
 
-  it("refuses to delete when the connected wallet is not the owner", async () => {
+  it("refuses a non-owner wallet before any request and reports a catalyst ownership rejection without throwing", async () => {
     const identity = await createIdentityFromPrivateKey(generatePrivateKey());
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
-    const res = await deleteScene(
+    const untouched = vi.fn() as unknown as typeof fetch;
+    const refused = await deleteScene(
       identity,
       { pointers: ["1,1"] },
-      { base: "http://cat", fetchImpl, expectedOwner: "0xsomeoneelse" },
+      { base: "http://cat", fetchImpl: untouched, expectedOwner: "0xsomeoneelse" },
     );
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.errors[0]).toMatch(/not the scene owner/i);
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.errors[0]).toMatch(/not the scene owner/i);
+    expect(untouched).not.toHaveBeenCalled();
 
-  it("reports a catalyst ownership rejection without throwing", async () => {
-    const identity = await createIdentityFromPrivateKey(generatePrivateKey());
-    const fetchImpl = vi.fn(async () =>
+    const rejecting = vi.fn(async () =>
       new Response(
         JSON.stringify({
           errors: ["The provided Eth Address does not have access to the following parcel: (1,1)"],
@@ -123,7 +106,7 @@ describe("deleteScene (HTTP contract, mocked transport)", () => {
     const res = await deleteScene(
       identity,
       { pointers: ["1,1"] },
-      { base: "http://cat", fetchImpl, expectedOwner: identity.signer },
+      { base: "http://cat", fetchImpl: rejecting, expectedOwner: identity.signer },
     );
     expect(res.ok).toBe(false);
     if (!res.ok) {

@@ -3,7 +3,7 @@ import json, subprocess, re, sys, os, time
 
 F = os.path.dirname(os.path.abspath(__file__))
 ONE = os.environ.get("ONE_ROOT", os.path.abspath(os.path.join(F, "../../../../..")))
-CAND = "interconnected.online"
+CAND = os.environ.get("CANDIDATE_DOMAIN", "interconnected.online")
 ORIGIN_IP = os.environ.get("CANDIDATE_ORIGIN_IP") or sys.exit("set CANDIDATE_ORIGIN_IP to the candidate origin")
 ADDR = "0x8d6f63e382d73cf53858864f673f39e9ff915a1e"
 UUID = "00000000-0000-0000-0000-000000000000"

@@ -30,9 +30,7 @@ export const CATEGORIES = [
   "dance",
 ] as const;
 
-export const BODY_SHAPES = ["male", "female"] as const;
-
-export const RARITY_MAX_SUPPLY: Record<(typeof RARITIES)[number], number> = {
+const RARITY_MAX_SUPPLY: Record<(typeof RARITIES)[number], number> = {
   unique: 1,
   mythic: 10,
   exotic: 50,

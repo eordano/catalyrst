@@ -3,6 +3,10 @@ import { useSyncExternalStore } from "react";
 import type { AvatarColor3 } from "../generated/bridge/AvatarColor3";
 import type { BridgeAction } from "../generated/bridge/BridgeAction";
 import type { ChangeRealmPayload } from "../generated/bridge/ChangeRealmPayload";
+import type { LifecycleSnapshot } from "../generated/bridge/LifecycleSnapshot";
+import type { TravelPayload } from "../generated/bridge/TravelPayload";
+import type { CancelTravelPayload } from "../generated/bridge/CancelTravelPayload";
+import type { RetryConnectionPayload } from "../generated/bridge/RetryConnectionPayload";
 import type { OverlayPush } from "../generated/bridge/OverlayPush";
 import { OverlayPushSchema } from "../generated/bridge-schemas";
 import { checkOk } from "../validate";
@@ -37,6 +41,10 @@ export type { AvatarColor3, SetAvatarPayload };
 type EmptyPayload = Record<string, never>;
 
 type BridgePayloadMap = {
+  Travel: TravelPayload;
+  CancelTravel: CancelTravelPayload;
+  RetryConnection: RetryConnectionPayload;
+  GetLifecycleSnapshot: EmptyPayload;
   Teleport: TeleportPayload;
   ChangeRealm: ChangeRealmPayload;
   SendChat: SendChatPayload;
@@ -98,6 +106,13 @@ export function sendBridge(action: BridgeAction, payload?: unknown): void {
   if (!bridge) return;
   try {
     bridge.send(action, payload);
+    if (action === "SetAvatar") {
+      const base = (payload as SetAvatarPayload | undefined)?.base;
+      if (base) {
+        snapshot = { ...snapshot, avatarBase: { ...snapshot.avatarBase, ...base } };
+        emit();
+      }
+    }
   } catch {
   }
 }
@@ -245,15 +260,19 @@ export type BridgeOpenPanel = {
 export type BridgePortable = PortableEntry;
 
 export type BridgeState = {
+  lifecycle: LifecycleSnapshot | null;
+  retiredLifecycleSessions: readonly string[];
   identity: BridgeIdentity;
   scene: BridgeScene;
   chat: BridgeChatLine[];
   players: NearbyPlayer[];
   friends: BridgeFriends;
+  friendsSnapshot: Extract<OverlayPush, { kind: "friends" }> | null;
   mic: BridgeMic;
   connection: BridgeConnection | null;
   loginCode: BridgeLoginCode | null;
   avatarPreview: string | null;
+  avatarBase: SetAvatarPayload["base"] | null;
   avatarLoadout: BridgeAvatarLoadout | null;
   playerPosition: BridgePlayerPosition | null;
   toasts: BridgeToast[];
@@ -263,6 +282,8 @@ export type BridgeState = {
 };
 
 export const FALLBACK_STATE: BridgeState = {
+  lifecycle: null,
+  retiredLifecycleSessions: [],
   identity: {
     name: "Guest",
     tag: null,
@@ -282,6 +303,7 @@ export const FALLBACK_STATE: BridgeState = {
     friends: [],
     blocked: [],
   },
+  friendsSnapshot: null,
   mic: {
     enabled: false,
     available: true,
@@ -289,6 +311,7 @@ export const FALLBACK_STATE: BridgeState = {
   connection: null,
   loginCode: null,
   avatarPreview: null,
+  avatarBase: null,
   avatarLoadout: null,
   playerPosition: null,
   toasts: [],
@@ -315,6 +338,17 @@ function applyState(prev: BridgeState, push: unknown): BridgeState {
   if (!isBridgePush(push)) return prev;
   if (!checkOk(OverlayPushSchema, push, "bridge/push")) return prev;
   switch (push.kind) {
+    case "lifecycle": {
+      const next = push.snapshot;
+      const current = prev.lifecycle;
+      if (prev.retiredLifecycleSessions.includes(next.session)) return prev;
+      if (current?.session === next.session && next.revision <= current.revision) return prev;
+      if (current && current.session !== next.session) {
+        return { ...FALLBACK_STATE, lifecycle: next, retiredLifecycleSessions: [...prev.retiredLifecycleSessions, current.session] };
+      }
+      return { ...prev, lifecycle: next };
+    }
+
     case "identity": {
       const isGuest = push.isGuest ?? prev.identity.isGuest;
       return {
@@ -329,7 +363,10 @@ function applyState(prev: BridgeState, push: unknown): BridgeState {
             : prev.identity.wallet,
           isGuest,
         },
+        friendsSnapshot: push.address !== prev.identity.address || isGuest ? null : prev.friendsSnapshot,
+        friends: push.address !== prev.identity.address || isGuest ? FALLBACK_STATE.friends : prev.friends,
         loginCode: isGuest ? prev.loginCode : null,
+        avatarBase: push.address !== prev.identity.address ? null : prev.avatarBase,
       };
     }
     case "scene":
@@ -356,6 +393,7 @@ function applyState(prev: BridgeState, push: unknown): BridgeState {
     case "friends":
       return {
         ...prev,
+        friendsSnapshot: push,
         friends: {
           onlineCount: push.onlineCount ?? prev.friends.onlineCount,
           friends: push.friends ?? prev.friends.friends,
@@ -458,14 +496,22 @@ function tryAttach(): boolean {
   if (!bridge) return false;
   attached = true;
   attachedBridge = bridge;
-  unsubBridge = subscribeBridge((push) => {
-    const next = applyState(snapshot, push);
-    if (next === snapshot && snapshot.live) return;
-    snapshot = { ...next, live: true };
-    emit();
-  });
+  try {
+    unsubBridge = bridge.onState((push) => {
+      if (attachedBridge !== bridge) return;
+      const next = applyState(snapshot, push);
+      if (next === snapshot && snapshot.live) return;
+      snapshot = { ...next, live: true };
+      emit();
+    });
+  } catch {
+    attached = false;
+    attachedBridge = null;
+    return false;
+  }
   snapshot = { ...snapshot, live: true };
   emit();
+  try { bridge.send("GetLifecycleSnapshot", {}); } catch { }
   return true;
 }
 
@@ -486,21 +532,17 @@ function resetStore(): void {
 
 function ensureAttached(): void {
   if (attached && attachedBridge !== getBridge()) resetStore();
-  if (attached || tryAttach()) return;
+  if (!attached) tryAttach();
   if (polling) return;
-  const iv = setInterval(() => {
-    if (tryAttach() && polling === iv) {
-      clearInterval(iv);
-      polling = null;
+  polling = setInterval(() => {
+    if (attached && attachedBridge !== getBridge()) {
+      resetStore();
+      emit();
+      ensureAttached();
+    } else if (!attached) {
+      tryAttach();
     }
   }, 250);
-  polling = iv;
-  setTimeout(() => {
-    if (polling === iv) {
-      clearInterval(iv);
-      polling = null;
-    }
-  }, 10000);
 }
 
 function subscribeStore(cb: () => void): () => void {
@@ -518,6 +560,20 @@ function subscribeStore(cb: () => void): () => void {
       if (listeners.size === 0) resetStore();
     }, 0);
   };
+}
+
+export function subscribeLifecycle(listener: (state: LifecycleSnapshot) => void): () => void {
+  let previous: LifecycleSnapshot | null = null;
+  const receive = () => {
+    const current = snapshot.lifecycle;
+    if (current && current !== previous) {
+      previous = current;
+      listener(current);
+    }
+  };
+  const unsubscribe = subscribeStore(receive);
+  receive();
+  return unsubscribe;
 }
 
 export function useBridgeState(): BridgeSnapshot;

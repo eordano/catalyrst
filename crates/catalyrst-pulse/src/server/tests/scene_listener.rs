@@ -33,7 +33,7 @@ fn single_realm(srv: &PulseServer, realm: &str, parcels: &[i32]) -> SceneListene
             .into_iter()
             .collect(),
         &srv.encoder,
-        &SceneListenerCellMapper::new(&srv.grid, &srv.encoder),
+        &SceneListenerCellMapper::new(&srv.grids, &srv.encoder),
     )
 }
 
@@ -102,6 +102,50 @@ fn expect_handshake_reject(action: Action) {
         }
         other => panic!("expected Reject(InvalidHandshakeField), got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn committed_listener_handshake_is_idempotent_without_changing_aoi() {
+    let mut server = PulseServer::with_config(4, 2, &[50], false);
+    server
+        .peers
+        .insert(1, PeerState::new(PeerConnectionState::PendingAuth, 0));
+    let (base, _, now_ms) = signed_handshake_request().await;
+    let bytes = one_realm_msg(&base, "realm-a", vec![rect(0, 0, 0, 0)], 0);
+    let admitted = match server.dispatch(1, channel::RELIABLE, &bytes, now_ms, 0) {
+        Action::AuthenticatedListener {
+            wallet,
+            session,
+            listener,
+            ..
+        } => {
+            server.identity.set_with_session(1, wallet.clone(), session);
+            let state = server.peers.get_mut(&1).unwrap();
+            state.wallet_id = Some(wallet);
+            state.connection_state = PeerConnectionState::Authenticated;
+            state.scene_listener = Some(listener.clone());
+            listener
+        }
+        other => panic!("expected listener admission: {other:?}"),
+    };
+    assert_eq!(
+        server.dispatch(1, channel::RELIABLE, &bytes, now_ms + 7_000, 7_000),
+        Action::Reply(handshake_response(true, None))
+    );
+    assert!(Arc::ptr_eq(
+        server.peers[&1].scene_listener.as_ref().unwrap(),
+        &admitted
+    ));
+    assert_eq!(server.peers[&1].handshake_attempts, 1);
+    let changed = one_realm_msg(&base, "realm-b", vec![rect(0, 0, 0, 0)], 0);
+    assert_eq!(
+        server.dispatch(1, channel::RELIABLE, &changed, now_ms, 0),
+        Action::Ignore
+    );
+    assert!(Arc::ptr_eq(
+        server.peers[&1].scene_listener.as_ref().unwrap(),
+        &admitted
+    ));
 }
 
 #[test]
@@ -189,6 +233,77 @@ fn scene_listener_forbidden_messages_are_dropped_and_counted() {
 }
 
 #[test]
+fn scene_listener_application_dispatch_keeps_avatar_state_read_only() {
+    let mut srv = PulseServer::new();
+    listener(&mut srv, 7, "0xabc", "realm-a", &[10]);
+    srv.peers.get_mut(&7).unwrap().features = FEATURE_APPLICATION_RELAY;
+    let join =
+        client_message::Message::ApplicationJoin(crate::decentraland::pulse::ApplicationJoin {
+            request_id: 1,
+            jwt_header_payload: "header.payload".into(),
+            proof: vec![0; 32],
+        });
+    assert_eq!(
+        srv.dispatch(7, channel::RELIABLE, &client_msg(join.clone()), 0, 0),
+        Action::Application(join),
+        "dispatch requests independent room authorization; it does not grant publication"
+    );
+    let input = client_msg(client_message::Message::Input(PlayerStateInput {
+        state: Some(valid_state(3)),
+    }));
+    assert_eq!(
+        srv.dispatch(7, channel::UNRELIABLE_SEQUENCED, &input, 0, 0),
+        Action::Ignore
+    );
+    assert_eq!(srv.scene_listener_forbidden_drops, 1);
+    assert!(srv.is_scene_listener(7));
+    assert_eq!(parcels_of(&srv, 7, "realm-a"), &HashSet::from([10]));
+}
+
+#[test]
+fn scene_listener_application_dispatch_requires_auth_negotiation_and_reliable_channel() {
+    for message in [
+        client_message::Message::ApplicationJoin(crate::decentraland::pulse::ApplicationJoin {
+            request_id: 1,
+            jwt_header_payload: "header.payload".into(),
+            proof: vec![0; 32],
+        }),
+        client_message::Message::ApplicationLeave(crate::decentraland::pulse::ApplicationLeave {
+            room_id: 1,
+        }),
+        client_message::Message::ApplicationSend(crate::decentraland::pulse::ApplicationSend {
+            room_id: 1,
+            recipient_id: 0,
+            payload: vec![1],
+            unreliable: false,
+        }),
+    ] {
+        let bytes = client_msg(message.clone());
+        let mut srv = PulseServer::new();
+        listener(&mut srv, 7, "0xabc", "realm-a", &[10]);
+        assert_eq!(
+            srv.dispatch(7, channel::RELIABLE, &bytes, 0, 0),
+            Action::Ignore
+        );
+        srv.peers.get_mut(&7).unwrap().features = FEATURE_APPLICATION_RELAY;
+        srv.peers.get_mut(&7).unwrap().connection_state = PeerConnectionState::PendingAuth;
+        assert_eq!(
+            srv.dispatch(7, channel::RELIABLE, &bytes, 0, 0),
+            Action::Ignore
+        );
+        srv.peers.get_mut(&7).unwrap().connection_state = PeerConnectionState::Authenticated;
+        assert_eq!(
+            srv.dispatch(7, channel::UNRELIABLE_UNSEQUENCED, &bytes, 0, 0),
+            Action::Ignore
+        );
+        assert_eq!(
+            srv.dispatch(7, channel::RELIABLE, &bytes, 0, 0),
+            Action::Application(message)
+        );
+    }
+}
+
+#[test]
 fn scene_listener_choke_never_gates_players_or_unknown_peers() {
     let mut srv = PulseServer::new();
     authed(&mut srv, 8, "0xplayer");
@@ -218,10 +333,15 @@ async fn scene_listener_handshake_accepts_and_is_never_a_subject() {
     match srv.dispatch(1, channel::RELIABLE, &bytes, now_ms, 0) {
         Action::AuthenticatedListener {
             wallet: w,
+            session,
             duplicate_of,
             listener,
             features,
         } => {
+            assert_ne!(
+                session, w,
+                "a delegated chain names its ephemeral as the session"
+            );
             assert_eq!(w, wallet);
             assert_eq!(duplicate_of, None);
             assert_eq!(features, 0);

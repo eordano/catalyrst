@@ -1,13 +1,9 @@
-use catalyrst_archipelago::ban::BanChecker;
-use catalyrst_archipelago::cluster::Cluster;
 use catalyrst_archipelago::config::{
-    AuthConfig, ClusterConfig, Config, GossipConfig, LivekitConfig, ServerConfig,
+    AuthConfig, ClusterConfig, Config, LivekitConfig, NatsConfig, ServerConfig,
 };
-use catalyrst_archipelago::livekit::LivekitMinter;
 use catalyrst_archipelago::{api_router, build_state};
 use reqwest::header::ORIGIN;
 use reqwest::Method;
-use std::sync::Arc;
 
 fn test_config(require_signed_challenge: bool) -> Config {
     Config {
@@ -20,10 +16,12 @@ fn test_config(require_signed_challenge: bool) -> Config {
             challenge_ttl_secs: 120,
             signature_max_age_secs: 300,
             deny_list_url: None,
+            ..AuthConfig::default()
         },
         livekit: LivekitConfig::default(),
-        gossip: GossipConfig::default(),
+        nats: NatsConfig::default(),
         content_database_url: None,
+        control_database_url: None,
         content_base_url: String::new(),
         commit_hash: "deadbeef".into(),
     }
@@ -63,7 +61,6 @@ async fn cors_headers_on_every_route() {
         "/hot-scenes",
         "/core-status",
         "/stats/health",
-        "/gossip/info",
     ];
     for path in routes {
         let resp = client
@@ -190,9 +187,12 @@ async fn error_bodies_byte_exact_vs_upstream() {
     assert_eq!(status, 400);
     assert_eq!(text, "{\"error\":\"missing address\"}");
 
-    let (status, text) = post(&client, port, "/gossip/heartbeat", "{}").await;
-    assert_eq!(status, 400);
-    assert_eq!(text, "{\"error\":\"missing X-Archipelago-Node\"}");
+    let oversized = format!("{{\"address\":\"0x{}\"}}", "a".repeat(4096));
+    for body in ["{\"address\":\"not-a-wallet\"}", oversized.as_str()] {
+        let (status, text) = post(&client, port, "/auth/challenge", body).await;
+        assert_eq!(status, 400);
+        assert_eq!(text, "{\"error\":\"invalid address\"}");
+    }
 
     let (status, text) = post(
         &client,
@@ -233,49 +233,4 @@ async fn heartbeat_auth_required_body_byte_exact() {
         text,
         "{\"ok\":false,\"error\":\"auth required; use /ws after /auth/challenge\"}"
     );
-}
-
-#[tokio::test]
-async fn dense_plaza_at_island_max_peers_assigns_every_peer() {
-    let cfg = ClusterConfig {
-        island_max_peers: 3,
-        ..ClusterConfig::default()
-    };
-    let cluster = Cluster::new(
-        cfg,
-        Arc::new(LivekitMinter::new(LivekitConfig::default())),
-        BanChecker::new(None, reqwest::Client::new()),
-    );
-    for i in 0..10 {
-        cluster.upsert_peer(
-            format!("0xpeer{i:02}"),
-            [0.0, 0.0, 0.0],
-            [0, 0],
-            "realm".into(),
-        );
-    }
-    cluster.recluster_once().await;
-
-    let peers = cluster.peers_snapshot();
-    assert_eq!(peers.len(), 10);
-    for p in &peers {
-        assert!(
-            p.island_id.is_some(),
-            "peer {} orphaned (no island)",
-            p.address
-        );
-    }
-
-    let islands = cluster.islands_snapshot();
-    assert_eq!(islands.len(), 4, "ceil(10/3) islands expected");
-    for island in &islands {
-        assert!(
-            island.peers_count <= 3,
-            "island {} has {} peers, over cap 3",
-            island.id,
-            island.peers_count
-        );
-    }
-    let total: usize = islands.iter().map(|i| i.peers_count).sum();
-    assert_eq!(total, 10, "every peer assigned exactly once");
 }

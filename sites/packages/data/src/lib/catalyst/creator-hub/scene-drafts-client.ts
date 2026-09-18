@@ -93,14 +93,14 @@ export async function listServerDrafts(): Promise<ServerDraftMeta[] | null> {
   }
 }
 
-export async function fetchServerDraft(id: string): Promise<ServerDraft | null> {
+export async function fetchServerDraft(id: string, signal?: AbortSignal): Promise<ServerDraft | null> {
   const identity = getIdentity();
   if (!identity || typeof fetch === "undefined") return null;
   try {
     const path = draftPath(id);
     const { headers } = await signRequest(identity, "GET", path);
-    const res = await fetch(path, { headers });
-    if (!res.ok) return null;
+    const res = await fetch(`${path}?optional=1`, { headers, signal });
+    if (!res.ok || res.status === 204) return null;
     const raw = (await res.json()) as Draft;
     const blob = parseServerDraftBlob(raw?.blob);
     if (!blob || typeof raw.version !== "number") return null;
@@ -116,19 +116,39 @@ export async function fetchServerDraft(id: string): Promise<ServerDraft | null> 
   }
 }
 
+const knownVersions = new Map<string, number>();
+
+export function forgetServerDraftVersions(): void {
+  knownVersions.clear();
+}
+
+async function serverDraftVersion(id: string): Promise<number> {
+  const known = knownVersions.get(id);
+  if (known !== undefined) return known;
+  const metas = await listServerDrafts();
+  if (!metas) return 0;
+  for (const m of metas) knownVersions.set(m.id, m.version);
+  return knownVersions.get(id) ?? 0;
+}
+
 export async function pushServerDraft(
   id: string,
   blob: ServerDraftBlob,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   const identity = getIdentity();
   if (!identity || typeof fetch === "undefined") return false;
 
+  signal?.throwIfAborted();
   const putOnce = async (baseVersion: number): Promise<Response | null> => {
+    signal?.throwIfAborted();
     try {
       const path = draftPath(id);
       const { headers } = await signRequest(identity, "PUT", path);
+      signal?.throwIfAborted();
       return await fetch(path, {
         method: "PUT",
+        signal,
         headers: { ...headers, "content-type": "application/json" },
         body: JSON.stringify({
           baseVersion,
@@ -142,8 +162,7 @@ export async function pushServerDraft(
     }
   };
 
-  const current = await fetchServerDraft(id);
-  let res = await putOnce(current?.version ?? 0);
+  let res = await putOnce(await serverDraftVersion(id));
   if (res?.status === 409) {
     const server = (await res.json().catch(() => null)) as
       | { server?: { version?: number } }
@@ -151,5 +170,15 @@ export async function pushServerDraft(
     const v = server?.server?.version;
     if (typeof v === "number") res = await putOnce(v);
   }
-  return res?.ok === true;
+  if (res?.ok !== true) {
+    knownVersions.delete(id);
+    return false;
+  }
+  const saved = (await res.json().catch(() => null)) as
+    | { meta?: { version?: number } }
+    | null;
+  const v = saved?.meta?.version;
+  if (typeof v === "number") knownVersions.set(id, v);
+  else knownVersions.delete(id);
+  return true;
 }

@@ -61,13 +61,7 @@ export const ProfileEnvelopeSchema = z
 
 export type ProfileEnvelopeWire = z.infer<typeof ProfileEnvelopeSchema>;
 
-export const CategoriesEnvelopeSchema = z
-  .object({
-    data: z.object({ categories: z.array(z.string()) }).passthrough(),
-  })
-  .passthrough();
-
-export const BadgeDataSchema = z
+const BadgeDataSchema = z
   .object({
     id: z.string(),
     name: z.string(),
@@ -101,7 +95,7 @@ export const UserBadgesEnvelopeSchema = z
   })
   .passthrough();
 
-export const GalleryImageSchema = z
+const GalleryImageSchema = z
   .object({
     id: z.string(),
     url: z.string(),

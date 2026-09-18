@@ -60,11 +60,8 @@ afterEach(() => {
 });
 
 describe("parseBuyOrder", () => {
-  it("returns the order when it validates", () => {
+  it("returns the order when it validates and null rather than casting an unvalidated row through to a purchase", () => {
     expect(parseBuyOrder(ORDER)?.price).toBe("1000000000000000000");
-  });
-
-  it("returns null rather than casting an unvalidated row through to a purchase", () => {
     expect(parseBuyOrder({ id: "only-an-id" })).toBeNull();
     expect(parseBuyOrder({ ...ORDER, price: 12 })).toBeNull();
     expect(parseBuyOrder(null)).toBeNull();
@@ -83,36 +80,30 @@ describe("fetchOrders", () => {
 });
 
 describe("order lookups distinguish 'none' from 'could not read'", () => {
-  it("reports empty when the node answers with no listings", async () => {
-    const res = await fetchCheapestOpenOrder("0xc", {
-      fetchImpl: jsonStub({ data: [], total: 0 }),
-    });
-    expect(res).toMatchObject({ order: null, source: "empty" });
-  });
+  it("reports empty, unavailable (throw or all-invalid), or the validated order, for the cheapest and per-token lookups alike", async () => {
+    expect(
+      await fetchCheapestOpenOrder("0xc", { fetchImpl: jsonStub({ data: [], total: 0 }) }),
+    ).toMatchObject({ order: null, source: "empty" });
 
-  it("reports unavailable when the read throws", async () => {
-    const res = await fetchCheapestOpenOrder("0xc", { fetchImpl: throwingStub });
-    expect(res.source).toBe("unavailable");
-    expect(res.order).toBeNull();
-    expect(res.reason).toBeTruthy();
-  });
+    const thrown = await fetchCheapestOpenOrder("0xc", { fetchImpl: throwingStub });
+    expect(thrown.source).toBe("unavailable");
+    expect(thrown.order).toBeNull();
+    expect(thrown.reason).toBeTruthy();
 
-  it("reports unavailable when every row failed validation", async () => {
-    const res = await fetchCheapestOpenOrder("0xc", {
-      fetchImpl: jsonStub({ data: [{ id: "bad" }], total: 1 }),
-    });
-    expect(res.source).toBe("unavailable");
-  });
+    expect(
+      (
+        await fetchCheapestOpenOrder("0xc", {
+          fetchImpl: jsonStub({ data: [{ id: "bad" }], total: 1 }),
+        })
+      ).source,
+    ).toBe("unavailable");
 
-  it("returns the validated order when there is one", async () => {
-    const res = await fetchCheapestOpenOrder("0xc", {
+    const live = await fetchCheapestOpenOrder("0xc", {
       fetchImpl: jsonStub({ data: [ORDER], total: 1 }),
     });
-    expect(res.source).toBe("catalyst");
-    expect(res.order?.id).toBe(ORDER.id);
-  });
+    expect(live.source).toBe("catalyst");
+    expect(live.order?.id).toBe(ORDER.id);
 
-  it("applies the same three states to the per-token lookup", async () => {
     expect(
       (await fetchOpenOrderForToken("0xc", "1", { fetchImpl: throwingStub })).source,
     ).toBe("unavailable");
@@ -124,89 +115,81 @@ describe("order lookups distinguish 'none' from 'could not read'", () => {
 });
 
 describe("fetchReceivedBids", () => {
-  it("says unavailable when the bids read fails", async () => {
-    const res = await fetchReceivedBids("0xseller", { fetchImpl: brokenStub });
-    expect(res).toMatchObject({ bids: [], source: "unavailable" });
-    expect(res.reason).toBeTruthy();
+  it("says unavailable when the read fails, the envelope carries no payload, or no returned bid validates", async () => {
+    const broken = await fetchReceivedBids("0xseller", { fetchImpl: brokenStub });
+    expect(broken).toMatchObject({ bids: [], source: "unavailable" });
+    expect(broken.reason).toBeTruthy();
+
+    expect(
+      (await fetchReceivedBids("0xseller", { fetchImpl: jsonStub({ ok: false }) })).source,
+    ).toBe("unavailable");
+
+    expect(
+      (
+        await fetchReceivedBids("0xseller", {
+          fetchImpl: jsonStub({ ok: true, data: { results: [{ nope: 1 }], total: 1 } }),
+        })
+      ).source,
+    ).toBe("unavailable");
   });
 
-  it("says unavailable when the envelope carries no payload", async () => {
-    const res = await fetchReceivedBids("0xseller", { fetchImpl: jsonStub({ ok: false }) });
-    expect(res.source).toBe("unavailable");
-  });
-
-  it("says unavailable when no returned bid could be validated", async () => {
-    const res = await fetchReceivedBids("0xseller", {
-      fetchImpl: jsonStub({ ok: true, data: { results: [{ nope: 1 }], total: 1 } }),
-    });
-    expect(res.source).toBe("unavailable");
-  });
-
-  it("says empty only when the seller genuinely has no bids", async () => {
-    const res = await fetchReceivedBids("0xseller", {
+  it("says empty only when the seller genuinely has no bids and live when there are bids", async () => {
+    const empty = await fetchReceivedBids("0xseller", {
       fetchImpl: jsonStub({
         ok: true,
         data: { results: [], total: 0, page: 0, pages: 0, limit: 24 },
       }),
     });
-    expect(res).toMatchObject({ bids: [], source: "empty" });
-  });
+    expect(empty).toMatchObject({ bids: [], source: "empty" });
 
-  it("says live when there are bids", async () => {
-    const res = await fetchReceivedBids("0xseller", {
+    const live = await fetchReceivedBids("0xseller", {
       fetchImpl: jsonStub({
         ok: true,
         data: { results: [BID], total: 1, page: 0, pages: 1, limit: 24 },
       }),
     });
-    expect(res.source).toBe("live");
-    expect(res.bids).toHaveLength(1);
+    expect(live.source).toBe("live");
+    expect(live.bids).toHaveLength(1);
   });
 });
 
 describe("loadReceivedBids", () => {
-  it("forwards the unavailable state to the accept-bid loader", async () => {
-    const res = await loadReceivedBids("0xseller", { fetchImpl: brokenStub });
-    expect(res.source).toBe("unavailable");
-  });
-
-  it("is empty when there is no signed-in owner to ask about", async () => {
+  it("forwards the unavailable state to the accept-bid loader and is empty with no signed-in owner", async () => {
+    expect((await loadReceivedBids("0xseller", { fetchImpl: brokenStub })).source).toBe(
+      "unavailable",
+    );
     expect((await loadReceivedBids(null)).source).toBe("empty");
   });
 });
 
 describe("loadCancelListing", () => {
-  it("says unavailable rather than 'no active listing' when the read fails", async () => {
-    const res = await loadCancelListing({
+  it("says unavailable rather than 'no active listing' when the read fails, and empty when the seller really has nothing listed", async () => {
+    const broken = await loadCancelListing({
       owner: "0xSeller",
       opts: { fetchImpl: brokenStub },
     });
-    expect(res).toMatchObject({ listing: null, source: "unavailable" });
-    expect(res.owner).toBe("0xseller");
-  });
+    expect(broken).toMatchObject({ listing: null, source: "unavailable" });
+    expect(broken.owner).toBe("0xseller");
 
-  it("says empty when the seller really has nothing listed", async () => {
-    const res = await loadCancelListing({
+    const empty = await loadCancelListing({
       owner: "0xSeller",
       opts: { fetchImpl: jsonStub({ data: [], total: 0 }) },
     });
-    expect(res).toMatchObject({ listing: null, source: "empty" });
+    expect(empty).toMatchObject({ listing: null, source: "empty" });
   });
 });
 
 describe("loadPacks", () => {
-  it("says unavailable rather than 'no packs' when the purchase catalogue fails to load", async () => {
-    const res = await loadPacks({ fetchImpl: brokenStub });
-    expect(res).toMatchObject({ data: [], source: "unavailable" });
-    expect(res.reason).toBeTruthy();
-  });
+  it("says unavailable when the catalogue fails to load, empty when the node sells no packs, and live when packs come back", async () => {
+    const broken = await loadPacks({ fetchImpl: brokenStub });
+    expect(broken).toMatchObject({ data: [], source: "unavailable" });
+    expect(broken.reason).toBeTruthy();
 
-  it("says empty when the node genuinely sells no packs", async () => {
-    const res = await loadPacks({ fetchImpl: jsonStub([]) });
-    expect(res).toMatchObject({ data: [], source: "empty" });
-  });
+    expect(await loadPacks({ fetchImpl: jsonStub([]) })).toMatchObject({
+      data: [],
+      source: "empty",
+    });
 
-  it("says live when packs come back", async () => {
     const pack = {
       sku: "credits-100",
       title: "100 Credits",
@@ -215,29 +198,27 @@ describe("loadPacks", () => {
       currency: "usd",
       sortOrder: 1,
     };
-    const res = await loadPacks({ fetchImpl: jsonStub([pack]) });
-    expect(res.source).toBe("live");
-    expect(res.data).toHaveLength(1);
+    const live = await loadPacks({ fetchImpl: jsonStub([pack]) });
+    expect(live.source).toBe("live");
+    expect(live.data).toHaveLength(1);
   });
 });
 
 describe("loadStore", () => {
-  it("says unavailable when the content server cannot be reached", async () => {
+  it("says unavailable when the content server cannot be reached or answers non-ok, and empty only when no store is published", async () => {
     vi.stubGlobal("fetch", throwingStub);
-    const res = await loadStore("0xowner", { base: "http://catalyst.invalid" });
-    expect(res.source).toBe("unavailable");
-    expect(res.reason).toBeTruthy();
-  });
+    const unreachable = await loadStore("0xowner", { base: "http://catalyst.invalid" });
+    expect(unreachable.source).toBe("unavailable");
+    expect(unreachable.reason).toBeTruthy();
 
-  it("says unavailable on a non-ok answer", async () => {
     vi.stubGlobal("fetch", brokenStub);
-    const res = await loadStore("0xowner", { base: "http://catalyst.invalid" });
-    expect(res.source).toBe("unavailable");
-  });
+    expect((await loadStore("0xowner", { base: "http://catalyst.invalid" })).source).toBe(
+      "unavailable",
+    );
 
-  it("says empty only when the address has published no store", async () => {
     vi.stubGlobal("fetch", jsonStub([]));
-    const res = await loadStore("0xowner", { base: "http://catalyst.invalid" });
-    expect(res.source).toBe("empty");
+    expect((await loadStore("0xowner", { base: "http://catalyst.invalid" })).source).toBe(
+      "empty",
+    );
   });
 });

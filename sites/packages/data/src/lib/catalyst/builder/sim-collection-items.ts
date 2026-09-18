@@ -4,14 +4,14 @@ import { SimCollectionItemsStoreSchema } from "../../persisted-schemas";
 
 import type { EmoteItem, WearableItem } from "./collection-detail";
 
-export const SIM_COLLECTION_ITEMS_KEY = "dcl:ch:sim-collection-items:v1";
+const SIM_COLLECTION_ITEMS_KEY = "dcl:ch:sim-collection-items:v1";
 
 const SIM_ITEMS_TTL_MS = 24 * 60 * 60 * 1000;
 const SIM_ITEMS_MAX_COLLECTIONS = 8;
 
 export type SimDraftFile = { name: string; size: number; fileType: string };
 
-export type SimEntry = { ts: number; files: SimDraftFile[] };
+type SimEntry = { ts: number; files: SimDraftFile[] };
 export type SimStore = Record<string, SimEntry>;
 
 function readStore(): SimStore | null {

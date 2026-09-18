@@ -1,16 +1,9 @@
 import { CatalystError, sendSignedJSON, serviceBase, type RequestOpts } from "./client";
 import { signedFetchHeaders } from "../auth/signedFetchLocal";
 
-export type {
-  Community,
-  CommunityMember,
-  CommunityEvent,
-  CommunityDetail,
-  CommunityPost,
-  CommunityPlace,
-} from "./communitiesSchema";
+export type { Community, CommunityMember } from "./communitiesSchema";
 
-export type CreatedCommunity = { id: string; name: string; role?: string };
+type CreatedCommunity = { id: string; name: string; role?: string };
 
 export async function createCommunity(input: {
   name: string;

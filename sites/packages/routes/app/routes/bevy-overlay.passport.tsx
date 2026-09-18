@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router";
 import { loadPassport, type PassportData } from "@data/lib/catalyst/overlay/passport.server";
 import { normalizeAddress, isEthAddress } from "@data/lib/catalyst/overlay/profile";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 import PassportPanel, {
   type PassportTab,
@@ -40,13 +40,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const self = url.searchParams.get("self") === "1";
   const openPhotoId = url.searchParams.get("photo");
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: passport } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () => loadPassport(address, { signal: request.signal }),
   );
-
-  const passport = await loadPassport(address, { signal: request.signal });
 
   const payload = {
     sid,

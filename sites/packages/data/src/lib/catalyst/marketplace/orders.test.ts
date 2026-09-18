@@ -25,22 +25,15 @@ describe("OrderSchema / parseOrders", () => {
   });
 });
 
-describe("formatOrderMana", () => {
-  it("formats wei -> human MANA", () => {
+describe("formatOrderMana / orderNetwork / shortHex", () => {
+  it("formats wei -> human MANA (null when unreadable), maps the catalyst network token, and shortens hashes", () => {
     expect(formatOrderMana("1000000000000000000")).toBe("1");
     expect(formatOrderMana("0")).toBe("0");
     expect(formatOrderMana("2500000000000000000")).toBe("2.5");
-  });
-
-  it("says nothing when there is no readable price", () => {
     expect(formatOrderMana(null)).toBeNull();
     expect(formatOrderMana("")).toBeNull();
     expect(formatOrderMana("not-a-number")).toBeNull();
-  });
-});
 
-describe("orderNetwork / shortHex", () => {
-  it("maps the catalyst token and shortens hashes", () => {
     expect(orderNetwork("ETHEREUM")).toBe("ethereum");
     expect(orderNetwork("MATIC")).toBe("polygon");
     expect(orderNetwork(null)).toBe("polygon");
@@ -65,7 +58,7 @@ describe("toCancelListing", () => {
 });
 
 describe("fetchOrders (injected fetch, no network)", () => {
-  it("unwraps the {data,total} envelope and validates rows", async () => {
+  it("unwraps the {data,total} envelope, validates rows, and passes the composite itemId filter through to the query string", async () => {
     const stub: typeof fetch = async () =>
       new Response(JSON.stringify({ data: ROWS, total: 91372 }), {
         status: 200,
@@ -78,11 +71,9 @@ describe("fetchOrders (injected fetch, no network)", () => {
     expect(env.total).toBe(91372);
     expect(env.data.length).toBe(ROWS.length);
     expect(env.data[0].status).toBe("open");
-  });
 
-  it("passes the composite itemId filter through to the query string", async () => {
     const urls: string[] = [];
-    const stub: typeof fetch = async (input) => {
+    const capturing: typeof fetch = async (input) => {
       urls.push(String(input));
       return new Response(JSON.stringify({ data: [], total: 0 }), {
         status: 200,
@@ -92,7 +83,7 @@ describe("fetchOrders (injected fetch, no network)", () => {
     const contract = "0xbb7f0ab8123be56dfc8e8a1e49150687fae36583";
     await fetchOrders(
       { contractAddress: contract, itemId: `${contract}-1`, status: "open", first: 24 },
-      { fetchImpl: stub },
+      { fetchImpl: capturing },
     );
     expect(urls).toHaveLength(1);
     const url = new URL(urls[0]);

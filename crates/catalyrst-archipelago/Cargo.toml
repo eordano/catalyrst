@@ -1,8 +1,8 @@
 [package]
 name = "catalyrst-archipelago"
-version = "0.26.0"
+version = "0.31.0"
 edition = "2021"
-description = "Rust port of decentraland/archipelago-workers -- peer clustering, ws-connector, stats. Port 5139."
+description = "Rust port of decentraland/archipelago-workers -- ws-connector and stats over the Pulse cluster feed. Port 5139."
 
 [[bin]]
 name = "catalyrst-archipelago"
@@ -34,16 +34,20 @@ futures = { workspace = true }
 sqlx = { workspace = true }
 prost = "0.14"
 rand = "0.10"
-hmac = "0.13"
-sha2 = "0.11"
-base64 = "0.23"
 toml = "1.1"
+async-nats = "0.50"
+sha2 = "0.11"
 
 [build-dependencies]
 prost-build = "0.14"
 protox = "0.9"
 
 [dev-dependencies]
+tracing-subscriber = { workspace = true }
+catalyrst-testgate = { workspace = true }
+catalyrst-contract-gate = { workspace = true }
 alloy = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+base64 = "0.23"
+hmac = "0.13"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
 tokio-tungstenite = "0.30"

@@ -1,17 +1,8 @@
-import type { QueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 
 import Friends from "../../explorer/pages/Friends";
-import { useFriends, prefetchFriends } from "../../data/hooks/useFriends";
+import { useFriends } from "../../data/hooks/useFriends";
 import { useBridgeState } from "../../overlay/bridge";
-
-export function prefetch(queryClient: QueryClient) {
-  try {
-    return prefetchFriends(queryClient);
-  } catch {
-    return undefined;
-  }
-}
 
 type FriendsPanelProps = {
   floating?: boolean;
@@ -21,10 +12,12 @@ type FriendsPanelProps = {
 export default function FriendsPanel({ floating = false, onClose }: FriendsPanelProps = {}) {
   const navigate = useNavigate();
   const identity = useBridgeState((s) => s.identity);
-  const { friends, received, sent, blocked } = useFriends();
+  const { friends, received, sent, blocked, isPending } = useFriends();
 
   return (
     <Friends
+      key={identity.address ?? "guest"}
+      loading={isPending}
       initialSection="friends"
       floating={floating}
       isGuest={identity.isGuest}

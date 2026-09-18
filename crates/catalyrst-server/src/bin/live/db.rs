@@ -2,12 +2,51 @@ use super::*;
 
 pub(crate) struct LiveDatabase {
     pub(crate) pool: PgPool,
+    pub(crate) deployment_schema: catalyrst_server::schema_migrations::DeploymentSchema,
     pub(crate) entity_cache: Arc<RwLock<EntityCache>>,
     pub(crate) profile_lru: Arc<Mutex<ProfileLru>>,
     pub(crate) prefix_ids_cache: Arc<Mutex<PrefixIdsCache>>,
 }
 
 const NON_CANONICAL_INTERN_CAP: usize = 64;
+
+use catalyrst_db::failed_deployments_repository::SnapshotFailedDeployment;
+
+#[derive(Serialize)]
+struct FailedDeploymentResponse {
+    #[serde(rename = "entityId")]
+    entity_id: String,
+    #[serde(rename = "entityType")]
+    entity_type: String,
+    #[serde(rename = "failureTimestamp")]
+    failure_timestamp: i64,
+    reason: String,
+    #[serde(rename = "authChain")]
+    auth_chain: Value,
+    #[serde(rename = "errorDescription")]
+    error_description: String,
+    #[serde(rename = "snapshotHash")]
+    snapshot_hash: String,
+    #[serde(rename = "retryCount")]
+    retry_count: i32,
+    #[serde(rename = "nextRetryAt")]
+    next_retry_at: i64,
+}
+
+fn failed_deployment_value(fd: SnapshotFailedDeployment) -> Value {
+    serde_json::to_value(&FailedDeploymentResponse {
+        entity_id: fd.entity_id,
+        entity_type: fd.entity_type,
+        failure_timestamp: fd.failure_timestamp as i64,
+        reason: fd.reason,
+        auth_chain: fd.auth_chain,
+        error_description: fd.error_description,
+        snapshot_hash: fd.snapshot_hash,
+        retry_count: fd.retry_count,
+        next_retry_at: fd.next_retry_at as i64,
+    })
+    .unwrap_or_default()
+}
 
 fn non_canonical_intern_pool() -> &'static dashmap::DashMap<String, &'static str> {
     use std::sync::OnceLock;
@@ -53,6 +92,114 @@ const POINTER_CHANGES_SELECT: &str = r#"
             FROM deployments AS dep1
             "#;
 
+fn cached_doc(entity: &CachedEntity) -> EntityDoc {
+    EntityDoc {
+        id: entity.entity_id.clone(),
+        json: entity.bytes.clone(),
+    }
+}
+
+fn row_to_doc(row: ActiveEntityRow) -> EntityDoc {
+    let id = row.entity_id.clone();
+    let value = build_entities_from_rows(vec![row])
+        .into_iter()
+        .next()
+        .unwrap_or(Value::Null);
+    EntityDoc {
+        id,
+        json: Bytes::from(serde_json::to_vec(&value).unwrap_or_default()),
+    }
+}
+
+fn docs_to_values(docs: Vec<EntityDoc>) -> Vec<Value> {
+    docs.iter().filter_map(EntityDoc::to_value).collect()
+}
+
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+impl LiveDatabase {
+    /// Fills the profile LRU with what SQL returned unless a deployment landed while the read
+    /// guard was released, in which case the rows may predate it and are not remembered.
+    pub(crate) async fn remember_profiles(&self, generation: u64, profiles: Vec<EntityDoc>) {
+        if profiles.is_empty() {
+            return;
+        }
+        let cache = self.entity_cache.read().await;
+        if cache.generation != generation {
+            return;
+        }
+        let mut lru = self.profile_lru.lock().await;
+        for doc in profiles {
+            lru.insert(doc.id, doc.json);
+        }
+    }
+
+    async fn prefix_ids_and_page(
+        &self,
+        prefix: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<(Vec<String>, Vec<EntityDoc>), DatabaseError> {
+        let pattern = format!("{}%", escape_like(prefix));
+        use sqlx::{FromRow, Row};
+        let rows = sqlx::query(
+            r#"
+            WITH ids AS (
+                SELECT p.entity_id, row_number() OVER () AS ord
+                FROM active_pointers AS p WHERE p.pointer LIKE $1 ESCAPE '\'
+            ),
+            page AS (
+                SELECT dep.entity_id, dep.entity_type, dep.entity_pointers, dep.entity_metadata,
+                       date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
+                       dep.version, dep.id, ids.ord,
+                       COALESCE(
+                           (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
+                            FROM content_files cf WHERE cf.deployment = dep.id),
+                           '[]'::json
+                       ) AS content_json
+                FROM ids
+                INNER JOIN deployments dep ON dep.entity_id = ids.entity_id
+                WHERE ids.ord > $2 AND ids.ord <= $2 + $3
+                  AND dep.deleter_deployment IS NULL
+            )
+            SELECT CASE WHEN row_number() OVER () = 1
+                        THEN COALESCE((SELECT array_agg(entity_id ORDER BY ord) FROM ids), '{}')
+                   END AS all_ids,
+                   page.entity_id, page.entity_type, page.entity_pointers, page.entity_metadata,
+                   page.entity_timestamp, page.version, page.id, page.content_json
+            FROM (SELECT 1) marker LEFT JOIN page ON true
+            ORDER BY page.ord
+            "#,
+        )
+        .bind(&pattern)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let mut ids = Vec::new();
+        let mut page = Vec::new();
+        for row in rows {
+            let decoded = (|| -> Result<(), sqlx::Error> {
+                if let Some(all) = row.try_get::<Option<Vec<String>>, _>("all_ids")? {
+                    ids = all;
+                }
+                if row.try_get::<Option<String>, _>("entity_id")?.is_some() {
+                    page.push(row_to_doc(ActiveEntityRow::from_row(&row)?));
+                }
+                Ok(())
+            })();
+            decoded.map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        }
+        Ok((ids, page))
+    }
+}
+
 #[async_trait]
 impl Database for LiveDatabase {
     async fn deployment_committed(&self, entity_id: &str) -> Result<(), DatabaseError> {
@@ -62,6 +209,7 @@ impl Database for LiveDatabase {
             &self.profile_lru,
             &self.prefix_ids_cache,
             entity_id,
+            self.deployment_schema.local_entities,
         )
         .await
         {
@@ -76,144 +224,13 @@ impl Database for LiveDatabase {
         &self,
         pointers: &[String],
     ) -> Result<Vec<Value>, DatabaseError> {
-        if pointers.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let lower_pointers: Vec<String> = pointers.iter().map(|p| p.to_lowercase()).collect();
-
-        let mut results: Vec<Value> = Vec::new();
-        let mut seen_ids: HashSet<String> = HashSet::new();
-        let mut uncached_pointers: Vec<String> = Vec::new();
-
-        let cache = self.entity_cache.read().await;
-        {
-            for ptr in &lower_pointers {
-                if let Some(entity_id) = cache.pointer_to_id.get(ptr) {
-                    if seen_ids.insert(entity_id.clone()) {
-                        if let Some(entity) = cache.by_id.get(entity_id) {
-                            if let Ok(val) = serde_json::from_slice::<Value>(&entity.bytes) {
-                                results.push(val);
-                            }
-                        }
-                    }
-                } else {
-                    uncached_pointers.push(ptr.clone());
-                }
-            }
-        }
-
-        if !uncached_pointers.is_empty() {
-            let rows: Vec<ActiveEntityRow> = sqlx::query_as(
-                r#"
-                SELECT
-                    dep.entity_id,
-                    dep.entity_type,
-                    dep.entity_pointers,
-                    dep.entity_metadata,
-                    date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
-                    dep.version,
-                    dep.id,
-                    COALESCE(
-                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
-                         FROM content_files cf WHERE cf.deployment = dep.id),
-                        '[]'::json
-                    ) AS content_json
-                FROM active_pointers ap
-                INNER JOIN deployments dep ON dep.entity_id = ap.entity_id
-                WHERE ap.pointer = ANY($1)
-                  AND dep.deleter_deployment IS NULL
-                "#,
-            )
-            .bind(&uncached_pointers)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
-
-            for row in rows {
-                if seen_ids.insert(row.entity_id.clone()) {
-                    let entity_type = row.entity_type.clone();
-                    let entity_id = row.entity_id.clone();
-                    let entities = build_entities_from_rows(vec![row]);
-                    if let Some(value) = entities.into_iter().next() {
-                        if entity_type == "profile" {
-                            let mut lru = self.profile_lru.lock().await;
-                            lru.insert(entity_id, value.clone());
-                        }
-                        results.push(value);
-                    }
-                }
-            }
-        }
-
-        Ok(results)
+        Ok(docs_to_values(
+            self.active_entity_docs_by_pointers(pointers).await?,
+        ))
     }
 
     async fn active_entities_by_ids(&self, ids: &[String]) -> Result<Vec<Value>, DatabaseError> {
-        if ids.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let mut results: Vec<Value> = Vec::new();
-        let mut uncached_ids: Vec<String> = Vec::new();
-
-        let cache = self.entity_cache.read().await;
-        {
-            let lru = self.profile_lru.lock().await;
-            for id in ids {
-                if let Some(entity) = cache.by_id.get(id) {
-                    if let Ok(val) = serde_json::from_slice::<Value>(&entity.bytes) {
-                        results.push(val);
-                    }
-                } else if let Some(value) = lru.get(id) {
-                    results.push(value.clone());
-                } else {
-                    uncached_ids.push(id.clone());
-                }
-            }
-        }
-
-        if !uncached_ids.is_empty() {
-            let rows: Vec<ActiveEntityRow> = sqlx::query_as(
-                r#"
-                SELECT
-                    dep.entity_id,
-                    dep.entity_type,
-                    dep.entity_pointers,
-                    dep.entity_metadata,
-                    date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
-                    dep.version,
-                    dep.id,
-                    COALESCE(
-                        (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
-                         FROM content_files cf WHERE cf.deployment = dep.id),
-                        '[]'::json
-                    ) AS content_json
-                FROM deployments dep
-                WHERE dep.entity_id = ANY($1)
-                  AND dep.deleter_deployment IS NULL
-                "#,
-            )
-            .bind(&uncached_ids)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
-
-            for row in rows {
-                let entity_type = row.entity_type.clone();
-                let entity_id = row.entity_id.clone();
-                let entities = build_entities_from_rows(vec![row]);
-                if let Some(value) = entities.into_iter().next() {
-                    if entity_type == "profile" {
-                        let mut lru = self.profile_lru.lock().await;
-                        lru.insert(entity_id, value.clone());
-                    }
-                    results.push(value);
-                }
-            }
-        }
-
-        Ok(results)
+        Ok(docs_to_values(self.active_entity_docs_by_ids(ids).await?))
     }
 
     async fn active_entities_by_prefix(
@@ -222,50 +239,211 @@ impl Database for LiveDatabase {
         offset: i64,
         limit: i64,
     ) -> Result<PrefixQueryResult, DatabaseError> {
-        let cache_barrier = self.entity_cache.read().await;
+        let result = self
+            .active_entity_docs_by_prefix(prefix, offset, limit)
+            .await?;
+        Ok(PrefixQueryResult {
+            total: result.total,
+            entities: docs_to_values(result.entities),
+        })
+    }
+
+    async fn active_entity_docs_by_pointers(
+        &self,
+        pointers: &[String],
+    ) -> Result<Vec<EntityDoc>, DatabaseError> {
+        if pointers.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let lower_pointers: Vec<String> = pointers.iter().map(|p| p.to_lowercase()).collect();
+
+        let mut results: Vec<EntityDoc> = Vec::new();
+        let mut seen_ids: HashSet<String> = HashSet::new();
+        let mut uncached_pointers: Vec<String> = Vec::new();
+
+        let generation = {
+            let cache = self.entity_cache.read().await;
+            for ptr in &lower_pointers {
+                if let Some(entity_id) = cache.pointer_to_id.get(ptr) {
+                    if seen_ids.insert(entity_id.clone()) {
+                        if let Some(entity) = cache.by_id.get(entity_id) {
+                            results.push(cached_doc(entity));
+                        }
+                    }
+                } else {
+                    uncached_pointers.push(ptr.clone());
+                }
+            }
+            cache.generation
+        };
+
+        if uncached_pointers.is_empty() {
+            return Ok(results);
+        }
+
+        let rows: Vec<ActiveEntityRow> = sqlx::query_as(
+            r#"
+            SELECT
+                dep.entity_id,
+                dep.entity_type,
+                dep.entity_pointers,
+                dep.entity_metadata,
+                date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
+                dep.version,
+                dep.id,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
+                     FROM content_files cf WHERE cf.deployment = dep.id),
+                    '[]'::json
+                ) AS content_json
+            FROM active_pointers ap
+            INNER JOIN deployments dep ON dep.entity_id = ap.entity_id
+            WHERE ap.pointer = ANY($1)
+              AND dep.deleter_deployment IS NULL
+            "#,
+        )
+        .bind(&uncached_pointers)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let mut fresh_profiles = Vec::new();
+        for row in rows {
+            if seen_ids.insert(row.entity_id.clone()) {
+                let is_profile = row.entity_type == "profile";
+                let doc = row_to_doc(row);
+                if is_profile {
+                    fresh_profiles.push(doc.clone());
+                }
+                results.push(doc);
+            }
+        }
+        self.remember_profiles(generation, fresh_profiles).await;
+
+        Ok(results)
+    }
+
+    async fn active_entity_docs_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<EntityDoc>, DatabaseError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut results: Vec<EntityDoc> = Vec::new();
+        let mut uncached_ids: Vec<String> = Vec::new();
+
+        let generation = {
+            let cache = self.entity_cache.read().await;
+            let lru = self.profile_lru.lock().await;
+            for id in ids {
+                if let Some(entity) = cache.by_id.get(id) {
+                    results.push(cached_doc(entity));
+                } else if let Some(json) = lru.get(id) {
+                    results.push(EntityDoc {
+                        id: id.clone(),
+                        json: json.clone(),
+                    });
+                } else {
+                    uncached_ids.push(id.clone());
+                }
+            }
+            cache.generation
+        };
+
+        if uncached_ids.is_empty() {
+            return Ok(results);
+        }
+
+        let rows: Vec<ActiveEntityRow> = sqlx::query_as(
+            r#"
+            SELECT
+                dep.entity_id,
+                dep.entity_type,
+                dep.entity_pointers,
+                dep.entity_metadata,
+                date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
+                dep.version,
+                dep.id,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
+                     FROM content_files cf WHERE cf.deployment = dep.id),
+                    '[]'::json
+                ) AS content_json
+            FROM deployments dep
+            WHERE dep.entity_id = ANY($1)
+              AND dep.deleter_deployment IS NULL
+            "#,
+        )
+        .bind(&uncached_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let mut fresh_profiles = Vec::new();
+        for row in rows {
+            let is_profile = row.entity_type == "profile";
+            let doc = row_to_doc(row);
+            if is_profile {
+                fresh_profiles.push(doc.clone());
+            }
+            results.push(doc);
+        }
+        self.remember_profiles(generation, fresh_profiles).await;
+
+        Ok(results)
+    }
+
+    async fn active_entity_docs_by_prefix(
+        &self,
+        prefix: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<PrefixDocsResult, DatabaseError> {
         let cached = {
-            let cache = self.prefix_ids_cache.lock().await;
-            cache.get(prefix)
+            let generation = self.entity_cache.read().await.generation;
+            let ids = self.prefix_ids_cache.lock().await.get(prefix);
+            (generation, ids)
         };
 
         let entity_ids: Arc<Vec<String>> = match cached {
-            Some(ids) => ids,
-            None => {
-                let ids = catalyrst_db::pointers_repository::get_item_entities_ids_matching_collection_urn_prefix(
-                    &self.pool, prefix,
-                )
-                .await
-                .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+            (_, Some(ids)) => ids,
+            (generation, None) => {
+                // Cold: the id list (memoized for later pages) and this page's entities in one statement.
+                let (ids, page) = self.prefix_ids_and_page(prefix, offset, limit).await?;
                 let ids = Arc::new(ids);
-                let mut cache = self.prefix_ids_cache.lock().await;
-                cache.insert(prefix.to_string(), ids.clone());
-                ids
+                {
+                    let cache = self.entity_cache.read().await;
+                    if cache.generation == generation {
+                        self.prefix_ids_cache
+                            .lock()
+                            .await
+                            .insert(prefix.to_string(), ids.clone());
+                    }
+                }
+                return Ok(PrefixDocsResult {
+                    total: ids.len() as i64,
+                    entities: page,
+                });
             }
         };
 
-        drop(cache_barrier);
         let total = entity_ids.len() as i64;
-
-        if entity_ids.is_empty() {
-            return Ok(PrefixQueryResult {
-                total: 0,
-                entities: vec![],
-            });
-        }
-
         let start = offset as usize;
         let end = ((offset + limit) as usize).min(entity_ids.len());
         if start >= entity_ids.len() {
-            return Ok(PrefixQueryResult {
+            return Ok(PrefixDocsResult {
                 total,
                 entities: vec![],
             });
         }
         let page_ids: Vec<String> = entity_ids[start..end].to_vec();
 
-        let entities = self.active_entities_by_ids(&page_ids).await?;
+        let entities = self.active_entity_docs_by_ids(&page_ids).await?;
 
-        Ok(PrefixQueryResult { total, entities })
+        Ok(PrefixDocsResult { total, entities })
     }
 
     async fn active_entity_ids_by_content_hash(
@@ -310,6 +488,12 @@ impl Database for LiveDatabase {
         } else {
             "NULL::json AS auth_chain, dep1.deployer_address,"
         };
+        let content_select = if needs_content {
+            "COALESCE((SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key) \
+              FROM content_files cf WHERE cf.deployment = dep1.id), '[]'::json) AS content_json"
+        } else {
+            "'[]'::json AS content_json"
+        };
 
         let mut sql = format!(
             r#"
@@ -323,10 +507,11 @@ impl Database for LiveDatabase {
                 {}
                 dep1.version,
                 date_part('epoch', dep1.local_timestamp) * 1000 AS local_timestamp,
-                dep1.deleter_deployment
+                dep1.deleter_deployment,
+                {}
             FROM deployments AS dep1
             "#,
-            auth_select,
+            auth_select, content_select,
         );
 
         let mut conditions: Vec<String> = Vec::new();
@@ -483,6 +668,7 @@ impl Database for LiveDatabase {
             local_timestamp: f64,
             #[allow(dead_code)]
             deleter_deployment: Option<i32>,
+            content_json: Value,
         }
 
         let mut query = sqlx::query_as::<_, DepRow>(sqlx::AssertSqlSafe(sql));
@@ -568,33 +754,10 @@ impl Database for LiveDatabase {
             rows
         };
 
-        let deployment_ids: Vec<i32> = rows.iter().map(|r| r.id).collect();
-        let content_map = if !needs_content || deployment_ids.is_empty() {
-            HashMap::new()
-        } else {
-            let cf_rows = sqlx::query!(
-                "SELECT deployment, content_hash, key FROM content_files WHERE deployment = ANY($1) ORDER BY deployment, key",
-                &deployment_ids[..]
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
-
-            let mut map: HashMap<i32, Vec<(String, String)>> = HashMap::new();
-            for row in cf_rows {
-                map.entry(row.deployment)
-                    .or_default()
-                    .push((row.key, row.content_hash));
-            }
-            map
-        };
-
-        let empty_content: Vec<(String, String)> = vec![];
-
         let deployments: Vec<ControllerDeployment> = rows
             .iter()
             .map(|d| {
-                let content = content_map.get(&d.id).unwrap_or(&empty_content);
+                let content = parse_content_json(&d.content_json);
                 let metadata = d.entity_metadata.as_ref().and_then(|m| m.get("v").cloned());
                 let auth_chain = d.auth_chain.clone().unwrap_or_else(|| Value::Array(vec![]));
                 let interned_type = intern_entity_type(&d.entity_type).to_string();
@@ -808,50 +971,45 @@ impl Database for LiveDatabase {
     }
 
     async fn get_failed_deployments(&self) -> Result<Vec<Value>, DatabaseError> {
-        #[derive(Serialize)]
-        struct FailedDeploymentResponse {
-            #[serde(rename = "entityId")]
-            entity_id: String,
-            #[serde(rename = "entityType")]
-            entity_type: String,
-            #[serde(rename = "failureTimestamp")]
-            failure_timestamp: i64,
-            reason: String,
-            #[serde(rename = "authChain")]
-            auth_chain: Value,
-            #[serde(rename = "errorDescription")]
-            error_description: String,
-            #[serde(rename = "snapshotHash")]
-            snapshot_hash: String,
-            #[serde(rename = "retryCount")]
-            retry_count: i32,
-            #[serde(rename = "nextRetryAt")]
-            next_retry_at: i64,
-        }
-
         let rows = catalyrst_db::failed_deployments_repository::get_snapshot_failed_deployments(
             &self.pool,
         )
         .await
         .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        Ok(rows.into_iter().map(failed_deployment_value).collect())
+    }
 
-        Ok(rows
-            .into_iter()
-            .map(|fd| {
-                serde_json::to_value(&FailedDeploymentResponse {
-                    entity_id: fd.entity_id,
-                    entity_type: fd.entity_type,
-                    failure_timestamp: fd.failure_timestamp as i64,
-                    reason: fd.reason,
-                    auth_chain: fd.auth_chain,
-                    error_description: fd.error_description,
-                    snapshot_hash: fd.snapshot_hash,
-                    retry_count: fd.retry_count,
-                    next_retry_at: fd.next_retry_at as i64,
-                })
-                .unwrap_or_default()
-            })
-            .collect())
+    async fn get_failed_deployments_page(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let rows = sqlx::query_as::<_, SnapshotFailedDeployment>(
+            r#"
+            SELECT
+                entity_id AS "entityId",
+                entity_type AS "entityType",
+                date_part('epoch', failure_time) * 1000 AS "failureTimestamp",
+                reason,
+                auth_chain AS "authChain",
+                error_description AS "errorDescription",
+                snapshot_hash AS "snapshotHash",
+                retry_count AS "retryCount",
+                date_part('epoch', next_retry_at) * 1000 AS "nextRetryAt"
+            FROM failed_deployments
+            OFFSET $1 LIMIT $2
+            "#,
+        )
+        .bind(offset.max(0))
+        .bind(limit.max(0))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        Ok(rows.into_iter().map(failed_deployment_value).collect())
+    }
+
+    fn deployment_schema(&self) -> Option<catalyrst_server::schema_migrations::DeploymentSchema> {
+        Some(self.deployment_schema)
     }
 
     async fn get_audit_info(
@@ -859,28 +1017,43 @@ impl Database for LiveDatabase {
         _entity_type: &str,
         entity_id: &str,
     ) -> Result<Option<Value>, DatabaseError> {
+        #[derive(sqlx::FromRow)]
         struct AuditRow {
             version: String,
             auth_chain: Value,
             local_timestamp: f64,
+            signer: Option<String>,
+            origin: Option<String>,
+            published_at: Option<f64>,
+            tombstoned_at: Option<f64>,
+            superseded: bool,
         }
 
-        let row: Option<AuditRow> = sqlx::query_as!(
-            AuditRow,
-            r#"
-            SELECT
-                version,
-                auth_chain,
-                date_part('epoch', local_timestamp) * 1000 AS "local_timestamp!"
-            FROM deployments
-            WHERE entity_id = $1
-            LIMIT 1
-            "#,
-            entity_id
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let provenance = if self.deployment_schema.local_entities {
+            "le.signer, le.origin,
+                    date_part('epoch', le.published_at) * 1000 AS published_at,
+                    date_part('epoch', le.tombstoned_at) * 1000 AS tombstoned_at,
+                    d.deleter_deployment IS NOT NULL AS superseded
+             FROM deployments d
+             LEFT JOIN local_entities le ON le.entity_id = d.entity_id"
+        } else {
+            "NULL::text AS signer, NULL::text AS origin,
+                    NULL::float8 AS published_at, NULL::float8 AS tombstoned_at,
+                    false AS superseded
+             FROM deployments d"
+        };
+        let sql = format!(
+            "SELECT d.version, d.auth_chain,
+                    date_part('epoch', d.local_timestamp) * 1000 AS local_timestamp,
+                    {provenance}
+             WHERE d.entity_id = $1
+             LIMIT 1"
+        );
+        let row: Option<AuditRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(entity_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
 
         #[derive(Serialize)]
         struct AuditInfoDetail {
@@ -891,10 +1064,6 @@ impl Database for LiveDatabase {
             local_timestamp: i64,
         }
 
-        let provenance = catalyrst_server::land_publish::local_provenance(&self.pool, entity_id)
-            .await
-            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
-
         Ok(row.map(|r| {
             let mut value = serde_json::to_value(&AuditInfoDetail {
                 version: r.version,
@@ -902,8 +1071,16 @@ impl Database for LiveDatabase {
                 local_timestamp: r.local_timestamp as i64,
             })
             .unwrap_or_default();
-            if let Some(local) = provenance {
-                value["localProvenance"] = local;
+            if let (Some(signer), Some(origin), Some(published_at)) =
+                (r.signer, r.origin, r.published_at)
+            {
+                value["localProvenance"] = catalyrst_server::land_publish::provenance_json(
+                    signer,
+                    origin,
+                    published_at,
+                    r.tombstoned_at,
+                    r.superseded,
+                );
             }
             value
         }))

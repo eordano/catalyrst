@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Badge } from "../../../atoms/primitives";
+import { Avatar, Badge } from "../../../atoms/primitives";
 import type { MobileOrientation } from "./types";
 import "./mobiletopbar.css";
 
@@ -48,6 +48,9 @@ type MobileTopBarProps = {
   onMenu?: () => void;
   onChat?: () => void;
   onHideHud?: () => void;
+  onProfile?: () => void;
+  avatarSrc?: string | null;
+  user?: string;
   children?: ReactNode;
 };
 
@@ -59,6 +62,9 @@ export default function MobileTopBar({
   onMenu,
   onChat,
   onHideHud,
+  onProfile,
+  avatarSrc,
+  user,
   children,
 }: MobileTopBarProps) {
   const unreadLabel = unread > 0 ? `Chat (${unread} unread)` : "Chat";
@@ -79,6 +85,7 @@ export default function MobileTopBar({
       {children}
 
       <div className="mtb__actions">
+        {onProfile && <button type="button" className="mtb__btn" aria-label="Open lobby" onClick={onProfile}><Avatar size={28} name={user} src={avatarSrc || undefined} /></button>}
         <button type="button" className="mtb__btn" aria-label={unreadLabel} onClick={onChat}>
           <ChatGlyph />
           {unread > 0 ? (

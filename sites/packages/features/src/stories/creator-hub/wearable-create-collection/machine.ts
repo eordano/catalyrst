@@ -12,12 +12,13 @@ export type DraftItem = {
   name: string;
   size: number;
   fileType: string;
+  file?: File;
   thumbnail?: string;
 };
 
 export type { TrackFn };
 
-export type MintResult = { collectionId: string; contractAddress: string };
+export type MintResult = { collectionId: string; contractAddress: string; simulated?: boolean };
 
 export type MintFn = (args: {
   name: string;
@@ -26,7 +27,7 @@ export type MintFn = (args: {
   signal?: AbortSignal;
 }) => Promise<MintResult>;
 
-export type CreateCollectionInput = {
+type CreateCollectionInput = {
   trackCtx: TrackContext;
   type?: CollectionType;
   feePerItem?: number;
@@ -34,7 +35,7 @@ export type CreateCollectionInput = {
   track?: TrackFn;
 };
 
-export type CreateCollectionContext = {
+type CreateCollectionContext = {
   trackCtx: TrackContext;
   feePerItem: number;
   mint: MintFn;
@@ -46,7 +47,7 @@ export type CreateCollectionContext = {
   error?: string;
 };
 
-export type CreateCollectionEvent =
+type CreateCollectionEvent =
   | { type: "SUBMIT_NAME"; name: string }
   | { type: "ADD_ITEMS"; items: DraftItem[] }
   | { type: "SUBMIT" }
@@ -63,7 +64,7 @@ export const CREATE_COLLECTION_EVENTS = {
   completed: "bd_create_collection_completed",
 } as const;
 
-export const DEFAULT_FEE_PER_ITEM = 100;
+const DEFAULT_FEE_PER_ITEM = 100;
 
 export const ACCEPTED_FILE_EXTENSIONS = [".zip", ".gltf", ".glb", ".png"] as const;
 
@@ -98,8 +99,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type CreateStateId = keyof typeof STATE_TO_SLUG;
-export type CreateStepSlug = (typeof STATE_TO_SLUG)[CreateStateId];
+type CreateStateId = keyof typeof STATE_TO_SLUG;
+type CreateStepSlug = (typeof STATE_TO_SLUG)[CreateStateId];
 
 export const FIRST_STEP_SLUG: CreateStepSlug = STATE_TO_SLUG.naming;
 
@@ -123,7 +124,7 @@ export const simulateMint: MintFn = async ({ name, items, signal }) => {
   const collectionId = `sim-${slug || "collection"}`;
   saveSimCollectionItems(collectionId, items);
   const contractAddress = "0x0000000000000000000000000000000000000000";
-  return { collectionId, contractAddress };
+  return { collectionId, contractAddress, simulated: true };
 };
 
 export const createCollectionMachine = setup({
@@ -194,7 +195,7 @@ export const createCollectionMachine = setup({
           contract_address: context.result?.contractAddress,
           type: context.type,
           count: context.items.length,
-          stub: true,
+          stub: context.result?.simulated ?? false,
         },
         context.trackCtx,
       ),
@@ -306,8 +307,6 @@ export const createCollectionMachine = setup({
     },
   },
 });
-
-export type CreateCollectionMachine = typeof createCollectionMachine;
 
 export function resolveCreateSnapshot(args: {
   step: CreateStateId;

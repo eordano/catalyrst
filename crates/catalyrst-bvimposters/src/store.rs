@@ -1,5 +1,8 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
@@ -7,10 +10,16 @@ use crate::key::{ImposterKey, MAX_LEVEL};
 
 const EVICT_MIN_AGE: Duration = Duration::from_secs(3600);
 const SWEEP_MAX_AGE: Duration = Duration::from_secs(86400);
+const EVICT_MIN_INTERVAL: Duration = Duration::from_secs(60);
 
 pub struct Store {
     root: PathBuf,
     max_bytes: u64,
+    bytes: AtomicU64,
+    entries: AtomicU64,
+    touched: Mutex<HashSet<ImposterKey>>,
+    evicting: AtomicBool,
+    last_evict: Mutex<Option<Instant>>,
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -21,11 +30,66 @@ pub struct StoreUsage {
 
 impl Store {
     pub fn new(root: PathBuf, max_bytes: u64) -> Self {
-        Self { root, max_bytes }
+        Self {
+            root,
+            max_bytes,
+            bytes: AtomicU64::new(0),
+            entries: AtomicU64::new(0),
+            touched: Mutex::new(HashSet::new()),
+            evicting: AtomicBool::new(false),
+            last_evict: Mutex::new(None),
+        }
     }
 
     pub fn max_bytes(&self) -> u64 {
         self.max_bytes
+    }
+
+    // Counters maintained by evict_pass scans and landings; no filesystem work.
+    pub fn usage_snapshot(&self) -> StoreUsage {
+        StoreUsage {
+            bytes: self.bytes.load(Ordering::Relaxed),
+            entries: self.entries.load(Ordering::Relaxed),
+        }
+    }
+
+    pub fn note_access(&self, key: &ImposterKey) {
+        self.touched.lock().unwrap().insert(*key);
+    }
+
+    pub fn flush_touches(&self) {
+        let keys: Vec<ImposterKey> = std::mem::take(&mut *self.touched.lock().unwrap())
+            .into_iter()
+            .collect();
+        for key in keys {
+            touch(&self.zip_path(&key));
+        }
+    }
+
+    pub fn spawn_evict_if_over_budget(self: &Arc<Self>) {
+        if self.bytes.load(Ordering::Relaxed) <= self.max_bytes {
+            return;
+        }
+        if self
+            .last_evict
+            .lock()
+            .unwrap()
+            .is_some_and(|at| at.elapsed() < EVICT_MIN_INTERVAL)
+        {
+            return;
+        }
+        if self
+            .evicting
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let store = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let _ = store.evict_pass();
+            store.evicting.store(false, Ordering::Release);
+        });
     }
 
     pub fn store_dir(&self) -> PathBuf {
@@ -87,7 +151,7 @@ impl Store {
         let path = self.zip_path(key);
         match tokio::fs::read(&path).await {
             Ok(bytes) => {
-                touch(&path);
+                self.note_access(key);
                 Some(bytes)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -99,7 +163,7 @@ impl Store {
         }
     }
 
-    pub async fn land_tmp(&self, tmp: &Path, key: &ImposterKey) -> Result<()> {
+    pub async fn land_tmp(&self, tmp: &Path, key: &ImposterKey, len: u64) -> Result<()> {
         let dir = self.level_dir(key.tile.level);
         tokio::fs::create_dir_all(&dir)
             .await
@@ -108,6 +172,8 @@ impl Store {
         tokio::fs::rename(tmp, &target)
             .await
             .with_context(|| format!("landing {}", target.display()))?;
+        self.bytes.fetch_add(len, Ordering::Relaxed);
+        self.entries.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -151,8 +217,10 @@ impl Store {
     }
 
     pub fn evict_pass(&self) -> Result<u64> {
+        self.flush_touches();
         let mut entries = self.scan();
         let mut total: u64 = entries.iter().map(|e| e.2).sum();
+        let mut remaining = entries.len() as u64;
         if total > self.max_bytes {
             entries.sort_by_key(|e| e.1);
             let now = SystemTime::now();
@@ -167,10 +235,14 @@ impl Store {
                 if self.evict_file(&path).is_ok() {
                     tracing::info!(path = %path.display(), len, "evicted");
                     total -= len;
+                    remaining -= 1;
                 }
             }
         }
         self.drain_evicted();
+        self.bytes.store(total, Ordering::Relaxed);
+        self.entries.store(remaining, Ordering::Relaxed);
+        *self.last_evict.lock().unwrap() = Some(Instant::now());
         Ok(total)
     }
 
@@ -329,6 +401,50 @@ mod tests {
         let usage = store.usage();
         assert_eq!(usage.entries, 2);
         assert_eq!(usage.bytes, 30);
+    }
+
+    #[tokio::test]
+    async fn usage_snapshot_follows_scans_and_landings() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_path_buf(), u64::MAX);
+        store.init().unwrap();
+        assert_eq!(store.usage_snapshot().entries, 0);
+        put(
+            &store,
+            &ImposterKey::new(0, 0, 0, 1).unwrap(),
+            10,
+            Duration::ZERO,
+        );
+        store.evict_pass().unwrap();
+        let usage = store.usage_snapshot();
+        assert_eq!((usage.entries, usage.bytes), (1, 10));
+        let key = ImposterKey::new(0, 1, 0, 2).unwrap();
+        let tmp = store.tmp_dir().join("landing");
+        std::fs::write(&tmp, vec![0u8; 20]).unwrap();
+        store.land_tmp(&tmp, &key, 20).await.unwrap();
+        let usage = store.usage_snapshot();
+        assert_eq!((usage.entries, usage.bytes), (2, 30));
+        assert_eq!(store.usage().bytes, 30);
+    }
+
+    #[test]
+    fn evict_pass_flushes_pending_touches_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_path_buf(), 150);
+        store.init().unwrap();
+        let key_a = ImposterKey::new(0, 0, 0, 1).unwrap();
+        let path_a = put(&store, &key_a, 100, Duration::from_secs(4 * 3600));
+        let path_b = put(
+            &store,
+            &ImposterKey::new(0, 1, 0, 2).unwrap(),
+            100,
+            Duration::from_secs(2 * 3600),
+        );
+        store.note_access(&key_a);
+        store.evict_pass().unwrap();
+        assert!(path_a.exists());
+        assert!(!path_b.exists());
+        assert!(store.touched.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

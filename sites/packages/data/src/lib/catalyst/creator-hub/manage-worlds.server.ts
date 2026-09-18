@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import { CatalystError, getJSON } from "../client";
 import type { GetOptions } from "../client";
+import { withDeadline } from "../../request-deadline";
+import { fetchWorldsRealm, personalWorldName } from "./deploy-world";
 import {
   parseManagedWorlds,
   parseNames,
@@ -10,7 +12,7 @@ import {
   type DclName,
 } from "./manage-worlds";
 
-export type ManageWorldsData = {
+type ManageWorldsData = {
   address: string;
   worlds: ManagedWorld[];
   names: DclName[];
@@ -63,16 +65,32 @@ async function resolveWorldScenes(
   return parsed.data.configurations.scenesUrn.length;
 }
 
+function worldNamesFor(names: DclName[], address: string, personalWorlds: boolean): string[] {
+  const out = names.map((n) => worldNameForName(n.name));
+  const personal = personalWorlds ? personalWorldName(address) : null;
+  if (personal && !out.includes(personal)) out.push(personal);
+  return out;
+}
+
+async function realmOffersPersonalWorlds(opts: GetOptions): Promise<boolean> {
+  try {
+    return (await fetchWorldsRealm(opts)).personalWorlds;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchLiveWorlds(
   names: DclName[],
   address: string,
+  personalWorlds: boolean,
+  counts: Map<string, number>,
   opts: GetOptions = {},
 ): Promise<ManagedWorld[]> {
   const owner = normalizeAddress(address);
   const resolved = await Promise.all(
-    names.map(async (n) => {
-      const worldName = worldNameForName(n.name);
-      const deployedScenes = await resolveWorldScenes(worldName, opts);
+    worldNamesFor(names, address, personalWorlds).map(async (worldName) => {
+      const deployedScenes = counts.get(worldName) ?? await resolveWorldScenes(worldName, opts);
       return {
         name: worldName,
         owner,
@@ -85,9 +103,28 @@ async function fetchLiveWorlds(
   return parseManagedWorlds(resolved);
 }
 
+async function fetchWorldCounts(address: string, opts: GetOptions): Promise<Map<string, number>> {
+  try {
+    const raw = await withDeadline((signal) => getJSON<unknown>("/worlds", {
+      ...opts,
+      signal,
+      query: { authorized_deployer: address, limit: 1000 },
+    }), 1000, opts.signal);
+    const parsed = z.object({ worlds: z.array(z.object({
+      name: z.string(),
+      deployed_scenes: z.number().int().nonnegative(),
+    })) }).parse(raw);
+    return new Map(parsed.worlds.map((world) => [world.name.toLowerCase(), world.deployed_scenes]));
+  } catch {
+    opts.signal?.throwIfAborted();
+    return new Map();
+  }
+}
+
 export async function loadManageWorlds(
   address: string,
   signal?: AbortSignal,
+  opts: Pick<GetOptions, "fetchImpl"> = {},
 ): Promise<ManageWorldsData> {
   const wallet = normalizeAddress(address);
   if (!wallet) {
@@ -98,8 +135,13 @@ export async function loadManageWorlds(
     };
   }
 
-  const names = await fetchLiveNames(address, { signal });
-  const worlds = await fetchLiveWorlds(names, address, { signal });
+  const get: GetOptions = { signal, fetchImpl: opts.fetchImpl };
+  const [names, personalWorlds, counts] = await Promise.all([
+    fetchLiveNames(address, get),
+    realmOffersPersonalWorlds(get),
+    fetchWorldCounts(wallet, get),
+  ]);
+  const worlds = await fetchLiveWorlds(names, address, personalWorlds, counts, get);
 
   return {
     address,

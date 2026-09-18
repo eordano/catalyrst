@@ -7,11 +7,9 @@ import {
 } from "../generated-schemas/governance";
 import { governanceApiBase } from "./api-base";
 
-export { governanceApiBase };
+type ProjectHealth = "onTrack" | "atRisk" | "offTrack";
 
-export type ProjectHealth = "onTrack" | "atRisk" | "offTrack";
-
-export type FinancialRow = {
+type FinancialRow = {
   description: string;
   receiver: string;
   token: string;
@@ -19,12 +17,12 @@ export type FinancialRow = {
   link: string;
 };
 
-export type FinancialGroup = {
+type FinancialGroup = {
   category: string;
   records: FinancialRow[];
 };
 
-export type FundsSummary = {
+type FundsSummary = {
   released: string;
   releasedTxCount: number;
   releasedTime: string;
@@ -32,13 +30,13 @@ export type FundsSummary = {
   undisclosed: string;
 };
 
-export type DetailProject = {
+type DetailProject = {
   id: string;
   title: string;
   authorHue: number;
 };
 
-export type DetailUpdate = {
+type DetailUpdate = {
   id: string;
   index: number;
   status: string;
@@ -58,7 +56,7 @@ export type DetailUpdate = {
   discourse_topic_id: number | null;
 };
 
-export type UpdateComment = {
+type UpdateComment = {
   id: number;
   name: string;
   hue: number;
@@ -67,7 +65,7 @@ export type UpdateComment = {
   text: string;
 };
 
-export type ProjectUpdateDetail = {
+type ProjectUpdateDetail = {
   source: "live" | "fixture";
   project: DetailProject;
   update: DetailUpdate;
@@ -125,7 +123,7 @@ export function highlightsToList(md: string | null | undefined): string[] {
   return out;
 }
 
-export function groupFinancials(
+function groupFinancials(
   records: ReadonlyArray<{
     category?: string | null;
     description?: string | null;
@@ -240,7 +238,7 @@ function projectComments(
   }));
 }
 
-export function fixtureDetail(): ProjectUpdateDetail {
+function fixtureDetail(): ProjectUpdateDetail {
   const u = FIXTURE.update;
   return {
     source: "fixture",
@@ -333,7 +331,7 @@ function projectFunds(
   };
 }
 
-export type LoadOptions = {
+type LoadOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;

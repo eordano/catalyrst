@@ -19,14 +19,14 @@ export type SuspendFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SuspendResult>;
 
-export type ModerateInput = {
+type ModerateInput = {
   trackCtx: TrackContext;
   suspend?: SuspendFn;
   track?: TrackFn;
   total?: number;
 };
 
-export type ModerateContext = {
+type ModerateContext = {
   trackCtx: TrackContext;
   suspend: SuspendFn;
   track: TrackFn;
@@ -39,7 +39,7 @@ export type ModerateContext = {
   error?: string;
 };
 
-export type ModerateEvent =
+type ModerateEvent =
   | { type: "SIGN_IN" }
   | { type: "SET_FILTER"; status: CommunityStatus; total?: number }
   | { type: "OPEN"; communityId: string }
@@ -70,7 +70,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type ModerateStateId = keyof typeof STATE_TO_SLUG;
-export type ModerateStepSlug = (typeof STATE_TO_SLUG)[ModerateStateId];
+type ModerateStepSlug = (typeof STATE_TO_SLUG)[ModerateStateId];
 
 export const FIRST_STEP_SLUG: ModerateStepSlug = STATE_TO_SLUG.authGate;
 
@@ -251,8 +251,6 @@ export const moderateMachine = setup({
     },
   },
 });
-
-export type ModerateMachine = typeof moderateMachine;
 
 export function resolveModerateSnapshot(args: {
   step: ModerateStateId;

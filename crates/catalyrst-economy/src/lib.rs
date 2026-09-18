@@ -53,6 +53,10 @@ pub fn api_router(api_version: &str) -> Router<AppState> {
         )
         .route("/payments/config", get(handlers::payments::config))
         .route("/payments/nonce/{address}", get(handlers::payments::nonce))
+        .route(
+            "/payments/balance/{address}",
+            get(handlers::payments::balance),
+        )
         .route("/payments/verify", post(handlers::payments::verify))
         .route("/broker/buy", post(handlers::broker::buy))
         .route(

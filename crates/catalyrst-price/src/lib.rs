@@ -57,8 +57,9 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .await
         .context("price-override migration failed")?;
 
+    let prices = PricesComponent::new(pool.clone(), cfg.price_poll_enabled);
     if cfg.price_poll_enabled {
-        poller::spawn(pool.clone(), cfg);
+        poller::spawn(pool.clone(), cfg, prices.clone());
     } else {
         tracing::warn!(
             "PRICE_POLL_ENABLED=false: NOT polling -- this crate only serves the last \
@@ -69,7 +70,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     }
 
     Ok(Arc::new(AppStateInner {
-        prices: PricesComponent::new(pool.clone()),
+        prices,
         overrides: OverridesComponent::new(pool),
         admin_token: cfg.admin_token.clone(),
     }))

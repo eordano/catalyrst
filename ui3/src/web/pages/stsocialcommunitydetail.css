@@ -550,7 +550,6 @@
   border-radius: 50%;
   animation: u-spin 0.9s linear infinite;
 }
-.stscd__spinner--sm { width: 24px; height: 24px; border-width: 2px; }
 .stscd__notfound {
   display: flex;
   flex-direction: column;

@@ -1,29 +1,20 @@
+import { useMemo, useRef } from "react";
+import { useAuth } from "@data/lib/auth/context";
+import { walletProvider } from "@data/lib/auth/wallet";
+import { nameClaimWallet } from "@data/lib/catalyst/marketplace/name-claim";
 import { Link, redirect, useNavigate, useSearchParams } from "react-router";
 
 import MkFlowBanner from "@ui/marketplace/components/MkFlowBanner";
 
 import {
-  checkNameAvailability,
   fetchOwnedNames,
   NAME_REGEX,
 } from "@data/lib/catalyst/marketplace/names";
-import {
-  hasWallet,
-  getConnectedAddress,
-  connectWallet,
-  getChainId,
-} from "@data/lib/auth/wallet";
-import { signTypedData } from "@data/lib/auth/typed-data";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
-import { prepareNameClaim } from "@data/lib/catalyst/marketplace/tx";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 import ClaimNameWizard from "@features/stories/marketplace/claim-name/ClaimNameWizard";
-import type {
-  CheckAvailabilityFn,
-  MintFn,
-} from "@features/stories/marketplace/claim-name/machine";
 
 import type { Route } from "./+types/marketplace.claim-name";
 import type { StoryId } from "@core/lib/telemetry/story-id";
@@ -58,20 +49,17 @@ export async function loader({ request }: Route.LoaderArgs) {
   const rawName = url.searchParams.get("name")?.trim() ?? "";
   const sampleName = NAME_REGEX.test(rawName) ? rawName : "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: ownedNames } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () =>
+      owner
+        ? fetchOwnedNames(owner, { signal: request.signal })
+            .then((page) => page.elements.map((e) => e.name))
+            .catch(() => [] as string[])
+        : Promise.resolve([] as string[]),
   );
-
-  let ownedNames: string[] = [];
-  if (owner) {
-    try {
-      const page = await fetchOwnedNames(owner, { signal: request.signal });
-      ownedNames = page.elements.map((e) => e.name);
-    } catch {
-    }
-  }
 
   const payload = {
     sid,
@@ -91,6 +79,13 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
   const { sid, step, assignment, takenNames, sampleName, from } =
     loaderData;
   const navigate = useNavigate();
+  const auth = useAuth();
+  const authRef = useRef(auth);
+  authRef.current = auth;
+  const claim = useMemo(() => nameClaimWallet(() => {
+    if (!authRef.current.address || !authRef.current.isConnected) throw new Error("Sign in with your wallet to register a NAME.");
+    return { provider: walletProvider(), address: authRef.current.address };
+  }), [auth.address]);
   const [searchParams] = useSearchParams();
 
   const fromDeploy = from === "deploy-world";
@@ -125,22 +120,6 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
     navigate(url.pathname + url.search);
   };
 
-  const realCheck: CheckAvailabilityFn = async ({ name, signal }) => {
-    const res = await checkNameAvailability(name, { signal });
-    return { available: res.kind === "claimable" };
-  };
-
-  const realMint: MintFn = async ({ name }) => {
-    if (!hasWallet())
-      throw new Error(
-        "No browser wallet found. Install MetaMask (or another EIP-1193 wallet).",
-      );
-    const from = (await getConnectedAddress()) ?? (await connectWallet());
-    const chainId = await getChainId();
-    const { typedData } = prepareNameClaim({ chainId, beneficiary: from, name });
-    const sig = await signTypedData(typedData, from);
-    return { txHash: "", tokenId: BigInt("0x" + sig.slice(2, 18)).toString() };
-  };
 
   return (
     <main className="marketplace-claim-name" onClickCapture={carryDeployContext}>
@@ -149,22 +128,19 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
           role="navigation"
           aria-label="Back to publishing"
           style={{
-            position: "fixed",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 1000,
             display: "flex",
             alignItems: "center",
             padding: "12px 20px",
             background: "var(--panel, #16121c)",
-            borderTop: "1px solid var(--line, rgba(255,255,255,0.18))",
-            boxShadow: "0 -6px 18px rgba(0,0,0,0.4)",
+            borderBottom: "1px solid var(--line, rgba(255,255,255,0.18))",
           }}
         >
           <Link
             to={returnToPublishUrl()}
             style={{
+              display: "inline-flex",
+              alignItems: "center",
+              minHeight: 44,
               color: "var(--brand, #ff2d55)",
               textDecoration: "none",
               fontSize: 14,
@@ -176,6 +152,8 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
         </div>
       ) : null}
       <ClaimNameWizard
+        key={auth.address ?? "anonymous"}
+        allowStepPreview={false}
         trackCtx={{
           sid,
           story: STORY,
@@ -184,15 +162,13 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
         }}
         takenNames={takenNames}
         sampleName={sampleName}
-        check={realCheck}
-        mint={realMint}
+        check={claim.check}
+        approve={claim.approve}
+        mint={claim.mint}
         initialStep={step ?? undefined}
         banner={
           <MkFlowBanner>
-            <strong>Test mode {"\u{2014}"} no real purchase will occur.</strong> NAME
-            registration isn&apos;t connected on this marketplace yet. You can
-            try the flow, and your wallet may ask for a signature, but no NAME
-            will be minted and nothing will be charged.
+            Register your NAME with MANA on Ethereum. Your wallet will confirm approval, registration and gas fees.
           </MkFlowBanner>
         }
         creditsNote={"Credits can't be used for NAMEs yet \u{2014} Credits checkout only supports collection items."}
@@ -201,7 +177,7 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
             ? (worldName) => {
                 track(
                   "ch_claim_name_returned_to_publish",
-                  { name: worldName, simulated: true },
+                  { name: worldName, simulated: false },
                   { sid, story: "creator-hub/claim-name" },
                 );
                 navigate(returnToPublishUrl(worldName));

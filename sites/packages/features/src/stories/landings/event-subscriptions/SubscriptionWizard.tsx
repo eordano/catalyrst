@@ -23,13 +23,15 @@ export type SubscriptionGroup = {
   types: string[];
 };
 
-export type SubscriptionWizardProps = {
+type SubscriptionWizardProps = {
   trackCtx: TrackContext;
   email: string;
   emailConfirmed: boolean;
   selection: Selection;
   groups: SubscriptionGroup[];
   initialStep?: string;
+  signedIn?: boolean;
+  onSignIn?: () => void;
   commit?: CommitFn;
   track?: TrackFn;
 };
@@ -55,6 +57,8 @@ function SubscriptionWizardInner({
   selection,
   groups,
   commit,
+  signedIn,
+  onSignIn,
   track,
 }: InnerProps) {
   const [, setSearchParams] = useSearchParams();
@@ -67,6 +71,10 @@ function SubscriptionWizardInner({
     input: { trackCtx, selection, commit, track },
     snapshot,
   });
+
+  useEffect(() => {
+    if (signedIn && state.matches("signinGate")) send({ type: "SIGN_IN" });
+  }, [signedIn, state.value, send]);
 
   const value = state.value as string;
   const step = stateToSlug(value);
@@ -100,7 +108,10 @@ function SubscriptionWizardInner({
       error={state.context.error}
       lastKind={state.context.lastKind}
       onStart={() => send({ type: "START" })}
-      onSignIn={() => send({ type: "SIGN_IN" })}
+      onSignIn={() => {
+        if (signedIn === false) onSignIn?.();
+        else send({ type: "SIGN_IN" });
+      }}
       onToggle={(notificationType, enabled) =>
         send({ type: "TOGGLE", notificationType, enabled })
       }

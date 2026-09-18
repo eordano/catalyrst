@@ -1,7 +1,14 @@
+import { publicThumbnail } from "../../data/thumbnail";
+import { PageHeader } from "../../components/Surface";
+import CoverImage from "../../components/CoverImage";
+import Button from "../../atoms/Button";
+import FreshnessNotice from "../../components/FreshnessNotice";
+import { prefetchImages } from "../../data/prefetchImages";
+import { useWorldEntry } from "../WorldEntry";
 import type { QueryClient } from "@tanstack/react-query";
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import EventDetail from "../../explorer/pages/EventDetail";
 import JumpLoading, { useJump } from "../../explorer/components/JumpLoading";
@@ -13,7 +20,6 @@ import "../../explorer/pages/events.css";
 import { useEvents, useEventCategories, useEventAttendance } from "../../data/hooks/useEvents";
 import { fetchEvents, fetchEventCategories } from "../../data/catalyst/events";
 import {
-  hueFor,
   eventStart,
   eventXY,
   eventCoords,
@@ -35,11 +41,11 @@ const DAY_COUNT = 5;
 
 export function prefetch(queryClient: QueryClient) {
   try {
-    queryClient.prefetchQuery({
+    queryClient.fetchQuery({
       queryKey: qk.events(DEFAULT_PARAMS),
       queryFn: ({ signal }) => fetchEvents(DEFAULT_PARAMS, { signal }),
       staleTime: STALE.events,
-    });
+    }).then(events => prefetchImages(events.data.slice(0, 24).map(event => publicThumbnail(event.image)))).catch(() => {});
     queryClient.prefetchQuery({
       queryKey: qk.eventCategories(),
       queryFn: ({ signal }) => fetchEventCategories({ signal }),
@@ -142,20 +148,6 @@ function teleportTo(e: EventItem | null, domEvent?: { preventDefault?: () => voi
   return true;
 }
 
-const CARD_JUMP_STYLE: CSSProperties = {
-  marginTop: 4,
-  alignSelf: "flex-start",
-  border: 0,
-  borderRadius: "var(--r-pill)",
-  background: "linear-gradient(90deg, #ff4d8d, #ec2e7a)",
-  color: "#fff",
-  font: "inherit",
-  fontSize: 9.5,
-  fontWeight: 800,
-  letterSpacing: 0.4,
-  padding: "4px 12px",
-  cursor: "pointer",
-};
 
 type EventCardProps = {
   ev: EventItem;
@@ -167,15 +159,9 @@ type EventCardProps = {
 function EventCard({ ev, featured, onOpen, onJump }: EventCardProps) {
   const live = !!ev.live;
   const badge = live ? `${ev.total_attendees} LIVE` : ev.trending ? "TRENDING" : null;
-  const thumbStyle: VarStyle = { "--hue": hueFor(ev.id) };
-  if (ev.image) {
-    thumbStyle.backgroundImage = `linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,.55)), url("${ev.image}")`;
-    thumbStyle.backgroundSize = "cover";
-    thumbStyle.backgroundPosition = "center";
-  }
   return (
     <div
-      className={"ev__card" + (featured ? " is-featured" : "")}
+      className={"ui-card ev__card" + (featured ? " is-featured" : "")}
       role="button"
       tabIndex={0}
       data-sb-linkto="Explorer/Pages/EventDetail"
@@ -187,7 +173,8 @@ function EventCard({ ev, featured, onOpen, onJump }: EventCardProps) {
         }
       }}
     >
-      <div className="ev__thumb" style={thumbStyle} aria-hidden="true">
+      <div className="ev__art">
+        <CoverImage className="ev__thumb" src={publicThumbnail(ev.image)} fallbackSrc={ev.image ?? undefined} alt="" />
         {badge ? <span className={"ev__badge" + (live ? " is-live" : "")}>{badge}</span> : null}
       </div>
       <div className="ev__cardbody">
@@ -195,11 +182,11 @@ function EventCard({ ev, featured, onOpen, onJump }: EventCardProps) {
         <p className="ev__cardorg u-truncate">By {hostOf(ev)}</p>
         <p className="ev__cardtime">
           <span className="ev__clock" aria-hidden="true">&#x1F551;</span>
-          {formatClock(eventStart(ev))}
+          {formatClock(eventStart(ev))} UTC
         </p>
-        <button
-          type="button"
-          style={CARD_JUMP_STYLE}
+        <Button
+          size="sm"
+          className="ev__jump"
           data-sb-linkto="Explorer/Workflows/SceneLoading"
           aria-label={`Jump in to ${ev.name || "event"}`}
           onClick={(e) => {
@@ -208,8 +195,8 @@ function EventCard({ ev, featured, onOpen, onJump }: EventCardProps) {
           }}
           onKeyDown={(e) => e.stopPropagation()}
         >
-          jump in
-        </button>
+          Jump in
+        </Button>
       </div>
     </div>
   );
@@ -222,7 +209,7 @@ function SkeletonGrid() {
       {cols.map((_, ci) => (
         <div key={ci} className="ev__gridcol">
           {Array.from({ length: 3 }).map((__, ri) => (
-            <div key={ri} className="ev__card" style={{ opacity: 0.5 }}>
+            <div key={ri} className="ui-card ev__card" style={{ opacity: 0.5 }}>
               <div className="ev__thumb" style={cssVars({ "--hue": (ci * 53 + ri * 31) % 360 })} />
               <div className="ev__cardbody">
                 <h3 className="ev__cardtitle u-truncate">Loading&#x2026;</h3>
@@ -257,36 +244,45 @@ function Notice({ children }: { children: ReactNode }) {
 
 export default function EventsPanel() {
   const navigate = useNavigate();
+  const entry = useWorldEntry();
   const [category, setCategory] = useState("");
-  const [selected, setSelected] = useState<EventItem | null>(null);
+  const location = useLocation();
+  const [selected, setSelected] = useState<EventItem | null>(() => location.state?.event ?? null);
   const [confirmWorld, setConfirmWorld] = useState<{ realm: string; title?: string } | null>(null);
 
   const { jumping, stalled, beginJump, cancelJump, confirmJump } = useJump(() => navigate("/"));
 
   const jumpTo = useCallback(
     (ev: EventItem | null, domEvent?: { preventDefault?: () => void }) => {
-      if (typeof window === "undefined" || !getBridge()) return false;
+      if (typeof window === "undefined" || (!entry?.pending && !getBridge())) return false;
       if (ev?.world) {
         if (!ev.server) return false;
         domEvent?.preventDefault?.();
         setConfirmWorld({ realm: ev.server, title: ev.name ?? undefined });
         return true;
       }
+      if (entry?.pending) {
+        domEvent?.preventDefault?.();
+        const { x, y } = eventXY(ev);
+        entry.enter({ kind: "parcel", x, y });
+        return true;
+      }
       if (!teleportTo(ev, domEvent)) return false;
       const { x, y } = eventXY(ev);
       warmSceneAtParcel(x, y);
-      beginJump(ev?.name || "event");
+      beginJump(ev?.name || "event", `${x},${y}`);
       return true;
     },
-    [beginJump],
+    [beginJump, entry],
   );
 
   const confirmVisitWorld = useCallback(() => {
     if (!confirmWorld) return;
     setConfirmWorld(null);
+    if (entry?.pending) { entry.enter({ kind: "world", realm: confirmWorld.realm }); return; }
     sendBridge("ChangeRealm", { realm: confirmWorld.realm });
     beginJump(confirmWorld.title || confirmWorld.realm);
-  }, [confirmWorld, beginJump]);
+  }, [confirmWorld, beginJump, entry]);
 
   const params = useMemo(
     () => (category ? { ...DEFAULT_PARAMS, category } : DEFAULT_PARAMS),
@@ -334,23 +330,15 @@ export default function EventsPanel() {
       }
     : null;
 
-  const showSkeleton = evq.isLoading && events.length === 0;
+  const showSkeleton = evq.isPending && events.length === 0;
   const showError = evq.isError && events.length === 0;
-  const showEmpty = !evq.isLoading && !evq.isError && events.length === 0;
+  const showEmpty = !evq.isPending && !evq.isError && events.length === 0;
 
-  const featuredHero: CSSProperties | undefined =
-    featured && (featured.image_vertical || featured.image)
-      ? {
-          backgroundImage: `url("${featured.image_vertical || featured.image}")`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }
-      : undefined;
+  const featuredHero = featured?.image_vertical || featured?.image || undefined;
 
   return (
-    <div className="ev">
-      <div className="ev__head">
-        <h1 className="ev__title">Events</h1>
+    <div className="ev ui-surface">
+      <PageHeader title="Events" className="ev__head">
         <div className="ev__headactions">
           <div style={{ width: 200 }}>
             <Dropdown
@@ -364,19 +352,14 @@ export default function EventsPanel() {
             + CREATE EVENT
           </button>
         </div>
-      </div>
+      </PageHeader>
 
+      <FreshnessNotice failed={evq.refreshFailed} onRetry={() => void evq.refetch()} />
       <div className="ev__body">
         <div className="ev__main">
           <div className="ev__carousel">
-            <button type="button" className="ev__chev" aria-label="Previous days" onClick={() => setDayShift((d) => Math.max(0, d - DAY_COUNT))}>&#x2039;</button>
-            <div className="ev__cols" role="tablist" aria-label="Event days">
-              {columns.map((c) => (
-                <div key={c.key} className="ev__col">
-                  <span className={"ev__daylabel" + (c.today ? " is-today" : "")}>{c.label}</span>
-                </div>
-              ))}
-            </div>
+            {dayShift > 0 && <button type="button" className="ev__chev" aria-label="Previous days" onClick={() => setDayShift((d) => Math.max(0, d - DAY_COUNT))}>&#x2039;</button>}
+            <span className="ev__range">{columns[0]?.label} &#x2014; {columns.at(-1)?.label} &#xB7; UTC</span>
             <button type="button" className="ev__chev" aria-label="Next days" onClick={() => setDayShift((d) => d + DAY_COUNT)}>&#x203A;</button>
           </div>
 
@@ -399,6 +382,8 @@ export default function EventsPanel() {
             <div className="ev__grid">
               {columns.map((c) => (
                 <div key={c.key} className="ev__gridcol">
+                  <h2 className={"ev__daylabel" + (c.today ? " is-today" : "")}>{c.label}</h2>
+                  {c.items.length === 0 && <p className="ev__dayempty">No events</p>}
                   {c.items.map((ev) => (
                     <EventCard key={ev.id} ev={ev} onOpen={onOpen} onJump={jumpTo} />
                   ))}
@@ -409,10 +394,9 @@ export default function EventsPanel() {
         </div>
 
         {featured ? (
-          <aside className="ev__feature" aria-label="Featured event">
+          <aside className="ui-card ev__feature" aria-label="Featured event">
             <div
               className="ev__featurehero"
-              style={featuredHero}
               role="button"
               tabIndex={0}
               onClick={() => onOpen(featured)}
@@ -423,6 +407,7 @@ export default function EventsPanel() {
                 }
               }}
             >
+              {featuredHero && <CoverImage className="ev__featureimage" src={publicThumbnail(featuredHero)} fallbackSrc={featuredHero} alt="" loading="eager" />}
               {!featuredHero ? (
                 <span className="ev__featuretag">{featured.name || "Featured"}</span>
               ) : null}
@@ -430,7 +415,7 @@ export default function EventsPanel() {
             <div className="ev__featurebody">
               <p className="ev__featuredate">
                 <span className="ev__clock" aria-hidden="true">&#x1F4C5;</span>
-                {formatEventWhen(eventStart(featured))}
+                {formatEventWhen(eventStart(featured))} UTC
               </p>
               <h2 className="ev__featuretitle">{featured.name || "Untitled event"}</h2>
               <p className="ev__featureorg">Organized by {hostOf(featured)}</p>
@@ -442,7 +427,7 @@ export default function EventsPanel() {
                     if (!jumpTo(featured, e)) onOpen(featured);
                   }}
                 >
-                  jump in
+                  Jump in
                 </button>
                 <button type="button" className="ev__iconbtn" aria-label="Details" onClick={() => onOpen(featured)}>
                   &#x2197;

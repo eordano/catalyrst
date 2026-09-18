@@ -8,6 +8,7 @@ export type ChromeAuth = {
   committee: boolean;
   avatarUrl?: string;
   onSignIn?: () => void;
+  onSignOut?: () => void;
   fetchNotifications?: () => Promise<unknown>;
 };
 
@@ -19,6 +20,7 @@ const LOGGED_OUT: ChromeAuth = {
   committee: false,
   avatarUrl: undefined,
   onSignIn: undefined,
+  onSignOut: undefined,
   fetchNotifications: undefined,
 };
 

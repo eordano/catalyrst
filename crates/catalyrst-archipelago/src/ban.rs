@@ -3,10 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use catalyrst_commons::cache::TtlCell;
+use catalyrst_commons::cache::{TtlCell, TtlMap};
 use serde::Deserialize;
 
 const BAN_CHECK_TIMEOUT: Duration = Duration::from_millis(1000);
+
+const BAN_VERDICT_TTL: Duration = Duration::from_secs(10);
+const BAN_VERDICT_MAX_ENTRIES: usize = 20_000;
 
 const DENY_LIST_TTL: Duration = Duration::from_secs(5 * 60);
 
@@ -56,6 +59,9 @@ struct BansData {
 pub struct BanChecker {
     gatekeeper_url: Option<String>,
     http: reqwest::Client,
+    /// Verdicts keyed on the address as asked; a lookup that failed open is
+    /// never stored, so the next caller asks again.
+    verdicts: Arc<TtlMap<String, bool>>,
 }
 
 impl BanChecker {
@@ -66,6 +72,11 @@ impl BanChecker {
         Arc::new(Self {
             gatekeeper_url,
             http,
+            verdicts: Arc::new(TtlMap::bounded(
+                "archipelago-ban-verdicts",
+                BAN_VERDICT_TTL,
+                BAN_VERDICT_MAX_ENTRIES,
+            )),
         })
     }
 
@@ -73,27 +84,49 @@ impl BanChecker {
         self.gatekeeper_url.is_some()
     }
 
+    /// Memoized for a few seconds; the sweep uses `is_banned_fresh` instead.
     pub async fn is_banned(&self, address: &str) -> bool {
         let Some(base) = self.gatekeeper_url.as_deref() else {
             return false;
         };
+        self.verdicts
+            .get_or_fetch(address.to_string(), || self.lookup(base, address))
+            .await
+            .unwrap_or(false)
+    }
+
+    /// Always asks the gatekeeper and refreshes the memo with what it said.
+    pub async fn is_banned_fresh(&self, address: &str) -> bool {
+        let Some(base) = self.gatekeeper_url.as_deref() else {
+            return false;
+        };
+        match self.lookup(base, address).await {
+            Ok(banned) => {
+                self.verdicts.insert(address.to_string(), banned);
+                banned
+            }
+            Err(()) => false,
+        }
+    }
+
+    async fn lookup(&self, base: &str, address: &str) -> Result<bool, ()> {
         let url = format!("{}/users/{}/bans", base, encode_uri_component(address));
         let resp = match self.http.get(&url).timeout(BAN_CHECK_TIMEOUT).send().await {
             Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(address, error = %e, "ban check failed, allowing connection");
-                return false;
+            Err(_) => {
+                tracing::warn!(address, "ban check failed, allowing connection");
+                return Err(());
             }
         };
         if !resp.status().is_success() {
             tracing::warn!(address, status = %resp.status(), "ban check non-OK status, allowing connection");
-            return false;
+            return Err(());
         }
         match resp.json::<BansEnvelope>().await {
-            Ok(body) => body.data.and_then(|d| d.is_banned).unwrap_or(false),
+            Ok(body) => Ok(body.data.and_then(|d| d.is_banned).unwrap_or(false)),
             Err(e) => {
                 tracing::warn!(address, error = %e, "ban check malformed body, allowing connection");
-                false
+                Err(())
             }
         }
     }
@@ -159,9 +192,9 @@ impl DenyList {
         let url = self.url.as_deref().context("deny list url is unset")?;
         let resp = match self.http.get(url).send().await {
             Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(error = %e, "deny list fetch failed, keeping last known list");
-                return Err(e).context("deny list fetch failed");
+            Err(_) => {
+                tracing::warn!("deny list fetch failed, keeping last known list");
+                anyhow::bail!("deny list fetch failed");
             }
         };
         if !resp.status().is_success() {
@@ -192,6 +225,55 @@ impl DenyList {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use std::sync::Mutex;
+
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn admission_policy_transport_logs_never_retain_configured_urls() {
+        const CANARY: &str = "archipelago-ban-private-material-canary";
+        let base = format!("http://127.0.0.1:1/{CANARY}");
+        let buffer = LogBuffer::default();
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .without_time()
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let checker = BanChecker::new(Some(base.clone()), reqwest::Client::new());
+        assert!(
+            !checker
+                .is_banned_fresh("0x0000000000000000000000000000000000000001")
+                .await
+        );
+        let deny_list = DenyList::with_ttl(
+            Some(format!("{base}/deny-list")),
+            reqwest::Client::new(),
+            Duration::from_secs(1),
+        );
+        assert!(deny_list.fetch().await.is_err());
+
+        let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+        assert!(logs.contains("ban check failed, allowing connection"));
+        assert!(logs.contains("deny list fetch failed, keeping last known list"));
+        assert!(!logs.contains(CANARY), "configured URL survived in {logs}");
+    }
 
     #[test]
     fn encode_uri_component_matches_js_for_special_chars() {

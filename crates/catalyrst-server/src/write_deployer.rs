@@ -20,7 +20,7 @@ use catalyrst_validator::types::{
     AuthChain as VAuthChain, DeploymentAuditInfo, DeploymentToValidate, Entity as VEntity,
 };
 
-use crate::state::{DeployFailure, Deployer};
+use crate::state::{Database, DeployFailure, Deployer};
 
 const DECENTRALAND_ADDRESS: &str = "0x1337e0507eb4ab47e08a179573ed4533d9e22a7b";
 
@@ -131,6 +131,14 @@ fn metadata_unchanged(stored_wrapped: Option<&Value>, incoming: Option<&Value>) 
     };
     let new_meta = incoming.cloned().unwrap_or(Value::Null);
     active == new_meta
+}
+
+/// Same comparison over the entity form, where `metadata` is already the unwrapped `v`.
+fn entity_metadata_unchanged(stored: Option<&Value>, incoming: Option<&Value>) -> bool {
+    match stored {
+        Some(active) => *active == incoming.cloned().unwrap_or(Value::Null),
+        None => false,
+    }
 }
 
 pub struct LiveExternalCalls {
@@ -318,6 +326,9 @@ pub struct WriteDeployer {
     storage: Arc<ContentStorage>,
     validator: ContentValidator<LiveExternalCalls, SquidBlockchainChecker>,
     rate_limiter: DeployRateLimiter,
+    schema: tokio::sync::OnceCell<crate::schema_migrations::DeploymentSchema>,
+    /// Answers the profile "unchanged" probe from the read caches before falling back to SQL.
+    database: Option<Arc<dyn Database>>,
 }
 
 impl WriteDeployer {
@@ -370,13 +381,38 @@ impl WriteDeployer {
             storage,
             validator,
             rate_limiter: DeployRateLimiter::with_reference_defaults(),
+            schema: tokio::sync::OnceCell::new(),
+            database: None,
         }
+    }
+
+    pub fn with_schema(mut self, schema: crate::schema_migrations::DeploymentSchema) -> Self {
+        self.schema = tokio::sync::OnceCell::new_with(Some(schema));
+        self
+    }
+
+    pub fn with_database(mut self, database: Arc<dyn Database>) -> Self {
+        self.database = Some(database);
+        self
     }
 
     async fn is_content_unchanged(&self, entity: &VEntity) -> bool {
         let Some(pointer) = entity.pointers.first() else {
             return false;
         };
+        if let Some(database) = &self.database {
+            let stored = match database
+                .active_entities_by_pointers(&[pointer.to_lowercase()])
+                .await
+            {
+                Ok(mut entities) => entities.pop(),
+                Err(_) => None,
+            };
+            return entity_metadata_unchanged(
+                stored.as_ref().and_then(|e| e.get("metadata")),
+                entity.metadata.as_ref(),
+            );
+        }
         let row = sqlx::query_scalar!(
             r#"
             SELECT d.entity_metadata
@@ -393,30 +429,6 @@ impl WriteDeployer {
         let stored = row.flatten();
         metadata_unchanged(stored.as_ref(), entity.metadata.as_ref())
     }
-
-    async fn has_newer_entity(&self, entity: &VEntity) -> Result<bool, String> {
-        let pointers: Vec<String> = entity.pointers.iter().map(|p| p.to_lowercase()).collect();
-        let newer = sqlx::query_scalar!(
-            r#"
-            SELECT 1 AS newer
-            FROM deployments
-            WHERE entity_type = $1
-              AND entity_pointers && $2
-              AND (entity_timestamp > to_timestamp($3 / 1000.0)
-                   OR (entity_timestamp = to_timestamp($3 / 1000.0)
-                       AND lower(entity_id) > lower($4)))
-            LIMIT 1
-            "#,
-            entity.entity_type.as_str(),
-            &pointers,
-            entity.timestamp as f64,
-            &entity.id
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| format!("newer-entity check failed: {e}"))?;
-        Ok(newer.is_some())
-    }
 }
 
 const REQUEST_TTL_BACKWARDS_MS: i64 = 20 * 60 * 1000;
@@ -431,9 +443,11 @@ impl Deployer for WriteDeployer {
         auth_chain: Value,
         context: &str,
     ) -> Result<i64, DeployFailure> {
+        let started = Instant::now();
         let uploads = hash_uploads(files)
             .await
             .map_err(|e| DeployFailure::Unavailable(vec![e]))?;
+        let hash_us = started.elapsed().as_micros() as u64;
         let entity_bytes = uploads
             .iter()
             .find(|upload| upload.v1 == entity_id || upload.v0 == entity_id)
@@ -528,18 +542,7 @@ impl Deployer for WriteDeployer {
             audit_info: audit_info.clone(),
         };
 
-        match self.has_newer_entity(&entity).await {
-            Ok(true) => {
-                return Err(vec![
-                    "There is a newer entity pointed by one or more of the pointers you provided."
-                        .to_string(),
-                ]
-                .into())
-            }
-            Ok(false) => {}
-            Err(e) => return Err(DeployFailure::Unavailable(vec![e])),
-        }
-
+        let validation_started = Instant::now();
         match self.validator.validate(&deployment).await {
             ValidationResponse::Ok => {}
             ValidationResponse::Failed { errors } => {
@@ -556,13 +559,129 @@ impl Deployer for WriteDeployer {
             }
         }
 
+        let validation_us = validation_started.elapsed().as_micros() as u64;
+        let persist_started = Instant::now();
         let creation_ts = self
             .persist(&entity, &entity_bytes, &uploads, &audit_info, context)
-            .await
-            .map_err(|e| DeployFailure::Unavailable(vec![e]))?;
+            .await?;
 
+        let persist_us = persist_started.elapsed().as_micros() as u64;
+        let cleanup_started = Instant::now();
+        drop(deployment);
+        drop(uploads);
+        tracing::debug!(target: "catalyrst_perf", phase="deploy", entity_id, hash_us, validation_us, persist_us, cleanup_us=cleanup_started.elapsed().as_micros() as u64, elapsed_us=started.elapsed().as_micros() as u64);
         Ok(creation_ts)
     }
+}
+
+const NEWER_ENTITY_MESSAGE: &str =
+    "There is a newer entity pointed by one or more of the pointers you provided.";
+
+#[derive(sqlx::FromRow)]
+struct PersistOutcome {
+    dep_id: Option<i32>,
+    newer: bool,
+    overwrote: i32,
+    cleared: i32,
+}
+
+/// The whole write as one statement off the pointer lock: the newer-entity check and the
+/// overwrite calculation read the locked snapshot, the deployment insert is gated on the former,
+/// and every dependent write (provenance, content files, pointer upsert, pointer clears,
+/// overwritten marks) hangs off the inserted row, so a conflict or a newer entity makes them all
+/// no-ops.
+fn persist_statement(local_provenance: bool, pointer_entity_type: bool) -> String {
+    let provenance = if local_provenance {
+        "provenance AS (
+            INSERT INTO local_entities (entity_id, signer)
+            SELECT $4, $11 FROM ins
+            ON CONFLICT (entity_id) DO NOTHING
+        ),"
+    } else {
+        ""
+    };
+    let (pointer_cols, pointer_vals, pointer_set) = if pointer_entity_type {
+        (
+            "(pointer, entity_id, entity_type)",
+            "p.pointer, $4, $3",
+            "SET entity_id = EXCLUDED.entity_id, entity_type = EXCLUDED.entity_type",
+        )
+    } else {
+        (
+            "(pointer, entity_id)",
+            "p.pointer, $4",
+            "SET entity_id = EXCLUDED.entity_id",
+        )
+    };
+    format!(
+        r#"
+        WITH newer AS (
+            SELECT 1 AS present FROM deployments
+            WHERE entity_type = $3
+              AND entity_pointers && $7
+              AND (entity_timestamp > to_timestamp($6 / 1000.0)
+                   OR (entity_timestamp = to_timestamp($6 / 1000.0) AND lower(entity_id) > lower($4)))
+            LIMIT 1
+        ),
+        overwrote AS (
+            SELECT dep1.id, dep1.entity_pointers
+            FROM deployments AS dep1
+            LEFT JOIN deployments AS dep2 ON dep1.deleter_deployment = dep2.id
+            WHERE dep1.entity_type = $3
+              AND dep1.entity_pointers && $7
+              AND (dep1.entity_timestamp < to_timestamp($6 / 1000.0)
+                   OR (dep1.entity_timestamp = to_timestamp($6 / 1000.0) AND lower(dep1.entity_id) < lower($4)))
+              AND (dep2.id IS NULL
+                   OR dep2.entity_timestamp > to_timestamp($6 / 1000.0)
+                   OR (dep2.entity_timestamp = to_timestamp($6 / 1000.0) AND lower(dep2.entity_id) > lower($4)))
+        ),
+        ins AS (
+            INSERT INTO deployments
+                (deployer_address, version, entity_type, entity_id, entity_metadata,
+                 entity_timestamp, entity_pointers, local_timestamp, auth_chain)
+            SELECT $1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), $7, now(), $8
+            WHERE NOT EXISTS (SELECT 1 FROM newer)
+            ON CONFLICT (entity_id) DO NOTHING
+            RETURNING id
+        ),
+        {provenance}
+        files AS (
+            INSERT INTO content_files (deployment, content_hash, key)
+            SELECT ins.id, c.hash, c.key
+            FROM ins, unnest($9::text[], $10::text[]) AS c(hash, key)
+        ),
+        pointed AS (
+            INSERT INTO active_pointers {pointer_cols}
+            SELECT {pointer_vals} FROM ins, unnest($7::text[]) AS p(pointer)
+            ON CONFLICT (pointer) DO UPDATE
+                {pointer_set}
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM deployments cur
+                    WHERE cur.entity_id = active_pointers.entity_id
+                      AND (cur.entity_timestamp > to_timestamp($6 / 1000.0)
+                           OR (cur.entity_timestamp = to_timestamp($6 / 1000.0)
+                               AND lower(cur.entity_id) > lower(EXCLUDED.entity_id)))
+                )
+        ),
+        cleared AS (
+            DELETE FROM active_pointers
+            WHERE EXISTS (SELECT 1 FROM ins)
+              AND pointer IN (SELECT unnest(entity_pointers) FROM overwrote)
+              AND NOT (pointer = ANY($7))
+            RETURNING pointer
+        ),
+        overwritten AS (
+            UPDATE deployments SET deleter_deployment = ins.id
+            FROM ins
+            WHERE deployments.id IN (SELECT id FROM overwrote)
+            RETURNING deployments.id
+        )
+        SELECT (SELECT id FROM ins) AS dep_id,
+               EXISTS (SELECT 1 FROM newer) AS newer,
+               (SELECT count(*) FROM overwritten)::int AS overwrote,
+               (SELECT count(*) FROM cleared)::int AS cleared
+        "#
+    )
 }
 
 impl WriteDeployer {
@@ -573,13 +692,18 @@ impl WriteDeployer {
         uploads: &[HashedUpload],
         audit_info: &DeploymentAuditInfo,
         context: &str,
-    ) -> Result<i64, String> {
+    ) -> Result<i64, DeployFailure> {
+        let unavailable = |e: String| DeployFailure::Unavailable(vec![e]);
+        let started = Instant::now();
         store_deployment_files(
             &self.storage,
             deployment_files(entity, entity_bytes, uploads),
         )
-        .await?;
+        .await
+        .map_err(unavailable)?;
 
+        let storage_us = started.elapsed().as_micros() as u64;
+        let db_started = Instant::now();
         let deployer_address = audit_info
             .auth_chain
             .first()
@@ -599,205 +723,97 @@ impl WriteDeployer {
                 .collect()
         };
         let auth_chain_json =
-            serde_json::to_value(&audit_info.auth_chain).map_err(|e| e.to_string())?;
+            serde_json::to_value(&audit_info.auth_chain).map_err(|e| unavailable(e.to_string()))?;
+        let hashes: Vec<String> = entity.content.iter().map(|c| c.hash.clone()).collect();
+        let keys: Vec<String> = entity.content.iter().map(|c| c.file.clone()).collect();
 
-        let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
-
-        {
-            let mut lock_keys: Vec<&String> = pointers.iter().collect();
-            lock_keys.sort();
-            lock_keys.dedup();
-            for p in lock_keys {
-                sqlx::query!("SELECT pg_advisory_xact_lock(hashtext($1))", p)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| format!("pointer advisory lock failed: {e}"))?;
-            }
+        let schema = self
+            .schema
+            .get_or_try_init(|| crate::schema_migrations::DeploymentSchema::detect(&self.pool))
+            .await
+            .map_err(|e| unavailable(format!("deployment schema detection failed: {e}")))?;
+        let local_scene = context == "LOCAL"
+            && entity.entity_type == catalyrst_validator::types::EntityType::Scene;
+        if local_scene && !schema.local_entities {
+            warn!(
+                entity_id = %entity.id,
+                "local_entities table missing (migration 0003 not applied); skipping provenance record"
+            );
         }
+        let local_provenance = local_scene && schema.local_entities;
 
-        let overwrote: Vec<(i32, Vec<String>)> = sqlx::query!(
-            r#"
-            SELECT dep1.id, dep1.entity_pointers
-            FROM deployments AS dep1
-            LEFT JOIN deployments AS dep2 ON dep1.deleter_deployment = dep2.id
-            WHERE dep1.entity_type = $1
-              AND dep1.entity_pointers && $2
-              AND (dep1.entity_timestamp < to_timestamp($3 / 1000.0)
-                   OR (dep1.entity_timestamp = to_timestamp($3 / 1000.0) AND lower(dep1.entity_id) < lower($4)))
-              AND (dep2.id IS NULL
-                   OR dep2.entity_timestamp > to_timestamp($3 / 1000.0)
-                   OR (dep2.entity_timestamp = to_timestamp($3 / 1000.0) AND lower(dep2.entity_id) > lower($4)))
-            "#,
-            entity.entity_type.as_str(),
-            &pointers,
-            entity.timestamp as f64,
-            &entity.id
-        )
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(|e| format!("overwrite calculation failed: {e}"))?
-        .into_iter()
-        .map(|r| (r.id, r.entity_pointers))
-        .collect();
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| unavailable(e.to_string()))?;
 
-        let dep_id = sqlx::query_scalar!(
-            r#"
-            INSERT INTO deployments
-                (deployer_address, version, entity_type, entity_id, entity_metadata,
-                 entity_timestamp, entity_pointers, local_timestamp, auth_chain)
-            VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), $7, now(), $8)
-            ON CONFLICT (entity_id) DO NOTHING
-            RETURNING id
-            "#,
-            &deployer_address,
-            &entity.version,
-            entity.entity_type.as_str(),
-            &entity.id,
-            &metadata,
-            entity.timestamp as f64,
-            &pointers,
-            &auth_chain_json
-        )
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| format!("deployment insert failed: {e}"))?;
+        lock_deployment_pointers(&mut tx, &pointers)
+            .await
+            .map_err(|e| unavailable(format!("pointer advisory lock failed: {e}")))?;
+
+        let mut query = sqlx::query_as::<_, PersistOutcome>(sqlx::AssertSqlSafe(
+            persist_statement(local_provenance, schema.pointer_entity_type),
+        ))
+        .bind(&deployer_address)
+        .bind(&entity.version)
+        .bind(entity.entity_type.as_str())
+        .bind(&entity.id)
+        .bind(&metadata)
+        .bind(entity.timestamp as f64)
+        .bind(&pointers)
+        .bind(&auth_chain_json)
+        .bind(&hashes)
+        .bind(&keys);
+        if local_provenance {
+            query = query.bind(deployer_address.to_lowercase());
+        }
+        let outcome = query
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| unavailable(format!("deployment write failed: {e}")))?;
 
         let now_ms = chrono::Utc::now().timestamp_millis();
+        let commit_started = Instant::now();
+        tx.commit().await.map_err(|e| unavailable(e.to_string()))?;
+        tracing::debug!(target: "catalyrst_perf", phase="persist", entity_id=%entity.id, storage_us, db_us=db_started.elapsed().as_micros() as u64, commit_us=commit_started.elapsed().as_micros() as u64);
 
-        let Some(dep_id) = dep_id else {
-            tx.commit().await.map_err(|e| e.to_string())?;
+        if outcome.newer {
+            return Err(DeployFailure::Rejected(vec![
+                NEWER_ENTITY_MESSAGE.to_string()
+            ]));
+        }
+        let Some(dep_id) = outcome.dep_id else {
             info!(entity_id = %entity.id, "entity already deployed; treating as success");
             return Ok(now_ms);
         };
-
-        if context == "LOCAL" && entity.entity_type == catalyrst_validator::types::EntityType::Scene
-        {
-            crate::land_publish::record_local_provenance(&mut tx, &entity.id, &deployer_address)
-                .await
-                .map_err(|e| format!("local provenance insert failed: {e}"))?;
-        }
-
-        if !entity.content.is_empty() {
-            let deployments: Vec<i32> = vec![dep_id; entity.content.len()];
-            let hashes: Vec<String> = entity.content.iter().map(|c| c.hash.clone()).collect();
-            let keys: Vec<String> = entity.content.iter().map(|c| c.file.clone()).collect();
-            sqlx::query!(
-                r#"
-                INSERT INTO content_files (deployment, content_hash, key)
-                SELECT unnest($1::int[]), unnest($2::text[]), unnest($3::text[])
-                "#,
-                &deployments,
-                &hashes,
-                &keys
-            )
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("content_files insert failed: {e}"))?;
-        }
-
-        if !pointers.is_empty() {
-            let entity_ids = vec![entity.id.clone(); pointers.len()];
-            let entity_types = vec![entity.entity_type.as_str().to_string(); pointers.len()];
-
-            let has_type_col = sqlx::query_scalar!(
-                r#"SELECT EXISTS (
-                       SELECT 1 FROM information_schema.columns
-                       WHERE table_schema = current_schema()
-                         AND table_name = 'active_pointers'
-                         AND column_name = 'entity_type') AS "exists!""#,
-            )
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| format!("active_pointers schema probe failed: {e}"))?;
-
-            let upsert = if has_type_col {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO active_pointers (pointer, entity_id, entity_type)
-                    SELECT unnest($1::text[]), unnest($2::text[]), unnest($3::text[])
-                    ON CONFLICT (pointer) DO UPDATE
-                        SET entity_id = EXCLUDED.entity_id, entity_type = EXCLUDED.entity_type
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM deployments cur
-                            WHERE cur.entity_id = active_pointers.entity_id
-                              AND (cur.entity_timestamp > to_timestamp($4 / 1000.0)
-                                   OR (cur.entity_timestamp = to_timestamp($4 / 1000.0)
-                                       AND lower(cur.entity_id) > lower(EXCLUDED.entity_id)))
-                        )
-                    "#,
-                    &pointers,
-                    &entity_ids,
-                    &entity_types,
-                    entity.timestamp as f64
-                )
-                .execute(&mut *tx)
-                .await
-            } else {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO active_pointers (pointer, entity_id)
-                    SELECT unnest($1::text[]), unnest($2::text[])
-                    ON CONFLICT (pointer) DO UPDATE
-                        SET entity_id = EXCLUDED.entity_id
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM deployments cur
-                            WHERE cur.entity_id = active_pointers.entity_id
-                              AND (cur.entity_timestamp > to_timestamp($3 / 1000.0)
-                                   OR (cur.entity_timestamp = to_timestamp($3 / 1000.0)
-                                       AND lower(cur.entity_id) > lower(EXCLUDED.entity_id)))
-                        )
-                    "#,
-                    &pointers,
-                    &entity_ids,
-                    entity.timestamp as f64
-                )
-                .execute(&mut *tx)
-                .await
-            };
-            upsert.map_err(|e| format!("active_pointers upsert failed: {e}"))?;
-        }
-
-        let new_set: HashSet<&str> = pointers.iter().map(|p| p.as_str()).collect();
-        let mut cleared: Vec<String> = Vec::new();
-        for (_, old_pointers) in &overwrote {
-            for p in old_pointers {
-                if !new_set.contains(p.as_str()) && !cleared.contains(p) {
-                    cleared.push(p.clone());
-                }
-            }
-        }
-        if !cleared.is_empty() {
-            sqlx::query!(
-                "DELETE FROM active_pointers WHERE pointer = ANY($1)",
-                &cleared
-            )
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("active_pointers clear failed: {e}"))?;
-        }
-
-        if !overwrote.is_empty() {
-            let overwrote_ids: Vec<i32> = overwrote.iter().map(|(id, _)| *id).collect();
-            sqlx::query!(
-                "UPDATE deployments SET deleter_deployment = $1 WHERE id = ANY($2)",
-                dep_id,
-                &overwrote_ids
-            )
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("setEntitiesAsOverwritten failed: {e}"))?;
-        }
-
-        tx.commit().await.map_err(|e| e.to_string())?;
         info!(
             entity_id = %entity.id,
             dep_id,
-            overwrote = overwrote.len(),
-            cleared = cleared.len(),
+            overwrote = outcome.overwrote,
+            cleared = outcome.cleared,
             "deployment committed"
         );
         Ok(now_ms)
     }
+}
+
+pub(crate) async fn lock_deployment_pointers(
+    conn: &mut sqlx::PgConnection,
+    pointers: &[String],
+) -> Result<(), sqlx::Error> {
+    let mut keys = pointers.to_vec();
+    keys.sort_unstable();
+    keys.dedup();
+    sqlx::query(
+        r#"SELECT pg_advisory_xact_lock(hashtext(pointer))
+           FROM (SELECT pointer FROM unnest($1::text[]) WITH ORDINALITY AS p(pointer, ordinal)
+                 ORDER BY ordinal) ordered"#,
+    )
+    .bind(&keys)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1144,5 +1160,234 @@ mod tests {
         assert!(rl.is_rate_limited("scene", &ptrs));
         assert!(!rl.is_rate_limited("profile", &ptrs));
         assert!(!rl.is_rate_limited("bogus", &ptrs));
+    }
+    #[tokio::test]
+    async fn batched_pointer_locks_cover_duplicates_and_release_on_rollback() {
+        let Some(url) = catalyrst_testgate::require_pg("CATALYRST_SERVER_TEST_PG") else {
+            return;
+        };
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&url)
+            .await
+            .unwrap();
+        let prefix = uuid::Uuid::new_v4().to_string();
+        let a = format!("{prefix}:a");
+        let b = format!("{prefix}:b");
+        let mut first = pool.begin().await.unwrap();
+        lock_deployment_pointers(&mut first, &[b.clone(), a.clone(), b.clone()])
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_locks WHERE pid = pg_backend_pid() AND locktype = 'advisory'",
+        )
+        .fetch_one(&mut *first)
+        .await
+        .unwrap();
+        assert_eq!(count, 2);
+        let mut second = pool.begin().await.unwrap();
+        for key in [&a, &b] {
+            let acquired: bool =
+                sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtext($1))")
+                    .bind(key)
+                    .fetch_one(&mut *second)
+                    .await
+                    .unwrap();
+            assert!(!acquired);
+        }
+        first.rollback().await.unwrap();
+        for key in [&a, &b] {
+            let acquired: bool =
+                sqlx::query_scalar("SELECT pg_try_advisory_xact_lock(hashtext($1))")
+                    .bind(key)
+                    .fetch_one(&mut *second)
+                    .await
+                    .unwrap();
+            assert!(acquired);
+        }
+        second.rollback().await.unwrap();
+        pool.close().await;
+    }
+
+    /// Runs the one-statement write the way `persist` does, against a throwaway schema.
+    async fn run_persist(
+        tx: &mut sqlx::PgConnection,
+        provenance: bool,
+        typed_pointers: bool,
+        entity_id: &str,
+        ts_ms: f64,
+        pointers: &[&str],
+        files: &[(&str, &str)],
+    ) -> PersistOutcome {
+        let pointers: Vec<String> = pointers.iter().map(|p| p.to_string()).collect();
+        let hashes: Vec<String> = files.iter().map(|(h, _)| h.to_string()).collect();
+        let keys: Vec<String> = files.iter().map(|(_, k)| k.to_string()).collect();
+        let mut query = sqlx::query_as::<_, PersistOutcome>(sqlx::AssertSqlSafe(
+            persist_statement(provenance, typed_pointers),
+        ))
+        .bind("0xDeployer")
+        .bind("v3")
+        .bind("scene")
+        .bind(entity_id)
+        .bind(serde_json::json!({"v": {"n": entity_id}}))
+        .bind(ts_ms)
+        .bind(&pointers)
+        .bind(serde_json::json!([]))
+        .bind(&hashes)
+        .bind(&keys);
+        if provenance {
+            query = query.bind("0xdeployer");
+        }
+        query.fetch_one(&mut *tx).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn persist_statement_writes_everything_off_one_insert() {
+        let Some(url) = catalyrst_testgate::require_pg("CATALYRST_SERVER_TEST_PG") else {
+            return;
+        };
+        let schema = format!("test_persist_{}", uuid::Uuid::new_v4().simple());
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&admin)
+            .await
+            .unwrap();
+        let options: sqlx::postgres::PgConnectOptions = url.parse().unwrap();
+        let options = options.options([("search_path", schema.as_str())]);
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(options)
+            .await
+            .unwrap();
+        for ddl in [
+            "CREATE TABLE deployments (id serial PRIMARY KEY, deployer_address text NOT NULL,
+             version text NOT NULL, entity_type text NOT NULL, entity_id text UNIQUE NOT NULL,
+             entity_metadata json, entity_timestamp timestamp NOT NULL,
+             entity_pointers text[] NOT NULL, local_timestamp timestamp NOT NULL,
+             auth_chain json NOT NULL, deleter_deployment integer)",
+            "CREATE TABLE active_pointers (pointer text PRIMARY KEY, entity_id text NOT NULL,
+             entity_type text)",
+            "CREATE TABLE content_files (deployment integer, content_hash text, key text)",
+            "CREATE TABLE local_entities (entity_id text PRIMARY KEY, signer text NOT NULL,
+             origin text NOT NULL DEFAULT 'local', published_at timestamp NOT NULL DEFAULT now(),
+             tombstoned_at timestamp)",
+        ] {
+            sqlx::query(sqlx::AssertSqlSafe(ddl))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let mut tx = pool.begin().await.unwrap();
+        let first = run_persist(
+            &mut tx,
+            true,
+            true,
+            "first",
+            1_000.0,
+            &["0,0", "1,0"],
+            &[("hA", "a.txt"), ("hB", "b.txt")],
+        )
+        .await;
+        assert!(!first.newer);
+        let first_id = first.dep_id.expect("fresh entity inserts");
+        assert_eq!((first.overwrote, first.cleared), (0, 0));
+
+        let again = run_persist(&mut tx, true, true, "first", 1_000.0, &["0,0", "1,0"], &[]).await;
+        assert!(
+            again.dep_id.is_none() && !again.newer,
+            "conflict is a silent no-op"
+        );
+
+        let stale = run_persist(
+            &mut tx,
+            true,
+            true,
+            "stale",
+            500.0,
+            &["1,0"],
+            &[("hC", "c")],
+        )
+        .await;
+        assert!(
+            stale.newer && stale.dep_id.is_none(),
+            "a newer entity blocks the insert"
+        );
+
+        let second = run_persist(
+            &mut tx,
+            false,
+            true,
+            "second",
+            2_000.0,
+            &["1,0", "2,0"],
+            &[("hD", "d")],
+        )
+        .await;
+        let second_id = second.dep_id.expect("newer entity inserts");
+        assert_eq!((second.overwrote, second.cleared), (1, 1));
+
+        let rows: Vec<(String, Vec<String>, Option<i32>)> = sqlx::query_as(
+            "SELECT entity_id, entity_pointers, deleter_deployment FROM deployments ORDER BY id",
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "first".into(),
+                    vec!["0,0".into(), "1,0".into()],
+                    Some(second_id)
+                ),
+                ("second".into(), vec!["1,0".into(), "2,0".into()], None),
+            ]
+        );
+        let pointers: Vec<(String, String, Option<String>)> = sqlx::query_as(
+            "SELECT pointer, entity_id, entity_type FROM active_pointers ORDER BY pointer",
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(
+            pointers,
+            vec![
+                ("1,0".into(), "second".into(), Some("scene".into())),
+                ("2,0".into(), "second".into(), Some("scene".into())),
+            ]
+        );
+        let files: Vec<(i32, String, String)> = sqlx::query_as(
+            "SELECT deployment, content_hash, key FROM content_files ORDER BY deployment, key",
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(
+            files,
+            vec![
+                (first_id, "hA".into(), "a.txt".into()),
+                (first_id, "hB".into(), "b.txt".into()),
+                (second_id, "hD".into(), "d".into()),
+            ]
+        );
+        let provenance: Vec<(String, String)> =
+            sqlx::query_as("SELECT entity_id, signer FROM local_entities ORDER BY entity_id")
+                .fetch_all(&mut *tx)
+                .await
+                .unwrap();
+        assert_eq!(provenance, vec![("first".into(), "0xdeployer".into())]);
+        tx.rollback().await.unwrap();
+
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+            .execute(&admin)
+            .await
+            .unwrap();
+        pool.close().await;
+        admin.close().await;
     }
 }

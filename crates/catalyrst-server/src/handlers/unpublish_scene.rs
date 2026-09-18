@@ -9,7 +9,9 @@ use serde_json::json;
 use catalyrst_validator::squid_checker::check_parcel_access;
 
 use crate::errors::{AppError, AppResult, InvalidRequestError, NotFoundError};
-use crate::land_publish::{tombstone_and_repoint, UnpublishError};
+use crate::land_publish::{
+    tombstone_and_repoint, tombstone_and_repoint_with_schema, UnpublishError,
+};
 use crate::signed_fetch::{require_verified, AuthChainError};
 use crate::state::AppState;
 
@@ -65,7 +67,11 @@ pub async fn unpublish_scene(
     }
 
     let pointer = format!("{x},{y}");
-    match tombstone_and_repoint(content_pool, &pointer).await {
+    let result = match state.database.deployment_schema() {
+        Some(schema) => tombstone_and_repoint_with_schema(content_pool, &pointer, schema).await,
+        None => tombstone_and_repoint(content_pool, &pointer).await,
+    };
+    match result {
         Ok(outcome) => {
             state.deployments_cache.clear();
             tracing::info!(

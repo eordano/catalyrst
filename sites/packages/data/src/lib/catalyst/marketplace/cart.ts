@@ -3,17 +3,17 @@ import type { z } from "zod";
 import { postJSON, signedGetJSON } from "../client";
 import type { AuthIdentity } from "../../auth/types";
 
+import { CartLineOutSchema, CartOutSchema } from "../generated-schemas/credits";
 import type { CartOut as RsCartOut } from "@ui/generated/catalyst/credits/CartOut";
 import type { CartLineOut as RsCartLineOut } from "@ui/generated/catalyst/credits/CartLineOut";
-import { CartLineOutSchema, CartOutSchema } from "../generated-schemas/credits";
 
-export const CartLineSchema = CartLineOutSchema;
+const CartLineSchema = CartLineOutSchema;
 export type CartLine = z.infer<typeof CartLineSchema>;
 
-export const CartSchema = CartOutSchema;
+const CartSchema = CartOutSchema;
 export type Cart = z.infer<typeof CartSchema>;
 
-export function parseCart(raw: unknown): Cart {
+function parseCart(raw: unknown): Cart {
   return CartSchema.parse(raw);
 }
 
@@ -78,11 +78,14 @@ export function cartCount(cart: Cart): number {
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
 
 export type _DriftCartLine = Assert<
   AssignableTo<RsCartLineOut, z.input<typeof CartLineSchema>>
 >;
+
 export type _DriftCart = Assert<
   AssignableTo<RsCartOut, z.input<typeof CartSchema>>
 >;
+

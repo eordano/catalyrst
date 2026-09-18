@@ -6,7 +6,7 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type SettingsTab = "details" | "layout" | "misc";
 
-export type Ui3Tab = "details" | "layout" | "general";
+type Ui3Tab = "details" | "layout" | "general";
 
 export function tabToUi3(tab: SettingsTab): Ui3Tab {
   return tab === "misc" ? "general" : tab;
@@ -14,7 +14,7 @@ export function tabToUi3(tab: SettingsTab): Ui3Tab {
 
 export type { TrackFn };
 
-export type SaveResult = {
+type SaveResult = {
   worldName: string;
   savedFields: string[];
   stub?: boolean;
@@ -26,14 +26,14 @@ export type SaveFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SaveResult>;
 
-export type WorldSettingsInput = {
+type WorldSettingsInput = {
   trackCtx: TrackContext;
   worldName?: string;
   save?: SaveFn;
   track?: TrackFn;
 };
 
-export type WorldSettingsCtx = {
+type WorldSettingsCtx = {
   trackCtx: TrackContext;
   worldName: string;
   save: SaveFn;
@@ -43,7 +43,7 @@ export type WorldSettingsCtx = {
   error?: string;
 };
 
-export type WorldSettingsEvent =
+type WorldSettingsEvent =
   | { type: "NEXT" }
   | { type: "BACK" }
   | { type: "GO_TAB"; tab: SettingsTab }
@@ -73,8 +73,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type WorldSettingsStateId = keyof typeof STATE_TO_SLUG;
-export type WorldSettingsStepSlug = (typeof STATE_TO_SLUG)[WorldSettingsStateId];
+type WorldSettingsStateId = keyof typeof STATE_TO_SLUG;
+type WorldSettingsStepSlug = (typeof STATE_TO_SLUG)[WorldSettingsStateId];
 
 export const FIRST_STEP_SLUG: WorldSettingsStepSlug = STATE_TO_SLUG.details;
 
@@ -261,8 +261,6 @@ export const worldSettingsMachine = setup({
     },
   },
 });
-
-export type WorldSettingsMachine = typeof worldSettingsMachine;
 
 export function resolveWorldSettingsSnapshot(args: {
   step: WorldSettingsStateId;

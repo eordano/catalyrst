@@ -1,3 +1,4 @@
+import { AudioMixerProvider } from "../overlay/audioMixer";
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -11,20 +12,28 @@ import type { QueryClient } from "@tanstack/react-query";
 import ExploreChrome, { EXPLORE_TABS } from "../explorer/frames/ExploreChrome";
 import type { TabId } from "../explorer/frames/ExploreChrome";
 import Sidebar from "../explorer/frames/Sidebar";
+import SidebarDesign, { type SidebarDrawer } from "../explorer/frames/SidebarDesign";
+import { sidebarDesignEnabled, SIDEBAR_DESIGN_FLAG } from "../data/sidebarDesignFlag";
+import { flagState } from "../data/featureFlags";
 import Minimap from "../explorer/frames/Minimap";
 import Chat from "../explorer/frames/ChatBridge";
+import { CHAT_PROFILE_STATE, ChatProfileContext, chatProfilePath, isChatProfile, type ViewChatProfile } from "../explorer/frames/chatProfile";
 import { useNotifications } from "../data/hooks/useNotifications";
 import { useOwnedEmotes } from "../data/hooks/useOwnedItems";
-import VoiceChat from "../explorer/components/VoiceChat";
+import { VoiceControls } from "../explorer/components/VoiceChat";
 import EmoteWheel from "../explorer/components/EmoteWheel";
-import JumpLoading, { usePanelJumpActive } from "../explorer/components/JumpLoading";
-import SkyboxHUD from "../explorer/components/SkyboxHUD";
+import FloatingPanel, { type FloatingPanelId } from "../explorer/components/FloatingPanel";
+import JumpLoading, { JumpCompleteContext, usePanelJumpActive } from "../explorer/components/JumpLoading";
+import { SkyboxControls } from "../explorer/components/SkyboxHUD";
 import ProfileWidget from "../explorer/components/ProfileWidget";
 import ConnectionStatus from "../explorer/components/ConnectionStatus";
+import GraphicsProgress from "../explorer/components/GraphicsProgress";
 import EngineToasts from "../explorer/components/EngineToasts";
 import LoginCodeModal from "../explorer/components/LoginCodeModal";
 import PermissionPrompt from "../explorer/components/PermissionPrompt";
-import Spinner from "../atoms/Spinner";
+import ShellLoading from "./ShellLoading";
+import PanelBoundary from "./PanelBoundary";
+import { useWorldEntry } from "./WorldEntry";
 import { useBridgeState, sendBridge, stopEmote } from "../overlay/bridge";
 import { signOutEngineAuth } from "../data/auth/engineLogin";
 import { MinimapVisibilityProvider } from "../overlay/minimapVisibility";
@@ -39,12 +48,17 @@ import {
 } from "../explorer/mobile";
 import "../explorer/mobile/layout/viewport.css";
 import "../overlay/overlay.css";
+import "../explorer/pages/lobbyhome.css";
+import "../explorer/frames/sidebar-popovers.css";
+import { useLoadingTransfers } from "../overlay/loadingTransfers";
 
 type LeftPanelId = "notif" | "voice" | "skybox" | "portables" | "friends";
 
 const NotificationsPanel = lazy(() => import("./panels/Notifications.route"));
 const FriendsPanel = lazy(() => import("./panels/Friends.route"));
 const SmartWearablesPanel = lazy(() => import("./panels/SmartWearables.route"));
+const GalleryPanel = lazy(() => import("./panels/Gallery.route"));
+const LobbyHome = lazy(() => import("../explorer/pages/LobbyHome"));
 
 const LINK_TO_ID: Record<string, string> = {
   "Explorer/Pages/Passport": "passport",
@@ -59,8 +73,12 @@ const LINK_TO_ID: Record<string, string> = {
   "Explorer/Frames/Chat": "chat",
   "Explorer/Pages/ChatProfile": "passport",
   "Explorer/Pages/BackpackEmotes": "backpack",
-  "Explorer/Pages/BadgesDetails": "passport",
+  "Explorer/Pages/BadgesDetails": "passport?section=badges",
+  "Explorer/Pages/SidebarHelp": "help?section=sidebar",
   "Explorer/Components/CommunityStream": "communities",
+  "Explorer/Pages/Marketplace": "marketplace",
+  "Explorer/Pages/Help": "help",
+  "Explorer/Pages/FeatureFlags": "settings?section=flags",
 };
 for (const t of EXPLORE_TABS) {
   if (t.to) LINK_TO_ID[t.to] = t.id;
@@ -110,19 +128,6 @@ function focusWorldCanvas(): boolean {
   return document.activeElement === c;
 }
 
-function PanelFallback() {
-  return (
-    <div
-      className="xc__panel-loading"
-      role="status"
-      aria-label={"Loading\u{2026}"}
-      style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", width: "100%" }}
-    >
-      <Spinner size={34} color="rgba(255,255,255,0.72)" aria-hidden />
-    </div>
-  );
-}
-
 function MinimapWidget() {
   const scene = useBridgeState((s) => s.scene);
   const playerPosition = useBridgeState((s) => s.playerPosition);
@@ -138,12 +143,16 @@ function MinimapWidget() {
 }
 
 type AppLayoutProps = {
-  prefetchPanel?: (queryClient: QueryClient, id: string) => void;
+  prefetchPanel?: (queryClient: QueryClient, id: string, address?: string | null) => void;
+  prefetchAllPanels?: (queryClient: QueryClient, address?: string | null) => unknown;
 };
 
-export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
+export default function AppLayout({ prefetchPanel, prefetchAllPanels }: AppLayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const active = location.pathname.replace(/^\/+/, "").split("/")[0] || "";
+  const worldPopup = active === "friends" || active === "skybox" || active === "smartwearables";
+  const chatProfile = isChatProfile(location);
   const queryClient = useQueryClient();
   const identity = useBridgeState((s) => s.identity);
   const live = useBridgeState((s) => s.live);
@@ -156,25 +165,91 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
   const parcel = useBridgeState((s) => s.playerPosition?.parcel ?? null);
   const [worldReadyOnce, setWorldReadyOnce] = useState(false);
   const [engineJumpArmed, setEngineJumpArmed] = useState(false);
+  const transfers = useLoadingTransfers(engineJumpArmed);
   const prevRealmRef = useRef<string | null>(null);
   const prevParcelRef = useRef<string | null>(null);
   const { unread: sidebarUnread } = useNotifications();
   const emotes = useOwnedEmotes(identity.address);
   const isMobile = useIsMobile();
+  const [sidebarDesignFlag] = useState(sidebarDesignEnabled);
+  const entry = useWorldEntry();
+  const [lobbyReady, setLobbyReady] = useState(false);
+  const onLobbyReady = useCallback(() => setLobbyReady(true), []);
+  const warmedFor = useRef<string | null | undefined>(undefined);
+  const startupReady = lobbyReady || Boolean(loading?.avatarLoaded && loading.ready);
+  useEffect(() => {
+    const viewer = identity.address ?? null;
+    if (!startupReady || !prefetchAllPanels || warmedFor.current === viewer) return;
+    const timer = setTimeout(() => {
+      warmedFor.current = viewer;
+      void prefetchAllPanels(queryClient, viewer);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [startupReady, prefetchAllPanels, queryClient, identity.address]);
+  const [lobbyOpen, setLobbyOpen] = useState(() => entry?.pending ?? true);
+  const enterWorld = useCallback(() => {
+    if (entry?.pending) { entry.enter(null); return; }
+    setLobbyOpen(false);
+    navigate("/");
+  }, [navigate, entry]);
+  const sidebarDesign = sidebarDesignFlag && !isMobile;
+  const SidebarView = sidebarDesign ? SidebarDesign : Sidebar;
+  const [sidebarDrawer, setSidebarDrawer] = useState<SidebarDrawer | null>(null);
   const orientation = useViewportOrientation();
   const [profileOpen, setProfileOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [emoteOpen, setEmoteOpen] = useState(false);
   const [connectionOpen, setConnectionOpen] = useState(false);
+  const [connectionStatusEnabled] = useState(() => flagState("2026-09-connection-status").enabled);
   const [leftPanel, setLeftPanel] = useState<LeftPanelId | null>(null);
   const toggleLeft = useCallback(
-    (id: LeftPanelId) => setLeftPanel((p) => (p === id ? null : id)),
-    [],
+    (id: LeftPanelId) => {
+      if (worldPopup) navigate("/");
+      setSidebarDrawer(null);
+      setChatOpen(false);
+      setProfileOpen(false);
+      setEmoteOpen(false);
+      setLeftPanel((p) => (p === id ? null : id));
+    },
+    [navigate, worldPopup],
   );
   const closeOverlays = useCallback(() => {
     setLeftPanel(null);
   }, []);
-  const onProfileToggle = useCallback(() => setProfileOpen((o) => !o), []);
+  const onProfileToggle = useCallback(() => {
+    if (worldPopup) navigate("/");
+    setSidebarDrawer(null);
+    setLeftPanel(null);
+    setChatOpen(false);
+    setEmoteOpen(false);
+    setProfileOpen((o) => !o);
+  }, [navigate, worldPopup]);
+  const openLobby = useCallback(() => {
+    setLobbyOpen(true);
+    setLeftPanel(null);
+    setChatOpen(false);
+    setProfileOpen(false);
+    setEmoteOpen(false);
+    setSidebarDrawer(null);
+    setConnectionOpen(false);
+    navigate("/");
+  }, [navigate]);
+  const onChatToggle = useCallback(() => {
+    if (worldPopup) navigate("/");
+    setSidebarDrawer(null);
+    setLeftPanel(null);
+    setProfileOpen(false);
+    setEmoteOpen(false);
+    setChatOpen((o) => !o);
+  }, [navigate, worldPopup]);
+  const onEmoteToggle = useCallback(() => {
+    if (worldPopup) navigate("/");
+    setSidebarDrawer(null);
+    setLeftPanel(null);
+    setProfileOpen(false);
+    setChatOpen(false);
+    setEmoteOpen((o) => !o);
+  }, [navigate, worldPopup]);
   const onSignOut = useCallback(() => {
     setProfileOpen(false);
     sendBridge("Logout", {});
@@ -182,27 +257,66 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
     window.setTimeout(() => window.location.assign(window.location.pathname), 200);
   }, []);
 
+  const onDrawerChange = useCallback((drawer: SidebarDrawer | null, dismissPopups = false) => {
+    setSidebarDrawer(drawer);
+    if (!drawer && !dismissPopups) return;
+    if (worldPopup) navigate("/");
+    setLeftPanel(null);
+    setProfileOpen(false);
+    setChatOpen(false);
+    setEmoteOpen(false);
+    setConnectionOpen(false);
+  }, [navigate, worldPopup]);
+
+  const chatProfileOpener = useRef<HTMLElement | null>(null);
+  const viewChatProfile = useCallback<ViewChatProfile>((address, opener) => {
+    chatProfileOpener.current = opener instanceof HTMLElement ? opener : null;
+    navigate(chatProfilePath(address), { state: CHAT_PROFILE_STATE });
+  }, [navigate]);
+  useEffect(() => {
+    if (chatProfile) return;
+    const opener = chatProfileOpener.current;
+    chatProfileOpener.current = null;
+    if (opener?.isConnected) opener.focus({ preventScroll: true });
+  }, [chatProfile]);
+
   const notifOpen = leftPanel === "notif";
   const voiceOpen = leftPanel === "voice";
   const skyboxOpen = leftPanel === "skybox";
   const portablesOpen = leftPanel === "portables";
   const friendsOpen = leftPanel === "friends";
 
-  const active = location.pathname.replace(/^\/+/, "").split("/")[0] || "";
+  const showingLobby = lobbyOpen && active === "";
+  const lobbySettings = lobbyOpen && active === "settings";
+  useEffect(() => {
+    if (active !== "settings" || lobbyOpen || entry?.pending) return;
+    const resume = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || event.target.id !== "mygame-canvas") return;
+      setLobbyOpen(false);
+      navigate("/");
+      sendBridge("SetExplorerUiOpen", { ui: null });
+      const canvas = event.target as HTMLCanvasElement;
+      canvas.focus();
+      void canvas.requestPointerLock?.()?.catch(() => {});
+    };
+    document.addEventListener("pointerdown", resume, true);
+    return () => document.removeEventListener("pointerdown", resume, true);
+  }, [active, navigate, lobbyOpen, entry?.pending]);
   const user = identity.name || "Guest";
 
   useEffect(() => {
+    if (active !== "") setSidebarDrawer(null);
     if (active === "") stopEmote();
     else {
       closeOverlays();
       setProfileOpen(false);
-      setChatOpen(false);
+      if (!chatProfile) setChatOpen(false);
       setEmoteOpen(false);
     }
-  }, [active, closeOverlays]);
+  }, [active, closeOverlays, chatProfile]);
 
   useEffect(() => {
-    if (active !== "") return undefined;
+    if (active !== "" || showingLobby) return undefined;
     let tries = 0;
     let t: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
@@ -214,14 +328,18 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
     return () => {
       if (t) clearTimeout(t);
     };
-  }, [active]);
+  }, [active, showingLobby]);
 
   const onPointerUp = useCallback((e: ReactPointerEvent) => {
     const t = e.target;
     if (!(t instanceof Element)) return;
     if (!t.closest(".ui3-overlay")) return;
+    if (t.closest('.sd, [data-sb-panel="profile"]')) return;
     if (isTextEntry(t) || t.closest("input, textarea, select")) return;
-    setTimeout(() => focusWorldCanvas(), 0);
+    setTimeout(() => {
+      if (document.activeElement?.closest('[role="menu"]')) return;
+      focusWorldCanvas();
+    }, 0);
   }, []);
 
   useEffect(() => {
@@ -235,8 +353,8 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
   }, [openPanel, navigate]);
 
   useEffect(() => {
-    sendBridge("SetExplorerUiOpen", { ui: PANEL_IDS.has(active) ? active : null });
-  }, [active]);
+    sendBridge("SetExplorerUiOpen", { ui: showingLobby || lobbySettings ? "lobby" : worldPopup ? null : active || null });
+  }, [active, showingLobby, lobbySettings, worldPopup]);
 
   const [engineJumpStalled, setEngineJumpStalled] = useState(false);
   const dismissEngineJump = useCallback(() => {
@@ -274,9 +392,10 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
       setEngineJumpStalled(false);
       return undefined;
     }
+    setEngineJumpStalled(false);
     const t = window.setTimeout(() => setEngineJumpStalled(true), ENGINE_JUMP_MAX_MS);
     return () => window.clearTimeout(t);
-  }, [engineJumpArmed]);
+  }, [engineJumpArmed, loading?.percent, loading?.pendingAssets, transfers.receivedBytes, transfers.completed]);
 
   const panelJumpActive = usePanelJumpActive();
   const engineTeleporting =
@@ -289,10 +408,11 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
 
   const onIntent = useCallback(
     (e: SyntheticEvent) => {
-      const id = linkedId(e.target);
-      if (id && prefetchPanel) prefetchPanel(queryClient, id);
+      const intent = e.target instanceof Element ? e.target.closest("[data-panel-preload]") : null;
+      const id = intent?.getAttribute("data-panel-preload") ?? linkedId(e.target);
+      if (id && prefetchPanel) prefetchPanel(queryClient, id, identity.address);
     },
-    [prefetchPanel, queryClient],
+    [prefetchPanel, queryClient, identity.address],
   );
 
   const onClickCapture = useCallback(
@@ -307,24 +427,49 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
     const onKey = (e: KeyboardEvent) => {
       if (isSynthesizedWorldKey(e)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "Escape") {
-        if (panelJumpActive || engineTeleporting) return;
-        if (active) {
-          navigate("/");
-          e.preventDefault();
-          e.stopImmediatePropagation();
-        } else if (leftPanel || profileOpen || chatOpen || emoteOpen) {
-          closeOverlays();
-          setProfileOpen(false);
-          setChatOpen(false);
-          setEmoteOpen(false);
+      if (e.key === "Escape" && e.repeat) return;
+      if (e.key === "Escape" && document.querySelector(".lh__header-menu, .ps__name-form, [role=alertdialog], [role=menu]")) return;
+      if (showingLobby) {
+        if (e.key === "Escape" && !entry?.pending && !panelJumpActive && !engineTeleporting) {
+          setLobbyOpen(false);
           focusWorldCanvas();
           e.preventDefault();
           e.stopImmediatePropagation();
         }
         return;
       }
+      if (e.key === "Escape") {
+        if (panelJumpActive || engineTeleporting) return;
+        if (sidebarDrawer) {
+          setSidebarDrawer(null);
+          document.querySelector<HTMLButtonElement>('.sd__dock [aria-expanded="true"]')?.focus();
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
+        }
+        if (active) {
+          navigate("/");
+          if (!lobbyOpen && !chatProfile) focusWorldCanvas();
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        } else if (leftPanel || profileOpen || chatOpen || emoteOpen || connectionOpen) {
+          closeOverlays();
+          setProfileOpen(false);
+          setChatOpen(false);
+          setEmoteOpen(false);
+          setConnectionOpen(false);
+          focusWorldCanvas();
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        } else {
+          openLobby();
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+        return;
+      }
       const ae = document.activeElement;
+      if (e.key === "Enter" && ae?.closest("button, a, select")) return;
       if (
         ae &&
         (ae.tagName === "INPUT" ||
@@ -332,18 +477,28 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
           (ae instanceof HTMLElement && ae.isContentEditable))
       )
         return;
+      const menuKey = e.key.toLowerCase();
+      const menuTarget = sidebarDrawer === "me" ? ({ p: "passport", b: "passport?section=badges" } as Record<string, string>)[menuKey]
+        : sidebarDrawer === "system" && menuKey === "h" ? "help" : undefined;
+      if (menuTarget) {
+        navigate(`/${menuTarget}`);
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
       if (e.key.toLowerCase() === "b" && !active) {
-        setEmoteOpen((o) => !o);
+        onEmoteToggle();
         e.preventDefault();
         e.stopImmediatePropagation();
         return;
       }
       if (e.key === "Enter" && !active && !chatOpen) {
-        setChatOpen(true);
+        onChatToggle();
         e.preventDefault();
         e.stopImmediatePropagation();
         return;
       }
+      if (active === "camera") return;
       const id = HINT_TO_ID[e.key.toLowerCase()];
       if (id) {
         navigate(id === active ? "/" : `/${id}`);
@@ -363,6 +518,16 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
     closeOverlays,
     panelJumpActive,
     engineTeleporting,
+    sidebarDrawer,
+    connectionOpen,
+    sidebarDesign,
+    showingLobby,
+    entry?.pending,
+    lobbyOpen,
+    openLobby,
+    onChatToggle,
+    onEmoteToggle,
+    chatProfile,
   ]);
 
   useEffect(() => {
@@ -373,28 +538,40 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
   }, [isMobile]);
 
   return (
+    <AudioMixerProvider>
+    <JumpCompleteContext value={enterWorld}>
+    <GraphicsProgress />
     <OrientationProvider>
       <div
         className="ui3-app-root"
         data-mobile={isMobile ? "true" : "false"}
         onMouseOverCapture={onIntent}
         onFocusCapture={onIntent}
+        onPointerDownCapture={onIntent}
         onClickCapture={onClickCapture}
         onPointerUp={onPointerUp}
       >
-        {active === "" ? (
+        {lobbySettings && <div className="explorer-lobby-backdrop" inert><Suspense fallback={null}><LobbyHome onEnterWorld={enterWorld} onSignOut={onSignOut} /></Suspense></div>}
+        {showingLobby ? <Suspense fallback={<ShellLoading label="Opening your lobby&#x2026;" />}><LobbyHome onEnterWorld={enterWorld} onSignOut={onSignOut} onReady={onLobbyReady} /></Suspense> : active === "" || worldPopup || chatProfile ? (
           <>
-            <MinimapVisibilityProvider>
+            <MinimapVisibilityProvider initiallyVisible={sidebarDesign}>
             <div
               className="ui3-overlay"
               data-live={live ? "true" : "false"}
+              data-sidebar-design={sidebarDesign ? SIDEBAR_DESIGN_FLAG : undefined}
             >
               <div className="ui3-overlay__widget ui3-overlay__sidebar">
-                <Sidebar
+                <SidebarView
+                  drawer={sidebarDrawer}
+                  onDrawerChange={onDrawerChange}
+                  onConnectionToggle={connectionStatusEnabled ? () => setConnectionOpen((o) => !o) : undefined}
+                  onSignOut={onSignOut}
                   avatarPreview={avatarPreview}
                   onProfileToggle={onProfileToggle}
+                  onLobbyOpen={openLobby}
+                  profileOpen={profileOpen}
                   chatOpen={chatOpen}
-                  onChatToggle={() => setChatOpen((o) => !o)}
+                  onChatToggle={onChatToggle}
                   notifOpen={notifOpen}
                   onNotifToggle={() => toggleLeft("notif")}
                   voiceOpen={voiceOpen}
@@ -406,11 +583,11 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
                   friendsOpen={friendsOpen}
                   onFriendsToggle={() => toggleLeft("friends")}
                   emoteOpen={emoteOpen}
-                  onEmoteToggle={() => setEmoteOpen((o) => !o)}
+                  onEmoteToggle={onEmoteToggle}
                   unread={sidebarUnread}
                 />
               </div>
-              {!leftPanel && <MinimapWidget />}
+              {!sidebarDesign && !sidebarDrawer && !leftPanel && !chatOpen && !profileOpen && !emoteOpen && <MinimapWidget />}
               <div className="ui3-overlay__widget ui3-overlay__profile">
                 <ProfileWidget
                   open={profileOpen}
@@ -425,50 +602,64 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
                 />
               </div>
               <div className="ui3-overlay__widget ui3-overlay__chat">
-                <Chat open={chatOpen} onToggle={() => setChatOpen((o) => !o)} hidden={leftPanel != null} />
+                <ChatProfileContext value={viewChatProfile}><Chat open={chatOpen} onToggle={onChatToggle} hidden={leftPanel != null} /></ChatProfileContext>
               </div>
               {notifOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__notifications">
-                  <Suspense fallback={<PanelFallback />}>
-                    <NotificationsPanel floating />
-                  </Suspense>
+                  <FloatingPanel id="notifications" onClose={closeOverlays} flush>
+                    <PanelBoundary label="notifications" onClose={closeOverlays}>
+                      <NotificationsPanel floating />
+                    </PanelBoundary>
+                  </FloatingPanel>
                 </div>
               )}
               {voiceOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__voice">
-                  <VoiceChat bare />
+                  <FloatingPanel id="voice" onClose={closeOverlays}>
+                    <VoiceControls />
+                  </FloatingPanel>
                 </div>
               )}
               {skyboxOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__skybox">
-                  <SkyboxHUD />
+                  <FloatingPanel id="skybox" onClose={closeOverlays}>
+                    <SkyboxControls />
+                  </FloatingPanel>
                 </div>
               )}
               {portablesOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__portables">
-                  <Suspense fallback={<PanelFallback />}>
-                    <SmartWearablesPanel floating onClose={() => setLeftPanel(null)} />
-                  </Suspense>
+                  <FloatingPanel id="portables" onClose={closeOverlays}>
+                    <PanelBoundary label="portable experiences" onClose={closeOverlays}>
+                      <SmartWearablesPanel floating />
+                    </PanelBoundary>
+                  </FloatingPanel>
                 </div>
               )}
               {friendsOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__friends">
-                  <Suspense fallback={<PanelFallback />}>
-                    <FriendsPanel floating onClose={() => setLeftPanel(null)} />
-                  </Suspense>
+                  <FloatingPanel id="friends" onClose={closeOverlays} flush>
+                    <PanelBoundary label="friends" onClose={closeOverlays}>
+                      <FriendsPanel floating />
+                    </PanelBoundary>
+                  </FloatingPanel>
                 </div>
               )}
               {emoteOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__emote">
                   <EmoteWheel
                     catalog={emotes.data?.catalog ?? []}
+                    loading={emotes.isPending}
+                    error={emotes.isError}
+                    onRetry={() => void emotes.refetch()}
+                    onCustomise={() => { setEmoteOpen(false); navigate("/backpack"); }}
                     loadout={emotes.data?.loadout ?? []}
                     onSelect={() => setEmoteOpen(false)}
                     onClose={() => setEmoteOpen(false)}
                   />
                 </div>
               )}
-              {(() => {
+              {connectionStatusEnabled && (() => {
                 const c = connection;
                 const health =
                   c == null
@@ -491,7 +682,7 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
                   </div>
                 );
               })()}
-              {connectionOpen && (
+              {connectionStatusEnabled && connectionOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__connection">
                   <ConnectionStatus
                     connection={connection}
@@ -500,11 +691,22 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
                   />
                 </div>
               )}
+              {worldPopup && (
+                <FloatingPanel id={(active === "smartwearables" ? "portables" : active) as FloatingPanelId} onClose={() => navigate("/")} flush={active === "friends"}>
+                  <PanelBoundary key={active} label={active === "smartwearables" ? "portable experiences" : active === "skybox" ? "time of day" : active} onClose={() => navigate("/")}>
+                    {active === "friends" ? <FriendsPanel floating /> : active === "skybox" ? <SkyboxControls /> : active === "smartwearables" ? <SmartWearablesPanel floating /> : <GalleryPanel />}
+                  </PanelBoundary>
+                </FloatingPanel>
+              )}
               <EngineToasts toasts={toasts} />
             </div>
             </MinimapVisibilityProvider>
-            <Outlet />
+            {chatProfile ? <PanelBoundary key="passport" label="this profile" onClose={() => navigate("/")} standalone><Outlet /></PanelBoundary> : !worldPopup && <Outlet />}
           </>
+        ) : active === "camera" || active === "passport" ? <PanelBoundary key={active} label={active === "passport" ? "your profile" : "camera"} onClose={() => navigate("/")} standalone><Outlet /></PanelBoundary> : active === "settings" ? (
+          <section className="explorer-settings-panel" role="region" aria-label="Explorer settings">
+            <PanelBoundary label="settings" onClose={() => navigate("/")}><Outlet /></PanelBoundary>
+          </section>
         ) : (
           <ExploreChrome
             active={active as TabId}
@@ -518,14 +720,15 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
             isGuest={identity.isGuest}
             profileOpen={profileOpen}
             onProfileToggle={onProfileToggle}
+            onLobbyOpen={openLobby}
             onSignOut={onSignOut}
           >
-            <Suspense fallback={<PanelFallback />}>
-              <Outlet />
-            </Suspense>
+            <PanelBoundary key={active} label={EXPLORE_TABS.find(tab => tab.id === active)?.label.toLowerCase() ?? "this panel"} onClose={() => navigate("/")}>
+              {active === "gallery" ? <GalleryPanel embedded={false} /> : <Outlet />}
+            </PanelBoundary>
           </ExploreChrome>
         )}
-        {isMobile && (
+        {isMobile && !showingLobby && (
           <Suspense fallback={null}>
             <MobileHudFrame
               orientation={orientation}
@@ -537,6 +740,9 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
               onTab={onTab}
               onMenu={() => navigate("/places")}
               onChat={() => setChatOpen((o) => !o)}
+              onProfile={openLobby}
+              avatarSrc={avatarPreview}
+              user={user}
               controlsSlot={
                 active === "" ? (
                   <TouchControls
@@ -560,5 +766,7 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
         <PermissionPrompt />
       </div>
     </OrientationProvider>
+    </JumpCompleteContext>
+    </AudioMixerProvider>
   );
 }

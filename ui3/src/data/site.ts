@@ -7,7 +7,7 @@ export function siteBase(override?: string): string {
     typeof import.meta !== "undefined" ? import.meta.env?.VITE_SITE_URL : undefined;
   const fromWindow =
     typeof window !== "undefined" ? (window as SiteWindow).__SITE_BASE__ : undefined;
-  return (override ?? fromEnv ?? fromWindow ?? SITE_DEFAULT_BASE).replace(/\/$/, "");
+  return (override ?? fromEnv ?? fromWindow ?? (typeof window !== "undefined" ? window.location.origin : SITE_DEFAULT_BASE)).replace(/\/$/, "");
 }
 
 export function siteUrl(path = ""): string {

@@ -6,7 +6,7 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type { TrackFn };
 
-export type Rarity =
+type Rarity =
   | "unique"
   | "mythic"
   | "exotic"
@@ -29,14 +29,14 @@ export type PublishCollection = {
   items: PublishItem[];
 };
 
-export type FeeLine = {
+type FeeLine = {
   rarity: Rarity;
   count: number;
   manaPerItem: number;
   mana: number;
 };
 
-export type FeeBreakdown = {
+type FeeBreakdown = {
   lines: FeeLine[];
   itemCount: number;
   manaPerItem: number;
@@ -51,7 +51,7 @@ export type PublishFn = (args: {
   signal?: AbortSignal;
 }) => Promise<PublishResult>;
 
-export type PublishInput = {
+type PublishInput = {
   collection: PublishCollection;
   trackCtx: TrackContext;
   manaPerItem?: number;
@@ -59,7 +59,7 @@ export type PublishInput = {
   track?: TrackFn;
 };
 
-export type PublishContext = {
+type PublishContext = {
   collection: PublishCollection;
   trackCtx: TrackContext;
   manaPerItem: number;
@@ -70,7 +70,7 @@ export type PublishContext = {
   error?: string;
 };
 
-export type PublishEvent =
+type PublishEvent =
   | { type: "NEXT" }
   | { type: "ACCEPT" }
   | { type: "BACK" }
@@ -125,8 +125,8 @@ export const STATE_TO_SLUG = {
   blocked: "blocked",
 } as const;
 
-export type PublishStateId = keyof typeof STATE_TO_SLUG;
-export type PublishStepSlug = (typeof STATE_TO_SLUG)[PublishStateId];
+type PublishStateId = keyof typeof STATE_TO_SLUG;
+type PublishStepSlug = (typeof STATE_TO_SLUG)[PublishStateId];
 
 export const FIRST_STEP_SLUG: PublishStepSlug = STATE_TO_SLUG.summary;
 
@@ -291,8 +291,6 @@ export const publishMachine = setup({
     },
   },
 });
-
-export type PublishMachine = typeof publishMachine;
 
 export function resolvePublishSnapshot(args: {
   step: PublishStateId;

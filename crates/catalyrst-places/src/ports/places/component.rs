@@ -1,5 +1,9 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::Duration;
 
+use catalyrst_fed::cache::{cache_get, cache_put, Cached};
 use sqlx::{postgres::PgPool, Row};
 
 use crate::http::errors::ApiError;
@@ -7,12 +11,12 @@ use crate::http::errors::ApiError;
 use super::content_quality::ROAD_POSITIONS_TABLE;
 use super::query::{
     bind_param, build_live_user_count_order, build_order_by, build_where, description_plain_sql,
-    destinations_highlighted_prefix, destinations_ranking_prefix, order_tail,
+    destinations_highlighted_prefix, destinations_ranking_prefix, order_tail, Bind,
     EXCLUDE_FROM_RANKING_SQL, SHOW_IN_PLACES_SQL,
 };
 use super::rows::{
-    place_columns, row_to_place, row_to_poi, row_to_report, CategoryTarget, PlaceListFilters,
-    PlaceRow, PlaceStatusRow, PoiRow, ReportRow, UserInteraction,
+    place_columns, row_to_place, row_to_poi, row_to_report, viewer_columns, CategoryTarget,
+    PlaceListFilters, PlaceOrderBy, PlaceRow, PlaceStatusRow, PoiRow, ReportRow, UserInteraction,
 };
 use crate::sanitize::ContentOrigin;
 
@@ -30,6 +34,8 @@ pub enum ReportUploadOutcome {
     PersistenceDisabled,
 }
 
+type CategoryCounts = Vec<(String, i64)>;
+
 pub struct PlacesComponent {
     pool: PgPool,
     writer: Option<PgPool>,
@@ -37,7 +43,15 @@ pub struct PlacesComponent {
     squid_schema: String,
     content_origin: Option<ContentOrigin>,
     road_positions: AtomicBool,
+    interactions_readable: AtomicBool,
+    category_cache: Mutex<HashMap<String, Cached<CategoryCounts>>>,
 }
+
+const CATEGORY_CACHE_TTL: Duration = Duration::from_secs(60);
+
+const DB_IDENTITY_SQL: &str =
+    "current_database()::text || '|' || COALESCE(inet_server_addr()::text, '') \
+     || '|' || COALESCE(inet_server_port()::text, '')";
 
 impl PlacesComponent {
     pub fn new(pool: PgPool) -> Self {
@@ -48,6 +62,8 @@ impl PlacesComponent {
             squid_schema: "squid_marketplace".to_string(),
             content_origin: None,
             road_positions: AtomicBool::new(false),
+            interactions_readable: AtomicBool::new(false),
+            category_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -74,6 +90,40 @@ impl PlacesComponent {
 
     fn road_positions_ready(&self) -> bool {
         self.road_positions.load(Ordering::Relaxed)
+    }
+
+    /// True when the reader pool is the writer's own primary database and may SELECT the
+    /// interaction tables, so reads fold favorites/likes into the page statement.
+    pub async fn probe_interactions(&self) -> Result<bool, ApiError> {
+        let Some(writer) = self.writer.as_ref() else {
+            self.interactions_readable.store(false, Ordering::Relaxed);
+            return Ok(false);
+        };
+        let writer_db: String =
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT {DB_IDENTITY_SQL}")))
+                .fetch_one(writer)
+                .await?;
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT ({DB_IDENTITY_SQL}) AS db, \
+             NOT pg_is_in_recovery() \
+             AND COALESCE(has_table_privilege(current_user, to_regclass('user_favorites'), 'SELECT'), FALSE) \
+             AND COALESCE(has_table_privilege(current_user, to_regclass('user_likes'), 'SELECT'), FALSE) \
+             AS readable"
+        )))
+        .fetch_one(&self.pool)
+        .await?;
+        let readable = row.get::<bool, _>("readable") && row.get::<String, _>("db") == writer_db;
+        self.interactions_readable
+            .store(readable, Ordering::Relaxed);
+        Ok(readable)
+    }
+
+    pub fn viewer_in_query(&self) -> bool {
+        self.writer.is_some() && self.interactions_readable.load(Ordering::Relaxed)
+    }
+
+    fn fold_viewer<'a>(&self, viewer: Option<&'a str>) -> Option<&'a str> {
+        viewer.filter(|_| self.viewer_in_query())
     }
 
     pub fn with_squid(mut self, squid: PgPool, schema: String) -> Self {
@@ -192,9 +242,19 @@ impl PlacesComponent {
                 PRIMARY KEY (signer, nonce)
             )
             "#,
-            "CREATE INDEX IF NOT EXISTS idx_seen_nonces_expires ON seen_nonces (expires_at)",
         ] {
             sqlx::query(ddl).execute(writer).await?;
+        }
+        let nonce_index: Option<String> =
+            sqlx::query_scalar("SELECT to_regclass('idx_seen_nonces_expires')::text")
+                .fetch_one(writer)
+                .await?;
+        if nonce_index.is_none() {
+            sqlx::query(
+                "CREATE INDEX IF NOT EXISTS idx_seen_nonces_expires ON seen_nonces (expires_at)",
+            )
+            .execute(writer)
+            .await?;
         }
         Ok(())
     }
@@ -244,33 +304,28 @@ impl PlacesComponent {
         let user = user.to_lowercase();
         let mut map: std::collections::HashMap<String, UserInteraction> =
             std::collections::HashMap::new();
-        let fav_rows = sqlx::query(
-            r#"SELECT entity_id FROM user_favorites WHERE lower("user") = $1 AND entity_id = ANY($2)"#,
+        let rows = sqlx::query(
+            r#"SELECT entity_id, TRUE AS favorite, NULL::boolean AS "like"
+               FROM user_favorites WHERE lower("user") = $1 AND entity_id = ANY($2)
+               UNION ALL
+               SELECT entity_id, FALSE, "like"
+               FROM user_likes WHERE lower("user") = $1 AND entity_id = ANY($2)"#,
         )
         .bind(&user)
         .bind(entity_ids)
         .fetch_all(writer)
         .await
         .ok()?;
-        for r in fav_rows {
-            map.entry(r.get::<String, _>("entity_id"))
-                .or_default()
-                .user_favorite = true;
-        }
-        let like_rows = sqlx::query(
-            r#"SELECT entity_id, "like" FROM user_likes WHERE lower("user") = $1 AND entity_id = ANY($2)"#,
-        )
-        .bind(&user)
-        .bind(entity_ids)
-        .fetch_all(writer)
-        .await
-        .ok()?;
-        for r in like_rows {
+        for r in rows {
             let e = map.entry(r.get::<String, _>("entity_id")).or_default();
-            if r.get::<bool, _>("like") {
-                e.user_like = true;
-            } else {
-                e.user_dislike = true;
+            if r.get::<bool, _>("favorite") {
+                e.user_favorite = true;
+                continue;
+            }
+            match r.get::<Option<bool>, _>("like") {
+                Some(true) => e.user_like = true,
+                Some(false) => e.user_dislike = true,
+                None => {}
             }
         }
         Some(map)
@@ -313,35 +368,37 @@ impl PlacesComponent {
             return Ok((count, favorite));
         };
         let user = user.to_lowercase();
-        if favorite {
-            sqlx::query(
-                r#"INSERT INTO user_favorites ("user", entity_id, created_at)
-                   VALUES ($1, $2, now())
-                   ON CONFLICT ("user", entity_id) DO NOTHING"#,
-            )
-            .bind(&user)
-            .bind(entity_id)
-            .execute(writer)
-            .await?;
+        // CTE parts share one snapshot, so the count is corrected by the rows this statement changed.
+        let sql = if favorite {
+            r#"WITH changed AS (
+                 INSERT INTO user_favorites ("user", entity_id, created_at)
+                 VALUES ($1, $2, now())
+                 ON CONFLICT ("user", entity_id) DO NOTHING
+                 RETURNING 1
+               ), counted AS (
+                 SELECT (count(*) + (SELECT count(*) FROM changed))::int AS c
+                 FROM user_favorites WHERE entity_id = $2
+               ), bumped AS (
+                 UPDATE place SET favorites = counted.c FROM counted WHERE place.id = $2
+               )
+               SELECT c FROM counted"#
         } else {
-            sqlx::query(
-                r#"DELETE FROM user_favorites WHERE lower("user") = $1 AND entity_id = $2"#,
-            )
+            r#"WITH changed AS (
+                 DELETE FROM user_favorites WHERE lower("user") = $1 AND entity_id = $2
+                 RETURNING 1
+               ), counted AS (
+                 SELECT (count(*) - (SELECT count(*) FROM changed))::int AS c
+                 FROM user_favorites WHERE entity_id = $2
+               ), bumped AS (
+                 UPDATE place SET favorites = counted.c FROM counted WHERE place.id = $2
+               )
+               SELECT c FROM counted"#
+        };
+        let count: i32 = sqlx::query_scalar(sql)
             .bind(&user)
-            .bind(entity_id)
-            .execute(writer)
-            .await?;
-        }
-        let row = sqlx::query("SELECT count(*)::int AS c FROM user_favorites WHERE entity_id = $1")
             .bind(entity_id)
             .fetch_one(writer)
             .await?;
-        let count = row.get::<i32, _>("c");
-        let _ = sqlx::query("UPDATE place SET favorites = $2 WHERE id = $1")
-            .bind(entity_id)
-            .bind(count)
-            .execute(writer)
-            .await;
         Ok((count, favorite))
     }
 
@@ -379,99 +436,42 @@ impl PlacesComponent {
             return Ok((likes, dislikes, user_like, user_dislike));
         };
         let user = user.to_lowercase();
-        match like {
+        // `after` is the post-change row set: the snapshot minus this user's row, plus the upserted one.
+        let head = match like {
             None => {
-                sqlx::query(
-                    r#"DELETE FROM user_likes WHERE lower("user") = $1 AND entity_id = $2"#,
-                )
-                .bind(&user)
-                .bind(entity_id)
-                .execute(writer)
-                .await?;
+                r#"WITH changed AS (
+                     DELETE FROM user_likes WHERE lower("user") = $1 AND entity_id = $2
+                     RETURNING "like", user_activity
+                   ), after AS (
+                     SELECT "like", user_activity FROM user_likes
+                     WHERE entity_id = $2 AND lower("user") <> $1
+                   )"#
             }
-            Some(value) => {
-                sqlx::query(
-                    r#"INSERT INTO user_likes ("user", entity_id, "like", user_activity, created_at, updated_at)
-                       VALUES ($1, $2, $3, $4, now(), now())
-                       ON CONFLICT ("user", entity_id)
-                       DO UPDATE SET "like" = EXCLUDED."like", user_activity = EXCLUDED.user_activity, updated_at = now()"#,
-                )
-                .bind(&user)
-                .bind(entity_id)
-                .bind(value)
-                .bind(user_activity)
-                .execute(writer)
-                .await?;
-            }
-        }
-
-        let row = sqlx::query(
-            r#"
-            WITH counted AS (
-              SELECT
-                count(*) filter (where "like") as count_likes,
-                count(*) filter (where not "like") as count_dislikes,
-                count(*) filter (where user_activity >= $2) as count_active_total,
-                count(*) filter (where "like" and user_activity >= $2) as count_active_likes,
-                count(*) filter (where not "like" and user_activity >= $2) as count_active_dislikes
-              FROM user_likes
-              WHERE entity_id = $1
-            ), computed AS (
-              SELECT
-                count_likes,
-                count_dislikes,
-                (CASE WHEN count_active_total::float = 0 THEN NULL
-                      ELSE count_active_likes / count_active_total::float
-                 END) AS like_rate,
-                (CASE WHEN (count_active_likes + count_active_dislikes > 0) THEN
-                    ((count_active_likes + 1.9208)
-                    / (count_active_likes + count_active_dislikes) - 1.96
-                    * SQRT((count_active_likes * count_active_dislikes) / (count_active_likes + count_active_dislikes) + 0.9604)
-                    / (count_active_likes + count_active_dislikes))
-                    / (1 + 3.8416 / (count_active_likes + count_active_dislikes))
-                 ELSE NULL END) AS like_score
-              FROM counted
-            )
-            UPDATE place
-            SET
-              likes = c.count_likes::int,
-              dislikes = c.count_dislikes::int,
-              raw = jsonb_set(
-                      jsonb_set(
-                        COALESCE(raw, '{}'::jsonb),
-                        '{like_rate}',
-                        CASE WHEN c.like_rate IS NULL THEN 'null'::jsonb ELSE to_jsonb(c.like_rate) END,
-                        true
-                      ),
-                      '{like_score}',
-                      CASE WHEN c.like_score IS NULL THEN 'null'::jsonb ELSE to_jsonb(c.like_score) END,
-                      true
-                    )
-            FROM computed c
-            WHERE id = $1
-            RETURNING c.count_likes::int AS likes, c.count_dislikes::int AS dislikes
-            "#,
-        )
-        .bind(entity_id)
-        .bind(crate::snapshot::MIN_USER_ACTIVITY)
-        .fetch_optional(writer)
-        .await?;
-
-        let (likes, dislikes) = match row {
-            Some(r) => (r.get::<i32, _>("likes"), r.get::<i32, _>("dislikes")),
-            None => {
-                let r = sqlx::query(
-                    r#"SELECT
-                         count(*) FILTER (WHERE "like") ::int AS likes,
-                         count(*) FILTER (WHERE NOT "like")::int AS dislikes
-                       FROM user_likes WHERE entity_id = $1"#,
-                )
-                .bind(entity_id)
-                .fetch_one(writer)
-                .await?;
-                (r.get::<i32, _>("likes"), r.get::<i32, _>("dislikes"))
+            Some(_) => {
+                r#"WITH changed AS (
+                     INSERT INTO user_likes ("user", entity_id, "like", user_activity, created_at, updated_at)
+                     VALUES ($1, $2, $4, $5, now(), now())
+                     ON CONFLICT ("user", entity_id)
+                     DO UPDATE SET "like" = EXCLUDED."like", user_activity = EXCLUDED.user_activity, updated_at = now()
+                     RETURNING "like", user_activity
+                   ), after AS (
+                     SELECT "like", user_activity FROM user_likes
+                     WHERE entity_id = $2 AND lower("user") <> $1
+                     UNION ALL
+                     SELECT "like", user_activity FROM changed
+                   )"#
             }
         };
+        let sql = format!("{head}{LIKE_SCORE_TAIL}");
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(&user)
+            .bind(entity_id)
+            .bind(crate::snapshot::MIN_USER_ACTIVITY);
+        if let Some(value) = like {
+            q = q.bind(value).bind(user_activity);
+        }
+        let row = q.fetch_one(writer).await?;
+        let (likes, dislikes) = (r_i32(&row, "likes"), r_i32(&row, "dislikes"));
         let (user_like, user_dislike) = match like {
             Some(true) => (true, false),
             Some(false) => (false, true),
@@ -494,6 +494,77 @@ impl PlacesComponent {
                 .map(|r| r.get::<String, _>("entity_id"))
                 .collect(),
         ))
+    }
+
+    /// Binds the signer to a page query; false means the page is known empty
+    /// (only_favorites without a signer, or without any favorites).
+    pub async fn scope_to_viewer(
+        &self,
+        f: &mut PlaceListFilters,
+        user: Option<&str>,
+        only_favorites: bool,
+    ) -> Result<bool, ApiError> {
+        f.viewer = user.map(str::to_lowercase);
+        if !only_favorites {
+            return Ok(true);
+        }
+        let Some(user) = user else {
+            return Ok(false);
+        };
+        if self.viewer_in_query() {
+            f.viewer_favorites_only = true;
+            return Ok(true);
+        }
+        let Some(favorites) = self.favorite_entity_ids(user).await? else {
+            return Ok(false);
+        };
+        if favorites.is_empty() {
+            return Ok(false);
+        }
+        if f.ids.is_empty() {
+            f.ids = favorites;
+        } else {
+            f.ids.retain(|id| favorites.contains(id));
+        }
+        Ok(!f.ids.is_empty())
+    }
+
+    /// One statement per page: rows plus the windowed total, falling back to a COUNT
+    /// only when the page ran past the offset.
+    pub async fn list_page(&self, f: &PlaceListFilters) -> Result<(Vec<PlaceRow>, i64), ApiError> {
+        if matches!(&f.search, Some(s) if s.len() < 3) {
+            return Ok((vec![], 0));
+        }
+        let fold = self.viewer_in_query();
+        let (sql, binds, live_binds) = list_sql(f, self.road_positions_ready(), fold, true);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+        for b in &binds {
+            q = bind_param(q, b);
+        }
+        if let Some(s) = &f.search {
+            q = q.bind(s.clone());
+        }
+        for b in &live_binds {
+            q = bind_param(q, b);
+        }
+        if let (true, Some(v)) = (fold, &f.viewer) {
+            q = q.bind(v.clone());
+        }
+        let rows = q.fetch_all(&self.pool).await?;
+        let total = match rows.first() {
+            Some(r) => r.try_get::<i64, _>("total_count")?,
+            None if f.offset > 0 || f.limit <= 0 => self.count_list(f).await?,
+            None => 0,
+        };
+        let mut data: Vec<PlaceRow> = rows
+            .into_iter()
+            .map(|r| row_to_place(r, self.content_origin()))
+            .collect();
+        if !fold {
+            self.apply_user_interactions(f.viewer.as_deref(), &mut data)
+                .await;
+        }
+        Ok((data, total))
     }
 
     pub async fn record_report(
@@ -691,6 +762,41 @@ impl PlacesComponent {
         Ok(rows.into_iter().map(row_to_report).collect())
     }
 
+    pub async fn list_reports_page(
+        &self,
+        status: Option<&str>,
+        entity_id: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<ReportRow>, i64), ApiError> {
+        let writer = self.report_writer()?;
+        let offset = offset.max(0);
+        let rows = sqlx::query(
+            r#"
+            SELECT id, entity_id, reporter, signed_url, filename, payload,
+                   status, resolution, moderator_notes, resolved_by,
+                   resolved_at, created_at, count(*) OVER () AS total_count
+            FROM place_reports_local
+            WHERE ($1::text IS NULL OR status = $1)
+              AND ($2::text IS NULL OR entity_id = $2)
+            ORDER BY created_at DESC, id DESC
+            LIMIT $3 OFFSET $4
+            "#,
+        )
+        .bind(status)
+        .bind(entity_id)
+        .bind(limit.clamp(1, 200))
+        .bind(offset)
+        .fetch_all(writer)
+        .await?;
+        let total = match rows.first() {
+            Some(r) => r.get::<i64, _>("total_count"),
+            None if offset > 0 => self.count_reports(status, entity_id).await?,
+            None => 0,
+        };
+        Ok((rows.into_iter().map(row_to_report).collect(), total))
+    }
+
     pub async fn count_reports(
         &self,
         status: Option<&str>,
@@ -878,33 +984,69 @@ impl PlacesComponent {
     }
 
     pub async fn find_by_id(&self, place_id: &str) -> Result<Option<PlaceRow>, ApiError> {
+        self.find_by_id_for(place_id, None).await
+    }
+
+    /// Lookup with the viewer's favorite/like folded into the statement when the reader
+    /// can see the interaction tables; otherwise one follow-up interaction read.
+    pub async fn find_by_id_for(
+        &self,
+        place_id: &str,
+        viewer: Option<&str>,
+    ) -> Result<Option<PlaceRow>, ApiError> {
+        let fold = self.fold_viewer(viewer);
         let sql = format!(
-            "SELECT {} FROM place_indexed WHERE id = $1",
-            place_columns()
+            "SELECT {}{} FROM place_indexed WHERE id = $1",
+            place_columns(),
+            fold.map(|_| viewer_columns(2)).unwrap_or_default()
         );
-        let row_opt = sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(place_id)
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(place_id);
+        if let Some(v) = fold {
+            q = q.bind(v.to_lowercase());
+        }
+        let mut row = q
             .fetch_optional(&self.pool)
-            .await?;
-        Ok(row_opt.map(|r| row_to_place(r, self.content_origin())))
+            .await?
+            .map(|r| row_to_place(r, self.content_origin()));
+        if let (None, Some(p)) = (fold, row.as_mut()) {
+            self.apply_user_interactions(viewer, std::slice::from_mut(p))
+                .await;
+        }
+        Ok(row)
     }
 
     pub async fn find_by_ids(&self, ids: &[String]) -> Result<Vec<PlaceRow>, ApiError> {
+        self.find_by_ids_for(ids, None).await
+    }
+
+    pub async fn find_by_ids_for(
+        &self,
+        ids: &[String],
+        viewer: Option<&str>,
+    ) -> Result<Vec<PlaceRow>, ApiError> {
         if ids.is_empty() {
             return Ok(vec![]);
         }
+        let fold = self.fold_viewer(viewer);
         let sql = format!(
-            "SELECT {} FROM place_indexed WHERE id = ANY($1)",
-            place_columns()
+            "SELECT {}{} FROM place_indexed WHERE id = ANY($1)",
+            place_columns(),
+            fold.map(|_| viewer_columns(2)).unwrap_or_default()
         );
-        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(ids)
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(ids);
+        if let Some(v) = fold {
+            q = q.bind(v.to_lowercase());
+        }
+        let mut rows: Vec<PlaceRow> = q
             .fetch_all(&self.pool)
-            .await?;
-        Ok(rows
+            .await?
             .into_iter()
             .map(|r| row_to_place(r, self.content_origin()))
-            .collect())
+            .collect();
+        if fold.is_none() {
+            self.apply_user_interactions(viewer, &mut rows).await;
+        }
+        Ok(rows)
     }
 
     pub async fn find_by_ids_status(
@@ -953,43 +1095,7 @@ impl PlacesComponent {
         if matches!(&f.search, Some(s) if s.len() < 3) {
             return Ok(vec![]);
         }
-        let (where_clause, binds) = build_where(f, self.road_positions_ready());
-        let order = f.order_by.column();
-        let dir = if f.order_desc { "DESC" } else { "ASC" };
-        let rank_prefix = if f.search.is_some() {
-            format!(
-                "ts_rank_cd(to_tsvector('english', coalesce(title,'') || ' ' || ({plain})), \
-                 plainto_tsquery('english', ${rank}), 32) DESC, ",
-                plain = description_plain_sql(),
-                rank = binds.len() + 1,
-            )
-        } else {
-            String::new()
-        };
-        let search_count = if f.search.is_some() { 1 } else { 0 };
-        let live_start = binds.len() + search_count + 1;
-        let (live_prefix, live_binds) = build_live_user_count_order(f, live_start);
-        let order_clause = build_order_by(
-            destinations_highlighted_prefix(f),
-            &live_prefix,
-            destinations_ranking_prefix(f),
-            &rank_prefix,
-            order,
-            dir,
-            order_tail(f),
-        );
-        let sql = format!(
-            r#"
-            SELECT {cols}
-            FROM place_indexed
-            WHERE {where_clause}
-            ORDER BY {order_clause}
-            LIMIT {limit} OFFSET {offset}
-            "#,
-            cols = place_columns(),
-            limit = f.limit.clamp(0, 100),
-            offset = f.offset.max(0),
-        );
+        let (sql, binds, live_binds) = list_sql(f, self.road_positions_ready(), false, false);
         let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for b in &binds {
             q = bind_param(q, b);
@@ -1023,6 +1129,28 @@ impl PlacesComponent {
     }
 
     pub async fn category_counts(
+        &self,
+        target: CategoryTarget,
+    ) -> Result<Vec<(String, i64)>, ApiError> {
+        let key = match target {
+            CategoryTarget::All => "all",
+            CategoryTarget::Places => "places",
+            CategoryTarget::Worlds => "worlds",
+        };
+        if let Some(cached) = cache_get(&self.category_cache, key) {
+            return Ok(cached);
+        }
+        let counts = self.category_counts_uncached(target).await?;
+        cache_put(
+            &self.category_cache,
+            key.to_string(),
+            counts.clone(),
+            CATEGORY_CACHE_TTL,
+        );
+        Ok(counts)
+    }
+
+    async fn category_counts_uncached(
         &self,
         target: CategoryTarget,
     ) -> Result<Vec<(String, i64)>, ApiError> {
@@ -1063,17 +1191,35 @@ impl PlacesComponent {
     }
 
     pub async fn find_world_by_id(&self, world_id: &str) -> Result<Option<PlaceRow>, ApiError> {
+        self.find_world_by_id_for(world_id, None).await
+    }
+
+    pub async fn find_world_by_id_for(
+        &self,
+        world_id: &str,
+        viewer: Option<&str>,
+    ) -> Result<Option<PlaceRow>, ApiError> {
+        let fold = self.fold_viewer(viewer);
         let sql = format!(
-            "SELECT {} FROM place_indexed \
+            "SELECT {}{} FROM place_indexed \
              WHERE world IS TRUE \
              AND (id = $1 OR lower(world_name) = lower($1))",
-            place_columns()
+            place_columns(),
+            fold.map(|_| viewer_columns(2)).unwrap_or_default()
         );
-        let row_opt = sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(world_id)
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(world_id);
+        if let Some(v) = fold {
+            q = q.bind(v.to_lowercase());
+        }
+        let mut row = q
             .fetch_optional(&self.pool)
-            .await?;
-        Ok(row_opt.map(|r| row_to_place(r, self.content_origin())))
+            .await?
+            .map(|r| row_to_place(r, self.content_origin()));
+        if let (None, Some(p)) = (fold, row.as_mut()) {
+            self.apply_user_interactions(viewer, std::slice::from_mut(p))
+                .await;
+        }
+        Ok(row)
     }
 
     pub async fn world_names(&self) -> Result<Vec<String>, ApiError> {
@@ -1133,5 +1279,230 @@ impl PlacesComponent {
             .into_iter()
             .filter_map(|r| r.try_get::<Option<String>, _>("pos").ok().flatten())
             .collect())
+    }
+}
+
+/// SQL for `find_list`/`list_page`: `binds` go first, then the search term when set, then
+/// `live_binds`, then the lowercased viewer when `fold_viewer` and `f.viewer` are set.
+/// `with_total` adds `total_count` (a window count, or an uncorrelated COUNT on the
+/// like-score path whose candidate cut would undercount).
+pub(super) fn list_sql(
+    f: &PlaceListFilters,
+    road_positions_ready: bool,
+    fold_viewer: bool,
+    with_total: bool,
+) -> (String, Vec<Bind>, Vec<Bind>) {
+    let (where_clause, binds) = build_where(f, road_positions_ready);
+    let order = f.order_by.column();
+    let dir = if f.order_desc { "DESC" } else { "ASC" };
+    let rank_prefix = if f.search.is_some() {
+        format!(
+            "ts_rank_cd(to_tsvector('english', coalesce(title,'') || ' ' || ({plain})), \
+             plainto_tsquery('english', ${rank}), 32) DESC, ",
+            plain = description_plain_sql(),
+            rank = binds.len() + 1,
+        )
+    } else {
+        String::new()
+    };
+    let search_count = if f.search.is_some() { 1 } else { 0 };
+    let live_start = binds.len() + search_count + 1;
+    let (live_prefix, live_binds) = build_live_user_count_order(f, live_start);
+    let order_clause = build_order_by(
+        destinations_highlighted_prefix(f),
+        &live_prefix,
+        destinations_ranking_prefix(f),
+        &rank_prefix,
+        order,
+        dir,
+        order_tail(f),
+    );
+    let limit = f.limit.clamp(0, 100);
+    let offset = f.offset.max(0);
+    let like_score_top_n = matches!(f.order_by, PlaceOrderBy::LikeScore)
+        && f.order_desc
+        && f.search.is_none()
+        && !f.destinations_mode;
+    let viewer_cols = match (&f.viewer, fold_viewer) {
+        (Some(_), true) => viewer_columns(binds.len() + search_count + live_binds.len() + 1),
+        _ => String::new(),
+    };
+    let sql = if like_score_top_n {
+        let total = if with_total {
+            format!(", (SELECT count(*) FROM place_indexed WHERE {where_clause}) AS total_count")
+        } else {
+            String::new()
+        };
+        // Cut each leg of place_indexed to the page under its own partial index, then read only those rows.
+        format!(
+            r#"
+            WITH cand AS (
+                (SELECT id FROM place WHERE ({where_clause}) AND world IS FALSE ORDER BY {order_clause} LIMIT {n})
+                UNION ALL
+                (SELECT id FROM place WHERE ({where_clause}) AND world IS TRUE ORDER BY {order_clause} LIMIT {n})
+                UNION ALL
+                (SELECT id FROM place_world_local WHERE {where_clause} ORDER BY {order_clause} LIMIT {n})
+            )
+            SELECT {cols}{viewer_cols}{total}
+            FROM place_indexed
+            WHERE id = ANY (ARRAY(SELECT id FROM cand)) AND {where_clause}
+            ORDER BY {order_clause}
+            LIMIT {limit} OFFSET {offset}
+            "#,
+            cols = place_columns(),
+            n = limit + offset,
+        )
+    } else {
+        let total = if with_total {
+            ", count(*) OVER () AS total_count"
+        } else {
+            ""
+        };
+        format!(
+            r#"
+            SELECT {cols}{viewer_cols}{total}
+            FROM place_indexed
+            WHERE {where_clause}
+            ORDER BY {order_clause}
+            LIMIT {limit} OFFSET {offset}
+            "#,
+            cols = place_columns(),
+        )
+    };
+    (sql, binds, live_binds)
+}
+
+fn r_i32(row: &sqlx::postgres::PgRow, col: &str) -> i32 {
+    row.get::<i32, _>(col)
+}
+
+const LIKE_SCORE_TAIL: &str = r#", counted AS (
+              SELECT
+                count(*) filter (where "like") as count_likes,
+                count(*) filter (where not "like") as count_dislikes,
+                count(*) filter (where user_activity >= $3) as count_active_total,
+                count(*) filter (where "like" and user_activity >= $3) as count_active_likes,
+                count(*) filter (where not "like" and user_activity >= $3) as count_active_dislikes
+              FROM after
+            ), computed AS (
+              SELECT
+                count_likes,
+                count_dislikes,
+                (CASE WHEN count_active_total::float = 0 THEN NULL
+                      ELSE count_active_likes / count_active_total::float
+                 END) AS like_rate,
+                (CASE WHEN (count_active_likes + count_active_dislikes > 0) THEN
+                    ((count_active_likes + 1.9208)
+                    / (count_active_likes + count_active_dislikes) - 1.96
+                    * SQRT((count_active_likes * count_active_dislikes) / (count_active_likes + count_active_dislikes) + 0.9604)
+                    / (count_active_likes + count_active_dislikes))
+                    / (1 + 3.8416 / (count_active_likes + count_active_dislikes))
+                 ELSE NULL END) AS like_score
+              FROM counted
+            ), bumped AS (
+              UPDATE place
+              SET
+                likes = c.count_likes::int,
+                dislikes = c.count_dislikes::int,
+                raw = jsonb_set(
+                        jsonb_set(
+                          COALESCE(raw, '{}'::jsonb),
+                          '{like_rate}',
+                          CASE WHEN c.like_rate IS NULL THEN 'null'::jsonb ELSE to_jsonb(c.like_rate) END,
+                          true
+                        ),
+                        '{like_score}',
+                        CASE WHEN c.like_score IS NULL THEN 'null'::jsonb ELSE to_jsonb(c.like_score) END,
+                        true
+                      )
+              FROM computed c
+              WHERE place.id = $2
+            )
+            SELECT c.count_likes::int AS likes, c.count_dislikes::int AS dislikes FROM computed c"#;
+
+#[cfg(test)]
+mod list_sql_tests {
+    use super::super::rows::PlaceOrderBy;
+    use super::*;
+
+    fn default_list() -> PlaceListFilters {
+        PlaceListFilters {
+            order_by: PlaceOrderBy::LikeScore,
+            order_desc: true,
+            limit: 100,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn like_score_lists_cut_each_leg_to_the_page_first() {
+        let (sql, _, _) = list_sql(&default_list(), true, false, false);
+        assert!(sql.contains("WITH cand AS ("), "{sql}");
+        assert!(
+            sql.contains("FROM place WHERE (") && sql.contains(") AND world IS FALSE ORDER BY"),
+            "{sql}"
+        );
+        assert!(sql.contains(") AND world IS TRUE ORDER BY"), "{sql}");
+        assert!(sql.contains("FROM place_world_local WHERE"), "{sql}");
+        assert!(
+            sql.contains("WHERE id = ANY (ARRAY(SELECT id FROM cand)) AND"),
+            "{sql}"
+        );
+        assert_eq!(sql.matches("LIMIT 100").count(), 4, "{sql}");
+
+        let paged = PlaceListFilters {
+            limit: 20,
+            offset: 40,
+            ..default_list()
+        };
+        let (sql, _, _) = list_sql(&paged, true, false, false);
+        assert_eq!(sql.matches("LIMIT 60)").count(), 3, "{sql}");
+        assert!(sql.contains("LIMIT 20 OFFSET 40"), "{sql}");
+    }
+
+    #[test]
+    fn a_creator_filter_lands_inside_each_leg() {
+        let f = PlaceListFilters {
+            creator_address: Some("0x17A253C2ac0d5BA92cadBBF665e3390C9913dC5D".into()),
+            ..default_list()
+        };
+        let (sql, binds, live_binds) = list_sql(&f, true, false, false);
+        assert!(sql.contains("WITH cand AS ("), "{sql}");
+        assert_eq!(
+            sql.matches("LOWER(creator_address) = $1").count(),
+            4,
+            "{sql}"
+        );
+        assert!(live_binds.is_empty());
+        match binds.as_slice() {
+            [Bind::Text(addr)] => assert_eq!(addr, "0x17a253c2ac0d5ba92cadbbf665e3390c9913dc5d"),
+            other => panic!("expected the lowercased creator as the only bind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn other_orders_read_place_indexed_directly() {
+        for f in [
+            PlaceListFilters {
+                order_desc: false,
+                ..default_list()
+            },
+            PlaceListFilters {
+                search: Some("tower".into()),
+                ..default_list()
+            },
+            PlaceListFilters {
+                order_by: PlaceOrderBy::MostActive,
+                ..default_list()
+            },
+            PlaceListFilters {
+                destinations_mode: true,
+                ..default_list()
+            },
+        ] {
+            let (sql, _, _) = list_sql(&f, true, false, false);
+            assert!(!sql.contains("cand"), "{sql}");
+            assert!(sql.contains("FROM place_indexed\n"), "{sql}");
+        }
     }
 }

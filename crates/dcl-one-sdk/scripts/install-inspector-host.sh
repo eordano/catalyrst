@@ -23,15 +23,17 @@ npm_i "@dcl/ecs@$ECS_PIN" \
 ESBUILD=$HOST/node_modules/.bin/esbuild
 bundle_in_place() {
   "$ESBUILD" "$1" --bundle --platform=node --format=cjs --target=node20 \
-    --log-level=warning --outfile="$1.bundled"
+    --define:INSPECTOR_DEV_PARSER=false --log-level=warning --outfile="$1.bundled"
   mv "$1.bundled" "$1"
 }
 bundle_in_place "$INSP/dist/tooling-entrypoint.js"
-bundle_in_place "$HOST/node_modules/@dcl/asset-packs/dist/definitions.js"
+ASSET_PACKS=$(node -p "require.resolve('@dcl/asset-packs/package.json', { paths: ['$INSP'] })")
+ASSET_PACKS=$(dirname "$ASSET_PACKS")
+bundle_in_place "$ASSET_PACKS/dist/definitions.js"
 
 node -e "
-const insp = require('$INSP'), ap = require('$HOST/node_modules/@dcl/asset-packs')
+const insp = require('$INSP'), ap = require('$ASSET_PACKS')
 for (const [n, v] of [['createEngineContext', insp.createEngineContext], ['dumpEngineToComposite', insp.dumpEngineToComposite], ['SceneAgeRating', insp.SceneAgeRating], ['asset-packs initComponents', ap.initComponents]])
   if (v === undefined) { console.error('install-inspector-host: missing ' + n); process.exit(1) }
-console.log('install-inspector-host: @dcl/inspector ' + require('$INSP/package.json').version + ', @dcl/asset-packs ' + require('$HOST/node_modules/@dcl/asset-packs/package.json').version + ', @dcl/ecs ' + require('$HOST/node_modules/@dcl/ecs/package.json').version + ' at $HOST')
+console.log('install-inspector-host: @dcl/inspector ' + require('$INSP/package.json').version + ', @dcl/asset-packs ' + require('$ASSET_PACKS/package.json').version + ', @dcl/ecs ' + require('$HOST/node_modules/@dcl/ecs/package.json').version + ' at $HOST')
 "

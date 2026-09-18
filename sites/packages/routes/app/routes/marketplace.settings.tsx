@@ -61,13 +61,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const address =
     url.searchParams.get("address")?.trim().toLowerCase() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const { store, source, reason } = await loadStore(address, { signal: request.signal });
+  const [{ sid, wrap }, { store, source, reason }] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    loadStore(address, { signal: request.signal }),
+  ]);
 
   const authorizations = emptyAuthorizations();
 

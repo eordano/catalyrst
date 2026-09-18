@@ -17,7 +17,7 @@ export type FulfillFn = (args: {
   signal?: AbortSignal;
 }) => Promise<FulfillResult>;
 
-export type CheckoutInput = {
+type CheckoutInput = {
   totalCredits: string;
   idempotencyKey: string;
   trackCtx: TrackContext;
@@ -25,7 +25,7 @@ export type CheckoutInput = {
   track?: TrackFn;
 };
 
-export type CheckoutContext = {
+type CheckoutContext = {
   totalCredits: string;
   idempotencyKey: string;
   trackCtx: TrackContext;
@@ -35,7 +35,7 @@ export type CheckoutContext = {
   error?: string;
 };
 
-export type CheckoutEvent =
+type CheckoutEvent =
   | { type: "CONFIRM" }
   | { type: "RETRY" };
 
@@ -55,8 +55,8 @@ export const STATE_TO_SLUG = {
   failed: "failed",
 } as const;
 
-export type CheckoutStateId = keyof typeof STATE_TO_SLUG;
-export type CheckoutStepSlug = (typeof STATE_TO_SLUG)[CheckoutStateId];
+type CheckoutStateId = keyof typeof STATE_TO_SLUG;
+type CheckoutStepSlug = (typeof STATE_TO_SLUG)[CheckoutStateId];
 
 export const FIRST_STEP_SLUG: CheckoutStepSlug = STATE_TO_SLUG.review;
 
@@ -206,8 +206,6 @@ export const checkoutMachine = setup({
     },
   },
 });
-
-export type CheckoutMachine = typeof checkoutMachine;
 
 export function resolveCheckoutSnapshot(args: {
   step: CheckoutStateId;

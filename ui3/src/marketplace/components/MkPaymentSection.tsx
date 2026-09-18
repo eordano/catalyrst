@@ -1,4 +1,4 @@
-import type { FormEvent, ReactNode } from "react";
+import { useRef, type FormEvent, type ReactNode } from "react";
 
 import Button from "../../atoms/Button";
 import Spinner from "../../atoms/Spinner";
@@ -6,7 +6,6 @@ import { creditsNoun } from "../credits-unit";
 import "./paymentsection.css";
 
 export type MkPayMethod = "card" | "mana";
-
 
 function manaFor(wei: string): string {
   try {
@@ -30,6 +29,20 @@ export default function MkPaymentSection({
   onPickMethod = undefined,
   children = undefined,
 }: MkPaymentSectionProps) {
+  const paneRef = useRef<HTMLDivElement>(null);
+
+  function choose(next: MkPayMethod) {
+    if (next !== method) {
+      onPickMethod?.(next);
+      return;
+    }
+    const pane = paneRef.current;
+    const primary =
+      pane?.querySelector<HTMLElement>('button[type="submit"]:not([disabled])') ??
+      pane?.querySelector<HTMLElement>("button:not([disabled])");
+    primary?.focus();
+  }
+
   return (
     <div className="paysec" data-pane={method ?? "none"}>
       <p className="paysec__need" role="status">
@@ -40,7 +53,7 @@ export default function MkPaymentSection({
           type="button"
           className="paysec__method"
           aria-pressed={method === "card"}
-          onClick={() => onPickMethod?.("card")}
+          onClick={() => choose("card")}
         >
           <span className="paysec__methodicon" aria-hidden>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -54,7 +67,7 @@ export default function MkPaymentSection({
           type="button"
           className="paysec__method"
           aria-pressed={method === "mana"}
-          onClick={() => onPickMethod?.("mana")}
+          onClick={() => choose("mana")}
         >
           <span className="paysec__methodicon" aria-hidden>
             &#x25C7;
@@ -62,12 +75,14 @@ export default function MkPaymentSection({
           Pay with MANA
         </button>
       </div>
-      <div className="paysec__pane">{children}</div>
+      <div className="paysec__pane" ref={paneRef}>
+        {children}
+      </div>
     </div>
   );
 }
 
-export type MkCardPhase = "idle" | "paying" | "done" | "off";
+type MkCardPhase = "idle" | "paying" | "done" | "off";
 
 type MkPaymentCardPaneProps = {
   phase?: MkCardPhase;
@@ -147,9 +162,10 @@ export function MkPaymentCardPane({
   );
 }
 
-export type MkManaPhase =
+type MkManaPhase =
   | { step: "loading" }
   | { step: "unavailable"; why: string }
+  | { step: "insufficient"; haveWei: string; needWei: string }
   | { step: "ready"; quote: { weiSuggested: string } }
   | { step: "signing" }
   | { step: "confirming"; txHash: string }
@@ -161,6 +177,7 @@ type MkPaymentManaPaneProps = {
   credits?: string;
   onPay?: () => void;
   onStartOver?: () => void;
+  onPayWithCard?: () => void;
 };
 
 export function MkPaymentManaPane({
@@ -168,12 +185,36 @@ export function MkPaymentManaPane({
   credits = "",
   onPay = undefined,
   onStartOver = undefined,
+  onPayWithCard = undefined,
 }: MkPaymentManaPaneProps) {
   if (phase.step === "loading") {
     return (
       <p className="paysec__busy" role="status">
         <Spinner size={16} /> Getting a MANA quote&#x2026;
       </p>
+    );
+  }
+
+  if (phase.step === "insufficient") {
+    return (
+      <div className="paysec__form paysec__insufficient">
+        <p role="alert" className="mkco__alert">
+          Not enough MANA: this top-up needs &#x2248;{manaFor(phase.needWei)} MANA and your wallet
+          holds {manaFor(phase.haveWei)} MANA on Polygon.
+        </p>
+        {onPayWithCard && (
+          <Button variant="secondary" onClick={onPayWithCard}>
+            Pay with card instead
+          </Button>
+        )}
+        <p className="mkco__note">
+          Add MANA to this wallet, or{" "}
+          <a className="mkco__link" href="/marketplace/packs">
+            buy a Credits pack
+          </a>
+          .
+        </p>
+      </div>
     );
   }
 

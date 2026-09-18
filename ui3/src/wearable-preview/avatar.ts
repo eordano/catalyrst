@@ -1,6 +1,20 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import {
+  FACIAL_CATS,
+  baseMeshHidden,
+  categoryOf,
+  computeHiding,
+  fetchEntities,
+  fileMapFor,
+  representationContents,
+  representationMainFile,
+  resolveOutfit,
+} from "./outfit";
+import type { Entity, HidingRules, OutfitData, ResolvedOutfit } from "./outfit";
+
+type AvatarColors = { skin: THREE.Color | null; hair: THREE.Color | null; eyes: THREE.Color | null };
 
 const idleUrl = new URL("./emotes/idle.glb", import.meta.url).href;
 const waveUrl = new URL("./emotes/wave.glb", import.meta.url).href;
@@ -17,20 +31,6 @@ function prefersReducedMotion(): boolean {
 }
 
 export type AvatarStatus = "loading" | "ready" | "empty" | "error";
-
-interface ColorWrapper {
-  color?: { r: number; g: number; b: number };
-}
-
-interface OutfitData {
-  address?: string;
-  slot?: number;
-  bodyShape?: string;
-  wearables?: string[];
-  skin?: ColorWrapper;
-  hair?: ColorWrapper;
-  eyes?: ColorWrapper;
-}
 
 export interface AvatarSceneOptions {
   base?: string;
@@ -60,60 +60,15 @@ export type AvatarCameraOptions = Pick<
   "zoom" | "yaw" | "pitch" | "fov" | "targetY"
 >;
 
+export type AvatarOutfitOptions = Pick<AvatarSceneOptions, "profile" | "urns" | "body" | "outfit">;
+
 export interface AvatarScene {
   resize: () => void;
   dispose: () => void;
   setActive: (active: boolean) => void;
   setEmote: (input: string | null | undefined) => Promise<void>;
   setCamera: (next: AvatarCameraOptions) => void;
-}
-
-type AvatarColors = {
-  skin: THREE.Color | null;
-  hair: THREE.Color | null;
-  eyes: THREE.Color | null;
-};
-
-interface Representation {
-  bodyShapes?: string[];
-  mainFile?: string;
-  contents?: string[];
-}
-
-interface EntityData {
-  category?: string;
-  representations?: Representation[];
-  hides?: string[];
-  replaces?: string[];
-  removesDefaultHiding?: string[];
-}
-
-interface Entity {
-  pointers?: string[];
-  content?: { file: string; hash: string }[];
-  metadata?: { data?: EntityData };
-}
-
-interface Avatar {
-  bodyShape?: string;
-  wearables?: string[];
-  skin?: ColorWrapper;
-  hair?: ColorWrapper;
-  eyes?: ColorWrapper;
-}
-
-interface ProfileEnvelope {
-  avatars?: { avatar?: Avatar }[];
-}
-
-interface OutfitSlot {
-  slot?: number;
-  outfit?: OutfitData;
-}
-
-interface OutfitsEnvelope {
-  metadata?: { outfits?: OutfitSlot[] };
-  outfits?: OutfitSlot[];
+  setOutfit: (next: AvatarOutfitOptions) => Promise<void>;
 }
 
 const EMOTES: Record<string, string> = {
@@ -125,23 +80,13 @@ const EMOTES: Record<string, string> = {
 };
 
 const DEFAULT_BASE = "https://catalyst.example.com";
-const DEFAULT_BODY = "urn:decentraland:off-chain:base-avatars:BaseMale";
+const PART_CACHE_MAX = 32;
+const GLB_TIMEOUT_MS = 20000;
+export const OUTFIT_SWAP_DEBOUNCE_MS = 120;
 
 function defaultBase(): string {
   return import.meta.env.SSR ? DEFAULT_BASE : window.location.origin;
 }
-
-const itemUrn = (urn: string): string => {
-  const p = urn.split(":");
-  return p.length === 7 && p[3] !== undefined && /^collections-v[12]$/.test(p[3])
-    ? p.slice(0, 6).join(":")
-    : urn;
-};
-
-const colorOf = (c: ColorWrapper | null | undefined): THREE.Color | null =>
-  c && c.color && typeof c.color.r === "number"
-    ? new THREE.Color(c.color.r, c.color.g, c.color.b)
-    : null;
 
 function isTexture(value: unknown): value is { isTexture: unknown; dispose?: () => void } {
   return (
@@ -152,47 +97,40 @@ function isTexture(value: unknown): value is { isTexture: unknown; dispose?: () 
   );
 }
 
-async function getJSON<T>(url: string, opts?: RequestInit): Promise<T> {
-  const r = await fetch(url, opts);
-  if (!r.ok) throw new Error(`${url} -> ${r.status}`);
-  return r.json() as Promise<T>;
+function disposeObject(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    if (o.geometry) o.geometry.dispose?.();
+    const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+    for (const m of mats) {
+      for (const k in m) {
+        const v = m[k];
+        if (isTexture(v)) v.dispose?.();
+      }
+      m.dispose?.();
+    }
+  });
 }
 
-const activeEntitiesCache = new Map<string, Promise<Entity[]>>();
-function fetchActiveEntities(base: string, pointers: string[]): Promise<Entity[]> {
-  const key = `${base}|${[...pointers].sort().join(",")}`;
-  let pending = activeEntitiesCache.get(key);
-  if (!pending) {
-    pending = getJSON<Entity[]>(`${base}/content/entities/active`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ pointers }),
-    }).catch((err) => {
-      activeEntitiesCache.delete(key);
-      throw err;
-    });
-    activeEntitiesCache.set(key, pending);
-  }
-  return pending;
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const expiry = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("timeout")), ms);
+  });
+  return Promise.race<T>([p, expiry]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
-function representationMainFile(entity: Entity, bodyShape: string): string | null {
-  const reps = entity?.metadata?.data?.representations || [];
-  const bs = bodyShape.toLowerCase();
-  const rep =
-    reps.find((r) => (r.bodyShapes || []).some((b) => String(b).toLowerCase() === bs)) || reps[0];
-  return rep?.mainFile || null;
-}
+const partKey = (urn: string, bodyShape: string): string =>
+  `${urn.toLowerCase()}|${bodyShape.toLowerCase()}`;
 
-function fileMapFor(entity: Entity): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const c of entity.content || []) {
-    const f = String(c.file).toLowerCase();
-    map.set(f, c.hash);
-    const last = f.split("/").pop();
-    if (last !== undefined) map.set(last, c.hash);
-  }
-  return map;
+type FacialFeature = { tex: THREE.Texture; mask: THREE.Texture | null };
+
+interface Part {
+  key: string;
+  urn: string;
+  isBody: boolean;
+  obj: THREE.Object3D;
 }
 
 export function createAvatarScene(
@@ -200,7 +138,11 @@ export function createAvatarScene(
   opts: AvatarSceneOptions = {},
 ): AvatarScene {
   const base = (opts.base || defaultBase()).replace(/\/$/, "");
-  const setStatus: (status: AvatarStatus) => void = opts.onStatus || (() => {});
+  let status: AvatarStatus = "loading";
+  const setStatus = (next: AvatarStatus): void => {
+    status = next;
+    opts.onStatus?.(next);
+  };
   let disposed = false;
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -241,6 +183,8 @@ export function createAvatarScene(
   let swayT = 0;
 
   const avatarGroup = new THREE.Group();
+  avatarGroup.name = "avatar";
+  avatarGroup.visible = false;
   scene.add(avatarGroup);
 
   if (opts.platform) {
@@ -268,10 +212,20 @@ export function createAvatarScene(
     controls.maxPolarAngle = Math.PI / 2 - 0.05;
   }
 
-  const parts: THREE.Object3D[] = [];
-  const mixers: THREE.AnimationMixer[] = [];
+  const partCache = new Map<string, Promise<THREE.Object3D | null>>();
+  const featureCache = new Map<string, Promise<FacialFeature | null>>();
+  const mounted = new Map<string, Part>();
+  const mixers = new Map<string, THREE.AnimationMixer>();
+  let currentClip: THREE.AnimationClip | null = null;
+  let bodyRoot: THREE.Object3D | null = null;
+  let revealed = false;
+  let loadGen = 0;
+  let swapTimer: ReturnType<typeof setTimeout> | null = null;
+  let swapSettle: (() => void) | null = null;
   let lastFrame = performance.now();
   let active = true;
+
+  const stale = (gen: number): boolean => disposed || gen !== loadGen;
 
   function resize() {
     const w = container.clientWidth || 1;
@@ -288,7 +242,7 @@ export function createAvatarScene(
     const now = performance.now();
     const dt = Math.max(0, (now - lastFrame) / 1000);
     lastFrame = now;
-    for (const m of mixers) m.update(reducedMotion ? 0 : dt);
+    for (const m of mixers.values()) m.update(reducedMotion ? 0 : dt);
     if (sway) {
       swayT += dt;
       avatarGroup.rotation.y = swayAmplitude * Math.sin(swayT * swaySpeed);
@@ -359,7 +313,8 @@ export function createAvatarScene(
   }
 
   function frame() {
-    const box = new THREE.Box3().setFromObject(avatarGroup);
+    avatarGroup.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(avatarGroup, true);
     if (box.isEmpty()) return;
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
@@ -383,6 +338,13 @@ export function createAvatarScene(
     renderOnce();
   }
 
+  function reveal(): void {
+    if (revealed) return;
+    revealed = true;
+    avatarGroup.visible = true;
+    renderOnce();
+  }
+
   function applyColors(colors: AvatarColors) {
     avatarGroup.traverse((o) => {
       if (!o.isMesh) return;
@@ -396,8 +358,8 @@ export function createAvatarScene(
     });
   }
 
-  function mattify() {
-    avatarGroup.traverse((o) => {
+  function mattify(root: THREE.Object3D) {
+    root.traverse((o) => {
       if (!o.isMesh) return;
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
@@ -407,58 +369,6 @@ export function createAvatarScene(
         m.needsUpdate = true;
       }
     });
-  }
-
-  async function resolveAvatar(): Promise<{
-    bodyShape: string;
-    wearables: string[];
-    colors: AvatarColors;
-  }> {
-    let bodyShape = opts.body || DEFAULT_BODY;
-    let wearables = Array.isArray(opts.urns)
-      ? opts.urns.slice()
-      : String(opts.urns || "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-    let colors: AvatarColors = { skin: null, hair: null, eyes: null };
-
-    let outfit: OutfitData | null =
-      opts.outfit && typeof opts.outfit === "object" ? opts.outfit : null;
-    if (outfit && outfit.address) {
-      try {
-        const env = await getJSON<OutfitsEnvelope>(
-          `${base}/lambdas/outfits/${String(outfit.address).toLowerCase()}`,
-        );
-        const list = env?.metadata?.outfits || env?.outfits || [];
-        const slot = outfit.slot ?? 0;
-        outfit = (list.find((o) => o.slot === slot) || list[0])?.outfit || null;
-      } catch {
-        outfit = null;
-      }
-    }
-
-    if (outfit && (Array.isArray(outfit.wearables) || outfit.bodyShape)) {
-      if (outfit.bodyShape) bodyShape = outfit.bodyShape;
-      if (Array.isArray(outfit.wearables)) wearables = outfit.wearables;
-      colors = {
-        skin: colorOf(outfit.skin),
-        hair: colorOf(outfit.hair),
-        eyes: colorOf(outfit.eyes),
-      };
-    } else if (opts.profile) {
-      const env = await getJSON<ProfileEnvelope>(
-        `${base}/lambdas/profile/${String(opts.profile).toLowerCase()}`,
-      );
-      const av: Avatar = (env.avatars || [])[0]?.avatar || {};
-      if (av.bodyShape) bodyShape = av.bodyShape;
-      if (Array.isArray(av.wearables) && av.wearables.length) wearables = av.wearables;
-      colors = { skin: colorOf(av.skin), hair: colorOf(av.hair), eyes: colorOf(av.eyes) };
-    }
-
-    const seen = new Set<string>();
-    wearables = wearables.map(itemUrn).filter((u) => (seen.has(u) ? false : (seen.add(u), true)));
-    return { bodyShape, wearables, colors };
   }
 
   async function loadEntityGlb(entity: Entity, bodyShape: string): Promise<THREE.Object3D | null> {
@@ -482,21 +392,11 @@ export function createAvatarScene(
     return gltf.scene;
   }
 
-  type FacialFeature = { tex: THREE.Texture; mask: THREE.Texture | null };
-  const FACIAL_CATS = new Set(["eyes", "eyebrows", "mouth"]);
-
   async function loadFacialFeature(
     entity: Entity,
     bodyShape: string,
   ): Promise<FacialFeature | null> {
-    const reps = entity?.metadata?.data?.representations || [];
-    const bs = bodyShape.toLowerCase();
-    const rep =
-      reps.find((r) => (r.bodyShapes || []).some((b) => String(b).toLowerCase() === bs)) ||
-      reps[0];
-    const names = (
-      rep?.contents?.length ? rep.contents : (entity.content || []).map((c) => c.file)
-    ).map((n) => String(n).toLowerCase());
+    const names = representationContents(entity, bodyShape);
     const fileMap = fileMapFor(entity);
     const hashOf = (n: string | undefined): string | null =>
       n ? (fileMap.get(n) ?? fileMap.get(n.split("/").pop() ?? "") ?? null) : null;
@@ -514,6 +414,62 @@ export function createAvatarScene(
       tex: await loadTex(texHash, true),
       mask: maskHash ? await loadTex(maskHash, false) : null,
     };
+  }
+
+  function trimPartCache(): void {
+    for (const [key, pending] of partCache) {
+      if (partCache.size <= PART_CACHE_MAX) break;
+      if (mounted.has(key)) continue;
+      partCache.delete(key);
+      void pending.then((obj) => {
+        if (obj && obj.parent === null) disposeObject(obj);
+      });
+    }
+  }
+
+  function cachedPart(key: string, entity: Entity, bodyShape: string): Promise<THREE.Object3D | null> {
+    let pending = partCache.get(key);
+    if (pending) {
+      partCache.delete(key);
+      partCache.set(key, pending);
+      return pending;
+    }
+    pending = withTimeout(loadEntityGlb(entity, bodyShape), GLB_TIMEOUT_MS)
+      .then((obj) => {
+        if (obj) mattify(obj);
+        return obj;
+      })
+      .catch((err) => {
+        console.warn("[wearable-preview] failed", key, err);
+        partCache.delete(key);
+        return null;
+      });
+    partCache.set(key, pending);
+    trimPartCache();
+    return pending;
+  }
+
+  function cachedFeature(key: string, entity: Entity, bodyShape: string): Promise<FacialFeature | null> {
+    let pending = featureCache.get(key);
+    if (!pending) {
+      pending = loadFacialFeature(entity, bodyShape).catch((err) => {
+        console.warn("[wearable-preview] failed", key, err);
+        featureCache.delete(key);
+        return null;
+      });
+      featureCache.set(key, pending);
+    }
+    return pending;
+  }
+
+  function hideBaseMeshes(root: THREE.Object3D, rules: HidingRules): void {
+    root.traverse((o) => {
+      if (!o.isMesh) return;
+      const names = [o.name, o.parent?.name]
+        .filter((s): s is string => Boolean(s))
+        .map((s) => s.toLowerCase());
+      o.visible = !baseMeshHidden(names, rules);
+    });
   }
 
   function applyFacialFeatures(
@@ -555,6 +511,8 @@ export function createAvatarScene(
         } else if (plainTint) {
           mat.color.copy(plainTint);
         }
+        const prev = Array.isArray(mesh.material) ? null : mesh.material;
+        if (prev && String(prev.name || "").startsWith("feature_")) prev.dispose?.();
         mesh.material = mat;
         break;
       }
@@ -565,13 +523,6 @@ export function createAvatarScene(
     if (!e) return null;
     if (/^https?:\/\//.test(e) || e.startsWith("/") || e.startsWith("blob:")) return e;
     return EMOTES[e] || null;
-  }
-
-  async function setEmote(input: string | null | undefined): Promise<void> {
-    const url = emoteUrlFor(input);
-    if (!url || disposed || !parts.length) return;
-    cycleGen++;
-    await playEmote(url);
   }
 
   const clipCache = new Map<string, Promise<THREE.AnimationClip | null>>();
@@ -598,21 +549,55 @@ export function createAvatarScene(
     return pending;
   }
 
+  function clipBinds(clip: THREE.AnimationClip): boolean {
+    const root = bodyRoot ?? mounted.values().next().value?.obj;
+    if (!root) return true;
+    return clip.tracks.some((t) => {
+      try {
+        const node = THREE.PropertyBinding.parseTrackName(t.name).nodeName;
+        return Boolean(node) && root.getObjectByName(node) !== undefined;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  function bindClip(part: Part, clip: THREE.AnimationClip, at: number): THREE.AnimationMixer {
+    const mixer = new THREE.AnimationMixer(part.obj);
+    mixer.clipAction(clip).play();
+    mixer.setTime(at);
+    return mixer;
+  }
+
   function applyClip(clip: THREE.AnimationClip): void {
-    for (const m of mixers) m.stopAllAction();
-    mixers.length = 0;
-    for (const part of parts) {
-      const mixer = new THREE.AnimationMixer(part);
-      mixer.clipAction(clip).play();
-      mixers.push(mixer);
-    }
+    for (const m of mixers.values()) m.stopAllAction();
+    mixers.clear();
+    currentClip = clip;
+    for (const part of mounted.values()) mixers.set(part.key, bindClip(part, clip, 0));
     lastFrame = performance.now();
+    if (!revealed) frame();
+    reveal();
     renderOnce();
   }
 
-  async function playEmote(url: string): Promise<void> {
-    const clip = await loadClip(url);
-    if (clip && !disposed) applyClip(clip);
+  async function playEmote(url: string): Promise<boolean> {
+    let clip = await loadClip(url);
+    if (disposed) return false;
+    if (clip && !clipBinds(clip)) {
+      console.warn("[wearable-preview] emote does not bind to this avatar", url);
+      clip = null;
+    }
+    if (!clip && url !== EMOTES.idle) clip = await loadClip(EMOTES.idle as string);
+    if (!clip || disposed) return false;
+    applyClip(clip);
+    return true;
+  }
+
+  async function setEmote(input: string | null | undefined): Promise<void> {
+    const url = emoteUrlFor(input);
+    if (!url || disposed || !mounted.size) return;
+    cycleGen++;
+    await playEmote(url);
   }
 
   const EMOTE_REST_MS = 1500;
@@ -628,7 +613,7 @@ export function createAvatarScene(
     for (let i = 0; !disposed && gen === cycleGen; i++) {
       const clip = await loadClip(urls[i % urls.length] as string);
       if (disposed || gen !== cycleGen) return;
-      if (clip) {
+      if (clip && clipBinds(clip)) {
         applyClip(clip);
         await sleep(clip.duration * 1000);
         if (disposed || gen !== cycleGen) return;
@@ -640,156 +625,180 @@ export function createAvatarScene(
     }
   }
 
-  async function load(): Promise<void> {
+  async function bindInitialEmote(): Promise<void> {
+    const wanted = opts.emotes?.length ? opts.emotes[0] : opts.emote;
+    await playEmote(emoteUrlFor(wanted) ?? (EMOTES.idle as string));
+    if (disposed) return;
+    reveal();
+    if (opts.emotes?.length) void runEmoteCycle(opts.emotes);
+  }
+
+  async function reconcile(target: ResolvedOutfit, gen: number): Promise<{ count: number; bodyChanged: boolean } | null> {
+    const { bodyShape, wearables } = target;
+    const color = (c: { r: number; g: number; b: number } | null) => c ? new THREE.Color(c.r, c.g, c.b) : null;
+    const colors: AvatarColors = { skin: color(target.colors.skin), hair: color(target.colors.hair), eyes: color(target.colors.eyes) };
+    const bodyLc = bodyShape.toLowerCase();
+    const byPointer = await fetchEntities(base, [bodyShape, ...wearables]);
+    if (stale(gen)) return null;
+    const rules = computeHiding(wearables, byPointer);
+
+    const wantParts: { key: string; urn: string; isBody: boolean; entity: Entity }[] = [];
+    const wantFeatures: { key: string; cat: string; entity: Entity }[] = [];
+    const bodyEntity = byPointer.get(bodyLc);
+    if (bodyEntity)
+      wantParts.push({ key: partKey(bodyLc, bodyLc), urn: bodyShape, isBody: true, entity: bodyEntity });
+    for (const urn of wearables) {
+      const e = byPointer.get(urn.toLowerCase());
+      if (!e) continue;
+      const cat = categoryOf(e);
+      if (cat === "body_shape") continue;
+      if (cat !== null && rules.hidden.has(cat)) continue;
+      if (cat !== null && FACIAL_CATS.has(cat))
+        wantFeatures.push({ key: partKey(urn, bodyLc), cat, entity: e });
+      else wantParts.push({ key: partKey(urn, bodyLc), urn, isBody: false, entity: e });
+    }
+
+    const [objs, feats] = await Promise.all([
+      Promise.all(wantParts.map((p) => cachedPart(p.key, p.entity, bodyShape))),
+      Promise.all(wantFeatures.map((f) => cachedFeature(f.key, f.entity, bodyShape))),
+    ]);
+    if (stale(gen)) return null;
+
+    const at = mixers.values().next().value?.time ?? 0;
+    const nextKeys = new Set(wantParts.map((p) => p.key));
+    for (const [key, part] of mounted) {
+      if (nextKeys.has(key)) continue;
+      mixers.get(key)?.stopAllAction();
+      mixers.delete(key);
+      avatarGroup.remove(part.obj);
+      mounted.delete(key);
+    }
+    let nextBody: THREE.Object3D | null = null;
+    for (let i = 0; i < wantParts.length; i++) {
+      const p = wantParts[i] as (typeof wantParts)[number];
+      const obj = objs[i];
+      if (!obj) continue;
+      if (p.isBody) nextBody = obj;
+      if (mounted.has(p.key)) continue;
+      const part: Part = { key: p.key, urn: p.urn, isBody: p.isBody, obj };
+      if (currentClip) mixers.set(p.key, bindClip(part, currentClip, at));
+      avatarGroup.add(obj);
+      mounted.set(p.key, part);
+    }
+    const features = new Map<string, FacialFeature>();
+    for (let i = 0; i < wantFeatures.length; i++) {
+      const f = wantFeatures[i] as (typeof wantFeatures)[number];
+      const feat = feats[i];
+      if (feat) features.set(f.cat, feat);
+    }
+    const bodyChanged = nextBody !== bodyRoot;
+    bodyRoot = nextBody;
+    if (bodyRoot) {
+      hideBaseMeshes(bodyRoot, rules);
+      applyFacialFeatures(bodyRoot, features, colors, rules.hidden);
+    }
+    applyColors(colors);
+    renderOnce();
+    return { count: mounted.size, bodyChanged };
+  }
+
+  function failInitial(err: unknown): void {
+    console.error("[wearable-preview]", err);
+    scene.visible = false;
+    setStatus("error");
+  }
+
+  async function refresh(gen: number): Promise<void> {
+    const initial = !revealed;
+    if (initial) {
+      scene.visible = true;
+      if (status === "error") setStatus("loading");
+    }
     try {
-      if (opts.model) {
-        setStatus("loading");
-        const s = (await new GLTFLoader().loadAsync(opts.model)).scene;
-        avatarGroup.add(s);
-        parts.push(s);
-        mattify();
-        frame();
-        if (opts.emotes?.length) void runEmoteCycle(opts.emotes);
-        else {
-          const me = emoteUrlFor(opts.emote);
-          if (me) await playEmote(me);
-        }
-        setStatus("ready");
+      const target = await resolveOutfit(base, opts);
+      if (stale(gen)) return;
+      const result = await reconcile(target, gen);
+      if (!result) return;
+      if (!result.count) {
+        scene.visible = false;
+        setStatus("empty");
         return;
       }
-      setStatus("loading");
-      const { bodyShape, wearables, colors } = await resolveAvatar();
-      if (disposed) return;
-      const pointers = [bodyShape, ...wearables];
-      const entities = await fetchActiveEntities(base, pointers);
-      if (disposed) return;
-      const byPointer = new Map<string, Entity>();
-      for (const e of entities)
-        for (const p of e.pointers || []) byPointer.set(String(p).toLowerCase(), e);
-
-      const bodyLc = String(bodyShape).toLowerCase();
-      const catOf = (e: Entity | undefined): string | null => e?.metadata?.data?.category || null;
-      const equippedCats = new Set<string>();
-      const hidden = new Set<string>();
-      let skinEquipped = false;
-      let handsDefaultHidden = false;
-      for (const urn of wearables) {
-        const e = byPointer.get(urn.toLowerCase());
-        if (!e) continue;
-        const cat = catOf(e);
-        if (!cat) continue;
-        equippedCats.add(cat);
-        if (cat === "skin") skinEquipped = true;
-        const d: EntityData = e.metadata?.data || {};
-        for (const h of [...(d.hides || []), ...(d.replaces || [])]) if (h !== cat) hidden.add(h);
-        const coversUpperBody = cat === "upper_body" || (d.hides || []).includes("upper_body");
-        if (coversUpperBody && !(d.removesDefaultHiding || []).includes("hands"))
-          handsDefaultHidden = true;
+      if (initial || result.bodyChanged) frame();
+      if (initial) {
+        await bindInitialEmote();
+        if (stale(gen)) return;
       }
-      if (skinEquipped)
-        for (const c of [
-          "eyes", "mouth", "eyebrows", "hair", "facial_hair",
-          "upper_body", "lower_body", "feet", "hands_wear", "hands", "head",
-        ])
-          hidden.add(c);
-
-      const HIDERS: [string, () => boolean][] = [
-        ["ubody_basemesh", () => equippedCats.has("upper_body") || hidden.has("upper_body")],
-        ["lbody_basemesh", () => equippedCats.has("lower_body") || hidden.has("lower_body")],
-        ["feet_basemesh", () => equippedCats.has("feet") || hidden.has("feet")],
-        ["hands_basemesh", () => equippedCats.has("hands_wear") || hidden.has("hands") || hidden.has("hands_wear") || handsDefaultHidden],
-        ["head_basemesh", () => hidden.has("head")],
-        ["mask_eyes", () => hidden.has("eyes")],
-        ["mask_eyebrows", () => hidden.has("eyebrows")],
-        ["mask_mouth", () => hidden.has("mouth")],
-      ];
-      const hideBaseMeshes = (root: THREE.Object3D) => {
-        root.traverse((o) => {
-          if (!o.isMesh) return;
-          const names = [o.name, o.parent?.name]
-            .filter((s): s is string => Boolean(s))
-            .map((s) => s.toLowerCase());
-          for (const [suffix, pred] of HIDERS) {
-            if (names.some((n) => n.endsWith(suffix)) && (skinEquipped || pred())) {
-              o.visible = false;
-              break;
-            }
-          }
-        });
-      };
-
-      let loaded = 0;
-      let bodyRoot: THREE.Object3D | null = null;
-      const features = new Map<string, FacialFeature>();
-      await Promise.allSettled(
-        pointers.map(async (urn) => {
-          const e = byPointer.get(urn.toLowerCase());
-          if (!e) return;
-          const isBody = urn.toLowerCase() === bodyLc;
-          const cat = catOf(e);
-          if (!isBody && cat !== null && hidden.has(cat)) return;
-          try {
-            if (!isBody && cat !== null && FACIAL_CATS.has(cat)) {
-              const feat = await loadFacialFeature(e, bodyShape);
-              if (feat && !disposed) {
-                features.set(cat, feat);
-                loaded++;
-              }
-              return;
-            }
-            const obj = await Promise.race<THREE.Object3D | null>([
-              loadEntityGlb(e, bodyShape),
-              new Promise<THREE.Object3D | null>((_resolve, reject) =>
-                setTimeout(() => reject(new Error("timeout")), 20000),
-              ),
-            ]);
-            if (obj && !disposed) {
-              if (isBody) {
-                bodyRoot = obj;
-                hideBaseMeshes(obj);
-              }
-              avatarGroup.add(obj);
-              parts.push(obj);
-              mattify();
-              applyColors(colors);
-              frame();
-              loaded++;
-            }
-          } catch (err) {
-            console.warn("[wearable-preview] failed", urn, err);
-          }
-        }),
-      );
-      if (disposed) return;
-      if (bodyRoot) applyFacialFeatures(bodyRoot, features, colors, hidden);
-      mattify();
-      applyColors(colors);
-      frame();
-
-      if (opts.emotes?.length && parts.length) void runEmoteCycle(opts.emotes);
-      else {
-        const m = emoteUrlFor(opts.emote);
-        if (m && parts.length) await playEmote(m);
-      }
-
-      setStatus(loaded ? "ready" : "empty");
+      scene.visible = true;
+      renderOnce();
+      setStatus(result.count ? "ready" : "empty");
     } catch (err) {
-      console.error("[wearable-preview]", err);
-      if (!disposed) {
-        scene.visible = false;
-        setStatus("error");
-      }
+      if (stale(gen)) return;
+      if (initial) failInitial(err);
+      else console.warn("[wearable-preview] outfit swap failed", err);
     }
   }
 
-  load();
+  function settleSwap(): void {
+    if (swapTimer) clearTimeout(swapTimer);
+    swapTimer = null;
+    const settle = swapSettle;
+    swapSettle = null;
+    settle?.();
+  }
+
+  function setOutfit(next: AvatarOutfitOptions): Promise<void> {
+    if (disposed || opts.model) return Promise.resolve();
+    Object.assign(opts, next);
+    const gen = ++loadGen;
+    settleSwap();
+    return new Promise((resolve) => {
+      swapSettle = resolve;
+      swapTimer = setTimeout(() => {
+        swapTimer = null;
+        swapSettle = null;
+        if (stale(gen)) return resolve();
+        void refresh(gen).then(resolve);
+      }, OUTFIT_SWAP_DEBOUNCE_MS);
+    });
+  }
+
+  async function loadModel(url: string): Promise<void> {
+    try {
+      setStatus("loading");
+      const s = (await new GLTFLoader().loadAsync(url)).scene;
+      if (disposed) return;
+      const part: Part = { key: `model|${url}`, urn: url, isBody: true, obj: s };
+      mattify(s);
+      avatarGroup.add(s);
+      mounted.set(part.key, part);
+      bodyRoot = s;
+      frame();
+      if (opts.emotes?.length) void runEmoteCycle(opts.emotes);
+      else {
+        const me = emoteUrlFor(opts.emote);
+        if (me) await playEmote(me);
+      }
+      reveal();
+      setStatus("ready");
+    } catch (err) {
+      if (!disposed) failInitial(err);
+    }
+  }
+
+  setStatus("loading");
+  if (opts.model) void loadModel(opts.model);
+  else void refresh(++loadGen);
 
   function dispose() {
     disposed = true;
     cycleGen++;
+    loadGen++;
+    settleSwap();
     if (demandIdleTimer) clearTimeout(demandIdleTimer);
     renderer.setAnimationLoop(null);
-    for (const m of mixers) m.stopAllAction();
+    for (const m of mixers.values()) m.stopAllAction();
+    mixers.clear();
     controls.dispose();
     scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose?.();
@@ -802,6 +811,17 @@ export function createAvatarScene(
         m.dispose?.();
       }
     });
+    for (const pending of partCache.values())
+      void pending.then((obj) => {
+        if (obj && obj.parent === null) disposeObject(obj);
+      });
+    partCache.clear();
+    for (const pending of featureCache.values())
+      void pending.then((feat) => {
+        feat?.tex.dispose();
+        feat?.mask?.dispose();
+      });
+    featureCache.clear();
     renderer.dispose();
     renderer.forceContextLoss();
     if (renderer.domElement.parentNode === container) container.removeChild(renderer.domElement);
@@ -813,5 +833,5 @@ export function createAvatarScene(
     frame();
   }
 
-  return { resize, dispose, setActive, setEmote, setCamera };
+  return { resize, dispose, setActive, setEmote, setCamera, setOutfit };
 }

@@ -1,5 +1,8 @@
+import { useWorldEntry } from "../../app/WorldEntry";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { reelKey, reelQuery, type ReelPage } from "../../data/catalyst/reel";
 import ExploreChrome, { type TabId } from "../frames/ExploreChrome";
 import JumpLoading, { useJump } from "../components/JumpLoading";
 import PhotoDetail, { photoTime, type ReelPhoto } from "../components/PhotoDetail";
@@ -8,7 +11,6 @@ import { sendBridge, useBridgeState } from "../../overlay/bridge";
 import { serviceBase, signedFetch } from "../../data/catalyst/client";
 
 const STORAGE_MAX = 500;
-const PAGE = 100;
 const PARCEL_SIZE = 16;
 
 type ReelStorage = { current: number; max: number };
@@ -18,44 +20,38 @@ function monthLabel(ms: number): string {
   return new Date(ms).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-export default function Reel() {
+export default function Reel({ embedded = false }: { embedded?: boolean }) {
+  const address = useBridgeState((s) => s.identity.address) || null;
+  return <AccountReel key={address ?? "guest"} embedded={embedded} address={address} />;
+}
+
+function AccountReel({ embedded, address }: { embedded: boolean; address: string | null }) {
+  const queryClient = useQueryClient();
+  const cached = address ? queryClient.getQueryData<ReelPage>(reelKey(address)) : undefined;
   const navigate = useNavigate();
-  const identity = useBridgeState((s) => s.identity);
-  const address = identity?.address || null;
+  const entry = useWorldEntry();
   const [tab, setTab] = useState<TabId>("gallery");
-  const [photos, setPhotos] = useState<ReelPhoto[]>([]);
-  const [storage, setStorage] = useState<ReelStorage | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [photos, setPhotos] = useState<ReelPhoto[]>(cached?.images ?? []);
+  const [storage, setStorage] = useState<ReelStorage | null>(cached ? { current: cached.currentImages, max: cached.maxImages } : null);
+  const [loading, setLoading] = useState(Boolean(address && !cached));
   const [failed, setFailed] = useState(false);
   const [index, setIndex] = useState<number | null>(null);
   const { jumping, stalled, beginJump, cancelJump, confirmJump } = useJump(() => navigate("/"));
 
   const load = useCallback(async () => {
     if (!address) return;
-    setLoading(true);
+    setLoading(!queryClient.getQueryData(reelKey(address)));
     setFailed(false);
     try {
-      const { status, body } = await signedFetch(
-        `${serviceBase("cameraReel")}/api/users/${address}/images?limit=${PAGE}&offset=0`,
-        { method: "GET" }
-      );
-      if (status >= 200 && status < 300) {
-        const data = JSON.parse(body);
-        const images = Array.isArray(data?.images) ? (data.images as ReelPhoto[]) : [];
-        setPhotos(images);
-        setStorage({
-          current: Number.isFinite(data?.currentImages) ? data.currentImages : images.length,
-          max: Number.isFinite(data?.maxImages) ? data.maxImages : 0,
-        });
-      } else {
-        setFailed(true);
-      }
+      const data = await queryClient.fetchQuery(reelQuery(address));
+      setPhotos(data.images);
+      setStorage({ current: data.currentImages, max: data.maxImages });
     } catch {
       setFailed(true);
     } finally {
       setLoading(false);
     }
-  }, [address]);
+  }, [address, queryClient]);
 
   useEffect(() => {
     load();
@@ -70,6 +66,10 @@ export default function Reel() {
           { method: "DELETE" }
         );
         if (status >= 200 && status < 300) {
+          queryClient.setQueryData<ReelPage>(reelKey(address), previous => previous && {
+            ...previous, images: previous.images.filter(photo => photo.id !== id), currentImages: Math.max(0, previous.currentImages - 1),
+          });
+          await queryClient.invalidateQueries({ queryKey: reelKey(address), refetchType: "none" });
           setPhotos((prev) => prev.filter((p) => p.id !== id));
           try {
             const data = JSON.parse(body);
@@ -85,7 +85,7 @@ export default function Reel() {
       } catch {
       }
     },
-    [address]
+    [address, queryClient]
   );
 
   const current = storage?.current ?? photos.length;
@@ -109,13 +109,14 @@ export default function Reel() {
   const onTeleport = useCallback(
     (x: number, y: number) => {
       setIndex(null);
+      if (entry?.pending) { entry.enter({ kind: "parcel", x, y }); return; }
       sendBridge("Teleport", {
         x: x * PARCEL_SIZE + PARCEL_SIZE / 2,
         z: y * PARCEL_SIZE + PARCEL_SIZE / 2,
       });
       beginJump("destination");
     },
-    [beginJump]
+    [beginJump, entry]
   );
 
   const onViewPerson = useCallback(
@@ -126,14 +127,14 @@ export default function Reel() {
     [navigate]
   );
 
-  return (
-    <ExploreChrome active={tab} onTab={setTab}>
+  const content = (
+    <>
       <div className="rl">
         <div className="rl__head">
-          <h1 className="rl__title">Gallery</h1>
+          {!embedded && <h1 className="rl__title">Gallery</h1>}
           <div className="rl__storage">
             <div className="rl__storagetxt">
-              Storage <b>{current}</b>/{max} photos taken
+              {loading ? "Loading storage\u2026" : !address ? "Sign in to view storage" : failed ? "Storage unavailable" : <>Storage <b>{current}</b>/{max} photos taken</>}
             </div>
             <div className="rl__storagebar">
               <span className="rl__storagefill" style={{ width: pct + "%" }} />
@@ -169,7 +170,7 @@ export default function Reel() {
               ))}
             </div>
           ) : (
-            <div className="rl__empty" role={failed ? "alert" : undefined}>
+            <div className="rl__empty" role={failed ? "alert" : loading ? "status" : undefined} aria-busy={loading || undefined}>
               <div className="rl__emptyicon">
                 <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
                   <defs>
@@ -184,14 +185,14 @@ export default function Reel() {
                 </svg>
               </div>
               <div className="rl__emptytitle">
-                {loading
+                {!address ? "Sign in to see your photos" : loading
                   ? "Loading your reel\u{2026}"
                   : failed
                     ? "We couldn't reach your photo gallery"
                     : "There are no photos yet"}
               </div>
               <div className="rl__emptynote">
-                {failed && !loading ? (
+                {loading ? "Your photos will appear here when they're ready." : failed ? (
                   <>Your photos are still there &#x2014; try again.</>
                 ) : (
                   <>
@@ -232,6 +233,7 @@ export default function Reel() {
           onEnterAnyway={confirmJump}
         />
       )}
-    </ExploreChrome>
+    </>
   );
+  return embedded ? content : <ExploreChrome active={tab} onTab={setTab}>{content}</ExploreChrome>;
 }

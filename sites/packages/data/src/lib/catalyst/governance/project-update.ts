@@ -2,21 +2,19 @@ import { z } from "zod";
 
 import fixture from "../../../fixtures/governance-submit-project-update.json";
 import { warnInvalid } from "../warn";
-import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 import { governanceApiBase } from "./api-base";
+import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 
-export { governanceApiBase };
+type HealthOption = { id: string; label: string };
 
-export type HealthOption = { id: string; label: string };
-
-export type UpdateField = {
+type UpdateField = {
   key: string;
   label: string;
   limit: number;
   required: boolean;
 };
 
-export type ProjectFunding = {
+type ProjectFunding = {
   token: string;
   total: number;
   totalLabel: string;
@@ -34,7 +32,7 @@ export type ProjectFunding = {
   address: string | null;
 };
 
-export type UpdateProject = {
+type UpdateProject = {
   id: string;
   proposalId: string;
   title: string;
@@ -46,7 +44,7 @@ export type UpdateProject = {
   author: string | null;
 };
 
-export type PriorUpdate = {
+type PriorUpdate = {
   id: string;
   health: string | null;
   introduction: string;
@@ -96,7 +94,7 @@ function fixtureProject(): UpdateProject {
   };
 }
 
-export function fixtureContext(): ProjectUpdateContext {
+function fixtureContext(): ProjectUpdateContext {
   return {
     source: "fixture",
     project: fixtureProject(),
@@ -139,7 +137,7 @@ const EMPTY_FUNDING: ProjectFunding = {
   address: null,
 };
 
-export function unavailableContext(reason: string): ProjectUpdateContext {
+function unavailableContext(reason: string): ProjectUpdateContext {
   return {
     source: "unavailable",
     reason,
@@ -258,7 +256,7 @@ function projectVM(p: LiveProject): UpdateProject {
   };
 }
 
-export type LoadOptions = {
+type LoadOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -331,7 +329,9 @@ export async function loadProjectUpdateContext(
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftProjectsEnvelope = Assert<
   AssignableTo<
     RsListEnvelope,
@@ -340,3 +340,4 @@ export type _DriftProjectsEnvelope = Assert<
     }
   >
 >;
+

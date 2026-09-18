@@ -15,21 +15,72 @@ const PROFILE_CACHE_TTL: Duration = Duration::from_secs(30);
 const PROFILE_CACHE_MAX_ENTRIES: usize = 50_000;
 const PROFILE_BATCH_MAX: usize = 50;
 const PROFILE_IDS_MAX: usize = 1000;
-const PROFILE_PROCESS_CONCURRENCY: usize = 8;
 
-async fn process_profiles_concurrent(
-    entities: Vec<Value>,
-    squid_pool: Option<&sqlx::PgPool>,
-    cdn_base: &str,
-) -> Vec<Value> {
-    use futures::stream::StreamExt;
-    futures::stream::iter(entities.into_iter().map(|entity| async move {
-        super::profile_processing::process_profile(&entity, squid_pool, cdn_base).await
-    }))
-    .buffered(PROFILE_PROCESS_CONCURRENCY)
-    .filter_map(|p| async move { p })
-    .collect()
-    .await
+/// Processes a batch and fills the per-id cache (`Null` for absent pointers).
+async fn process_and_cache_profiles(
+    state: &AppState,
+    pointers: &[String],
+    entities: &[Value],
+) -> Vec<(String, Value)> {
+    let squid_pool = state.squid_pool.as_ref();
+    let cdn_base = &state.profile_cdn_base_url;
+    let processed =
+        super::profile_processing::process_profiles_positional(entities, squid_pool, cdn_base)
+            .await;
+    let mut out = Vec::with_capacity(entities.len());
+    let mut filled: std::collections::HashSet<String> = Default::default();
+    for (entity, profile) in entities.iter().zip(processed) {
+        let key = super::profile_processing::entity_eth_address(entity).unwrap_or_default();
+        let profile = profile.unwrap_or(Value::Null);
+        if !key.is_empty() && filled.insert(key.clone()) {
+            profile_cache().insert(key.clone(), profile.clone());
+        }
+        if !profile.is_null() {
+            out.push((key, profile));
+        }
+    }
+    for pointer in pointers {
+        if filled.insert(pointer.clone()) {
+            profile_cache().insert(pointer.clone(), Value::Null);
+        }
+    }
+    out
+}
+
+/// Per-id hits are reused across id sets; only misses are fetched; answer in request order.
+async fn profiles_via_cache(state: &AppState, pointers: &[String]) -> Result<Vec<Value>, ()> {
+    let mut wanted: Vec<String> = Vec::with_capacity(pointers.len());
+    for pointer in pointers {
+        if !wanted.contains(pointer) {
+            wanted.push(pointer.clone());
+        }
+    }
+    let mut found: std::collections::HashMap<String, Value> = Default::default();
+    let mut missing: Vec<String> = Vec::new();
+    for pointer in &wanted {
+        match profile_cache().get_fresh(pointer) {
+            Some(v) => {
+                found.insert(pointer.clone(), v);
+            }
+            None => missing.push(pointer.clone()),
+        }
+    }
+    if !missing.is_empty() {
+        let entities = state
+            .database
+            .active_entities_by_pointers(&missing)
+            .await
+            .map_err(|_| ())?;
+        for (key, profile) in process_and_cache_profiles(state, &missing, &entities).await {
+            found.entry(key).or_insert(profile);
+        }
+    }
+    Ok(wanted
+        .iter()
+        .filter_map(|p| found.get(p))
+        .filter(|v| !v.is_null())
+        .cloned()
+        .collect())
 }
 
 fn profile_cache() -> &'static Arc<TtlMap<String, Value>> {
@@ -197,14 +248,7 @@ pub async fn profiles(
         let pointers_for_fetch = pointers.clone();
         let cached: Result<Value, ()> = profiles_batch_cache()
             .get_or_fetch(cache_key, move || async move {
-                let entities = state_arc
-                    .database
-                    .active_entities_by_pointers(&pointers_for_fetch)
-                    .await
-                    .map_err(|_| ())?;
-                let squid_pool = state_arc.squid_pool.as_ref();
-                let cdn_base = &state_arc.profile_cdn_base_url;
-                let profiles = process_profiles_concurrent(entities, squid_pool, cdn_base).await;
+                let profiles = profiles_via_cache(&state_arc, &pointers_for_fetch).await?;
                 Ok::<Value, ()>(Value::Array(profiles))
             })
             .await;
@@ -232,9 +276,11 @@ pub async fn profiles(
         }
     }
 
-    let squid_pool = state.squid_pool.as_ref();
-    let cdn_base = &state.profile_cdn_base_url;
-    let profiles = process_profiles_concurrent(entities, squid_pool, cdn_base).await;
+    let profiles: Vec<Value> = process_and_cache_profiles(&state, &pointers, &entities)
+        .await
+        .into_iter()
+        .map(|(_, profile)| profile)
+        .collect();
 
     Json(Value::Array(profiles)).into_response()
 }
@@ -303,6 +349,13 @@ async fn third_party_items_by_owner(
     Json(json!(body)).into_response()
 }
 
+const BY_OWNER_CACHE_TTL: Duration = Duration::from_secs(30);
+
+fn by_owner_cache() -> &'static TtlMap<(String, String, bool), Value> {
+    static C: OnceLock<TtlMap<(String, String, bool), Value>> = OnceLock::new();
+    C.get_or_init(|| TtlMap::bounded("items-by-owner", BY_OWNER_CACHE_TTL, 50_000))
+}
+
 async fn items_by_owner(
     state: &AppState,
     owner: &str,
@@ -322,11 +375,34 @@ async fn items_by_owner(
         .await;
     }
 
-    let pool = match state.squid_pool.as_ref() {
-        Some(p) => p,
-        None => return Json(json!([])).into_response(),
+    let Some(pool) = state.squid_pool.as_ref() else {
+        return Json(json!([])).into_response();
     };
 
+    let key = (
+        owner.to_lowercase(),
+        category.to_string(),
+        include_definitions,
+    );
+    let body = by_owner_cache()
+        .get_or_fetch(key, || async {
+            Ok::<Value, ()>(
+                owned_items_body(state, pool, owner, category, include_definitions, extract).await,
+            )
+        })
+        .await
+        .unwrap_or_else(|()| json!([]));
+    Json(body).into_response()
+}
+
+async fn owned_items_body(
+    state: &AppState,
+    pool: &sqlx::PgPool,
+    owner: &str,
+    category: &str,
+    include_definitions: bool,
+    extract: impl Fn(&Value, &str) -> Option<Value>,
+) -> Value {
     let sql = if super::lease_overlay::usage_grants_present(pool).await {
         "SELECT urn, count(*) AS amount, COALESCE(max(rarity), '') AS rarity FROM ( \
              SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, i.rarity AS rarity \
@@ -361,7 +437,7 @@ async fn items_by_owner(
             .into_iter()
             .map(|(urn, amount, _)| json!({ "urn": urn, "amount": amount }))
             .collect();
-        return Json(json!(body)).into_response();
+        return json!(body);
     }
 
     let pointers: Vec<String> = rows.iter().map(|(urn, ..)| urn.to_lowercase()).collect();
@@ -395,7 +471,7 @@ async fn items_by_owner(
             obj
         })
         .collect();
-    Json(json!(body)).into_response()
+    json!(body)
 }
 
 fn sort_owned_by_rarity_then_urn(rows: &mut [(String, i64, String)]) {

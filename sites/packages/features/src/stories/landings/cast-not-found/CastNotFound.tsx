@@ -7,10 +7,10 @@ import { track, type TrackContext } from "@core/lib/telemetry/track";
 const GO_HOME_CLASS = "stcastnotfound__btn";
 const VIEW_DOCS_CLASS = "stcastnotfound__link";
 
-export const HOME_HREF = "https://catalyst.example.com";
-export const DOCS_HREF = "https://docs.decentraland.org/creator/worlds/cast/";
+const HOME_HREF = "https://catalyst.example.com";
+const DOCS_HREF = "https://docs.decentraland.org/creator/worlds/cast/";
 
-export type CastNotFoundProps = {
+type CastNotFoundProps = {
   trackCtx: TrackContext;
   from: "streamer" | "watcher" | "unknown";
   reason: "missing" | "malformed" | "expired" | "ended";

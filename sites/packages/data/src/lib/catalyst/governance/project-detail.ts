@@ -1,13 +1,11 @@
 import { z } from "zod";
 
-import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 import { governanceApiBase } from "./api-base";
+import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 
-export { governanceApiBase };
+type ProjectLink = { id: string; label: string; url: string };
 
-export type ProjectLink = { id: string; label: string; url: string };
-
-export type Personnel = {
+type Personnel = {
   id: string;
   name: string;
   address: string | null;
@@ -16,14 +14,14 @@ export type Personnel = {
   relevantLink?: string;
 };
 
-export type Milestone = {
+type Milestone = {
   id: string;
   date: string;
   title: string;
   description: string;
 };
 
-export type ProjectUpdate = {
+type ProjectUpdate = {
   id: string;
   status: string;
   health: string | null;
@@ -34,16 +32,16 @@ export type ProjectUpdate = {
   index: number;
 };
 
-export type ActivityItem = {
+type ActivityItem = {
   id: string;
   kind: string;
   label: string;
   time: string;
 };
 
-export type NextVested = { time: number; unit: string; amount: string };
+type NextVested = { time: number; unit: string; amount: string };
 
-export type Funding = {
+type Funding = {
   enactedLabel: string;
   endLabel: string;
   total: string;
@@ -55,7 +53,7 @@ export type Funding = {
   nextVested: NextVested;
 };
 
-export type VestingContract = { id: string; label: string; url: string };
+type VestingContract = { id: string; label: string; url: string };
 
 export type ProjectDetail = {
   id: string;
@@ -79,7 +77,7 @@ export type ProjectDetail = {
 
 export type DetailSource = "live" | "fallback";
 
-export type ProjectDetailResult = {
+type ProjectDetailResult = {
   source: DetailSource;
   project: ProjectDetail | null;
 };
@@ -335,7 +333,7 @@ function adaptLiveProject(live: LiveProject): ProjectDetail {
   };
 }
 
-export type LoadOptions = {
+type LoadOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -392,7 +390,9 @@ export async function loadProjectDetail(
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftProjectsListEnvelope = Assert<
   AssignableTo<
     RsListEnvelope,
@@ -401,3 +401,4 @@ export type _DriftProjectsListEnvelope = Assert<
     }
   >
 >;
+

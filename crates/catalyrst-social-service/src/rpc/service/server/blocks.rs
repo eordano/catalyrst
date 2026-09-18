@@ -45,15 +45,7 @@ impl SocialServiceImpl {
             });
         }
         let db = context.server_context.db();
-        if let Err(e) = db.block_user(&me, &other).await {
-            return Ok(BlockUserResponse {
-                response: Some(block_user_response::Response::InternalServerError(
-                    internal_err(e.to_string()),
-                )),
-            });
-        }
-
-        match db.last_friendship_action(&me, &other).await {
+        match db.block_user_and_last(&me, &other).await {
             Ok(Some(last)) => {
                 let _ = db
                     .apply_friendship_action(
@@ -139,16 +131,9 @@ impl SocialServiceImpl {
             });
         }
         let db = context.server_context.db();
-        if let Err(e) = db.unblock_user(&me, &other).await {
-            return Ok(UnblockUserResponse {
-                response: Some(unblock_user_response::Response::InternalServerError(
-                    internal_err(e.to_string()),
-                )),
-            });
-        }
         let pubsub = context.server_context.pubsub();
 
-        let last = match db.last_friendship_action(&me, &other).await {
+        let last = match db.unblock_user_and_last(&me, &other).await {
             Ok(v) => v,
             Err(e) => {
                 return Ok(UnblockUserResponse {
@@ -215,13 +200,7 @@ impl SocialServiceImpl {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
         let (limit, offset) = page_blocked_users(&request.pagination);
-        let result = async {
-            let rows = db.get_blocked_users(&me, limit, offset).await?;
-            let total = db.count_blocked_users(&me).await?;
-            Ok::<_, crate::rpc::db::DbError>((rows, total))
-        }
-        .await;
-        let (rows, total) = match result {
+        let (rows, total) = match db.get_blocked_users(&me, limit, offset).await {
             Ok(v) => v,
             Err(_) => {
                 return Ok(GetBlockedUsersResponse {

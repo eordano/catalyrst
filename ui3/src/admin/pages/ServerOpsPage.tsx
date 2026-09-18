@@ -1,5 +1,7 @@
 import type { ComponentType } from "react";
 
+import Button from "../../atoms/Button";
+import EmptyState from "../../components/EmptyState";
 import type {
   OperatorFormProps,
   ServerDisk,
@@ -12,7 +14,9 @@ import type {
   ServerServiceRow,
   ServerWatch,
 } from "./ServerOpsTypes";
-import "./serverops.css";
+import "../admin.css";
+
+type Tone = "ok" | "warn" | "bad" | undefined;
 
 function PlainForm({ method, children, className }: OperatorFormProps) {
   return (
@@ -24,10 +28,13 @@ function PlainForm({ method, children, className }: OperatorFormProps) {
 
 function Unavailable({ message, fix }: { message: string; fix?: string }) {
   return (
-    <div className="srvops-empty" role="status">
-      <p className="srvops-empty-msg">{message}</p>
-      {fix ? <p className="srvops-empty-fix">Fix: {fix}</p> : null}
-    </div>
+    <EmptyState
+      variant="inline"
+      titleAs="p"
+      title={message}
+      subtitle={fix ? `Fix: ${fix}` : undefined}
+      role="status"
+    />
   );
 }
 
@@ -39,10 +46,10 @@ function ago(ms: number): string {
   return `${Math.round(m / 60)}h ago`;
 }
 
-function stateTone(s: ServerServiceRow["state"]): string {
+function stateTone(s: ServerServiceRow["state"]): Tone {
   if (s === "ok") return "ok";
   if (s === "answering") return "warn";
-  if (s === "off") return "muted";
+  if (s === "off") return undefined;
   return "bad";
 }
 
@@ -55,11 +62,11 @@ function badgeText(s: ServerServiceRow): string {
 function Actionables({ items }: { items: string[] }) {
   if (items.length === 0) return null;
   return (
-    <ul className="srvops-actionables">
+    <ul className="adm-steps">
       {items.map((a) =>
         a.startsWith("$ ") ? (
           <li key={a}>
-            <code className="srvops-cmd">{a.slice(2)}</code>
+            <code>{a.slice(2)}</code>
           </li>
         ) : (
           <li key={a}>{a}</li>
@@ -81,37 +88,42 @@ function ServiceCard({
   const unhealthy = s.state === "answering" || s.state === "down";
   const rechecking = recheckingKey === s.key;
   return (
-    <li className={`srvops-service srvops-edge-${stateTone(s.state)}`}>
-      <div className="srvops-service-head">
-        <div className="srvops-service-id">
-          <span className="srvops-service-name">{s.name}</span>
-          <span className="srvops-mono srvops-dim">
+    <li className="adm-card">
+      <div className="adm-card__head">
+        <div className="adm-row">
+          <span className="adm-card__title">{s.name}</span>
+          <span className="adm-mono adm-dim">
             {s.unit} &#xB7; :{s.port}
           </span>
         </div>
-        <div className="srvops-service-live">
+        <div className="adm-row">
           {s.state === "ok" && s.latencyMs > 0 ? (
-            <span className="srvops-dim">{s.latencyMs}ms</span>
+            <span className="adm-dim">{s.latencyMs}ms</span>
           ) : null}
-          {s.ageMs > 5000 ? (
-            <span className="srvops-dim">checked {ago(s.ageMs)}</span>
+          {s.ageMs > 5000 ? <span className="adm-dim">checked {ago(s.ageMs)}</span> : null}
+          {s.recovered ? (
+            <span className="adm-status" data-tone="ok">
+              recovered
+            </span>
           ) : null}
-          {s.recovered ? <span className="srvops-badge srvops-ok">recovered</span> : null}
-          <span className={`srvops-badge srvops-${stateTone(s.state)}`}>{badgeText(s)}</span>
+          <span className="adm-status" data-tone={stateTone(s.state)}>
+            {badgeText(s)}
+          </span>
         </div>
       </div>
-      <p className="srvops-serves">{s.serves}</p>
+      <p className="adm-card__text adm-dim">{s.serves}</p>
       {unhealthy ? (
-        <div className="srvops-remedy">
-          <div className="srvops-remedy-head">
-            <p className="srvops-detail" aria-live="polite">
-              {s.detail}
-            </p>
-            <FormComponent method="get" className="srvops-rowcheck">
+        <div
+          className="adm-notice adm-server__remedy"
+          data-tone={s.state === "down" ? "bad" : "warn"}
+        >
+          <div className="adm-actions adm-actions--split">
+            <p aria-live="polite">{s.detail}</p>
+            <FormComponent method="get">
               <input type="hidden" name="recheck" value={s.key} />
-              <button className="srvops-btn" type="submit" disabled={rechecking}>
+              <Button type="submit" variant="secondary" size="sm" disabled={rechecking}>
                 {rechecking ? "Rechecking\u{2026}" : "Recheck now"}
-              </button>
+              </Button>
             </FormComponent>
           </div>
           <Actionables items={s.actionables} />
@@ -156,10 +168,10 @@ function Services({
   const off = services.filter((s) => s.state === "off");
   return (
     <>
-      <p className="srvops-note" aria-live="polite">
+      <p className="adm-card__text" aria-live="polite">
         {servicesSummary(enabled, watch)}
       </p>
-      <ul className="srvops-services">
+      <ul className="adm-list">
         {enabled.map((s) => (
           <ServiceCard
             key={s.key}
@@ -170,16 +182,16 @@ function Services({
         ))}
       </ul>
       {off.length > 0 ? (
-        <details className="srvops-off">
+        <details className="adm-card__text adm-dim">
           <summary>
             {off.length} {off.length === 1 ? "service" : "services"} not enabled on this
             node
           </summary>
-          <ul className="srvops-offlist">
+          <ul className="adm-list">
             {off.map((s) => (
               <li key={s.key}>
-                <span className="srvops-mono">{s.unit}</span>
-                <span className="srvops-dim"> &#x2014; {s.serves}</span>
+                <span className="adm-mono">{s.unit}</span>
+                <span className="adm-dim"> &#x2014; {s.serves}</span>
               </li>
             ))}
           </ul>
@@ -199,7 +211,7 @@ function fmtBytes(n: number): string {
 function DiskLine({ disk }: { disk: ServerDisk }) {
   const low = disk.usedPercent >= 90;
   return (
-    <p className={`srvops-note ${low ? "srvops-warn-text" : ""}`}>
+    <p className={low ? "adm-card__text adm-warn" : "adm-card__text"}>
       Disk ({disk.path}): {disk.usedPercent}% used &#xB7; {fmtBytes(disk.freeBytes)} free
       {low
         ? " \u{2014} free space now: a full disk takes PostgreSQL and every service down with it"
@@ -208,11 +220,11 @@ function DiskLine({ disk }: { disk: ServerDisk }) {
   );
 }
 
-function envChips(row: ServerEnvRow): { label: string; tone: string }[] {
-  const chips: { label: string; tone: string }[] = [];
+function envChips(row: ServerEnvRow): { label: string; tone: Tone }[] {
+  const chips: { label: string; tone: Tone }[] = [];
   if (row.pendingRestart) chips.push({ label: "saved \u{2014} restart to apply", tone: "warn" });
   else if (row.liveInSites && row.fileValue === null)
-    chips.push({ label: "set outside this file", tone: "muted" });
+    chips.push({ label: "set outside this file", tone: undefined });
   return chips;
 }
 
@@ -247,47 +259,48 @@ function EnvRowView({
       : "value";
   const busy = pendingEnv?.name === row.name;
   return (
-    <li className="srvops-envrow" id={`env-${row.name}`}>
-      <div className="srvops-envrow-head">
-        <span className="srvops-mono srvops-envname">{row.name}</span>
-        <span className="srvops-chips">
+    <li className="adm-card" id={`env-${row.name}`}>
+      <div className="adm-card__head">
+        <span className="adm-card__title adm-mono">{row.name}</span>
+        <span className="adm-row">
           {envChips(row).map((c) => (
-            <span key={c.label} className={`srvops-badge srvops-${c.tone}`}>
+            <span key={c.label} className="adm-status" data-tone={c.tone}>
               {c.label}
             </span>
           ))}
         </span>
       </div>
-      {row.purpose ? <p className="srvops-envpurpose">{row.purpose}</p> : null}
-      <FormComponent method="post" className="srvops-envform">
+      {row.purpose ? <p className="adm-card__text adm-dim">{row.purpose}</p> : null}
+      <FormComponent method="post" className="adm-actions adm-actions--start">
         <input type="hidden" name="name" value={row.name} />
         <input
-          className="srvops-input srvops-mono"
+          className="adm-input adm-mono"
           type={row.secret ? "password" : "text"}
           name="value"
           defaultValue={row.secret ? "" : shown}
           placeholder={placeholder}
           autoComplete="off"
         />
-        <button
-          className="srvops-btn"
+        <Button
+          type="submit"
+          variant="secondary"
           name="intent"
           value="env-save"
-          type="submit"
           disabled={busy}
         >
           {envButtonLabel("Save", "Saving\u{2026}", row, "env-save", pendingEnv)}
-        </button>
+        </Button>
         {row.fileValue !== null ? (
-          <button
-            className="srvops-btn srvops-btn-danger"
+          <Button
+            type="submit"
+            variant="secondary"
+            tone="danger"
             name="intent"
             value="env-delete"
-            type="submit"
             disabled={busy}
           >
             {envButtonLabel("Delete", "Deleting\u{2026}", row, "env-delete", pendingEnv)}
-          </button>
+          </Button>
         ) : null}
       </FormComponent>
     </li>
@@ -309,23 +322,20 @@ function EnvSection({
   return (
     <>
       {notice ? (
-        <p
-          className={`srvops-banner ${notice.ok ? "srvops-banner-ok" : "srvops-banner-bad"}`}
-          role="status"
-        >
-          {notice.message}
-        </p>
+        <div className="adm-notice" data-tone={notice.ok ? "ok" : "bad"} role="status">
+          <p>{notice.message}</p>
+        </div>
       ) : null}
-      <p className="srvops-note">
-        Persisted to <code className="srvops-mono">{env.data.path}</code>; services read it
-        when they start, so restart a service to apply a change.
+      <p className="adm-card__text">
+        Persisted to <code>{env.data.path}</code>; services read it when they start, so
+        restart a service to apply a change.
         {env.data.preservedLines > 0
           ? ` ${env.data.preservedLines} hand-written ${
               env.data.preservedLines === 1 ? "line" : "lines"
             } in the file ${env.data.preservedLines === 1 ? "is" : "are"} kept as-is.`
           : ""}
       </p>
-      <ul className="srvops-envlist">
+      <ul className="adm-list">
         {env.data.rows.map((row) => (
           <EnvRowView
             key={row.name}
@@ -335,24 +345,24 @@ function EnvSection({
           />
         ))}
       </ul>
-      <FormComponent method="post" className="srvops-envform srvops-envadd">
+      <FormComponent method="post" className="adm-actions adm-actions--start">
         <input
-          className="srvops-input srvops-mono"
+          className="adm-input adm-mono"
           type="text"
           name="name"
           placeholder="NEW_VARIABLE"
           autoComplete="off"
         />
         <input
-          className="srvops-input srvops-mono"
+          className="adm-input adm-mono"
           type="text"
           name="value"
           placeholder="value"
           autoComplete="off"
         />
-        <button className="srvops-btn" name="intent" value="env-save" type="submit">
+        <Button type="submit" variant="secondary" name="intent" value="env-save">
           Add
-        </button>
+        </Button>
       </FormComponent>
     </>
   );
@@ -372,55 +382,56 @@ export default function ServerOpsPage({
   FormComponent = PlainForm,
 }: ServerOpsPageProps) {
   return (
-    <main className="srvops">
-      <header className="srvops-header">
-        <h1 className="srvops-h1">Server</h1>
-        <div className="srvops-header-actions">
-          {setupHref ? (
-            <a className="srvops-btn" href={setupHref}>
-              Setup guide
-            </a>
+    <main className="adm">
+      <div className="adm__page">
+        <div className="adm__inner adm__inner--mid">
+          <header className="adm__head">
+            <h1 className="adm__title">Server</h1>
+            <div className="adm-actions">
+              {setupHref ? (
+                <Button as="a" variant="secondary" href={setupHref}>
+                  Setup guide
+                </Button>
+              ) : null}
+              <FormComponent method="get">
+                <Button type="submit" disabled={recheckingAll}>
+                  {recheckingAll ? "Rechecking\u{2026}" : "Recheck all"}
+                </Button>
+              </FormComponent>
+            </div>
+          </header>
+
+          {authMode === "edge" ? (
+            <div className="adm-notice" data-tone="warn" role="note">
+              <p>
+                Access is controlled by the edge allowlist alone. Set <code>ADMIN_WALLETS</code>{" "}
+                below to also require a signed-in operator wallet.
+              </p>
+            </div>
           ) : null}
-          <FormComponent method="get">
-            <button
-              className="srvops-btn srvops-btn-primary"
-              type="submit"
-              disabled={recheckingAll}
-            >
-              {recheckingAll ? "Rechecking\u{2026}" : "Recheck all"}
-            </button>
-          </FormComponent>
+
+          <section className="adm-card">
+            <h2 className="adm__h2">Services</h2>
+            {disk ? <DiskLine disk={disk} /> : null}
+            <Services
+              services={services}
+              watch={watch}
+              recheckingKey={recheckingKey}
+              FormComponent={FormComponent}
+            />
+          </section>
+
+          <section className="adm-card">
+            <h2 className="adm__h2">Environment</h2>
+            <EnvSection
+              env={env}
+              notice={notice}
+              pendingEnv={pendingEnv}
+              FormComponent={FormComponent}
+            />
+          </section>
         </div>
-      </header>
-
-      {authMode === "edge" ? (
-        <p className="srvops-banner" role="note">
-          Access is controlled by the edge allowlist alone. Set{" "}
-          <code className="srvops-mono">ADMIN_WALLETS</code> below to also require a
-          signed-in operator wallet.
-        </p>
-      ) : null}
-
-      <section className="srvops-section">
-        <h2 className="srvops-h2">Services</h2>
-        {disk ? <DiskLine disk={disk} /> : null}
-        <Services
-          services={services}
-          watch={watch}
-          recheckingKey={recheckingKey}
-          FormComponent={FormComponent}
-        />
-      </section>
-
-      <section className="srvops-section">
-        <h2 className="srvops-h2">Environment</h2>
-        <EnvSection
-          env={env}
-          notice={notice}
-          pendingEnv={pendingEnv}
-          FormComponent={FormComponent}
-        />
-      </section>
+      </div>
     </main>
   );
 }

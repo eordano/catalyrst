@@ -1,8 +1,15 @@
-import "./admincontrolnotice.css";
+import Button from "../../atoms/Button";
+import "../admin.css";
 
-export type AdControlTone = "unavailable" | "public" | "sample";
+type AdControlTone = "unavailable" | "public" | "sample";
 
-export type AdControlNoticeProps = {
+const TONE: Record<AdControlTone, "bad" | "info" | "warn"> = {
+  unavailable: "bad",
+  public: "info",
+  sample: "warn",
+};
+
+type AdControlNoticeProps = {
   tone?: AdControlTone;
   title: string;
   message?: string;
@@ -21,18 +28,19 @@ export default function AdControlNotice({
 }: AdControlNoticeProps) {
   return (
     <section
-      className={`acn acn--${tone}`}
+      className="adm adm-notice"
       role={tone === "unavailable" ? "alert" : "status"}
-      data-tone={tone}
+      data-tone={TONE[tone]}
+      data-control={tone}
     >
-      <h2 className="acn__title">
+      <h2 className="adm-notice__title adm__h2">
         {title}
-        {status ? <span className="acn__status">HTTP {status}</span> : null}
+        {status ? <span className="adm-status">HTTP {status}</span> : null}
       </h2>
-      {message ? <p className="acn__message">{message}</p> : null}
-      {fix ? <p className="acn__meta">{fix}</p> : null}
+      {message ? <p>{message}</p> : null}
+      {fix ? <p className="adm-dim">{fix}</p> : null}
       {serverCheck ? (
-        <p className="acn__meta">
+        <p className="adm-dim">
           Server-side check: <code>{serverCheck}</code>
         </p>
       ) : null}
@@ -40,18 +48,20 @@ export default function AdControlNotice({
   );
 }
 
-export type AdBlockedActionProps = {
+type AdBlockedActionProps = {
   label: string;
   reason: string;
 };
 
 export function AdBlockedAction({ label, reason }: AdBlockedActionProps) {
   return (
-    <span className="acn-blocked">
-      <button type="button" disabled title={reason} className="acn-blocked__btn">
-        {label}
-      </button>
-      <span className="acn-blocked__why">{reason}</span>
-    </span>
+    <div className="adm adm-card adm-card--dashed">
+      <div className="adm-actions adm-actions--start">
+        <Button variant="secondary" size="sm" disabled title={reason}>
+          {label}
+        </Button>
+        <span className="adm-dim">{reason}</span>
+      </div>
+    </div>
   );
 }

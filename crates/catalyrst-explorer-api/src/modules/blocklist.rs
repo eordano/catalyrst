@@ -9,6 +9,7 @@ use axum::Json;
 use axum::Router;
 use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 use tokio::fs;
@@ -102,6 +103,34 @@ where
     deserializer.deserialize_seq(UsersVisitor)
 }
 
+/// The served list plus a normalized wallet set, so admin edits never re-read the file.
+pub struct DenylistCache {
+    list: Arc<Denylist>,
+    wallets: HashSet<String>,
+}
+
+impl DenylistCache {
+    pub fn new(list: Denylist) -> Self {
+        let wallets = list
+            .users
+            .iter()
+            .map(|u| normalize_wallet(&u.wallet))
+            .collect();
+        Self {
+            list: Arc::new(list),
+            wallets,
+        }
+    }
+
+    pub fn list(&self) -> Arc<Denylist> {
+        self.list.clone()
+    }
+
+    pub fn contains(&self, wallet: &str) -> bool {
+        self.wallets.contains(wallet)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct WalletBody {
     pub wallet: String,
@@ -150,17 +179,17 @@ async fn admin_add(
             },
         );
     }
-    let path = state.cfg.blocklist_path.clone();
-    let mut list = read_denylist(&path).await;
-    let already = list
-        .users
-        .iter()
-        .any(|u| normalize_wallet(&u.wallet) == wallet);
-    if !already {
+    let _serialized = state.denylist_write.lock().await;
+    let current = state.denylist.read().list();
+    let already = state.denylist.read().contains(&wallet);
+    let count = if already {
+        current.users.len() as u64
+    } else {
+        let mut list = (*current).clone();
         list.users.push(UserEntry {
             wallet: wallet.clone(),
         });
-        if let Err(error) = write_denylist(&path, &list).await {
+        if let Err(error) = write_denylist(&state.cfg.blocklist_path, &list).await {
             return json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 BlocklistError {
@@ -170,11 +199,10 @@ async fn admin_add(
                 },
             );
         }
-    }
-    let count = list.users.len() as u64;
-    if !already {
-        *state.denylist.write() = Arc::new(list);
-    }
+        let count = list.users.len() as u64;
+        *state.denylist.write() = DenylistCache::new(list);
+        count
+    };
     json_response(
         StatusCode::OK,
         BlocklistAddAck {
@@ -203,13 +231,15 @@ async fn admin_remove(
             },
         );
     }
-    let path = state.cfg.blocklist_path.clone();
-    let mut list = read_denylist(&path).await;
-    let before = list.users.len();
-    list.users.retain(|u| normalize_wallet(&u.wallet) != wallet);
-    let removed = list.users.len() != before;
-    if removed {
-        if let Err(error) = write_denylist(&path, &list).await {
+    let _serialized = state.denylist_write.lock().await;
+    let current = state.denylist.read().list();
+    let removed = state.denylist.read().contains(&wallet);
+    let count = if !removed {
+        current.users.len() as u64
+    } else {
+        let mut list = (*current).clone();
+        list.users.retain(|u| normalize_wallet(&u.wallet) != wallet);
+        if let Err(error) = write_denylist(&state.cfg.blocklist_path, &list).await {
             return json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 BlocklistError {
@@ -219,11 +249,10 @@ async fn admin_remove(
                 },
             );
         }
-    }
-    let count = list.users.len() as u64;
-    if removed {
-        *state.denylist.write() = Arc::new(list);
-    }
+        let count = list.users.len() as u64;
+        *state.denylist.write() = DenylistCache::new(list);
+        count
+    };
     json_response(
         StatusCode::OK,
         BlocklistRemoveAck {
@@ -244,7 +273,7 @@ async fn admin_reload(State(state): State<AppState>, headers: HeaderMap) -> Resp
         Ok(bytes) => match serde_json::from_slice::<Denylist>(&bytes) {
             Ok(list) => {
                 let count = list.users.len() as u64;
-                *state.denylist.write() = Arc::new(list);
+                *state.denylist.write() = DenylistCache::new(list);
                 json_response(
                     StatusCode::OK,
                     BlocklistReloadAck {
@@ -275,6 +304,6 @@ async fn admin_reload(State(state): State<AppState>, headers: HeaderMap) -> Resp
 }
 
 async fn get_denylist(State(state): State<AppState>) -> impl IntoResponse {
-    let list = state.denylist.read().clone();
+    let list = state.denylist.read().list();
     (StatusCode::OK, Json(list)).into_response()
 }

@@ -1,3 +1,4 @@
+import ContentStatus from "../../components/ContentStatus";
 import type { CSSProperties } from "react";
 import { useState } from "react";
 import { Avatar } from "../../atoms/primitives";
@@ -41,11 +42,14 @@ const PLACE: PlaceDetailData = {
 type PlaceDetailProps = {
   place?: PlaceDetailData;
   notFound?: boolean;
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
   onClose?: () => void;
   onJumpIn?: () => void;
 };
 
-export default function PlaceDetail({ place, notFound = false, onClose, onJumpIn }: PlaceDetailProps = {}) {
+export default function PlaceDetail({ place, notFound = false, loading = false, error = false, onRetry, onClose, onJumpIn }: PlaceDetailProps = {}) {
   if (notFound) {
     return (
       <div className="ep__backdrop" onClick={onClose}>
@@ -109,6 +113,8 @@ export default function PlaceDetail({ place, notFound = false, onClose, onJumpIn
             </div>
           </header>
 
+          {loading && <ContentStatus pending message="Loading place details&hellip;" />}
+          {error && <ContentStatus message="Couldn't refresh place details." onRetry={onRetry} />}
           <div className="pld__toolbar">
             <div className="pld__approval">
               <span className="pld__stat-inline">
@@ -174,12 +180,6 @@ export default function PlaceDetail({ place, notFound = false, onClose, onJumpIn
           </div>
 
           <div className="pld__actions">
-            <Button variant="primary" className="pld__nav" data-sb-linkto="Explorer/Workflows/SceneLoading" onClick={onJumpIn}>
-              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-                <path d="M8 1.5l6.5 13L8 11.5 1.5 14.5 8 1.5z" fill="currentColor" />
-              </svg>
-              START NAVIGATION
-            </Button>
             <Button variant="primary" className="pld__jump" data-sb-linkto="Explorer/Workflows/SceneLoading" onClick={onJumpIn}>
               JUMP IN
               <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">

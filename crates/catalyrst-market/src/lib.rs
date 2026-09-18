@@ -56,6 +56,7 @@ use crate::ports::trendings::TrendingsComponent;
 use crate::ports::usage_grants::UsageGrantsComponent;
 use crate::ports::user_assets::UserAssetsComponent;
 use crate::ports::volume::VolumeComponent;
+use crate::ports::wearable_last_seen;
 
 pub const MARKETPLACE_SQUID_SCHEMA: &str = "squid_marketplace";
 
@@ -225,6 +226,10 @@ fn read_router() -> Router<AppState> {
             get(handlers::user_assets::names::get_user_names_only),
         )
         .route("/v1/orders", get(handlers::orders::get_orders))
+        .route(
+            "/v1/orders/open-by-items",
+            get(handlers::orders::get_open_orders_by_items),
+        )
         .route("/v1/bids", get(handlers::bids::get_bids))
         .route("/v1/sales/summary", get(handlers::sales::get_sales_summary))
         .route("/v1/sales", get(handlers::sales::get_sales))
@@ -311,9 +316,13 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let dapps_db = Database::connect(&db_config_from_url(&cfg.dapps_database_url, 10)?)
         .await
         .context("failed to connect dapps pool")?;
-    let dapps_read_db = Database::connect(&db_config_from_url(&cfg.dapps_read_database_url, 20)?)
-        .await
-        .context("failed to connect dapps_read pool")?;
+    // Session GUC instead of a per-request BEGIN / SET LOCAL / COMMIT on the paged reads.
+    let dapps_read_db = Database::connect_with_options(
+        &db_config_from_url(&cfg.dapps_read_database_url, 20)?,
+        &[("random_page_cost", "1.1")],
+    )
+    .await
+    .context("failed to connect dapps_read pool")?;
 
     let dapps_read = dapps_read_db.pool().clone();
     let dapps_write = dapps_db.pool().clone();
@@ -355,7 +364,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         ),
     }
     match &cfg.content_database_url {
-        Some(url) => spawn_wearable_last_seen_refresh(dapps_write.clone(), url.clone()),
+        Some(url) => wearable_last_seen::spawn_refresh(dapps_write.clone(), url.clone()),
         None => tracing::info!(
             "CONTENT_PG_COMPONENT_PSQL_CONNECTION_STRING unset: wearable_last_seen refresher off; \
              sortBy=suggested ranks on whatever the table already holds"
@@ -573,82 +582,6 @@ pub(crate) fn spawn_forced_mv_trades_refresh(
         };
         run_mv_trades_refresh(&pool).await;
     });
-}
-
-const WEARABLE_LAST_SEEN_REFRESH_INTERVAL: Duration = Duration::from_secs(600);
-
-fn spawn_wearable_last_seen_refresh(dapps: PgPool, content_url: String) {
-    tokio::spawn(async move {
-        let content = match catalyrst_db::connect_pool(
-            &content_url,
-            &catalyrst_db::PoolSettings {
-                max_connections: 2,
-                idle_timeout_secs: 600,
-                ..catalyrst_db::PoolSettings::default()
-            },
-        )
-        .await
-        {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::error!(error = %e, "content DB unreachable: wearable_last_seen refresher off");
-                return;
-            }
-        };
-        spawn_periodic(
-            "wearable-last-seen-refresh",
-            WEARABLE_LAST_SEEN_REFRESH_INTERVAL,
-            PeriodicCfg::default(),
-            CancellationToken::new(),
-            move || {
-                let content = content.clone();
-                let dapps = dapps.clone();
-                async move {
-                    match refresh_wearable_last_seen(&content, &dapps).await? {
-                        0 => tracing::warn!(
-                            "wearable_last_seen refresh: content DB returned no worn URNs"
-                        ),
-                        n => tracing::debug!(rows = n, "wearable_last_seen refreshed"),
-                    }
-                    Ok::<(), anyhow::Error>(())
-                }
-            },
-        );
-    });
-}
-
-async fn refresh_wearable_last_seen(content: &PgPool, dapps: &PgPool) -> Result<u64> {
-    let rows: Vec<(String, chrono::NaiveDateTime)> = sqlx::query_as(
-        "SELECT lower(array_to_string((string_to_array(w.urn, ':'))[1:6], ':')) AS urn,
-                max(d.entity_timestamp) AS last_seen
-         FROM deployments d,
-              json_array_elements(d.entity_metadata->'v'->'avatars') a,
-              json_array_elements_text(a->'avatar'->'wearables') w(urn)
-         WHERE d.entity_type = 'profile' AND d.deleter_deployment IS NULL
-           AND d.entity_timestamp > now() - interval '30 days'
-         GROUP BY 1",
-    )
-    .fetch_all(content)
-    .await?;
-    if rows.is_empty() {
-        return Ok(0);
-    }
-    let (urns, seen): (Vec<String>, Vec<chrono::NaiveDateTime>) = rows.into_iter().unzip();
-    sqlx::query(
-        "INSERT INTO marketplace.wearable_last_seen (urn, last_seen, refreshed_at)
-         SELECT u, ts, now() FROM unnest($1::text[], $2::timestamp[]) AS t(u, ts)
-         ON CONFLICT (urn) DO UPDATE
-           SET last_seen = EXCLUDED.last_seen, refreshed_at = now()",
-    )
-    .bind(&urns)
-    .bind(&seen)
-    .execute(dapps)
-    .await?;
-    sqlx::query("SELECT pg_notify('catalyrst_market_dirty', 'wearable_last_seen')")
-        .execute(dapps)
-        .await
-        .ok();
-    Ok(urns.len() as u64)
 }
 
 #[cfg(test)]

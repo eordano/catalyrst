@@ -4,7 +4,7 @@ export type ServerPanel<T> =
   | { ok: true; data: T }
   | { ok: false; message: string; fix?: string };
 
-export type ServerServiceState = "ok" | "answering" | "down" | "off";
+type ServerServiceState = "ok" | "answering" | "down" | "off";
 
 export type ServerServiceRow = {
   key: string;

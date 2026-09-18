@@ -5,7 +5,6 @@ import {
   CHUNK_SIZE_BYTES,
   hashFile,
   hashV1Raw,
-  MultiBlockHashUnsupportedError,
   needsMultiBlockHash,
   utf8,
 } from "./hashing";
@@ -18,13 +17,10 @@ const VECTORS: Array<[string, string]> = [
 ];
 
 describe("hashV1Raw", () => {
-  it("matches the canonical CIDv1 raw vectors", async () => {
+  it("matches the canonical CIDv1 raw vectors and always produces a 59-char bafkrei\u{2026} base32 string", async () => {
     for (const [input, expected] of VECTORS) {
       expect(await hashV1Raw(utf8(input))).toBe(expected);
     }
-  });
-
-  it("always produces a bafkrei\u{2026} (CIDv1 raw, base32) string", async () => {
     const h = await hashV1Raw(utf8("decentraland"));
     expect(h).toMatch(/^bafkrei[a-z2-7]+$/);
     expect(h.length).toBe(59);
@@ -39,25 +35,20 @@ describe("base32Lower", () => {
 });
 
 describe("hashFile / multi-block guard", () => {
-  it("hashes single-block (<=256KiB) input via the raw path", async () => {
+  it("hashes single-block input (up to exactly 256KiB) via the raw path and one byte more via the DAG-PB multi-block path (bafybei\u{2026})", async () => {
     const bytes = utf8("hello world");
     expect(await hashFile(bytes)).toBe(
       "bafkreifzjut3te2nhyekklss27nh3k72ysco7y32koao5eei66wof36n5e",
     );
     expect(needsMultiBlockHash(bytes)).toBe(false);
-  });
 
-  it("hashes input exactly at the single-block threshold", async () => {
-    const bytes = new Uint8Array(CHUNK_SIZE_BYTES);
-    expect(needsMultiBlockHash(bytes)).toBe(false);
-    await expect(hashFile(bytes)).resolves.toMatch(/^bafkrei[a-z2-7]+$/);
-  });
+    const threshold = new Uint8Array(CHUNK_SIZE_BYTES);
+    expect(needsMultiBlockHash(threshold)).toBe(false);
+    await expect(hashFile(threshold)).resolves.toMatch(/^bafkrei[a-z2-7]+$/);
 
-  it("hashes input that needs the DAG-PB multi-block path (bafybei\u{2026})", async () => {
     const big = new Uint8Array(CHUNK_SIZE_BYTES + 1);
     expect(needsMultiBlockHash(big)).toBe(true);
     const h = await hashFile(big);
     expect(h).toMatch(/^bafybei[a-z2-7]+$/);
-    expect(new MultiBlockHashUnsupportedError(big.length)).toBeInstanceOf(Error);
   });
 });

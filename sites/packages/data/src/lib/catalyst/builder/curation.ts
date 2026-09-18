@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const CURATION_STATUSES = ["pending", "approved", "rejected"] as const;
-export type CurationStatus = (typeof CURATION_STATUSES)[number];
+const CURATION_STATUSES = ["pending", "approved", "rejected"] as const;
+type CurationStatus = (typeof CURATION_STATUSES)[number];
 
 export const CollectionCurationSchema = z.object({
   id: z.string(),
@@ -12,7 +12,7 @@ export const CollectionCurationSchema = z.object({
   updated_at: z.string(),
 });
 
-export const CurationRowSchema = z.object({
+z.object({
   id: z.string(),
   name: z.string(),
   type: z.enum(["standard", "third_party"]),
@@ -32,7 +32,6 @@ export const CurationRowSchema = z.object({
   thumbs: z.array(z.string()),
   curation: CollectionCurationSchema.nullable(),
 });
-export type CurationRow = z.infer<typeof CurationRowSchema>;
 
 export const CommitteeMemberSchema = z.object({
   address: z.string(),
@@ -40,7 +39,7 @@ export const CommitteeMemberSchema = z.object({
 });
 export type CommitteeMember = z.infer<typeof CommitteeMemberSchema>;
 
-export const DISPLAY_STATES = [
+const DISPLAY_STATES = [
   "to_review",
   "under_review",
   "approved",
@@ -68,58 +67,6 @@ export function deriveDisplayState(row: {
   return "to_review";
 }
 
-export const STATUS_FILTERS = [
-  "ALL_STATUS",
-  "to_review",
-  "under_review",
-  "approved",
-  "rejected",
-] as const;
-export type StatusFilter = (typeof STATUS_FILTERS)[number];
-
-export const TYPE_FILTERS = ["ALL_TYPES", "standard", "third_party"] as const;
-export type TypeFilter = (typeof TYPE_FILTERS)[number];
-
-export function readStatusFilter(raw: string | null | undefined): StatusFilter {
-  const v = (raw ?? "").trim();
-  return (STATUS_FILTERS as readonly string[]).includes(v)
-    ? (v as StatusFilter)
-    : "ALL_STATUS";
-}
-
-export function readTypeFilter(raw: string | null | undefined): TypeFilter {
-  const v = (raw ?? "").trim();
-  return (TYPE_FILTERS as readonly string[]).includes(v)
-    ? (v as TypeFilter)
-    : "ALL_TYPES";
-}
-
-export function readAssigneeFilter(
-  raw: string | null | undefined,
-  youAddress: string,
-): string {
-  const v = (raw ?? "").trim().toLowerCase();
-  if (!v || v === "all") return "all";
-  if (v === "me" || v === "you") return youAddress.toLowerCase();
-  return v;
-}
-
-export function filterRows(
-  rows: CurationRow[],
-  args: { status: StatusFilter; type: TypeFilter; assignee: string },
-): CurationRow[] {
-  const { status, type, assignee } = args;
-  return rows.filter((r) => {
-    if (type !== "ALL_TYPES" && r.type !== type) return false;
-    if (status !== "ALL_STATUS" && deriveDisplayState(r) !== status) return false;
-    if (assignee !== "all") {
-      const a = (r.curation?.assignee ?? "").toLowerCase();
-      if (a !== assignee.toLowerCase()) return false;
-    }
-    return true;
-  });
-}
-
 export function relativeTime(iso: string, now: number = Date.now()): string {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return "";
@@ -134,49 +81,3 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   return `${wk} week${wk === 1 ? "" : "s"} ago`;
 }
 
-export type BdCurationRow = {
-  id: string;
-  name: string;
-  type: "standard" | "third_party";
-  isProgrammatic?: boolean;
-  status: string | null;
-  count: number;
-  owner: string | null;
-  curationStatus: DisplayState;
-  assignee: string | null;
-  assigneeName?: string;
-  you?: boolean;
-  date: string;
-  ago: string;
-  forumLink: string | null;
-  thumbs: string[];
-};
-
-export function toBdRow(
-  row: CurationRow,
-  committee: { you: CommitteeMember; members: CommitteeMember[] },
-  now: number = Date.now(),
-): BdCurationRow {
-  const assignee = row.curation?.assignee ?? null;
-  const member = assignee
-    ? committee.members.find((m) => m.address.toLowerCase() === assignee.toLowerCase())
-    : undefined;
-  const you = !!assignee && assignee.toLowerCase() === committee.you.address.toLowerCase();
-  return {
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    isProgrammatic: row.isProgrammatic,
-    status: row.status,
-    count: row.itemCount,
-    owner: row.ownerLabel,
-    curationStatus: deriveDisplayState(row),
-    assignee,
-    assigneeName: member?.name ?? (assignee ? `${assignee.slice(0, 6)}\u{2026}${assignee.slice(-4)}` : undefined),
-    you,
-    date: row.dateLabel,
-    ago: relativeTime(row.createdAt, now),
-    forumLink: row.forumLink,
-    thumbs: row.thumbs,
-  };
-}

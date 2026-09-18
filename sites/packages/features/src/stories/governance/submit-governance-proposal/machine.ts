@@ -14,7 +14,7 @@ import {
 
 export type { TrackFn };
 
-export type GovDraft = GovernanceProposalDraft;
+type GovDraft = GovernanceProposalDraft;
 
 export type SubmitResult = CreatedProposal;
 
@@ -23,7 +23,7 @@ export type SubmitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SubmitResult>;
 
-export type GovInput = {
+type GovInput = {
   trackCtx: TrackContext;
   votingPower: number;
   submit?: SubmitFn;
@@ -31,7 +31,7 @@ export type GovInput = {
   draft?: Partial<GovDraft>;
 };
 
-export type GovContext = {
+type GovContext = {
   trackCtx: TrackContext;
   votingPower: number;
   submit: SubmitFn;
@@ -42,7 +42,7 @@ export type GovContext = {
   error?: string;
 };
 
-export type GovEvent =
+type GovEvent =
   | { type: "START" }
   | { type: "SUBMIT_DETAILS"; linkedDraftId: string; title: string; bodies: Record<string, string> }
   | { type: "SET_COAUTHORS"; coAuthors: string[] }
@@ -72,8 +72,8 @@ export const STATE_TO_SLUG = {
   success: "success",
 } as const;
 
-export type GovStateId = keyof typeof STATE_TO_SLUG;
-export type GovStepSlug = (typeof STATE_TO_SLUG)[GovStateId];
+type GovStateId = keyof typeof STATE_TO_SLUG;
+type GovStepSlug = (typeof STATE_TO_SLUG)[GovStateId];
 
 export const FIRST_STEP_SLUG: GovStepSlug = STATE_TO_SLUG.intro;
 
@@ -290,8 +290,6 @@ export const govProposalMachine = setup({
     },
   },
 });
-
-export type GovProposalMachine = typeof govProposalMachine;
 
 export function resolveGovProposalSnapshot(args: {
   step: GovStateId;

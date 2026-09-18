@@ -11,9 +11,13 @@ pub mod decentraland {
             pub mod v3 {
                 include!(concat!(env!("OUT_DIR"), "/decentraland.kernel.comms.v3.rs"));
             }
+            pub mod v4 {
+                include!(concat!(env!("OUT_DIR"), "/decentraland.kernel.comms.v4.rs"));
+            }
         }
     }
 }
 
 pub use decentraland::common::Position;
 pub use decentraland::kernel::comms::v3 as archipelago;
+pub use decentraland::kernel::comms::v4 as archipelago_v4;

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AvatarScene, AvatarSceneOptions, AvatarStatus } from "./avatar";
+import { previewHost } from "./bevy-host";
+import type {
+  AvatarOutfitOptions,
+  AvatarScene,
+  AvatarSceneOptions,
+  AvatarStatus,
+} from "./avatar";
 
 type WearablePreviewProps = AvatarSceneOptions & {
   emoteNonce?: number;
@@ -8,6 +14,8 @@ type WearablePreviewProps = AvatarSceneOptions & {
   style?: CSSProperties;
   pauseOffscreen?: boolean;
 };
+
+export const PREVIEW_LOAD_TIMEOUT_MS = 45000;
 
 export default function WearablePreview({
   profile,
@@ -45,11 +53,18 @@ export default function WearablePreview({
 
   const cameraRef = useRef({ zoom, yaw, pitch, fov, targetY });
   cameraRef.current = { zoom, yaw, pitch, fov, targetY };
+  const outfitRef = useRef<AvatarOutfitOptions>({ profile, urns, body, outfit });
+  outfitRef.current = { profile, urns, body, outfit };
+  const emoteRef = useRef(emote);
+  emoteRef.current = emote;
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
 
   const key = JSON.stringify([
-    profile, Array.isArray(urns) ? urns : urns ?? null, body, outfit ?? null, model, base,
-    controls, pan, platform, spin, spinSpeed, background,
-    emotes ?? null,
+    model, base, controls, pan, platform, spin, spinSpeed, background, emotes ?? null,
+  ]);
+  const outfitKey = JSON.stringify([
+    profile, Array.isArray(urns) ? urns : urns ?? null, body, outfit ?? null,
   ]);
 
   useEffect(() => {
@@ -59,19 +74,49 @@ export default function WearablePreview({
     let scene: AvatarScene | null = null;
     let ro: ResizeObserver | null = null;
     let cancelled = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const pending = new AbortController();
+    const release = () => {
+      pending.abort();
+      ro?.disconnect();
+      scene?.dispose();
+      scene = null;
+      sceneRef.current = null;
+    };
+    const fail = (err: unknown) => {
+      if (cancelled) return;
+      cancelled = true;
+      clearTimeout(deadline);
+      console.error("[WearablePreview]", err);
+      release();
+      setStatus("error");
+      onStatusRef.current?.("error");
+    };
+    const watchLoading = () => {
+      clearTimeout(deadline);
+      deadline = setTimeout(
+        () => fail(new Error("Avatar preview loading timed out")),
+        PREVIEW_LOAD_TIMEOUT_MS,
+      );
+    };
+    watchLoading();
+    const contextLost = (event: Event) => {
+      event.preventDefault();
+      fail(new Error("Avatar preview WebGL context lost"));
+    };
+    el.addEventListener("webglcontextlost", contextLost, true);
     setStatus("loading");
+    onStatusRef.current?.("loading");
 
-    import("./avatar")
+    previewHost(pending.signal)
+      .then((host) => host && !model ? import("./bevy") : import("./avatar"))
       .then(({ createAvatarScene }) => {
         const node = ref.current;
         if (cancelled || !node) return;
         scene = createAvatarScene(node, {
-          profile,
-          urns,
-          body,
-          outfit,
+          ...outfitRef.current,
           model,
-          emote,
+          emote: emoteRef.current,
           emotes,
           base,
           ...cameraRef.current,
@@ -83,8 +128,10 @@ export default function WearablePreview({
           background,
           onStatus: (s) => {
             if (cancelled) return;
+            if (s === "loading") watchLoading();
+            else clearTimeout(deadline);
             setStatus(s);
-            onStatus?.(s);
+            onStatusRef.current?.(s);
           },
         });
         sceneRef.current = scene;
@@ -92,19 +139,13 @@ export default function WearablePreview({
         ro = new ResizeObserver(() => scene?.resize());
         ro.observe(node);
       })
-      .catch((err) => {
-        if (!cancelled) {
-          console.error("[WearablePreview]", err);
-          setStatus("error");
-          onStatus?.("error");
-        }
-      });
+      .catch(fail);
 
     return () => {
       cancelled = true;
-      if (ro) ro.disconnect();
-      if (scene) scene.dispose();
-      sceneRef.current = null;
+      clearTimeout(deadline);
+      el.removeEventListener("webglcontextlost", contextLost, true);
+      release();
     };
   }, [key, booted]);
 
@@ -124,6 +165,10 @@ export default function WearablePreview({
     io.observe(el);
     return () => io.disconnect();
   }, [pauseOffscreen]);
+
+  useEffect(() => {
+    void sceneRef.current?.setOutfit(outfitRef.current);
+  }, [outfitKey]);
 
   useEffect(() => {
     sceneRef.current?.setEmote?.(emote);

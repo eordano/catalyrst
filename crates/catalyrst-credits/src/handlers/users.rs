@@ -32,8 +32,7 @@ pub async fn progress(
         return Err(ApiError::forbidden("walletId does not match signer"));
     }
 
-    let has_started = state.credits.has_started(&wallet).await?;
-    let credits_row = state.credits.user_credits(&wallet).await?;
+    let (has_started, credits_row) = state.credits.user_progress(&wallet).await?;
 
     let credits = match credits_row {
         Some(c) => CreditsData {

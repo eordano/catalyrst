@@ -6,7 +6,7 @@ import MetricsDashboardView from "@ui/creatorhub/pages/MetricsDashboardView";
 
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 
 import {
   fmtCount,
@@ -15,7 +15,7 @@ import {
 } from "@data/lib/catalyst/creator-hub/metrics";
 import { loadCreatorMetrics } from "@data/lib/catalyst/creator-hub/metrics.server";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { track } from "@core/lib/telemetry/track";
 import {
@@ -42,15 +42,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const address =
     url.searchParams.get("address")?.trim() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap, data: metrics } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () => address ? loadCreatorMetrics(address, request.signal).catch(() => null) : Promise.resolve(null),
   );
-
-  const metrics = address
-    ? await loadCreatorMetrics(address, request.signal).catch(() => null)
-    : null;
 
   const payload = {
     sid,
@@ -89,7 +86,7 @@ export default function CreatorHubMetricsRoute({
 }: Route.ComponentProps) {
   const d = loaderData;
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
 
   return (
     <CreatorHubChrome

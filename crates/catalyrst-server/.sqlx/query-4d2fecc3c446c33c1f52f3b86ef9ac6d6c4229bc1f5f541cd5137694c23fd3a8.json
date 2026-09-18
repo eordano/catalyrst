@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH pointer_successors AS (\n                SELECT id AS older_id,\n                       lead(id) OVER (\n                           PARTITION BY entity_type, pointer\n                           ORDER BY entity_timestamp, entity_id\n                       ) AS newer_id\n                FROM (\n                    SELECT DISTINCT id, entity_type, entity_timestamp, entity_id,\n                           unnest(entity_pointers) AS pointer\n                    FROM deployments\n                    WHERE deleter_deployment IS NULL\n                ) pointers\n                WHERE pointer IS NOT NULL\n            ), successors AS (\n                SELECT DISTINCT ON (p.older_id) p.older_id, newer.id AS newer_id\n                FROM pointer_successors p\n                JOIN deployments newer ON newer.id = p.newer_id\n                ORDER BY p.older_id, newer.entity_timestamp, newer.entity_id\n            )\n            UPDATE deployments older\n            SET deleter_deployment = successors.newer_id\n            FROM successors\n            WHERE older.id = successors.older_id\n              AND older.deleter_deployment IS NULL\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "4d2fecc3c446c33c1f52f3b86ef9ac6d6c4229bc1f5f541cd5137694c23fd3a8"
+}

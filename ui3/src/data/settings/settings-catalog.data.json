@@ -192,8 +192,18 @@
           {
             "key": "sceneVolume",
             "kind": "slider",
-            "title": "In-World Music & SFX",
+            "title": "Scene volume",
             "setting": "Scene Volume",
+            "min": 0,
+            "max": 100,
+            "default": 100,
+            "unit": "%"
+          },
+          {
+            "key": "streamVolume",
+            "kind": "slider",
+            "title": "Audio and video streams",
+            "setting": "Stream Volume",
             "min": 0,
             "max": 100,
             "default": 100,
@@ -202,7 +212,7 @@
           {
             "key": "uiVolume",
             "kind": "slider",
-            "title": "UI SFX",
+            "title": "Menus and buttons",
             "setting": "System Volume",
             "min": 0,
             "max": 100,
@@ -212,7 +222,7 @@
           {
             "key": "avatarVolume",
             "kind": "slider",
-            "title": "Avatar & Emotes SFX",
+            "title": "Avatar and emote sounds",
             "setting": "Avatar Volume",
             "min": 0,
             "max": 100,
@@ -222,7 +232,7 @@
           {
             "key": "voiceVolume",
             "kind": "slider",
-            "title": "Voice Chat & Streams",
+            "title": "Voice chat",
             "setting": "Voice Volume",
             "min": 0,
             "max": 100,
@@ -253,6 +263,18 @@
             "min": 1,
             "max": 100,
             "default": 50
+          },
+          {
+            "key": "cameraSmoothing",
+            "kind": "dropdown",
+            "title": "Camera smoothing",
+            "setting": "Camera smoothing",
+            "options": [
+              "Raw",
+              "Smoothed",
+              "Drunk"
+            ],
+            "default": 0
           }
         ]
       },

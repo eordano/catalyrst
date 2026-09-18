@@ -17,13 +17,6 @@
   display: flex; align-items: center; gap: 8px;
   padding: 10px 9px 8px;
 }
-
-.mm__expand {
-  flex: 0 0 auto; width: 22px; height: 24px; border-radius: 6px; border: none; cursor: pointer;
-  background: none; color: rgba(255, 255, 255, .7); padding: 0;
-  display: flex; align-items: center; justify-content: center;
-}
-.mm__expand:hover { color: #fff; }
 .mm__place { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
 .mm__name { font-size: var(--fs-sm); font-weight: 700; }
 .mm__coords {
@@ -41,27 +34,14 @@
 }
 .mm__hide:hover { color: #fff; }
 
-.mm__restore {
-  position: absolute; top: 16px; left: 72px;
-  width: 40px; height: 40px; border-radius: 8px; border: none; cursor: pointer;
-  pointer-events: auto;
-  background: rgba(14, 12, 18, .72);
-  backdrop-filter: blur(8px);
-  color: rgba(255, 255, 255, .82);
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .4);
-}
-.mm__restore:hover { color: #fff; }
-
 .mm__kebab-wrap { position: relative; flex: 0 0 auto; display: flex; }
 
-.mm__fav, .mm__kebab {
+.mm__kebab {
   flex: 0 0 auto; width: 24px; height: 26px; border-radius: 6px; border: none; cursor: pointer;
   background: none; color: rgba(255, 255, 255, .82);
   display: flex; align-items: center; justify-content: center; padding: 0;
 }
 .mm__kebab:hover { color: #fff; }
-.mm__fav:hover { color: #ff5d7a; }
 
 .mm__map {
   display: block; margin: 0; padding: 0; border: none; font: inherit;
@@ -89,10 +69,6 @@
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover;
 }
-.mm__tile {
-  position: absolute; width: 10%; height: 10%; transform: translate(-50%, -50%);
-  border-radius: 1px; opacity: .92;
-}
 
 .mm__compass {
   position: absolute; font-size: var(--fs-2xs); font-weight: 800; letter-spacing: .5px;
@@ -102,12 +78,6 @@
 .mm__compass--s { bottom: 6px; left: 50%; transform: translateX(-50%); }
 .mm__compass--e { right: 8px; top: 50%; transform: translateY(-50%); }
 .mm__compass--w { left: 8px; top: 50%; transform: translateY(-50%); }
-
-.mm__world {
-  position: absolute; left: 16px; bottom: 26px;
-  font-size: var(--fs-2xs); font-weight: 700; color: rgba(255, 255, 255, .75);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
-}
 
 .mm__friend {
   position: absolute; transform: translate(-50%, -50%);
@@ -129,12 +99,18 @@
 
 .mm__menu {
   position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  top: 0;
+  left: calc(100% + 16px);
   z-index: 30;
-  min-width: 178px;
-  transform-origin: top right;
+  min-width: 236px;
+  transform-origin: top left;
   animation: mm__menu-in .12s ease-out;
+}
+.mm__mlabel { display: flex; flex-direction: column; gap: 1px; min-width: 0; text-align: left; }
+.mm__mmain { font-weight: 600; }
+.mm__mhint {
+  font-size: var(--fs-2xs); font-weight: 400; color: rgba(255, 255, 255, .55);
+  max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 @keyframes mm__menu-in {
   from { opacity: 0; transform: translateY(-4px) scale(.97); }
@@ -142,6 +118,7 @@
 }
 
 @media (max-width: 600px) {
+  .mm__menu { top: calc(100% + 6px); left: auto; right: 0; }
   .mm { left: 60px; width: min(222px, calc(100vw - 72px)); }
 }
 
@@ -156,7 +133,7 @@
 }
 
 @media (pointer: coarse) {
-  [data-mobile-chrome] .mm, [data-mobile-chrome] .mm__restore { display: none; }
+  [data-mobile-chrome] .mm { display: none; }
 }
 
 @media (pointer: coarse) and (orientation: landscape) and (max-height: 560px) {

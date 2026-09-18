@@ -45,7 +45,7 @@ pub async fn livekit_webhook(
         tracing::warn!(error = %e, event = event_kind, "livekit webhook side-effect failed");
     }
 
-    Ok((axum::http::StatusCode::OK, body).into_response())
+    Ok(axum::http::StatusCode::OK.into_response())
 }
 
 async fn dispatch(

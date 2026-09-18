@@ -74,3 +74,5 @@
   .dappfooter__secondary { flex-flow: column; align-items: center; }
   .dappfooter__social { margin-right: 0; margin-bottom: 12px; }
 }
+
+html[data-embed="1"] .dappfooter { display: none; }

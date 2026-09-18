@@ -364,6 +364,7 @@ fn row_with(raw: Value, start_at: Option<DateTime<Utc>>, duration_ms: Option<i64
         description: None,
         raw,
         total_count: 0,
+        viewer_attending: None,
     }
 }
 

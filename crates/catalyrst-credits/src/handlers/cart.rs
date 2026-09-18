@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use crate::handlers::prices::QuoteCache;
 use crate::handlers::signer_from;
 use crate::http::ApiError;
-use crate::ports::checkout::{CartView, CheckoutIdemRow, RepricedLine};
-use crate::ports::pricing::BasisKind;
+use crate::ports::checkout::{CartItemRow, CartView, CheckoutIdemRow, RepricedLine};
+use crate::ports::pricing::{
+    ensure_charge_covers_payment, payment_is_positive, BasisKind, ORDER_SCAN_MAX_PAGES,
+};
 use crate::purchase_intent::{
     verify_intent_matches_order, verify_purchase_intent, PurchaseIntentIn,
 };
@@ -153,30 +155,37 @@ pub async fn add_item(
         return Err(ApiError::bad_request("qty must be > 0"));
     }
 
-    let priced = state
+    let mode = state.checkout_fulfillment_mode.as_str();
+    let basis = state
         .pricing
-        .price_item_for_mode(
-            &state.credits.pool,
-            &collection,
-            &item_id,
-            &state.checkout_fulfillment_mode,
+        .fetch_charge_bases_batch(
+            &[(collection.clone(), item_id.clone())],
+            mode,
+            ORDER_SCAN_MAX_PAGES,
         )
-        .await?;
+        .await?
+        .pop()
+        .unwrap_or_else(|| Err(ApiError::Internal("empty charge basis batch".into())))?;
 
-    ensure_qty_fillable(&priced.basis.kind, qty)?;
+    ensure_qty_fillable(&basis.kind, qty)?;
 
-    state
+    let mana_usd = state.pricing.fetch_mana_usd().await?;
+    let credit_price = state
         .credits
-        .add_item(
+        .add_item_priced(
             signer.as_str(),
             &item_id,
             &collection,
-            &priced.basis.info.urn,
-            &priced.basis.info.category,
+            &basis.info.urn,
+            &basis.info.category,
             qty,
-            &priced.credit_price,
+            &basis.basis_wei,
+            &mana_usd,
+            state.pricing.markup_bps(),
+            payment_is_positive(&basis.basis_wei),
         )
         .await?;
+    ensure_charge_covers_payment(&basis.basis_wei, &credit_price)?;
 
     let cart = state.credits.get_cart(signer.as_str()).await?;
     Ok(Json(cart_out(signer.as_str(), &cart)))
@@ -191,11 +200,10 @@ pub async fn remove_item(
     let signer = signer_from(&headers, "delete", &path).await?;
     let collection = validate_collection(&collection)?;
     let item_id = validate_item_id(&item_id)?;
-    state
+    let cart = state
         .credits
         .remove_item(signer.as_str(), &collection, &item_id)
         .await?;
-    let cart = state.credits.get_cart(signer.as_str()).await?;
     Ok(Json(cart_out(signer.as_str(), &cart)))
 }
 
@@ -343,26 +351,33 @@ pub async fn checkout(
         }
     }
 
-    let mut repriced: Vec<RepricedLine> = Vec::with_capacity(cart.items.len());
-    for line in &cart.items {
-        if let Some(scope) = &scope {
-            let in_scope = scope
+    let lines: Vec<&CartItemRow> = cart
+        .items
+        .iter()
+        .filter(|line| match &scope {
+            Some(scope) => scope
                 .iter()
-                .any(|(c, i)| line.collection.eq_ignore_ascii_case(c) && &line.item_id == i);
-            if !in_scope {
-                continue;
-            }
-        }
+                .any(|(c, i)| line.collection.eq_ignore_ascii_case(c) && &line.item_id == i),
+            None => true,
+        })
+        .collect();
+    let pairs: Vec<(String, String)> = lines
+        .iter()
+        .map(|l| (l.collection.clone(), l.item_id.clone()))
+        .collect();
+    let priced_lines = state
+        .pricing
+        .price_items_for_mode(
+            &state.credits.pool,
+            &pairs,
+            &state.checkout_fulfillment_mode,
+            ORDER_SCAN_MAX_PAGES,
+        )
+        .await?;
 
-        let priced = state
-            .pricing
-            .price_item_for_mode(
-                &state.credits.pool,
-                &line.collection,
-                &line.item_id,
-                &state.checkout_fulfillment_mode,
-            )
-            .await?;
+    let mut repriced: Vec<RepricedLine> = Vec::with_capacity(lines.len());
+    for (line, priced) in lines.into_iter().zip(priced_lines) {
+        let priced = priced?;
         ensure_qty_fillable(&priced.basis.kind, line.qty)?;
         let (mode, token_id, trade_id) = match &priced.basis.kind {
             BasisKind::Primary => ("primary", None, None),

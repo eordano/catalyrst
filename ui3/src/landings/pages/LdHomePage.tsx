@@ -5,9 +5,9 @@ import "./ldhomepage.css";
 
 type SitesHomeProps = ComponentProps<typeof SitesHome>;
 
-export type LdHomeCta = { label: string; href: string };
+type LdHomeCta = { label: string; href: string };
 
-export type LdHomeHero = {
+type LdHomeHero = {
   kicker: string;
   title: string;
   subtitle: string;
@@ -17,7 +17,7 @@ export type LdHomeHero = {
   platforms: { id: string; label: string; href: string }[];
 };
 
-export type LdHomeRailItem = {
+type LdHomeRailItem = {
   id: string;
   title: string;
   href: string;

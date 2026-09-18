@@ -1,0 +1,32 @@
+{
+  "name": "dcl-social",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test:browser": "node scripts/smoke.cjs",
+    "test:friends": "node scripts/friends-smoke.cjs",
+    "test:discovery": "node scripts/discovery-smoke.cjs",
+    "test:activity": "node scripts/activity-smoke.cjs"
+  },
+  "dependencies": {
+    "@dcl/protocol": "1.0.0-34906351243.commit-688d92c",
+    "@dcl/rpc": "1.1.2",
+    "livekit-client": "2.22.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "viem": "2.56.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "playwright": "1.63.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.0"
+  },
+  "overrides": {
+    "protobufjs": "7.6.6"
+  }
+}

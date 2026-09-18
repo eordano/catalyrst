@@ -16,7 +16,7 @@ const DesktopIcon = (
   </svg>
 );
 
-export type MobileEditorGateProps = {
+type MobileEditorGateProps = {
   title?: string;
   message?: string;
   backHref?: string;

@@ -18,7 +18,7 @@ export function resolveSelfAddress(): string {
   return normalizeAddress(FALLBACK_STATE.identity.address);
 }
 
-export function useProfile(address?: string | null) {
+function useProfile(address?: string | null) {
   const addr = address ?? resolveSelfAddress();
   return useQuery({
     queryKey: qk.profile(addr),
@@ -28,7 +28,7 @@ export function useProfile(address?: string | null) {
   });
 }
 
-export function useUserBadges(address?: string | null) {
+function useUserBadges(address?: string | null) {
   const addr = address ?? resolveSelfAddress();
   return useQuery({
     queryKey: qk.badges(addr),
@@ -38,7 +38,7 @@ export function useUserBadges(address?: string | null) {
   });
 }
 
-export function useUserPhotos(address?: string | null) {
+function useUserPhotos(address?: string | null) {
   const addr = address ?? resolveSelfAddress();
   return useQuery({
     queryKey: qk.photos(addr),

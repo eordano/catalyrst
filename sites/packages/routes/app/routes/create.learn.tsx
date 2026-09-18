@@ -4,7 +4,7 @@ import ChLearn from "@ui/creatorhub/pages/ChLearn";
 
 import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { useProfileName } from "@data/lib/auth/use-profile-name";
+import { useChromeAuth } from "@ui/web/frames/chrome-auth";
 import { sidLoader } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
@@ -23,7 +23,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function CreateLearn({ loaderData }: Route.ComponentProps) {
   const { sid } = loaderData as { sid: string };
   const { isConnected, address } = useAuth();
-  const name = useProfileName(address, isConnected);
+  const { name } = useChromeAuth();
 
   const fired = useRef(false);
   useEffect(() => {

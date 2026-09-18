@@ -4,12 +4,11 @@ status: draft
 owner: owner@example.com
 hypothesis:
   statement: >-
-    A guided, tab-by-tab World Settings wizard (details -> layout -> misc ->
-    review -> save) increases the share of opened settings sessions that reach a
-    saved write, even with the metadata commit simulated.
+    World settings with persistent edits across tabs and explicit save/discard
+    actions increase the share of owners who successfully update their World.
   because: >-
     Splitting a published World's settings into explicit, URL-addressable tabs
-    with a single review step that names every pending change removes the
+    with persistent form values and visible save status removes the
     ambiguity of the all-at-once modal, so more owners who open settings push
     through to a confident Save instead of abandoning unsaved edits.
 metric:
@@ -37,42 +36,27 @@ experiment:
   min_sample: 3000
 ---
 
-# Edit a published World's settings (details / layout / misc + review + save)
+# Edit a published World's settings
 
-The Creator Hub "World Settings" modal edits a published World's metadata. This
-story breaks it into explicit, URL-addressable steps that mirror the real
-tabbed dialog and add a single review gate before the write:
+Details, Layout and Misc. tabs retain edits while navigating between them.
+Existing values come from `GET /world/:name/settings`. Title, description,
+categories, spawn coordinates, skybox time, single-player mode and listing
+visibility are controlled inputs. Thumbnail uploads accept PNG/JPEG/GIF/WebP,
+up to 1 MB. Save sends only changed fields through authenticated multipart
+`PUT /world/:name/settings`; the returned stored values become the new baseline.
 
-1. **details** -- DETAILS tab: World Title, Description, Thumbnail, Categories.
-2. **layout** -- LAYOUT tab: the X/Y parcel layout (multi-scene world map +
-   published scenes list).
-3. **misc** -- MISC. tab: spawn coordinate (X/Y), skybox Auto/fixed-hour offset,
-   Single Player toggle, Show in Places toggle.
-4. **review** -- unsaved-changes banner that names every pending edit with
-   Discard / Save changes.
-5. **save** -- a simulated `PUT /world/:name/settings` writes the new metadata
-   back to the World; success returns the updated `WorldSettings`.
+Save succeeds only after the backend accepts the write. Validation, expired
+sessions, forbidden writes and service failures preserve the pending edits and
+show a recoverable error. Discard restores the saved baseline. Leaving with
+unsaved edits prompts the owner; changing tabs does not. Collaborators retain
+their authorized scene-removal controls on Layout without metadata editing.
 
-The story tracks whether the wizard increases the share of opened settings
-sessions that reach a saved write.
+The server verifies the wallet, World ownership/deployment permission, file
+contents and limits, and the spawn point's position within the published World.
+The UI does not infer save success from a timer or local storage.
 
-- **Primary metric:** `ch_world_settings_save_rate` =
-  `ch_world_settings_saved` / `ch_world_settings_opened`.
-- **Guardrails:** settings-open volume (`ch_world_settings_opened`) and the
-  discard rate (`ch_world_settings_discarded`) must stay healthy.
-- **Events:** `ch_world_settings_opened` on first step,
-  `ch_world_settings_tab_viewed` (`{ tab }`) per tab,
-  `ch_world_settings_changed` (`{ tab, field }`) when a field is edited,
-  `ch_world_settings_review_reached`, `ch_world_settings_discarded`,
-  `ch_world_settings_saving`, `ch_world_settings_saved` (stub, `{ fields }`).
-
-Data reality: `worlds-content-server` has no public read endpoint for a single
-owner's WorldSettings (the GET is auth-gated and `worlds/*` is not publicly
-served), so the World record is a faithful instance derived from the upstream
-`WorldSettings` / `WorldInfo` / `WorldRuntimeMetadata` shapes
-(`decentraland/worlds-content-server/main/src/types.ts`) plus the scene-level
-`worldConfiguration.skyboxConfig` / `spawnPoint` shapes
-(`decentraland/schemas/main`), written to
-`app/fixtures/creator-hub-world-settings.json`. The settings WRITE is
-**SIMULATED** in the XState wizard (flow, states and metrics are real, only the
-final metadata commit is a clearly-noted stub). Noted as deferred.
+Primary metric: `ch_world_settings_saved / ch_world_settings_opened`.
+Saved events contain the changed fields and `stub: false`. The opened,
+tab-viewed, changed, discarded and saving events preserve the existing metric
+contract. The old state-machine examples remain test fixtures, not the runtime
+save path.

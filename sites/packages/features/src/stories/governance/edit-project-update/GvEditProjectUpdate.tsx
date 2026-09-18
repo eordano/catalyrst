@@ -22,7 +22,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type GvEditProjectUpdateProps = {
+type GvEditProjectUpdateProps = {
   data: EditUpdateData;
   trackCtx: TrackContext;
   initialStep?: string;

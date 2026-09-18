@@ -4,14 +4,14 @@ import path from "node:path";
 import matter from "gray-matter";
 import { z } from "zod";
 
-export const VariantSchema = z.object({
+const VariantSchema = z.object({
   id: z.string().min(1),
   weight: z.number().nonnegative(),
   flags: z.record(z.string(), z.unknown()).default({}),
 });
 export type Variant = z.infer<typeof VariantSchema>;
 
-export const ExperimentSchema = z.object({
+const ExperimentSchema = z.object({
   key: z.string().min(1),
   unit: z.string().min(1),
   variants: z.array(VariantSchema).min(1),
@@ -20,12 +20,12 @@ export const ExperimentSchema = z.object({
   min_sample: z.number().optional(),
 });
 
-export const HypothesisSchema = z.object({
+const HypothesisSchema = z.object({
   statement: z.string(),
   because: z.string(),
 });
 
-export const MetricSchema = z.object({
+const MetricSchema = z.object({
   primary: z.string(),
   numerator: z.string().optional(),
   denominator: z.string().optional(),
@@ -33,7 +33,7 @@ export const MetricSchema = z.object({
   externalEvents: z.array(z.string()).optional(),
 });
 
-export const DecisionSchema = z.object({
+const DecisionSchema = z.object({
   rule: z.string(),
 });
 

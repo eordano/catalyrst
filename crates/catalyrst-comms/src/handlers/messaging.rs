@@ -63,17 +63,10 @@ fn authorized_community_binding(
     Ok(Some(requested.to_string()))
 }
 
-async fn is_member(state: &AppState, group_id: &str, wallet: &str) -> Result<bool, ApiError> {
-    let n: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM mls_group_members \
-         WHERE group_id = $1 AND member = $2 AND removed_epoch IS NULL",
-    )
-    .bind(group_id)
-    .bind(wallet)
-    .fetch_one(&state.pool)
-    .await?;
-    Ok(n > 0)
-}
+/// Membership resolved in the same statement as the rows it gates; the LATERAL
+/// join yields one row even for a non-member so the two answers stay distinct.
+const MEMBER_EXISTS: &str = "EXISTS (SELECT 1 FROM mls_group_members \
+     WHERE group_id = $1 AND member = $2 AND removed_epoch IS NULL)";
 
 pub async fn publish_key_packages(
     State(state): State<AppState>,
@@ -91,7 +84,9 @@ pub async fn publish_key_packages(
         return Err(bad_request("`key_packages` must contain 1..=100 entries"));
     }
 
-    let mut stored = Vec::new();
+    let mut stored: Vec<String> = Vec::new();
+    let mut ciphersuites: Vec<i32> = Vec::new();
+    let mut packages: Vec<Vec<u8>> = Vec::new();
     for entry in arr {
         let s = entry
             .as_str()
@@ -113,18 +108,23 @@ pub async fn publish_key_packages(
             ));
         }
 
-        sqlx::query(
-            "INSERT INTO mls_key_packages (owner, ref_hash, ciphersuite, key_package) \
-             VALUES ($1, $2, $3, $4) ON CONFLICT (ref_hash) DO NOTHING",
-        )
-        .bind(&signer)
-        .bind(&parsed.ref_hash)
-        .bind(parsed.ciphersuite_id as i32)
-        .bind(&bytes)
-        .execute(&state.pool)
-        .await?;
         stored.push(parsed.ref_hash);
+        ciphersuites.push(parsed.ciphersuite_id as i32);
+        packages.push(bytes);
     }
+
+    sqlx::query(
+        "INSERT INTO mls_key_packages (owner, ref_hash, ciphersuite, key_package) \
+         SELECT $1, k.ref_hash, k.ciphersuite, k.key_package \
+         FROM unnest($2::text[], $3::int4[], $4::bytea[]) AS k(ref_hash, ciphersuite, key_package) \
+         ON CONFLICT (ref_hash) DO NOTHING",
+    )
+    .bind(&signer)
+    .bind(&stored)
+    .bind(&ciphersuites)
+    .bind(&packages)
+    .execute(&state.pool)
+    .await?;
 
     Ok(Json(json!({ "published": stored.len(), "refs": stored })))
 }
@@ -235,11 +235,43 @@ pub async fn create_group(
 
     let epoch_author = state.fed_peer_id.clone();
 
-    let mut tx = state.pool.begin().await?;
-    let inserted = sqlx::query(
-        "INSERT INTO mls_groups \
-            (group_id, creator, group_kind, community_id, epoch_author, current_epoch, ciphersuite) \
-         VALUES ($1, $2, $3, $4, $5, 0, $6) ON CONFLICT (group_id) DO NOTHING",
+    let (commit_bytes, welcome_bytes, commit_hash) = match &b.initial_commit {
+        Some(c) => {
+            let commit_bytes = base64::engine::general_purpose::STANDARD
+                .decode(c)
+                .map_err(|_| bad_request("initial_commit is not valid base64"))?;
+            mls::parse_commit_routing(&commit_bytes).map_err(|e| bad_request(e.to_string()))?;
+            let welcome_bytes = match &b.welcome {
+                Some(w) => Some(
+                    base64::engine::general_purpose::STANDARD
+                        .decode(w)
+                        .map_err(|_| bad_request("welcome is not valid base64"))?,
+                ),
+                None => None,
+            };
+            let commit_hash = mls::content_hash(&commit_bytes);
+            (Some(commit_bytes), welcome_bytes, Some(commit_hash))
+        }
+        None => (None, None, None),
+    };
+
+    let created: bool = sqlx::query_scalar(
+        "WITH g AS ( \
+            INSERT INTO mls_groups \
+                (group_id, creator, group_kind, community_id, epoch_author, current_epoch, ciphersuite) \
+            VALUES ($1, $2, $3, $4, $5, 0, $6) ON CONFLICT (group_id) DO NOTHING \
+            RETURNING group_id \
+         ), m AS ( \
+            INSERT INTO mls_group_members (group_id, member, added_epoch) \
+            SELECT g.group_id, x.member, 0 FROM g, unnest($7::text[]) AS x(member) \
+            ON CONFLICT DO NOTHING \
+         ), c AS ( \
+            INSERT INTO mls_commits \
+                (group_id, epoch, commit_bytes, welcome_bytes, committer, commit_hash, signed_at) \
+            SELECT g.group_id, 0, $8, $9, $2, $10, $11 FROM g WHERE $8::bytea IS NOT NULL \
+            ON CONFLICT DO NOTHING \
+         ) \
+         SELECT EXISTS (SELECT 1 FROM g)",
     )
     .bind(&group_id)
     .bind(&creator)
@@ -247,53 +279,16 @@ pub async fn create_group(
     .bind(&community_id)
     .bind(&epoch_author)
     .bind(mls::PINNED_CIPHERSUITE_ID as i32)
-    .execute(&mut *tx)
+    .bind(&members)
+    .bind(commit_bytes.as_deref())
+    .bind(welcome_bytes.as_deref())
+    .bind(&commit_hash)
+    .bind(chrono::Utc::now().timestamp())
+    .fetch_one(&state.pool)
     .await?;
-    if inserted.rows_affected() == 0 {
+    if !created {
         return Err(ApiError::http(409, "group already exists"));
     }
-
-    for m in &members {
-        sqlx::query(
-            "INSERT INTO mls_group_members (group_id, member, added_epoch) \
-             VALUES ($1, $2, 0) ON CONFLICT DO NOTHING",
-        )
-        .bind(&group_id)
-        .bind(m)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    if let Some(c) = &b.initial_commit {
-        let commit_bytes = base64::engine::general_purpose::STANDARD
-            .decode(c)
-            .map_err(|_| bad_request("initial_commit is not valid base64"))?;
-        mls::parse_commit_routing(&commit_bytes).map_err(|e| bad_request(e.to_string()))?;
-        let welcome_bytes = match &b.welcome {
-            Some(w) => Some(
-                base64::engine::general_purpose::STANDARD
-                    .decode(w)
-                    .map_err(|_| bad_request("welcome is not valid base64"))?,
-            ),
-            None => None,
-        };
-        let commit_hash = mls::content_hash(&commit_bytes);
-        sqlx::query(
-            "INSERT INTO mls_commits \
-                (group_id, epoch, commit_bytes, welcome_bytes, committer, commit_hash, signed_at) \
-             VALUES ($1, 0, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-        )
-        .bind(&group_id)
-        .bind(&commit_bytes)
-        .bind(welcome_bytes.as_deref())
-        .bind(&creator)
-        .bind(&commit_hash)
-        .bind(chrono::Utc::now().timestamp())
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await?;
 
     Ok(Json(json!({
         "group_id": group_id,
@@ -330,16 +325,21 @@ pub async fn submit_commit(
     let signer = auth(&headers, "post", &format!("/mls/groups/{group_id}/commits")).await?;
     let b: CommitBody = serde_json::from_slice(&body).map_err(|e| bad_request(e.to_string()))?;
 
-    let g = sqlx::query_as::<_, (String, i64)>(
-        "SELECT epoch_author, current_epoch FROM mls_groups WHERE group_id = $1",
+    let g = sqlx::query_as::<_, (String, i64, bool)>(
+        "SELECT g.epoch_author, g.current_epoch, \
+            EXISTS(SELECT 1 FROM mls_group_members m \
+                   WHERE m.group_id = g.group_id AND m.member = $2 \
+                     AND m.removed_epoch IS NULL) \
+         FROM mls_groups g WHERE g.group_id = $1",
     )
     .bind(&group_id)
+    .bind(&signer)
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| ApiError::not_found("group not found"))?;
-    let (epoch_author, current_epoch) = g;
+    let (epoch_author, current_epoch, is_member) = g;
 
-    if !is_member(&state, &group_id, &signer).await? {
+    if !is_member {
         return Err(forbidden("only group members may submit commits"));
     }
 
@@ -381,21 +381,39 @@ pub async fn submit_commit(
     let commit_hash = mls::content_hash(&commit_bytes);
     let now = chrono::Utc::now().timestamp();
 
-    let mut tx = state.pool.begin().await?;
+    let mut added: Vec<String> = b
+        .added_members
+        .iter()
+        .map(|m| m.to_lowercase())
+        .filter(|m| is_eth_address(m))
+        .collect();
+    added.sort();
+    added.dedup();
+    let removed: Vec<String> = b.removed_members.iter().map(|m| m.to_lowercase()).collect();
 
-    let locked: i64 =
-        sqlx::query_scalar("SELECT current_epoch FROM mls_groups WHERE group_id = $1 FOR UPDATE")
-            .bind(&group_id)
-            .fetch_one(&mut *tx)
-            .await?;
-    if b.epoch != locked + 1 {
-        return Err(ApiError::http(409, "epoch advanced concurrently; retry"));
-    }
-
-    sqlx::query(
-        "INSERT INTO mls_commits \
-            (group_id, epoch, commit_bytes, welcome_bytes, committer, commit_hash, signed_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    // FOR UPDATE re-reads the row after a concurrent commit, so the guard sees it.
+    let locked: i64 = sqlx::query_scalar(
+        "WITH g AS ( \
+            SELECT current_epoch FROM mls_groups WHERE group_id = $1 FOR UPDATE \
+         ), ok AS ( \
+            SELECT current_epoch FROM g WHERE current_epoch + 1 = $2 \
+         ), c AS ( \
+            INSERT INTO mls_commits \
+                (group_id, epoch, commit_bytes, welcome_bytes, committer, commit_hash, signed_at) \
+            SELECT $1, $2, $3, $4, $5, $6, $7 FROM ok \
+         ), u AS ( \
+            UPDATE mls_groups SET current_epoch = $2, last_commit_hash = $6, updated_at = now() \
+            FROM ok WHERE mls_groups.group_id = $1 \
+         ), a AS ( \
+            INSERT INTO mls_group_members (group_id, member, added_epoch) \
+            SELECT $1, x.member, $2 FROM ok, unnest($8::text[]) AS x(member) \
+            ON CONFLICT (group_id, member) DO UPDATE \
+                SET removed_epoch = NULL, added_epoch = EXCLUDED.added_epoch \
+         ), r AS ( \
+            UPDATE mls_group_members SET removed_epoch = $2 \
+            FROM ok WHERE group_id = $1 AND member = ANY($9::text[]) AND removed_epoch IS NULL \
+         ) \
+         SELECT current_epoch FROM g",
     )
     .bind(&group_id)
     .bind(b.epoch)
@@ -404,48 +422,13 @@ pub async fn submit_commit(
     .bind(&signer)
     .bind(&commit_hash)
     .bind(now)
-    .execute(&mut *tx)
+    .bind(&added)
+    .bind(&removed)
+    .fetch_one(&state.pool)
     .await?;
-
-    sqlx::query(
-        "UPDATE mls_groups SET current_epoch = $2, last_commit_hash = $3, updated_at = now() \
-         WHERE group_id = $1",
-    )
-    .bind(&group_id)
-    .bind(b.epoch)
-    .bind(&commit_hash)
-    .execute(&mut *tx)
-    .await?;
-
-    for m in &b.added_members {
-        let m = m.to_lowercase();
-        if !is_eth_address(&m) {
-            continue;
-        }
-        sqlx::query(
-            "INSERT INTO mls_group_members (group_id, member, added_epoch) VALUES ($1, $2, $3) \
-             ON CONFLICT (group_id, member) DO UPDATE SET removed_epoch = NULL, added_epoch = $3",
-        )
-        .bind(&group_id)
-        .bind(&m)
-        .bind(b.epoch)
-        .execute(&mut *tx)
-        .await?;
+    if b.epoch != locked + 1 {
+        return Err(ApiError::http(409, "epoch advanced concurrently; retry"));
     }
-    for m in &b.removed_members {
-        let m = m.to_lowercase();
-        sqlx::query(
-            "UPDATE mls_group_members SET removed_epoch = $3 \
-             WHERE group_id = $1 AND member = $2 AND removed_epoch IS NULL",
-        )
-        .bind(&group_id)
-        .bind(&m)
-        .bind(b.epoch)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await?;
 
     Ok(Json(json!({
         "group_id": group_id,
@@ -468,29 +451,45 @@ pub async fn fetch_commits(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let group_id = group_id.to_lowercase();
     let signer = auth(&headers, "get", &format!("/mls/groups/{group_id}/commits")).await?;
-    if !is_member(&state, &group_id, &signer).await? {
-        return Err(forbidden("only group members may fetch commits"));
-    }
 
-    let rows = sqlx::query_as::<_, (i64, Vec<u8>, Option<Vec<u8>>, String, i64)>(
-        "SELECT epoch, commit_bytes, welcome_bytes, commit_hash, signed_at \
-         FROM mls_commits WHERE group_id = $1 AND epoch >= $2 ORDER BY epoch ASC LIMIT 500",
-    )
+    let rows = sqlx::query_as::<
+        _,
+        (
+            bool,
+            Option<i64>,
+            Option<Vec<u8>>,
+            Option<Vec<u8>>,
+            Option<String>,
+            Option<i64>,
+        ),
+    >(sqlx::AssertSqlSafe(format!(
+        "SELECT m.ok, c.epoch, c.commit_bytes, c.welcome_bytes, c.commit_hash, c.signed_at \
+             FROM (SELECT {MEMBER_EXISTS} AS ok) m \
+             LEFT JOIN LATERAL ( \
+                SELECT epoch, commit_bytes, welcome_bytes, commit_hash, signed_at \
+                FROM mls_commits WHERE m.ok AND group_id = $1 AND epoch >= $3 \
+                ORDER BY epoch ASC LIMIT 500 \
+             ) c ON true ORDER BY c.epoch ASC"
+    )))
     .bind(&group_id)
+    .bind(&signer)
     .bind(q.from)
     .fetch_all(&state.pool)
     .await?;
+    if !rows.first().is_some_and(|row| row.0) {
+        return Err(forbidden("only group members may fetch commits"));
+    }
 
     let commits: Vec<_> = rows
         .into_iter()
-        .map(|(epoch, commit, welcome, hash, signed_at)| {
-            json!({
-                "epoch": epoch,
-                "commit": b64(&commit),
+        .filter_map(|(_, epoch, commit, welcome, hash, signed_at)| {
+            Some(json!({
+                "epoch": epoch?,
+                "commit": b64(&commit?),
                 "welcome": welcome.as_deref().map(b64),
-                "commit_hash": hash,
-                "signed_at": signed_at,
-            })
+                "commit_hash": hash?,
+                "signed_at": signed_at?,
+            }))
         })
         .collect();
 
@@ -559,17 +558,12 @@ pub async fn send_message(
         format!("{group_id}:{}:{signer}:{ciphertext_hash}", routing.epoch).as_bytes(),
     );
 
-    let mut tx = state.pool.begin().await?;
     sqlx::query(
-        "INSERT INTO mls_message_blobs (ciphertext_hash, ciphertext) VALUES ($1, $2) \
-         ON CONFLICT (ciphertext_hash) DO NOTHING",
-    )
-    .bind(&ciphertext_hash)
-    .bind(&ciphertext)
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query(
-        "INSERT INTO mls_message_refs \
+        "WITH blob AS ( \
+            INSERT INTO mls_message_blobs (ciphertext_hash, ciphertext) VALUES ($5, $7) \
+            ON CONFLICT (ciphertext_hash) DO NOTHING \
+         ) \
+         INSERT INTO mls_message_refs \
             (signature_hash, group_id, author, epoch, ciphertext_hash, signed_at) \
          VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (signature_hash) DO NOTHING",
     )
@@ -579,9 +573,9 @@ pub async fn send_message(
     .bind(routing.epoch as i64)
     .bind(&ciphertext_hash)
     .bind(now)
-    .execute(&mut *tx)
+    .bind(&ciphertext)
+    .execute(&state.pool)
     .await?;
-    tx.commit().await?;
 
     Ok(Json(json!({
         "group_id": group_id,
@@ -609,35 +603,44 @@ pub async fn fetch_history(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let group_id = group_id.to_lowercase();
     let signer = auth(&headers, "get", &format!("/mls/groups/{group_id}/messages")).await?;
-    if !is_member(&state, &group_id, &signer).await? {
-        return Err(forbidden("only group members may fetch history"));
-    }
 
     let before = q.before.unwrap_or(i64::MAX);
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
 
-    let rows = sqlx::query_as::<_, (String, String, i64, i64, Vec<u8>)>(
-        "SELECT r.signature_hash, r.author, r.epoch, r.signed_at, b.ciphertext \
-         FROM mls_message_refs r JOIN mls_message_blobs b ON b.ciphertext_hash = r.ciphertext_hash \
-         WHERE r.group_id = $1 AND extract(epoch FROM r.received_at)::bigint < $2 \
-         ORDER BY r.received_at DESC LIMIT $3",
+    let rows = sqlx::query_as::<_, (bool, Option<String>, Option<String>, Option<i64>, Option<i64>, Option<Vec<u8>>)>(
+        sqlx::AssertSqlSafe(format!(
+            "SELECT m.ok, r.signature_hash, r.author, r.epoch, r.signed_at, r.ciphertext \
+             FROM (SELECT {MEMBER_EXISTS} AS ok) m \
+             LEFT JOIN LATERAL ( \
+                SELECT r.signature_hash, r.author, r.epoch, r.signed_at, r.received_at, b.ciphertext \
+                FROM mls_message_refs r \
+                JOIN mls_message_blobs b ON b.ciphertext_hash = r.ciphertext_hash \
+                WHERE m.ok AND r.group_id = $1 \
+                  AND extract(epoch FROM r.received_at)::bigint < $3 \
+                ORDER BY r.received_at DESC LIMIT $4 \
+             ) r ON true ORDER BY r.received_at DESC"
+        )),
     )
     .bind(&group_id)
+    .bind(&signer)
     .bind(before)
     .bind(limit)
     .fetch_all(&state.pool)
     .await?;
+    if !rows.first().is_some_and(|row| row.0) {
+        return Err(forbidden("only group members may fetch history"));
+    }
 
     let messages: Vec<_> = rows
         .into_iter()
-        .map(|(sig, author, epoch, signed_at, ct)| {
-            json!({
-                "signature_hash": sig,
-                "author": author,
-                "epoch": epoch,
-                "signed_at": signed_at,
-                "ciphertext": b64(&ct),
-            })
+        .filter_map(|(_, sig, author, epoch, signed_at, ct)| {
+            Some(json!({
+                "signature_hash": sig?,
+                "author": author?,
+                "epoch": epoch?,
+                "signed_at": signed_at?,
+                "ciphertext": b64(&ct?),
+            }))
         })
         .collect();
 
@@ -652,24 +655,20 @@ pub async fn fetch_blob(
     let hash = hash.to_lowercase();
     let signer = auth(&headers, "get", &format!("/mls/blobs/{hash}")).await?;
 
-    let allowed: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM mls_message_refs r \
-         JOIN mls_group_members m ON m.group_id = r.group_id \
-         WHERE r.ciphertext_hash = $1 AND m.member = $2 AND m.removed_epoch IS NULL",
+    let (allowed, blob): (bool, Option<Vec<u8>>) = sqlx::query_as(
+        "SELECT EXISTS (SELECT 1 FROM mls_message_refs r \
+                        JOIN mls_group_members m ON m.group_id = r.group_id \
+                        WHERE r.ciphertext_hash = $1 AND m.member = $2 AND m.removed_epoch IS NULL), \
+                (SELECT ciphertext FROM mls_message_blobs WHERE ciphertext_hash = $1)",
     )
     .bind(&hash)
     .bind(&signer)
     .fetch_one(&state.pool)
     .await?;
-    if allowed == 0 {
+    if !allowed {
         return Err(forbidden("not authorized for this blob"));
     }
 
-    let blob: Option<Vec<u8>> =
-        sqlx::query_scalar("SELECT ciphertext FROM mls_message_blobs WHERE ciphertext_hash = $1")
-            .bind(&hash)
-            .fetch_optional(&state.pool)
-            .await?;
     match blob {
         Some(b) => Ok(Json(json!({ "hash": hash, "ciphertext": b64(&b) }))),
         None => Err(ApiError::not_found("blob not found")),

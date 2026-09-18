@@ -11,7 +11,7 @@ import {
   GOVERNANCE_MIRROR_NOTE,
 } from "@data/lib/catalyst/governance/freshness";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import GovernanceNotice from "@features/components/governance/GovernanceNotice";
 import ProposalsList from "@features/components/governance/ProposalsList";
@@ -82,15 +82,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   const requestedPage =
     Number.isFinite(pageParam) && pageParam >= 1 ? Math.floor(pageParam) : 1;
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
+  const {
+    sid,
+    wrap,
+    data: { proposals: all, source, fallback, addressById, asOf },
+  } = await storyLoaderWith(request, STORY, FALLBACK, () =>
+    loadProposals({ signal: request.signal }),
   );
-
-  const { proposals: all, source, fallback, addressById, asOf } = await loadProposals({
-    signal: request.signal,
-  });
 
   const filtered = filterProposals(all, category, status, search);
   const countScope = search ? filterProposals(all, "", "", search) : all;

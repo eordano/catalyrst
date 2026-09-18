@@ -66,6 +66,11 @@ that script added to `KEEP_RE`, or the published tree's `cargo test` fails
 wherever node exists. Both live in the upstream source
 checkout only, where the test also needs a chromium on the machine.
 
+`data_layer_ui` is the crate's only browser UI contract. It is already ignored
+in ordinary runs and armed only through `--include-ignored`; when armed it
+always runs. It remains load-bearing because it is the only editor-to-CRDT
+end-to-end check, not because it samples the current presentation.
+
 **`node` is not on this list on purpose.** `golden`'s runtime tier needs it and
 gates on it at runtime rather than with `#[ignore]`, because the crate's own
 `build` cannot type-check without node either: a machine missing it cannot use

@@ -16,20 +16,6 @@
 .gvsh__back {
   flex: 0 0 58px;
 }
-.gvsh__backbtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--gv-line);
-  background: var(--gv-surface);
-  color: var(--gv-ink);
-  cursor: pointer;
-  transition: background 0.12s ease;
-}
-.gvsh__backbtn:hover { background: var(--gv-wash); }
 
 .gvsh__col {
   flex: 0 1 800px;
@@ -64,7 +50,6 @@
   font-weight: 400;
   color: var(--gv-ink);
 }
-.gvsh__lead--center { text-align: center; }
 
 .gvsh__label {
   display: block;
@@ -290,7 +275,6 @@
   border-radius: var(--r-control);
   background: var(--gv-surface);
 }
-.gvsh__addrplaceholder { font-size: 15px; color: var(--gv-faint); }
 
 .gvsh__submit {
   display: inline-flex;
@@ -311,48 +295,6 @@
 }
 .gvsh__submit:hover:not(:disabled) { background: var(--brand-hover); }
 .gvsh__submit:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.gvsh__vpnotice {
-  margin: 0;
-  font-size: 17px;
-  line-height: 26px;
-  color: var(--gvsh-error);
-}
-
-.gvsh__login {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 14px;
-  margin: 0 auto;
-  padding: 56px 24px;
-}
-.gvsh__loginicon { color: var(--brand); }
-.gvsh__loginhint {
-  margin: 0;
-  font-size: 15px;
-  color: var(--gv-muted);
-}
-
-.gvsh__notfound {
-  text-align: center;
-  margin: 0 auto;
-  padding: 72px 24px;
-}
-.gvsh__nftitle {
-  margin: 0 0 8px;
-  font-size: 21px;
-  line-height: 30px;
-  font-weight: 600;
-  color: var(--gv-ink);
-}
-.gvsh__nfdesc {
-  margin: 0;
-  font-size: 21px;
-  line-height: 30px;
-  color: var(--gv-muted);
-}
 
 @media (max-width: 767px) {
   .gvsh { padding-top: 0; }

@@ -32,7 +32,7 @@ export type SocialMember = {
 
 type Status = "idle" | "loading" | "ready" | "empty" | "error";
 
-export type SocialSurfaceProps = {
+type SocialSurfaceProps = {
   tab?: SocialTab;
   onTab?: (t: SocialTab) => void;
 
@@ -65,7 +65,6 @@ export type SocialSurfaceProps = {
   signedOut?: boolean;
   onSignIn?: () => void;
 };
-
 
 function meaningfulSeed(seed: string): string {
   const s = seed.trim();

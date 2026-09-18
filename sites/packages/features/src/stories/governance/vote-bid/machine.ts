@@ -15,7 +15,7 @@ export type CastFn = (args: {
   signal?: AbortSignal;
 }) => Promise<CastResult>;
 
-export type BidVoteInput = {
+type BidVoteInput = {
   trackCtx: TrackContext;
   bidId: string;
   fieldSize: number;
@@ -24,7 +24,7 @@ export type BidVoteInput = {
   track?: TrackFn;
 };
 
-export type BidVoteContext = {
+type BidVoteContext = {
   trackCtx: TrackContext;
   bidId: string;
   fieldSize: number;
@@ -37,7 +37,7 @@ export type BidVoteContext = {
   error?: string;
 };
 
-export type BidVoteEvent =
+type BidVoteEvent =
   | { type: "ACKNOWLEDGE" }
   | { type: "SELECT_CHOICE"; choice: string }
   | { type: "CAST" }
@@ -56,7 +56,6 @@ export const BID_VOTE_EVENTS = {
 } as const;
 
 export const BID_CHOICES = ["Yes", "No", "Abstain"] as const;
-export type BidChoice = (typeof BID_CHOICES)[number];
 
 const DEFAULT_MAX_ERRORS = 2;
 
@@ -69,8 +68,8 @@ export const STATE_TO_SLUG = {
   completed: "completed",
 } as const;
 
-export type BidVoteStateId = keyof typeof STATE_TO_SLUG;
-export type BidVoteStepSlug = (typeof STATE_TO_SLUG)[BidVoteStateId];
+type BidVoteStateId = keyof typeof STATE_TO_SLUG;
+type BidVoteStepSlug = (typeof STATE_TO_SLUG)[BidVoteStateId];
 
 export const FIRST_STEP_SLUG: BidVoteStepSlug = STATE_TO_SLUG.review;
 
@@ -82,7 +81,7 @@ export const stateToSlug: (value: string) => BidVoteStepSlug = stepSlugs.toSlug;
 
 export const slugToState: (slug: string | null | undefined) => BidVoteStateId = stepSlugs.toState;
 
-export const simulateCast: CastFn = async ({ bidId, choice, signal }) => {
+const simulateCast: CastFn = async ({ bidId, choice, signal }) => {
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, 400);
     signal?.addEventListener("abort", () => {
@@ -250,8 +249,6 @@ export const bidVoteMachine = setup({
     },
   },
 });
-
-export type BidVoteMachine = typeof bidVoteMachine;
 
 export function resolveBidVoteSnapshot(args: {
   step: BidVoteStateId;

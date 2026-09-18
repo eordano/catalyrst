@@ -83,10 +83,11 @@ lib.mkIf cfg.enable {
       RUST_LOG = "info";
       COMMIT_HASH = commitHash;
       HTTP_SERVER_HOST = "127.0.0.1";
+      TRUSTED_CLIENT_IP_HEADER = "x-real-ip";
       CATALYRST_PORT = "5141";
       PUBLIC_URL = d.publicUrl;
       COMMS_PROTOCOL = "v3";
-      COMMS_FIXED_ADAPTER = "archipelago:archipelago:${d.wsScheme}://${cfg.domain}/ws";
+      COMMS_FIXED_ADAPTER = "archipelago:${d.wsScheme}://${cfg.domain}/ws";
       COMMS_VERSION = commsVersion;
       COMMS_COMMIT_HASH = commsCommitHash;
       COMMS_WS_CONNECTOR_URL = "http://127.0.0.1:5139";
@@ -126,7 +127,21 @@ lib.mkIf cfg.enable {
       LAND_SUBGRAPH_URL = "https://subgraph.decentraland.org/land-manager";
       CONCURRENT_SYNC_DOWNLOADS = toString cfg.sync.concurrency;
       SYNC_SOURCE = lib.concatStringsSep "," cfg.sync.sources;
-    };
+    }
+    // lib.optionalAttrs d.v4.enabled (
+      {
+        COMMS_V4_CONTROL_URL = d.v4.controlUrl;
+        COMMS_V4_CONTROL_AUDIENCE = d.v4.audience;
+        COMMS_V4_PULSE_AUDIENCE = d.v4.audience;
+        COMMS_V4_PULSE_NATIVE_ENDPOINT = d.v4.pulseNativeEndpoint;
+      }
+      // lib.optionalAttrs (d.v4.pulseWebTransportUrl != "") {
+        COMMS_V4_PULSE_WEBTRANSPORT_URL = d.v4.pulseWebTransportUrl;
+      }
+      // lib.optionalAttrs d.v4.islandRefresh {
+        COMMS_V4_ISLAND_REFRESH_URL = d.v4.islandRefreshUrl;
+      }
+    );
   };
 
   systemd.services.catalyrst-admin-secret = {

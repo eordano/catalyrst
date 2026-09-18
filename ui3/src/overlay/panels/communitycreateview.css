@@ -80,8 +80,7 @@
   margin: 0;
 }
 
-.cc-create__input,
-.cc-create__select {
+.cc-create__input {
   width: 100%;
   box-sizing: border-box;
   padding: 9px 11px;
@@ -92,8 +91,7 @@
   font-size: 14px;
 }
 
-.cc-create__input:focus,
-.cc-create__select:focus {
+.cc-create__input:focus {
   outline: none;
   border-color: var(--brand, #ff2d55);
 }

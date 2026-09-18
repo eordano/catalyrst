@@ -2,10 +2,10 @@ import { useCallback } from "react";
 import type { ShouldRevalidateFunctionArgs } from "react-router";
 import { useSearchParams } from "react-router";
 
-import { getJSON } from "@data/lib/catalyst/client";
 import { RealmAboutSchema } from "@data/lib/catalyst/creator-hub/activity";
+import { loadRealmAbout } from "@data/lib/catalyst/realm-about.server";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import ClientStage from "@ui/overlay/panels/ClientStage";
 import ConnectionStatus from "@ui/explorer/components/ConnectionStatus";
 import { useBridgeState } from "@ui/overlay/bridge";
@@ -67,20 +67,20 @@ function isPanelOpen(raw: string | null): boolean {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const { sid, assignment, wrap } = await storyLoader(
+  const {
+    sid,
+    assignment,
+    wrap,
+    data: realm,
+  } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    (): Promise<RealmStatus> =>
+      loadRealmAbout({ signal: request.signal })
+        .then(parseRealmStatus)
+        .catch(() => UNAVAILABLE_REALM),
   );
-
-  let realm: RealmStatus = UNAVAILABLE_REALM;
-  try {
-    realm = parseRealmStatus(
-      await getJSON<unknown>("/about", { signal: request.signal }),
-    );
-  } catch {
-    realm = UNAVAILABLE_REALM;
-  }
 
   const payload = { sid, realm, assignment };
 

@@ -12,8 +12,8 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type { TrackFn };
 
-export type Details = { decisionUrl: string };
-export type Reasons = { reasons: string; suggestions: string };
+type Details = { decisionUrl: string };
+type Reasons = { reasons: string; suggestions: string };
 
 export type CreateFn = (args: {
   details: Details;
@@ -22,13 +22,13 @@ export type CreateFn = (args: {
   signal?: AbortSignal;
 }) => Promise<CreatedProposal>;
 
-export type SubmitCouncilVetoInput = {
+type SubmitCouncilVetoInput = {
   trackCtx: TrackContext;
   create?: CreateFn;
   track?: TrackFn;
 };
 
-export type SubmitCouncilVetoContext = {
+type SubmitCouncilVetoContext = {
   trackCtx: TrackContext;
   create: CreateFn;
   track: TrackFn;
@@ -39,7 +39,7 @@ export type SubmitCouncilVetoContext = {
   error?: string;
 };
 
-export type SubmitCouncilVetoEvent =
+type SubmitCouncilVetoEvent =
   | { type: "FILL_DETAILS"; decisionUrl: string }
   | { type: "URL_INVALID" }
   | { type: "FILL_REASONS"; reasons: string; suggestions?: string }
@@ -69,8 +69,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type CouncilVetoStateId = keyof typeof STATE_TO_SLUG;
-export type CouncilVetoStepSlug = (typeof STATE_TO_SLUG)[CouncilVetoStateId];
+type CouncilVetoStateId = keyof typeof STATE_TO_SLUG;
+type CouncilVetoStepSlug = (typeof STATE_TO_SLUG)[CouncilVetoStateId];
 
 export const FIRST_STEP_SLUG: CouncilVetoStepSlug = STATE_TO_SLUG.details;
 
@@ -254,8 +254,6 @@ export const submitCouncilVetoMachine = setup({
     },
   },
 });
-
-export type SubmitCouncilVetoMachine = typeof submitCouncilVetoMachine;
 
 export function resolveCouncilVetoSnapshot(args: {
   step: CouncilVetoStateId;

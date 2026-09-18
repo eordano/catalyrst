@@ -58,3 +58,17 @@ The primary metric `cl_hud_loaded_rate` is derivable from the single
 the notifications feed are NOT browser-reachable from the public catalyst edge --
 they arrive via the engine bridge (`window.dclBridge`); absent it, the HUD shows
 ui3 static/empty state.
+
+
+## Browser play data (2026-09-18)
+
+The deployed browser overlay now consumes `/api/screens/v1/play`: one streamed
+public-data bundle for featured/browse places, live events, wearables, emotes
+and outfits. Existing query keys receive each section as it arrives. Native
+and editor overlays retain their direct loaders. Private notifications/social
+reads keep their existing signed paths; engine and scene assets remain separate.
+
+Mounted-hook tests verify one shared request, cache reuse and invalidation;
+stream tests verify early consumption and rejection of incomplete responses.
+A production-build handler test confirms early frames while inventory is held.
+This is data-path verification, not a live latency or HUD conversion measurement.

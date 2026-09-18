@@ -1,3 +1,5 @@
+import NewShopTabs from "@ui/marketplace/new-shop/NewShopTabs";
+import { SHOP_TABS } from "@features/lib/marketplace/shop-tabs";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -45,9 +47,17 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function MarketplaceCartRoute({
   loaderData,
 }: Route.ComponentProps) {
+  const auth = useAuth();
+  return <AccountCart key={auth.address ?? "guest"} loaderData={loaderData} />;
+}
+
+function AccountCart({
+  loaderData,
+}: Pick<Route.ComponentProps, "loaderData">) {
   const d = loaderData as { sid: string };
   const auth = useAuth();
   const [cart, setCart] = useState<Cart | null | undefined>(undefined);
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -58,13 +68,15 @@ export default function MarketplaceCartRoute({
   useEffect(() => {
     if (!auth.isConnected || !auth.identity) return;
     let cancelled = false;
-    fetchCart(auth.identity)
+    const controller = new AbortController();
+    fetchCart(auth.identity, controller.signal)
       .then((c) => !cancelled && setCart(c))
       .catch(() => !cancelled && setCart(null));
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [auth.isConnected, auth.identity]);
+  }, [auth.isConnected, auth.identity, attempt]);
 
   useCartViewed(d.sid, cart ?? null);
   const items = useMemo(() => (cart ? cart.items : []), [cart]);
@@ -152,6 +164,7 @@ export default function MarketplaceCartRoute({
         <p className="mkco__lead">We couldn&apos;t load your cart</p>
         <p className="mkco__muted">Please try again in a moment.</p>
         <MkCheckoutActions>
+          <Button variant="primary" onClick={() => { setCart(undefined); setAttempt(value => value + 1); }}>Retry</Button>
           <Link to={href("/shop")} className="btn btn--primary btn--md">
             Browse the shop
           </Link>
@@ -224,7 +237,7 @@ export default function MarketplaceCartRoute({
   }
 
   return (
-    <MkCheckoutFrame title={TITLE} back={{ href: "/shop", label: "Back to the shop" }}>
+    <MkCheckoutFrame title={TITLE} wide navigation={<NewShopTabs tabs={SHOP_TABS} active="cart" />} >
       <p className="mkco__srlive" aria-live="polite">
         {announcement}
       </p>

@@ -51,7 +51,7 @@ function Harness({
   const [values, setValues] = useState<Record<string, number>>({});
   return (
     <SettingsPanel
-      tabs={SETTINGS_CATALOG.tabs}
+      tabs={[...SETTINGS_CATALOG.tabs, { id: "flags", label: "Feature Flags" }]}
       tab={tab}
       onTab={setTab}
       groups={groupsForTab(SETTINGS_CATALOG, tab)}
@@ -85,4 +85,8 @@ export const EngineTooltips: Story = {
 
 export const Bridgeless: Story = {
   render: () => <Harness info={null} engineConnected={false} />,
+};
+
+export const Flags: Story = {
+  render: () => <SettingsPanel tabs={[...SETTINGS_CATALOG.tabs, { id: "flags", label: "Feature Flags" }]} tab="flags" onTab={() => {}} groups={[]} info={null} values={{}} defaults={{}} onChange={() => {}} />,
 };

@@ -1,4 +1,7 @@
+import { ACTION_SCHEMAS, COMPONENT_SCHEMAS, fieldLabel } from "./authoring-schema";
+
 export const TRIGGER_CHIP: Record<string, string> = {
+  ...Object.fromEntries((COMPONENT_SCHEMAS["asset-packs::Triggers"]!.schema.properties!.value!.items!.properties!.type!.enum ?? []).map(id => [String(id), fieldLabel(String(id)).toLowerCase()])),
   on_click: "when clicked",
   on_input_action: "when E is pressed",
   on_player_enters_area: "when a player enters",
@@ -7,6 +10,7 @@ export const TRIGGER_CHIP: Record<string, string> = {
 };
 
 export const ACTION_CHIP: Record<string, string> = {
+  ...Object.fromEntries(Object.keys(ACTION_SCHEMAS).map(id => [id, fieldLabel(id).toLowerCase()])),
   start_tween: "move it",
   set_visibility: "show / hide",
   play_sound: "play a sound",

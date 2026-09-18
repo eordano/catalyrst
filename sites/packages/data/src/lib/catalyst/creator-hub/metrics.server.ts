@@ -16,7 +16,7 @@ import {
 
 const WINDOW_DAYS = 7;
 
-export type CreatorMetricsData = {
+type CreatorMetricsData = {
   address: string;
   windowDays: number;
   summary: Summary;

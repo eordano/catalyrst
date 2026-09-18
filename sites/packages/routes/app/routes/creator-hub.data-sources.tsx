@@ -14,7 +14,7 @@ import {
 } from "@features/components/creator-hub/source-ledger";
 
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
 
@@ -40,11 +40,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const filter = parseFilter(url.searchParams.get("filter"));
 
-  const { sid, assignment, wrap } = await storyLoader(request, STORY, FALLBACK);
-
   const readAt = new Date().toISOString();
-
-  const probed = await probeSources({ signal: request.signal });
+  const { sid, wrap, data: probed } = await storyLoaderWith(request, STORY, FALLBACK,
+    () => probeSources({ signal: request.signal }));
 
   const results: LedgerResults = {};
   for (const entry of probed) {

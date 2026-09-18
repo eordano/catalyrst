@@ -72,7 +72,6 @@
 .pld__iconbtn:hover { background: rgba(255,255,255,.14); color: #fff; }
 
 .pld__actions { display: flex; gap: 12px; margin-top: auto; }
-.pld__nav { font-size: var(--fs-xs); letter-spacing: .03em; padding: 11px 18px; }
 .pld__jump { font-size: var(--fs-xs); letter-spacing: .03em; padding: 11px 26px; }
 
 .pld__detail {

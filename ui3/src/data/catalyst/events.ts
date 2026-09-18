@@ -1,16 +1,15 @@
 import { getJSON, sendSignedJSON, type RequestOpts } from "./client";
+import { publicImageUrl } from "../publicImage";
 import { hasId, isRecord } from "./rows";
 import { EventAttendeeSchema, EventCategorySchema, EventSchema } from "./schemas/events";
 import type { DclEventWire, EventAttendeeWire, EventCategoryWire } from "./schemas/events";
-
-export { EventAttendeeSchema, EventCategorySchema, EventSchema };
 
 export function normalizeEvent(e: DclEventWire) {
   return {
     ...e,
     name: e.name ?? null,
-    image: e.image ?? null,
-    image_vertical: e.image_vertical ?? null,
+    image: publicImageUrl(e.image) ?? null,
+    image_vertical: publicImageUrl(e.image_vertical) ?? null,
     description: e.description ?? null,
     start_at: e.start_at ?? null,
     finish_at: e.finish_at ?? null,
@@ -28,11 +27,11 @@ export function normalizeEvent(e: DclEventWire) {
 
 export type DclEvent = ReturnType<typeof normalizeEvent>;
 
-export function normalizeEventCategory(c: EventCategoryWire) {
+function normalizeEventCategory(c: EventCategoryWire) {
   return { ...c, i18n: { en: c.i18n?.en ?? null } };
 }
 
-export type EventCategory = ReturnType<typeof normalizeEventCategory>;
+type EventCategory = ReturnType<typeof normalizeEventCategory>;
 
 export type EventsParams = {
   list?: string;
@@ -67,7 +66,7 @@ export function parseEvent(raw: unknown): DclEvent | null {
   return hasId(r.data) ? normalizeEvent(r.data) : null;
 }
 
-export function parseEvents(raw?: unknown[]): DclEvent[] {
+function parseEvents(raw?: unknown[]): DclEvent[] {
   const out: DclEvent[] = [];
   for (const item of raw ?? []) {
     const parsed = parseEvent(item);
@@ -76,7 +75,7 @@ export function parseEvents(raw?: unknown[]): DclEvent[] {
   return out;
 }
 
-export function parseEventCategory(raw: unknown): EventCategory | null {
+function parseEventCategory(raw: unknown): EventCategory | null {
   const r = EventCategorySchema.safeParse(raw);
   if (!r.success) {
     warnInvalid("EventCategory", r.error.issues);
@@ -104,14 +103,6 @@ export async function fetchEvents(
   return { data, total: env?.total ?? data.length };
 }
 
-export async function fetchEvent(id: string, opts: RequestOpts = {}): Promise<DclEvent | null> {
-  const env = await getJSON<{ data?: unknown }>(
-    `/api/events/${encodeURIComponent(id)}`,
-    { service: "events", ...opts },
-  );
-  return parseEvent(env?.data);
-}
-
 export function normalizeEventAttendee(a: EventAttendeeWire) {
   return { ...a, user_name: a.user_name ?? null };
 }
@@ -122,7 +113,7 @@ export function hasAttendeeUser(row: unknown): boolean {
   return isRecord(row) && typeof row.user === "string";
 }
 
-export function parseEventAttendee(raw: unknown): EventAttendee | null {
+function parseEventAttendee(raw: unknown): EventAttendee | null {
   const r = EventAttendeeSchema.safeParse(raw);
   if (!r.success) {
     warnInvalid("EventAttendee", r.error.issues);
@@ -131,7 +122,7 @@ export function parseEventAttendee(raw: unknown): EventAttendee | null {
   return hasAttendeeUser(r.data) ? normalizeEventAttendee(r.data) : null;
 }
 
-export function parseEventAttendees(raw?: unknown[]): EventAttendee[] {
+function parseEventAttendees(raw?: unknown[]): EventAttendee[] {
   const out: EventAttendee[] = [];
   for (const item of raw ?? []) {
     const parsed = parseEventAttendee(item);

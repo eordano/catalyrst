@@ -5,8 +5,6 @@ import { warnInvalid } from "../warn";
 import { BudgetRowSchema } from "../generated-schemas/governance";
 import { governanceApiBase } from "./api-base";
 
-export { governanceApiBase };
-
 export type GrantCategory = {
   key: string;
   id: string;
@@ -30,7 +28,7 @@ export type GrantTier = {
   vesting: string;
 };
 
-export type GrantPeriod = {
+type GrantPeriod = {
   id: string;
   startAt: string;
   finishAt: string;
@@ -58,16 +56,6 @@ type Fixture = {
 };
 
 const FIXTURE = fixture as unknown as Fixture;
-
-export function fixtureBudget(): GrantBudget {
-  return {
-    source: "fixture",
-    submissionThresholdVp: FIXTURE.submissionThresholdVp,
-    period: FIXTURE.period,
-    categories: FIXTURE.categories,
-    tiers: FIXTURE.tiers,
-  };
-}
 
 const CATEGORY_META: Record<
   string,
@@ -146,7 +134,7 @@ const EMPTY_PERIOD: GrantPeriod = {
   totalLabel: "",
 };
 
-export function unavailableBudget(reason: string): GrantBudget {
+function unavailableBudget(reason: string): GrantBudget {
   return {
     source: "unavailable",
     reason,
@@ -157,7 +145,7 @@ export function unavailableBudget(reason: string): GrantBudget {
   };
 }
 
-export type LoadBudgetOptions = {
+type LoadBudgetOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;

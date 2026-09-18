@@ -28,7 +28,18 @@ export type PopulateResult = {
 export type PopulateOptions = {
   template?: string | null;
   assets?: Record<string, string> | null;
+  signal?: AbortSignal;
 };
+
+function abortError(): Error {
+  const error = new Error("Project realm preparation was cancelled");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortError();
+}
 
 const NON_ASSET_RE =
   /(^|\/)(node_modules|\.git|bin)\/|(^|\/)(main\.composite|main\.crdt|scene\.json|package\.json|package-lock\.json|tsconfig\.json|\.gitignore)$|\.(ts|tsx|md|log)$/i;
@@ -75,11 +86,14 @@ function realmBaseOf(publicUrl: string): string {
   return publicUrl.replace(/\/content\/?$/, "");
 }
 
-async function fetchTemplateRealm(): Promise<TemplateRealm | null> {
+async function fetchTemplateRealm(signal?: AbortSignal): Promise<TemplateRealm | null> {
   try {
-    const aboutRes = await fetch(`${PROJECT_REALM_BASE}/about`, { cache: "no-store" });
+    throwIfAborted(signal);
+    const aboutRes = await fetch(`${PROJECT_REALM_BASE}/about`, { cache: "no-store", signal });
+    throwIfAborted(signal);
     if (!aboutRes.ok) return null;
     const about = (await aboutRes.json()) as { content?: { publicUrl?: string } };
+    throwIfAborted(signal);
     const publicUrl = about.content?.publicUrl?.replace(/\/$/, "");
     if (!publicUrl) return null;
     const actRes = await fetch(`${publicUrl}/entities/active`, {
@@ -87,16 +101,20 @@ async function fetchTemplateRealm(): Promise<TemplateRealm | null> {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ pointers: ["0,0"] }),
       cache: "no-store",
+      signal,
     });
+    throwIfAborted(signal);
     if (!actRes.ok) return null;
     const arr = (await actRes.json()) as Array<{
       content?: TypedIpfsRef[];
       metadata?: Record<string, unknown>;
     }>;
+    throwIfAborted(signal);
     const ent = Array.isArray(arr) ? arr[0] : undefined;
     if (!ent || !Array.isArray(ent.content)) return null;
     return { publicUrl, content: ent.content, metadata: ent.metadata ?? {}, about };
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return null;
   }
 }
@@ -132,22 +150,34 @@ function templateFromSceneJson(sceneJsonText?: string | null): string | null {
   }
 }
 
-async function fetchGameBundle(): Promise<ArrayBuffer | null> {
+async function fetchGameBundle(signal?: AbortSignal): Promise<ArrayBuffer | null> {
   try {
-    const res = await fetch(GAME_BUNDLE_URL, { cache: "no-store" });
+    throwIfAborted(signal);
+    const res = await fetch(GAME_BUNDLE_URL, { cache: "no-store", signal });
+    throwIfAborted(signal);
     if (!res.ok) return null;
-    return await res.arrayBuffer();
-  } catch {
+    const bundle = await res.arrayBuffer();
+    throwIfAborted(signal);
+    return bundle;
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return null;
   }
 }
 
-export async function clearProjectRealm(): Promise<void> {
+export async function clearProjectRealm(signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
   if (typeof caches === "undefined") return;
   try {
     const cache = await caches.open(PROJECT_REALM_CACHE);
-    for (const key of await cache.keys()) await cache.delete(key);
-  } catch {
+    throwIfAborted(signal);
+    for (const key of await cache.keys()) {
+      throwIfAborted(signal);
+      await cache.delete(key);
+      throwIfAborted(signal);
+    }
+  } catch (error) {
+    if (signal?.aborted) throw error;
   }
 }
 
@@ -156,12 +186,15 @@ export async function populateProjectRealm(
   sceneJsonText?: string | null,
   opts: PopulateOptions = {},
 ): Promise<PopulateResult> {
+  const { signal } = opts;
+  throwIfAborted(signal);
   if (typeof caches === "undefined" || typeof crypto === "undefined" || !crypto.subtle) {
     return { ok: false, reason: "no-cache-or-subtlecrypto" };
   }
   if (!files) return { ok: false, reason: "no-files" };
 
-  const template = await fetchTemplateRealm();
+  const template = await fetchTemplateRealm(signal);
+  throwIfAborted(signal);
   if (!template) return { ok: false, reason: "template-realm-unreachable" };
 
   const assetPaths = Object.keys(files).filter(isAssetPath);
@@ -169,7 +202,9 @@ export async function populateProjectRealm(
   const assetBytes: { token: string; buf: ArrayBuffer; ct: string }[] = [];
   for (const p of assetPaths) {
     const buf = await files[p].arrayBuffer();
+    throwIfAborted(signal);
     const token = await tokenFor(buf);
+    throwIfAborted(signal);
     assetRefs.push({ file: p, hash: token });
     assetBytes.push({ token, buf, ct: contentTypeFor(p) });
   }
@@ -179,8 +214,13 @@ export async function populateProjectRealm(
     templateFromSceneJson(sceneJsonText);
   let game: { token: string; buf: ArrayBuffer } | null = null;
   if (gameTemplate) {
-    const buf = await fetchGameBundle();
-    if (buf) game = { token: await tokenFor(buf), buf };
+    const buf = await fetchGameBundle(signal);
+    throwIfAborted(signal);
+    if (buf) {
+      const token = await tokenFor(buf);
+      throwIfAborted(signal);
+      game = { token, buf };
+    }
   }
 
   const templateAssets: { path: string; cid: string; buf: ArrayBuffer }[] = [];
@@ -188,11 +228,16 @@ export async function populateProjectRealm(
   const seedFromBuilder = async (path: string, cid: string) => {
     if (taken.has(path.toLowerCase())) return;
     try {
-      const res = await fetch(`/builder-items/${cid}`, { credentials: "omit" });
+      throwIfAborted(signal);
+      const res = await fetch(`/builder-items/${cid}`, { credentials: "omit", signal });
+      throwIfAborted(signal);
       if (!res.ok) return;
-      templateAssets.push({ path, cid, buf: await res.arrayBuffer() });
+      const buf = await res.arrayBuffer();
+      throwIfAborted(signal);
+      templateAssets.push({ path, cid, buf });
       taken.add(path.toLowerCase());
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw error;
     }
   };
   if (gameTemplate) {
@@ -220,9 +265,22 @@ export async function populateProjectRealm(
   if (game !== null && gameTemplate) {
     metadata.one_play = { template: gameTemplate, gated: true };
   }
+  const runtimeBytes: { token: string; buf: ArrayBuffer; ct: string }[] = [];
+  for (const ref of content) {
+    if (ref.file !== "main.crdt" && (game !== null || ref.file !== metadata.main)) continue;
+    const response = await fetch(`${template.publicUrl}/contents/${encodeURIComponent(ref.hash)}`, {
+      cache: "no-store", signal,
+    });
+    throwIfAborted(signal);
+    if (!response.ok) return { ok: false, reason: "template-content-unreachable" };
+    const buf = await response.arrayBuffer();
+    throwIfAborted(signal);
+    runtimeBytes.push({ token: ref.hash, buf, ct: ref.file.endsWith(".js") ? "application/javascript" : "application/octet-stream" });
+  }
   const sceneHash = await tokenFor(
     new TextEncoder().encode(JSON.stringify(content) + "|0,0").buffer as ArrayBuffer,
   );
+  throwIfAborted(signal);
 
   const entity = {
     id: sceneHash,
@@ -248,20 +306,28 @@ export async function populateProjectRealm(
   ];
 
   const cache = await caches.open(PROJECT_REALM_CACHE);
-  for (const key of await cache.keys()) await cache.delete(key);
+  throwIfAborted(signal);
+  for (const key of await cache.keys()) {
+    throwIfAborted(signal);
+    await cache.delete(key);
+    throwIfAborted(signal);
+  }
 
   const json = (v: unknown) => JSON.stringify(v);
   const headers = (ct: string) => ({
     "content-type": ct,
     "access-control-allow-origin": "*",
   });
-  const put = (url: string, body: BodyInit, ct: string) =>
-    cache.put(url, new Response(body, { headers: headers(ct) }));
+  const put = async (url: string, body: BodyInit, ct: string) => {
+    throwIfAborted(signal);
+    await cache.put(url, new Response(body, { headers: headers(ct) }));
+    throwIfAborted(signal);
+  };
 
   await put(`${realmBaseOf(template.publicUrl)}/about`, json(about), "application/json");
   await put(`${template.publicUrl}/entities/active`, json([entity]), "application/json");
   await put(`${template.publicUrl}/contents/${sceneHash}`, json(entity), "application/json");
-  for (const a of assetBytes) {
+  for (const a of [...assetBytes, ...runtimeBytes]) {
     await put(`${template.publicUrl}/contents/${a.token}`, a.buf, a.ct);
   }
   for (const a of templateAssets) {
@@ -289,7 +355,9 @@ export async function populateTemplateRealm(opts: {
   template: string;
   name?: string;
   assets?: Record<string, string> | null;
+  signal?: AbortSignal;
 }): Promise<PopulateResult> {
+  throwIfAborted(opts.signal);
   if (!hasTemplateComposite(opts.template)) {
     return { ok: false, reason: "unknown-template" };
   }
@@ -299,5 +367,6 @@ export async function populateTemplateRealm(opts: {
   return populateProjectRealm({}, sceneJsonText, {
     template: opts.template,
     assets: opts.assets ?? null,
+    signal: opts.signal,
   });
 }

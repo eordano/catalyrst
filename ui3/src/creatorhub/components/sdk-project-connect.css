@@ -1,0 +1,30 @@
+.ch-sdk-project {
+  padding: var(--s-4, 16px) 0;
+  color: var(--lm-ink, #f5f4f7);
+  border-block-end: 1px solid var(--lm-border, #39343f);
+}
+.ch-sdk-project label { font-weight: 600; }
+.ch-sdk-project p { margin: 8px 0; max-width: 70ch; line-height: 1.5; }
+.ch-sdk-project__controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.ch-sdk-project input {
+  min-width: 0;
+  flex: 1 1 240px;
+  padding: 10px 12px;
+  color: inherit;
+  background: var(--lm-bg, #17141c);
+  border: 1px solid var(--lm-border, #655c6c);
+  border-radius: 6px;
+}
+.ch-sdk-project input::placeholder { color: var(--lm-ink-3, #b9b1c3); }
+.ch-sdk-project button {
+  padding: 10px 16px;
+  border: 1px solid var(--lm-border, #655c6c);
+  border-radius: 6px;
+  color: inherit;
+  background: var(--lm-bg-raised, #302937);
+  cursor: pointer;
+}
+.ch-sdk-project :focus-visible { outline: 2px solid var(--brand-cta, #ff2d68); outline-offset: 3px; }
+.ch-sdk-project button:hover:not(:disabled) { border-color: currentColor; }
+.ch-sdk-project :disabled { opacity: .6; cursor: wait; }
+.ch-sdk-project [role="alert"] { color: var(--error, #ff9caa); overflow-wrap: anywhere; }

@@ -54,32 +54,14 @@ pub async fn get_members(
     let path = format!("/v1/communities/{}/members", id_str);
     let signer = try_extract_signer(&headers, "get", &path).await;
     let bypass_privacy = admin_bearer(&state, &headers);
-
-    let only_public = signer.is_none() && !bypass_privacy;
-    if !state.communities.community_exists(id, only_public).await? {
-        return Err(CommError::not_found(format!(
-            "Community not found: {}",
-            id_str
-        )));
-    }
-
-    if !bypass_privacy {
-        if let Some(addr) = signer.as_ref().map(catalyrst_crypto::Signer::as_str) {
-            if state.communities.is_private(id).await? {
-                let standing = crate::rest::community_membership_authority::load_standing_from_community_members(
-                    &state.pool,
-                    id,
-                    addr,
-                )
-                .await?;
-                if !standing.a_membership_row_exists_for_this_wallet() {
-                    return Err(CommError::not_authorized(
-                        "The user doesn't have permission to get community members",
-                    ));
-                }
-            }
-        }
-    }
+    gate_member_listing(
+        &state,
+        id,
+        &id_str,
+        signer.as_ref().map(catalyrst_crypto::Signer::as_str),
+        bypass_privacy,
+    )
+    .await?;
 
     let pagination = get_pagination_params(&pairs);
     let only_online = get_first(&pairs, "onlyOnline")
@@ -127,32 +109,14 @@ pub async fn get_members_v2(
     let path = format!("/v2/communities/{}/members", id_str);
     let signer = try_extract_signer(&headers, "get", &path).await;
     let bypass_privacy = admin_bearer(&state, &headers);
-
-    let only_public = signer.is_none() && !bypass_privacy;
-    if !state.communities.community_exists(id, only_public).await? {
-        return Err(CommError::not_found(format!(
-            "Community not found: {}",
-            id_str
-        )));
-    }
-
-    if !bypass_privacy {
-        if let Some(addr) = signer.as_ref().map(catalyrst_crypto::Signer::as_str) {
-            if state.communities.is_private(id).await? {
-                let standing = crate::rest::community_membership_authority::load_standing_from_community_members(
-                    &state.pool,
-                    id,
-                    addr,
-                )
-                .await?;
-                if !standing.a_membership_row_exists_for_this_wallet() {
-                    return Err(CommError::not_authorized(
-                        "The user doesn't have permission to get community members",
-                    ));
-                }
-            }
-        }
-    }
+    gate_member_listing(
+        &state,
+        id,
+        &id_str,
+        signer.as_ref().map(catalyrst_crypto::Signer::as_str),
+        bypass_privacy,
+    )
+    .await?;
 
     let pagination = get_pagination_params(&pairs);
     let only_online = get_first(&pairs, "onlyOnline")
@@ -175,6 +139,30 @@ pub async fn get_members_v2(
 
     let paginated = Paginated::new(rows, total, &pagination);
     Ok(Json(serde_json::json!({ "data": paginated })))
+}
+
+/// One query for existence, privacy and the viewer's membership: anonymous viewers see a
+/// private community as missing; signed non-members are refused; an admin bearer bypasses.
+async fn gate_member_listing(
+    state: &AppState,
+    id: Uuid,
+    id_str: &str,
+    signer: Option<&str>,
+    bypass_privacy: bool,
+) -> Result<(), CommError> {
+    let only_public = signer.is_none() && !bypass_privacy;
+    let (private, viewer_has_row) = state
+        .communities
+        .members_gate(id, signer)
+        .await?
+        .filter(|(private, _)| !(only_public && *private))
+        .ok_or_else(|| CommError::not_found(format!("Community not found: {}", id_str)))?;
+    if !bypass_privacy && signer.is_some() && private && !viewer_has_row {
+        return Err(CommError::not_authorized(
+            "The user doesn't have permission to get community members",
+        ));
+    }
+    Ok(())
 }
 
 async fn member_friendship_statuses(
@@ -201,8 +189,10 @@ async fn to_member_wire_rows(
     members: Vec<CommunityMember>,
 ) -> Vec<CommunityMemberWire> {
     let addresses: Vec<String> = members.iter().map(|m| m.member_address.clone()).collect();
-    let profiles = state.profiles.get_profiles(&addresses).await;
-    let statuses = member_friendship_statuses(state, signer, &members).await;
+    let (profiles, statuses) = tokio::join!(
+        state.profiles.get_profiles(&addresses),
+        member_friendship_statuses(state, signer, &members)
+    );
 
     members
         .into_iter()

@@ -5,7 +5,7 @@ import Spinner from "../../atoms/Spinner";
 import Button from "../../atoms/Button";
 import "./mkacceptbidwizardview.css";
 
-export type MkAcceptBidWizardBid = {
+type MkAcceptBidWizardBid = {
   id: string;
   bidder: string;
   bidderName: string;
@@ -16,7 +16,7 @@ export type MkAcceptBidWizardBid = {
   asset: { name: string; category: string; rarity: string };
 };
 
-export type MkAcceptBidWizardViewProps = {
+type MkAcceptBidWizardViewProps = {
   bid: MkAcceptBidWizardBid;
   value: string;
   step: string;

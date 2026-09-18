@@ -20,11 +20,11 @@ export type CurationFilters = {
   assignee: string;
 };
 
-export type AssignBody = { assignee: string };
-export type DecideBody = { status: DecisionStatus };
+type AssignBody = { assignee: string };
+type DecideBody = { status: DecisionStatus };
 
-export type AssignResult = { id: string; assignee: string; simulated: true };
-export type DecideResult = {
+type AssignResult = { id: string; assignee: string; simulated: true };
+type DecideResult = {
   id: string;
   status: DecisionStatus;
   updated: number;
@@ -45,7 +45,7 @@ export type DecideFn = (args: {
   signal?: AbortSignal;
 }) => Promise<DecideResult>;
 
-export type CurationInput = {
+type CurationInput = {
   trackCtx: TrackContext;
   count: number;
   youAddress: string;
@@ -55,7 +55,7 @@ export type CurationInput = {
   track?: TrackFn;
 };
 
-export type CurationContext = {
+type CurationContext = {
   trackCtx: TrackContext;
   count: number;
   youAddress: string;
@@ -72,7 +72,7 @@ export type CurationContext = {
   error?: string;
 };
 
-export type CurationEvent =
+type CurationEvent =
   | { type: "FILTER"; filters: CurationFilters }
   | { type: "ASSIGN"; id: string }
   | { type: "OPEN_REVIEW"; id: string; topicId?: number | null }
@@ -105,8 +105,8 @@ export const STATE_TO_SLUG = {
   decided: "decided",
 } as const;
 
-export type CurationStateId = keyof typeof STATE_TO_SLUG;
-export type CurationStepSlug = (typeof STATE_TO_SLUG)[CurationStateId];
+type CurationStateId = keyof typeof STATE_TO_SLUG;
+type CurationStepSlug = (typeof STATE_TO_SLUG)[CurationStateId];
 
 export const FIRST_STEP_SLUG: CurationStepSlug = STATE_TO_SLUG.dashboard;
 
@@ -328,8 +328,6 @@ export const curationMachine = setup({
     },
   },
 });
-
-export type CurationMachine = typeof curationMachine;
 
 export function resolveCurationSnapshot(args: {
   step: CurationStateId;

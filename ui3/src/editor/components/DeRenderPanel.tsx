@@ -3,7 +3,7 @@ import Slider from "../../atoms/Slider";
 import Checkbox from "../../atoms/Checkbox";
 import "./derenderpanel.css";
 
-export const TONEMAP_MODES = [
+const TONEMAP_MODES = [
   "none",
   "reinhard",
   "reinhard_luma",
@@ -43,7 +43,7 @@ interface RenderState {
   grassTipColor: string;
 }
 
-export const RENDER_DEFAULTS: RenderState = {
+const RENDER_DEFAULTS: RenderState = {
   tonemap: "blender",
   exposure: 0,
   gamma: 1,
@@ -72,7 +72,7 @@ export const RENDER_DEFAULTS: RenderState = {
   grassTipColor: "#65a30d",
 };
 
-export function commandFor(key: keyof RenderState, s: RenderState): string {
+function commandFor(key: keyof RenderState, s: RenderState): string {
   switch (key) {
     case "tonemap":
       return `/tonemap ${s.tonemap}`;
@@ -173,7 +173,7 @@ function SliderRow({ label, value, min, max, step, format, onChange }: RowProps)
   );
 }
 
-export interface DeRenderPanelProps {
+interface DeRenderPanelProps {
   onCommand?: (line: string) => void;
   onQueryState?: () => Promise<string>;
   onClose?: () => void;

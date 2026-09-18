@@ -32,17 +32,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   const orderId = url.searchParams.get("order")?.trim() || undefined;
   const ownership = parseOwnership(url);
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const { listing, source, reason, owner: resolvedOwner } = await loadCancelListing({
+  const [{ sid, assignment, wrap }, { listing, source, reason, owner: resolvedOwner }] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    loadCancelListing({
     owner,
     orderId,
     opts: { signal: request.signal },
-  });
+  }),
+  ]);
 
   const trackCtx = {
     sid,

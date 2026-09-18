@@ -3,6 +3,7 @@ pub mod dashboard;
 pub mod experiments;
 pub mod fonts;
 pub mod groups;
+pub mod ingest;
 pub mod login;
 pub mod segment;
 pub mod sentry;

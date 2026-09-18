@@ -56,16 +56,6 @@
 .chqr__status--waiting {
   color: var(--ink-6);
   font-size: 12px;
-  animation: chqr-pulse 2s ease-in-out infinite;
-}
-@keyframes chqr-pulse {
-  0%,
-  100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-  }
 }
 
 .chqr__session {

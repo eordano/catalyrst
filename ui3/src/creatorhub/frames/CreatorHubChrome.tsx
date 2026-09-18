@@ -2,6 +2,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { asset } from "../../asset";
 import { useChromeAuth } from "../../web/frames/chrome-auth";
+import ChromeLink from "../../web/frames/ChromeLink";
+import AccountMenu from "../../web/frames/AccountMenu";
 import CreatorHubSyncChip from "../components/CreatorHubSyncChip";
 import "./creatorhubchrome.css";
 
@@ -30,7 +32,7 @@ type NavItem = {
   external?: boolean;
 };
 
-export const CREATORHUB_NAV: NavItem[] = [
+const CREATORHUB_NAV: NavItem[] = [
   {
     id: "home",
     group: "Create",
@@ -259,6 +261,7 @@ type CreatorHubChromeProps = {
   onSettings?: () => void;
   onAccount?: () => void;
   onSignIn?: () => void;
+  onSignOut?: () => void;
   accountHref?: string;
   settingsHref?: string;
 };
@@ -275,6 +278,7 @@ export default function CreatorHubChrome({
   onSettings,
   onAccount,
   onSignIn,
+  onSignOut,
   accountHref = "/marketplace/account",
   settingsHref = "/creator-hub/settings",
 }: CreatorHubChromeProps) {
@@ -297,6 +301,18 @@ export default function CreatorHubChrome({
   const displayName = name ?? auth.name;
   const face = avatarUrl ?? auth.avatarUrl;
   const doSignIn = onSignIn ?? auth.onSignIn;
+  const doSignOut = onSignOut ?? auth.onSignOut;
+  const switchAccount =
+    doSignOut && doSignIn
+      ? () => {
+          doSignOut();
+          doSignIn();
+        }
+      : undefined;
+  const accountLinks = [
+    { label: "My assets", href: accountHref },
+    { label: "Settings", href: settingsHref },
+  ];
   const accountInner = (
     <>
       <AccountAvatar key={face || "hue"} src={face} />
@@ -323,7 +339,7 @@ export default function CreatorHubChrome({
       className={"ch ui2" + (menuOpen ? " is-menuopen" : "")}
       data-label="Creator Hub"
     >
-      <a className="ch__skip" href="#ch-main">Skip to content</a>
+      <ChromeLink className="ch__skip" href="#ch-main">Skip to content</ChromeLink>
 
       <header className="ch__topbar">
         <button
@@ -336,10 +352,10 @@ export default function CreatorHubChrome({
         >
           <BurgerIcon />
         </button>
-        <a className="ch__topbrand" href="/create" aria-label="Creator Hub home">
+        <ChromeLink className="ch__topbrand" href="/create" aria-label="Creator Hub home">
           <img src={asset("assets/dcl-logo.png")} alt="" />
           <span>Creator Hub</span>
-        </a>
+        </ChromeLink>
         <div className="ch__topacct">
           {isIn && showAccount ? (
             onAccount ? (
@@ -352,9 +368,18 @@ export default function CreatorHubChrome({
                 <AccountAvatar key={face || "hue"} src={face} />
               </button>
             ) : (
-              <a className="ch__topaccbtn" href={accountHref} aria-label={accountLabel}>
+              <AccountMenu
+                triggerClassName="ch__topaccbtn"
+                triggerLabel={accountLabel}
+                name={displayName}
+                account={acct}
+                links={accountLinks}
+                onSwitchAccount={switchAccount}
+                onSignOut={doSignOut}
+                align="right"
+              >
                 <AccountAvatar key={face || "hue"} src={face} />
-              </a>
+              </AccountMenu>
             )
           ) : showSignIn ? (
             doSignIn ? (
@@ -362,7 +387,7 @@ export default function CreatorHubChrome({
                 Sign in
               </button>
             ) : (
-              <a className="ch__topsignin" href={accountHref}>Sign in</a>
+              <ChromeLink className="ch__topsignin" href={accountHref}>Sign in</ChromeLink>
             )
           ) : null}
         </div>
@@ -383,27 +408,27 @@ export default function CreatorHubChrome({
         >
           <CloseGlyph />
         </button>
-        <a className="ch__back" href="/" aria-label="Back to Decentraland" title="Decentraland">
+        <ChromeLink className="ch__back" href="/" aria-label="Back to Decentraland" title="Decentraland">
           <svg className="ch__backchev" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
             <path d="M12 4l-6 6 6 6" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span className="ch__backlabel">Decentraland</span>
-        </a>
+        </ChromeLink>
 
-        <a className="ch__brand" href="/create" aria-label="Creator Hub home" title="Creator Hub">
+        <ChromeLink className="ch__brand" href="/create" aria-label="Creator Hub home" title="Creator Hub">
           <img src={asset("assets/dcl-logo.png")} alt="" />
           <span className="ch__brandtext">
             <span className="ch__brandname">Creator Hub</span>
           </span>
-        </a>
+        </ChromeLink>
 
-        <a className="ch__newbtn" href={newSceneHref} aria-label="New scene" title="New scene">
+        <ChromeLink className="ch__newbtn" href={newSceneHref} aria-label="New scene" title="New scene">
           <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
             <rect x="3" y="3" width="14" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.6" fill="none" />
             <path d="M10 6.5v7M6.5 10h7" stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round" />
           </svg>
           <span className="ch__navlabel">New scene</span>
-        </a>
+        </ChromeLink>
 
         <nav className="ch__nav" aria-label="Creator Hub sections">
           {navGroups.map((grp) => {
@@ -421,7 +446,7 @@ export default function CreatorHubChrome({
                       ? `${item.label} (${item.hint})`
                       : item.label;
                   return (
-                    <a
+                    <ChromeLink
                       key={item.id}
                       className={
                         "ch__navitem" +
@@ -445,7 +470,7 @@ export default function CreatorHubChrome({
                         {item.external ? <ExternalGlyph /> : null}
                       </span>
                       {item.hint ? <span className="ch__navhint">{item.hint}</span> : null}
-                    </a>
+                    </ChromeLink>
                   );
                 })}
               </div>
@@ -468,9 +493,9 @@ export default function CreatorHubChrome({
                   <GearIcon />
                 </button>
               ) : (
-                <a className="ch__settings" href={settingsHref} aria-label="Settings">
+                <ChromeLink className="ch__settings" href={settingsHref} aria-label="Settings">
                   <GearIcon />
-                </a>
+                </ChromeLink>
               )
             ) : null}
             {showAccount ? (
@@ -479,9 +504,20 @@ export default function CreatorHubChrome({
                   {accountInner}
                 </button>
               ) : (
-                <a className="ch__account" href={accountHref} aria-label={accountLabel}>
+                <AccountMenu
+                  className="ch__accountwrap"
+                  triggerClassName="ch__account"
+                  triggerLabel={accountLabel}
+                  name={displayName}
+                  account={acct}
+                  links={accountLinks}
+                  onSwitchAccount={switchAccount}
+                  onSignOut={doSignOut}
+                  align="left"
+                  placement="above"
+                >
                   {accountInner}
-                </a>
+                </AccountMenu>
               )
             ) : null}
             {showSignIn ? (
@@ -490,9 +526,9 @@ export default function CreatorHubChrome({
                   Sign in
                 </button>
               ) : (
-                <a className="ch__signin" href={accountHref} aria-label="Sign in">
+                <ChromeLink className="ch__signin" href={accountHref} aria-label="Sign in">
                   Sign in
-                </a>
+                </ChromeLink>
               )
             ) : null}
           </div>

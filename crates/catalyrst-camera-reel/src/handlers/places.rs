@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
+use tokio::sync::Semaphore;
 
 use crate::dto::{
     GalleryImage, GalleryImageWithPlace, GetMultiplePlacesImagesBody,
@@ -13,6 +16,7 @@ use crate::http::ApiError;
 use crate::AppState;
 
 const MAX_PLACES_IDS: usize = 100;
+const WORLD_LOOKUP_CONCURRENCY: usize = 8;
 
 #[derive(Deserialize, Debug)]
 pub struct PageQuery {
@@ -65,14 +69,9 @@ pub async fn get_place_images(
                 .into_response());
         }
 
-        let count = state
+        let (images, count) = state
             .db
-            .get_multiple_places_images_count(&place_ids)
-            .await
-            .map_err(|_| ApiError::NotFound("place not found".to_string()))?;
-        let images = state
-            .db
-            .get_multiple_places_images(&place_ids, q.offset as i64, limit)
+            .get_multiple_places_images_page(&place_ids, q.offset as i64, limit)
             .await
             .map_err(|_| ApiError::NotFound("place not found".to_string()))?;
 
@@ -87,14 +86,9 @@ pub async fn get_place_images(
             .into_response());
     }
 
-    let count = state
+    let (images, count) = state
         .db
-        .get_place_images_count(&place_id)
-        .await
-        .map_err(|_| ApiError::NotFound("place not found".to_string()))?;
-    let images = state
-        .db
-        .get_place_images(&place_id, q.offset as i64, limit)
+        .get_place_images_page(&place_id, q.offset as i64, limit)
         .await
         .map_err(|_| ApiError::NotFound("place not found".to_string()))?;
 
@@ -117,18 +111,7 @@ pub async fn get_multiple_places_images(
     validate_places_ids(&body.places_ids)?;
 
     let limit = capped_limit(q.limit);
-    let mut resolved_ids: Vec<String> = Vec::new();
-    for id in body.places_ids {
-        if id.ends_with(".eth") {
-            let ids = state.places.get_world_place_ids(&id).await.map_err(|e| {
-                tracing::error!("failed to resolve world name '{id}': {e}");
-                ApiError::BadGateway(format!("failed to resolve world name: {e}"))
-            })?;
-            resolved_ids.extend(ids);
-        } else {
-            resolved_ids.push(id);
-        }
-    }
+    let resolved_ids = resolve_places_ids(&state, body.places_ids).await?;
 
     if resolved_ids.is_empty() {
         return Ok((
@@ -141,14 +124,9 @@ pub async fn get_multiple_places_images(
             .into_response());
     }
 
-    let count = state
+    let (images, count) = state
         .db
-        .get_multiple_places_images_count(&resolved_ids)
-        .await
-        .map_err(|_| ApiError::NotFound("places not found".to_string()))?;
-    let images = state
-        .db
-        .get_multiple_places_images(&resolved_ids, q.offset as i64, limit)
+        .get_multiple_places_images_page(&resolved_ids, q.offset as i64, limit)
         .await
         .map_err(|_| ApiError::NotFound("places not found".to_string()))?;
 
@@ -164,6 +142,39 @@ pub async fn get_multiple_places_images(
         }),
     )
         .into_response())
+}
+
+/// World names resolve through the places API concurrently (bounded), in input order.
+async fn resolve_places_ids(
+    state: &AppState,
+    places_ids: Vec<String>,
+) -> Result<Vec<String>, ApiError> {
+    let mut resolved: Vec<Option<Vec<String>>> = vec![None; places_ids.len()];
+    let mut lookups = tokio::task::JoinSet::new();
+    let gate = Arc::new(Semaphore::new(WORLD_LOOKUP_CONCURRENCY));
+    for (idx, id) in places_ids.into_iter().enumerate() {
+        if !id.ends_with(".eth") {
+            resolved[idx] = Some(vec![id]);
+            continue;
+        }
+        let state = state.clone();
+        let gate = gate.clone();
+        lookups.spawn(async move {
+            let _permit = gate.acquire_owned().await;
+            let ids = state.places.get_world_place_ids(&id).await;
+            (idx, id, ids)
+        });
+    }
+    while let Some(joined) = lookups.join_next().await {
+        let (idx, id, ids) =
+            joined.map_err(|e| ApiError::Internal(format!("world lookup task failed: {e}")))?;
+        let ids = ids.map_err(|e| {
+            tracing::error!("failed to resolve world name '{id}': {e}");
+            ApiError::BadGateway(format!("failed to resolve world name: {e}"))
+        })?;
+        resolved[idx] = Some(ids);
+    }
+    Ok(resolved.into_iter().flatten().flatten().collect())
 }
 
 #[cfg(test)]

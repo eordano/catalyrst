@@ -1,6 +1,6 @@
 import { createElement, useMemo, type ReactNode } from "react";
 
-export type MdLiteProps = {
+type MdLiteProps = {
   source: string;
   className?: string;
 };

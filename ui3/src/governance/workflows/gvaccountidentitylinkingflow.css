@@ -65,14 +65,6 @@
   margin: 0;
   border: 0;
 }
-.gvail__subtitle {
-  margin: 8px 0 0;
-  max-width: 80%;
-  font-weight: var(--fw-regular);
-  font-size: 15px;
-  line-height: 24px;
-  color: var(--gv-muted);
-}
 .gvail__timer {
   margin-top: 6px;
   font-style: normal;
@@ -178,7 +170,6 @@
   margin-left: 4px;
 }
 .gvail__label--verified { background: var(--green-200); color: var(--green-900); }
-.gvail__label--new { background: var(--red-800); color: var(--white-900); }
 
 .gvail__btn {
   display: inline-flex;
@@ -393,31 +384,3 @@
   flex-direction: column;
   gap: 10px;
 }
-
-.gvail__switch {
-  position: fixed;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  z-index: calc(var(--z-toast) + 1);
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 10px;
-  background: rgba(22, 20, 26, 0.92);
-  border-radius: 999px;
-  max-width: 92vw;
-}
-.gvail__switch button {
-  border: 0;
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.85);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.gvail__switch button.is-active { background: var(--dcl-primary); color: #fff; }

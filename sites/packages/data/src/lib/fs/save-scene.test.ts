@@ -25,46 +25,16 @@ const HIERARCHY: SceneHierarchyNode[] = [
 ];
 
 describe("composeEditedScene \u{2014} pure edit \u{2192} composite", () => {
-  it("adds a placed entity with Transform + Name", () => {
-    const c = composeEditedScene(HIERARCHY, {
+  it("places an entity with Transform + Name that survives serialize\u{2192}parse, renames, attaches a picked component, and deletes from every block", () => {
+    const placed = composeEditedScene(HIERARCHY, {
       placed: { entity: 540, assetName: "Oak Tree", parent: 0 },
     });
-    expect(listEntities(c)).toContain(540);
-    expect(entityName(c, 540)).toBe("Oak Tree");
-    expect(getComponentValue(c, 540, TRANSFORM)).toMatchObject({ parent: 0 });
-  });
-
-  it("renames a modified entity", () => {
-    const c = composeEditedScene(HIERARCHY, {
-      selected: { entity: 513, name: "Old Sign" },
-      modifiedName: "New Sign",
-    });
-    expect(entityName(c, 513)).toBe("New Sign");
-  });
-
-  it("attaches a picked component to the edited entity", () => {
-    const c = composeEditedScene(HIERARCHY, {
-      selected: { entity: 512, name: "Floor" },
-      component: "MeshCollider",
-    });
-    expect(getComponentValue(c, 512, "MeshCollider")).toEqual({});
-  });
-
-  it("delete removes the entity from every block", () => {
-    const c = composeEditedScene(HIERARCHY, {
-      selected: { entity: 513, name: "Old Sign" },
-      deleted: true,
-    });
-    expect(listEntities(c)).not.toContain(513);
-  });
-
-  it("round-trips through serialize\u{2192}parse with the edit intact", () => {
-    const c = composeEditedScene(HIERARCHY, {
-      placed: { entity: 540, assetName: "Oak Tree", parent: 0 },
-    });
+    expect(listEntities(placed)).toContain(540);
+    expect(entityName(placed, 540)).toBe("Oak Tree");
+    expect(getComponentValue(placed, 540, TRANSFORM)).toMatchObject({ parent: 0 });
     const text = JSON.stringify({
-      version: c.version,
-      components: c.components.map((b) => ({
+      version: placed.version,
+      components: placed.components.map((b) => ({
         name: b.name,
         data: Object.fromEntries(
           Object.entries(b.data).map(([id, e]) => [id, { json: e.json }]),
@@ -73,11 +43,29 @@ describe("composeEditedScene \u{2014} pure edit \u{2192} composite", () => {
     });
     const back = parseComposite(JSON.parse(text));
     expect(getComponentValue(back, 540, NAME)).toMatchObject({ value: "Oak Tree" });
+
+    const renamed = composeEditedScene(HIERARCHY, {
+      selected: { entity: 513, name: "Old Sign" },
+      modifiedName: "New Sign",
+    });
+    expect(entityName(renamed, 513)).toBe("New Sign");
+
+    const withComponent = composeEditedScene(HIERARCHY, {
+      selected: { entity: 512, name: "Floor" },
+      component: "MeshCollider",
+    });
+    expect(getComponentValue(withComponent, 512, "MeshCollider")).toEqual({});
+
+    const deleted = composeEditedScene(HIERARCHY, {
+      selected: { entity: 513, name: "Old Sign" },
+      deleted: true,
+    });
+    expect(listEntities(deleted)).not.toContain(513);
   });
 });
 
 describe("saveSceneComposite \u{2014} honest write outcomes", () => {
-  it("reports a real in-place write via the injected writer and returns the bytes", async () => {
+  it("reports a real in-place write with the bytes, maps a download to written:true, and does NOT claim a save when the picker is canceled", async () => {
     let captured = "";
     const writer = vi.fn(
       async (_name: string, body: string): Promise<DiskSaveResult> => {
@@ -94,25 +82,20 @@ describe("saveSceneComposite \u{2014} honest write outcomes", () => {
     expect(res.via).toBe("fsa-handle");
     expect(res.filename).toBe(COMPOSITE_FILENAME);
     expect(res.text).toBe(captured);
-    const back = parseComposite(JSON.parse(captured));
-    expect(entityName(back, 540)).toBe("Oak Tree");
-  });
+    expect(entityName(parseComposite(JSON.parse(captured)), 540)).toBe("Oak Tree");
 
-  it("maps a download to written:true via:download", async () => {
-    const res = await saveSceneComposite(HIERARCHY, {}, { writer: async () => "downloaded" });
-    expect(res.written).toBe(true);
-    expect(res.via).toBe("download");
-  });
+    const downloaded = await saveSceneComposite(HIERARCHY, {}, { writer: async () => "downloaded" });
+    expect(downloaded.written).toBe(true);
+    expect(downloaded.via).toBe("download");
 
-  it("does NOT claim a save when the user cancels the picker", async () => {
-    const res = await saveSceneComposite(HIERARCHY, {}, { writer: async () => "canceled" });
-    expect(res.written).toBe(false);
-    expect(res.via).toBe("canceled");
+    const canceled = await saveSceneComposite(HIERARCHY, {}, { writer: async () => "canceled" });
+    expect(canceled.written).toBe(false);
+    expect(canceled.via).toBe("canceled");
   });
 });
 
 describe("sanitizeContentPath \u{2014} aliases filenames the local FS rejects", () => {
-  it("maps U+202F/U+00A0 to plain spaces and strips FS-unsafe characters", () => {
+  it("maps U+202F/U+00A0 to plain spaces, strips FS-unsafe characters, and keeps already-safe paths byte-identical", () => {
     expect(sanitizeContentPath("models/Screenshot\u202f1.png")).toBe(
       "models/Screenshot 1.png",
     );
@@ -120,16 +103,13 @@ describe("sanitizeContentPath \u{2014} aliases filenames the local FS rejects", 
     expect(sanitizeContentPath('bad<>:"|?*.glb')).toBe("bad_______.glb");
     expect(sanitizeContentPath("trailing. ")).toBe("trailing");
     expect(sanitizeContentPath("dir\u202fx/file\u202fy.png")).toBe("dir x/file y.png");
-  });
-
-  it("keeps already-safe paths byte-identical", () => {
     expect(sanitizeContentPath("models/tree.glb")).toBe("models/tree.glb");
     expect(sanitizeContentPath("a b/c d.png")).toBe("a b/c d.png");
   });
 });
 
 describe("rewriteAliasedPaths \u{2014} composite references follow the alias", () => {
-  it("rewrites every string occurrence of an aliased path", () => {
+  it("rewrites every string occurrence of an aliased path, and leaves the text unchanged for an empty alias map or unparsable input", () => {
     const text = JSON.stringify({
       version: 1,
       components: [
@@ -142,10 +122,24 @@ describe("rewriteAliasedPaths \u{2014} composite references follow the alias", (
     const aliased = new Map([["models/Screenshot\u202f1.png", "models/Screenshot 1.png"]]);
     const out = JSON.parse(rewriteAliasedPaths(text, aliased));
     expect(out.components[0].data["512"].json.src).toBe("models/Screenshot 1.png");
-  });
-
-  it("returns the text unchanged for an empty alias map or unparsable input", () => {
     expect(rewriteAliasedPaths("not json", new Map([["a", "b"]]))).toBe("not json");
     expect(rewriteAliasedPaths('{"x":1}', new Map())).toBe('{"x":1}');
   });
+});
+
+it("does not persist a scene after cancellation during engine export", async () => {
+  const { saveSceneFromEngine } = await import("./save-scene");
+  const controller = new AbortController();
+  const writer = vi.fn(async (): Promise<DiskSaveResult> => "written");
+  await expect(saveSceneFromEngine([], {}, { signal: controller.signal, writer, exportComposite: async () => {
+    controller.abort();
+    return JSON.stringify({ version: 1, components: [] });
+  } })).rejects.toMatchObject({ name: "AbortError" });
+  expect(writer).not.toHaveBeenCalled();
+});
+
+it("does not start persistence for an already retired operation", async () => {
+  const writer = vi.fn(async (): Promise<DiskSaveResult> => "written");
+  await expect(saveSceneComposite(HIERARCHY, {}, { signal: AbortSignal.abort(), writer })).rejects.toMatchObject({ name: "AbortError" });
+  expect(writer).not.toHaveBeenCalled();
 });

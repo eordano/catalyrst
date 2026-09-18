@@ -21,7 +21,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type ModeratePlacesWizardProps = {
+type ModeratePlacesWizardProps = {
   trackCtx: TrackContext;
   reports: ReportRow[];
   cards: ReportCard[];

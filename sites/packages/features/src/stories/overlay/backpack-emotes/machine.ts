@@ -22,7 +22,7 @@ export type EmotesInput = {
   track?: TrackFn;
 };
 
-export type EmotesContext = {
+type EmotesContext = {
   trackCtx: TrackContext;
   save: SaveFn;
   track: TrackFn;
@@ -34,7 +34,7 @@ export type EmotesContext = {
   error?: string;
 };
 
-export type EmotesEvent =
+type EmotesEvent =
   | { type: "OPEN" }
   | { type: "PICK_SLOT"; slot: number }
   | { type: "ASSIGN"; urn: string; name?: string }
@@ -66,7 +66,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type EmotesStateId = keyof typeof STATE_TO_SLUG;
-export type EmotesStepSlug = (typeof STATE_TO_SLUG)[EmotesStateId];
+type EmotesStepSlug = (typeof STATE_TO_SLUG)[EmotesStateId];
 
 export const FIRST_STEP_SLUG: EmotesStepSlug = STATE_TO_SLUG.opening;
 
@@ -240,8 +240,6 @@ export const emotesMachine = setup({
     },
   },
 });
-
-export type EmotesMachine = typeof emotesMachine;
 
 export function resolveEmotesSnapshot(args: {
   step: EmotesStateId;

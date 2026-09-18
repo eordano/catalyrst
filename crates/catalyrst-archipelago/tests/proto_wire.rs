@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 fn server(message: server_packet::Message) -> Vec<u8> {
     ServerPacket {
+        request_sequence: 0,
         message: Some(message),
     }
     .encode_to_vec()
@@ -15,6 +16,7 @@ fn server(message: server_packet::Message) -> Vec<u8> {
 
 fn client(message: client_packet::Message) -> Vec<u8> {
     ClientPacket {
+        request_sequence: 0,
         message: Some(message),
     }
     .encode_to_vec()
@@ -24,6 +26,7 @@ fn client(message: client_packet::Message) -> Vec<u8> {
 fn challenge_response_wire_is_exact() {
     let bytes = server(server_packet::Message::ChallengeResponse(
         ChallengeResponseMessage {
+            selection: None,
             challenge_to_sign: "dcl-1".into(),
             already_connected: true,
         },
@@ -38,6 +41,7 @@ fn challenge_response_wire_is_exact() {
 fn challenge_response_drops_default_bool() {
     let bytes = server(server_packet::Message::ChallengeResponse(
         ChallengeResponseMessage {
+            selection: None,
             challenge_to_sign: "dcl-1".into(),
             already_connected: false,
         },
@@ -52,6 +56,7 @@ fn challenge_response_drops_default_bool() {
 #[test]
 fn welcome_wire_is_exact() {
     let bytes = server(server_packet::Message::Welcome(WelcomeMessage {
+        context: None,
         peer_id: "0xab".into(),
     }));
     assert_eq!(bytes, vec![0x12, 0x06, 0x0a, 0x04, 0x30, 0x78, 0x61, 0x62]);
@@ -61,6 +66,7 @@ fn welcome_wire_is_exact() {
 fn challenge_request_wire_is_exact() {
     let bytes = client(client_packet::Message::ChallengeRequest(
         ChallengeRequestMessage {
+            offer: None,
             address: "0xab".into(),
         },
     ));
@@ -70,6 +76,7 @@ fn challenge_request_wire_is_exact() {
 #[test]
 fn heartbeat_position_wire_is_exact() {
     let bytes = client(client_packet::Message::Heartbeat(Heartbeat {
+        sample_sequence: None,
         position: Some(Position {
             x: 1.0,
             y: 0.0,
@@ -87,6 +94,7 @@ fn heartbeat_position_wire_is_exact() {
 #[test]
 fn heartbeat_desired_room_present_when_some() {
     let bytes = client(client_packet::Message::Heartbeat(Heartbeat {
+        sample_sequence: None,
         position: None,
         desired_room: Some("r".into()),
     }));
@@ -98,6 +106,7 @@ fn heartbeat_desired_room_present_when_some() {
 fn signed_challenge_round_trip() {
     let json = r#"[{"type":"SIGNER","payload":"0xab","signature":""}]"#;
     let msg = client_packet::Message::SignedChallenge(SignedChallengeMessage {
+        typed_auth_chain: None,
         auth_chain_json: json.into(),
     });
     let bytes = client(msg);
@@ -122,6 +131,7 @@ fn island_changed_round_trip() {
         },
     );
     let original = IslandChangedMessage {
+        assignment_context: None,
         island_id: "i42".into(),
         conn_str: "livekit:wss://lk.example?access_token=tok".into(),
         from_island_id: Some("i7".into()),

@@ -96,26 +96,24 @@ export type GetOptions = {
   headers?: Record<string, string>;
 };
 
-export async function getJSON<T>(path: string, opts: GetOptions = {}): Promise<T> {
-  const base = catalystBase(opts.base);
-  const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const url = `${base}${cleanPath}${buildQuery(opts.query)}`;
-  const doFetch = opts.fetchImpl ?? fetch;
+type Fetched = { status: number; text: string };
 
+const inflightByRequest = new WeakMap<AbortSignal, Map<string, Promise<Fetched>>>();
+
+async function fetchText(
+  url: string,
+  init: RequestInit,
+  doFetch: typeof fetch,
+): Promise<Fetched> {
   let res: Response;
   try {
-    res = await doFetch(url, {
-      signal: opts.signal,
-      cache: opts.cache ?? "no-store",
-      headers: { accept: "application/json", ...(opts.headers ?? {}) },
-    });
+    res = await doFetch(url, init);
   } catch (err) {
     throw new CatalystError(
       `Catalyst request failed: ${(err as Error)?.message ?? "network error"}`,
       url,
     );
   }
-
   if (!res.ok) {
     throw new CatalystError(
       `Catalyst returned ${res.status} ${res.statusText}`,
@@ -123,14 +121,65 @@ export async function getJSON<T>(path: string, opts: GetOptions = {}): Promise<T
       res.status,
     );
   }
-
   try {
-    return (await res.json()) as T;
+    return { status: res.status, text: await res.text() };
   } catch (err) {
     throw new CatalystError(
       `Catalyst returned invalid JSON: ${(err as Error)?.message ?? "parse error"}`,
       url,
       res.status,
+    );
+  }
+}
+
+// Identical GETs in flight under one request signal share a single upstream fetch.
+function fetchShared(
+  url: string,
+  init: RequestInit,
+  doFetch: typeof fetch,
+  signal: AbortSignal | undefined,
+): Promise<Fetched> {
+  if (!signal) return fetchText(url, init, doFetch);
+  let perRequest = inflightByRequest.get(signal);
+  if (!perRequest) {
+    perRequest = new Map();
+    inflightByRequest.set(signal, perRequest);
+  }
+  const key = `${url}\0${init.cache ?? ""}\0${JSON.stringify(init.headers ?? {})}`;
+  const pending = perRequest.get(key);
+  if (pending) return pending;
+  const map = perRequest;
+  const p = fetchText(url, init, doFetch).finally(() => {
+    map.delete(key);
+  });
+  map.set(key, p);
+  return p;
+}
+
+export async function getJSON<T>(path: string, opts: GetOptions = {}): Promise<T> {
+  const base = catalystBase(opts.base);
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${base}${cleanPath}${buildQuery(opts.query)}`;
+  const doFetch = opts.fetchImpl ?? fetch;
+
+  const { status, text } = await fetchShared(
+    url,
+    {
+      signal: opts.signal,
+      cache: opts.cache ?? "no-store",
+      headers: { accept: "application/json", ...(opts.headers ?? {}) },
+    },
+    doFetch,
+    opts.signal,
+  );
+
+  try {
+    return JSON.parse(text) as T;
+  } catch (err) {
+    throw new CatalystError(
+      `Catalyst returned invalid JSON: ${(err as Error)?.message ?? "parse error"}`,
+      url,
+      status,
     );
   }
 }

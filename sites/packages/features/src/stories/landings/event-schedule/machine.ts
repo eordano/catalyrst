@@ -19,7 +19,7 @@ export type SubmitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SubmitResult>;
 
-export type ScheduleInput = {
+type ScheduleInput = {
   trackCtx: TrackContext;
   draft?: ScheduleDraft;
   scheduleId?: string;
@@ -27,7 +27,7 @@ export type ScheduleInput = {
   track?: TrackFn;
 };
 
-export type ScheduleContext = {
+type ScheduleContext = {
   trackCtx: TrackContext;
   draft: ScheduleDraft;
   scheduleId?: string;
@@ -37,9 +37,9 @@ export type ScheduleContext = {
   error?: string;
 };
 
-export type DraftPatch = Partial<ScheduleDraft>;
+type DraftPatch = Partial<ScheduleDraft>;
 
-export type ScheduleEvent =
+type ScheduleEvent =
   | { type: "SIGN_IN" }
   | { type: "EDIT"; patch: DraftPatch }
   | { type: "NEXT" }
@@ -68,7 +68,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type ScheduleStateId = keyof typeof STATE_TO_SLUG;
-export type ScheduleStepSlug = (typeof STATE_TO_SLUG)[ScheduleStateId];
+type ScheduleStepSlug = (typeof STATE_TO_SLUG)[ScheduleStateId];
 
 export const FIRST_STEP_SLUG: ScheduleStepSlug = STATE_TO_SLUG.authGate;
 
@@ -218,8 +218,6 @@ export const scheduleMachine = setup({
     },
   },
 });
-
-export type ScheduleMachine = typeof scheduleMachine;
 
 export function emitStepCompleted(
   track: TrackFn,

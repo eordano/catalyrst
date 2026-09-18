@@ -1,0 +1,9 @@
+import {useEffect,useRef,useState} from 'react';
+import {Dialog} from './Dialog';
+import {execute,type Community,type WalletIdentity} from './api';
+export function Invite({community,identity,onClose}:{community:Community;identity:WalletIdentity;onClose:()=>void}){
+ const [address,setAddress]=useState(''),[busy,setBusy]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState(''),[copied,setCopied]=useState(false);
+ const active=useRef(true);useEffect(()=>()=>{active.current=false;},[]);
+ const link=`${location.origin}${location.pathname}#/c/${community.id}/general`;
+ return <Dialog title="Invite people" onClose={onClose}><div className="dialog-content community-editor"><h2>Better with company.</h2><p>Invite someone to {community.name}.</p><input aria-label="Invitation link" readOnly value={link} onFocus={e=>e.target.select()}/><button className="primary" onClick={async()=>{try{await navigator.clipboard.writeText(link);setCopied(true);}catch{setError('Select and copy the link above.');}}}>{copied?'Copied':'Copy invite link'}</button><form onSubmit={async e=>{e.preventDefault();if(busy)return;setBusy(true);setError('');setStatus('');try{await execute(identity,{type:'manage_community',community_id:community.id,action:{kind:'invite',address:address.trim()}},()=>active.current);if(active.current){setStatus('Invitation sent.');setAddress('');}}catch(e){if(active.current)setError(e instanceof Error?e.message:'Invitation could not be sent.');}finally{if(active.current)setBusy(false);}}}><label>Invite by wallet<input aria-label="Invite wallet" placeholder="0x&#x2026;" pattern="0x[0-9a-fA-F]{40}" required value={address} onChange={e=>setAddress(e.target.value)}/></label><button className="outline-button" disabled={busy||!/^0x[0-9a-f]{40}$/i.test(address.trim())}>{busy?'Sending\u2026':'Send invitation'}</button></form>{status&&<p role="status">{status}</p>}{error&&<p role="alert">{error}</p>}</div></Dialog>;
+}

@@ -44,6 +44,7 @@ into bundle binaries (one axum port) - see [Service bundles](#service-bundles).
 | `catalyrst-builder` | `builder-server` (`builder-api`) - collection items, newsletter |
 | `catalyrst-camera-reel` | `camera-reel-service` - content-addressed photo store |
 | `catalyrst-social-service` | `social-service-ea` - community REST routes (authority-chain federation) + dcl-rpc WebSocket (friends, blocks, mutes, voice); bins `catalyrst-communities` and `catalyrst-social-rpc` |
+| `dcl-social-api` | Standalone [dcl.social](social/README.md) React app and SQLite-backed community chat API |
 | `catalyrst-comms` | `comms-gatekeeper` - LiveKit tokens, scene bans, voice, Cast 2.0 |
 | `catalyrst-notifications` | `notifications` REST (signed-fetch reader/marker) |
 | `catalyrst-badges` | `badges` REST - profile badge state |
@@ -70,7 +71,7 @@ into bundle binaries (one axum port) - see [Service bundles](#service-bundles).
 ### Service bundles
 
 Members still build/run standalone. An edge proxy terminates TLS and
-path-routes; see [`docs/deploy.md`](./docs/deploy.md).
+path-routes; see `docs/deploy.md`.
 
 | Bundle binary | Port | Members |
 |---|---|---|
@@ -131,21 +132,21 @@ cargo build --release --bin catalyrst-market        # standalone marketplace
 
 On Nix/NixOS, `nix develop` provides the full toolchain; `nix build
 .#catalyrst` / `.#catalyrst-all` build pinned artifacts. Binaries land in
-`target/release/catalyrst-<name>`; see [`docs/deploy.md`](./docs/deploy.md) for
+`target/release/catalyrst-<name>`; see `docs/deploy.md` for
 the bundle->port map and per-service env files. A system OpenSSL may be needed at
 compile time - see [`docs/build-and-test.md`](./docs/build-and-test.md).
 
 ## Documentation
 
 Start at [docs/README.md](./docs/README.md) - index, reading order, trust policy.
-Highlights: [architecture.md](./docs/architecture.md) (composition contract, port
+Highlights: architecture.md (composition contract, port
 truth, DB ownership, external deps); [build-and-test.md](./docs/build-and-test.md)
-(NixOS notes, flake pins, test harnesses); [content-sync.md](./docs/content-sync.md)
-(sync invariants + snapshot CID convergency); [auth.md](./docs/auth.md) (auth-chain +
+(NixOS notes, flake pins, test harnesses); content-sync.md
+(sync invariants + snapshot CID convergency); auth.md (auth-chain +
 EIP-1654); [third-party-merkle.md](./docs/third-party-merkle.md);
-[federation.md](./docs/federation.md) (signed writes, gossip, snapshot-pull);
+federation.md (signed writes, gossip, snapshot-pull);
 [openapi.yaml](./docs/openapi.yaml) (OpenAPI 3.1, content core);
-[deploy.md](./docs/deploy.md) (bundle runbook, explorer pointing, gateway mode; nginx
+deploy.md (bundle runbook, explorer pointing, gateway mode; nginx
 configs in [docs/deploy/](./docs/deploy/)); [operations.md](./docs/operations.md)
 (postgres, networking, observability, LiveKit, admin console).
 

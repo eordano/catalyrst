@@ -6,8 +6,8 @@ import {
   PlaceRowSchema,
 } from "./generated-schemas/places";
 
-export type PlaceRow = z.infer<typeof PlaceRowSchema>;
-export type CategoryOut = z.infer<typeof CategoryOutSchema>;
+type PlaceRow = z.infer<typeof PlaceRowSchema>;
+type CategoryOut = z.infer<typeof CategoryOutSchema>;
 
 export type Place = {
   id: string;
@@ -41,7 +41,7 @@ export type Category = {
 
 export type Envelope<T> = { ok: boolean; data: T; total: number };
 
-export function normalizePlace(row: PlaceRow): Place {
+function normalizePlace(row: PlaceRow): Place {
   return {
     id: row.id,
     title: row.title,
@@ -66,7 +66,7 @@ export function normalizePlace(row: PlaceRow): Place {
   };
 }
 
-export function normalizeCategory(c: CategoryOut): Category {
+function normalizeCategory(c: CategoryOut): Category {
   return {
     name: c.name,
     count: c.count,

@@ -1,7 +1,7 @@
 import { datumEndpoint, noteLines, type Datum } from "../lib/datum";
 import "./datumnote.css";
 
-export type DatumNoteProps = {
+type DatumNoteProps = {
   datum: Datum<unknown>;
   now?: number;
 };

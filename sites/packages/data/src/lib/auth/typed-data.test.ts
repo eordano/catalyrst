@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 describe("unified signTypedData router", () => {
-  it("routes to the enclave for an in-app session (strips EIP712Domain, decodes chainId from salt)", async () => {
+  it("routes the session address to the enclave (strips EIP712Domain, decodes chainId from salt) and any other address to the injected wallet", async () => {
     const from = "0x1111111111111111111111111111111111111111";
     setThirdwebSession({ token: "jwt-xyz", address: from });
     const f = vi.fn(
@@ -61,7 +61,6 @@ describe("unified signTypedData router", () => {
 
     const sig = await signTypedData(META_TX, from);
     expect(sig).toBe("0xenc");
-
     const call = f.mock.calls[0];
     expect(call).toBeDefined();
     const [url, init] = call as [string, RequestInit];
@@ -73,10 +72,10 @@ describe("unified signTypedData router", () => {
     expect(body.chainId).toBe(137);
     expect(body.typedData.types.EIP712Domain).toBeUndefined();
     expect(body.typedData.types.MetaTransaction).toBeDefined();
-  });
 
-  it("falls back to the injected wallet when there is no in-app session", async () => {
-    const from = "0x2222222222222222222222222222222222222222";
-    await expect(signTypedData(META_TX, from)).rejects.toThrow(/wallet/i);
+    await expect(
+      signTypedData(META_TX, "0x2222222222222222222222222222222222222222"),
+    ).rejects.toThrow(/wallet/i);
+    expect(f).toHaveBeenCalledTimes(1);
   });
 });

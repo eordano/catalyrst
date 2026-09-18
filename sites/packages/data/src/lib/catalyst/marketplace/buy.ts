@@ -18,9 +18,9 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export const BuyOrderSchema = OrderSchema.extend({ tokenId: z.string() });
+const BuyOrderSchema = OrderSchema.extend({ tokenId: z.string() });
 
-export type BuyOrder = z.infer<typeof BuyOrderSchema>;
+type BuyOrder = z.infer<typeof BuyOrderSchema>;
 
 export function parseBuyOrder(raw: unknown): BuyOrder | null {
   const r = BuyOrderSchema.safeParse(raw);
@@ -29,7 +29,7 @@ export function parseBuyOrder(raw: unknown): BuyOrder | null {
   return null;
 }
 
-export type FetchOrdersParams = {
+type FetchOrdersParams = {
   contractAddress?: string;
   tokenId?: string;
   itemId?: string;
@@ -39,7 +39,7 @@ export type FetchOrdersParams = {
   skip?: number;
 };
 
-export type FetchedOrders = {
+type FetchedOrders = {
   data: BuyOrder[];
   total: number;
   invalid: number;
@@ -73,7 +73,7 @@ export async function fetchOrders(
   return { data, total: env.total, invalid };
 }
 
-export type OrderLookup = {
+type OrderLookup = {
   order: BuyOrder | null;
   source: "catalyst" | "empty" | "unavailable";
   reason?: string;
@@ -103,7 +103,7 @@ export async function fetchCheapestOpenOrder(
   return { order: null, source: "empty" };
 }
 
-export type BuyAsset = {
+type BuyAsset = {
   name: string;
   rarity: string;
   category: string;
@@ -165,7 +165,7 @@ function wearableDescriptionCategory(item: CatalogItem | null): string {
   return typeof c === "string" && c ? c : item.category ?? "wearable";
 }
 
-export function toBuyableListing(
+function toBuyableListing(
   order: BuyOrder,
   item: CatalogItem | null,
 ): BuyableListing {
@@ -195,7 +195,7 @@ export function toBuyableListing(
   };
 }
 
-export type ListingLookup = {
+type ListingLookup = {
   listing: BuyableListing | null;
   source: "catalyst" | "empty" | "unavailable";
   reason?: string;

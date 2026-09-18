@@ -2,14 +2,14 @@ import { z } from "zod";
 
 import { getJSON } from "../client";
 import type { GetOptions } from "../client";
-import type { ProfileWearable as RsProfileWearable } from "@ui/generated/catalyst/market/ProfileWearable";
 import { requireAssetsEnvelope, thumbnailFromUrn } from "./account";
 import { shortAddress } from "../format/address";
 import { warnInvalid } from "../warn";
+import type { ProfileWearable as RsProfileWearable } from "@ui/generated/catalyst/market/ProfileWearable";
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-export const OwnedElementSchema = z.object({
+const OwnedElementSchema = z.object({
   id: z.string(),
   urn: nullableStr,
   tokenId: nullableStr,
@@ -28,14 +28,14 @@ export const OwnedElementSchema = z.object({
 });
 export type OwnedElement = z.infer<typeof OwnedElementSchema>;
 
-export function parseOwnedElement(raw: unknown): OwnedElement | null {
+function parseOwnedElement(raw: unknown): OwnedElement | null {
   const r = OwnedElementSchema.safeParse(raw);
   if (r.success) return r.data;
   warnInvalid("OwnedElement", r.error.issues);
   return null;
 }
 
-export function parseOwnedElements(raw: unknown[]): OwnedElement[] {
+function parseOwnedElements(raw: unknown[]): OwnedElement[] {
   const out: OwnedElement[] = [];
   for (const row of raw ?? []) {
     const el = parseOwnedElement(row);
@@ -57,7 +57,7 @@ export async function fetchOwnedAssets(
   return parseOwnedElements(page.elements);
 }
 
-export function parseAssetId(
+function parseAssetId(
   id: string,
 ): { contractAddress: string; tokenId: string } | null {
   const dash = id.lastIndexOf("-");
@@ -66,7 +66,7 @@ export function parseAssetId(
 }
 
 const KNOWN_CATEGORIES = new Set(["wearable", "emote", "ens", "parcel", "estate"]);
-export function coarseCategory(category: string | null | undefined): string {
+function coarseCategory(category: string | null | undefined): string {
   if (category && KNOWN_CATEGORIES.has(category)) return category;
   return "wearable";
 }
@@ -85,13 +85,7 @@ function safeRarity(r: string | null | undefined): string {
   return r && RARITIES.has(r) ? r : "common";
 }
 
-export function toCardNetwork(
-  network: string | null | undefined,
-): "ethereum" | "polygon" {
-  return network === "ETHEREUM" ? "ethereum" : "polygon";
-}
-
-export function resolveNetwork(el: {
+function resolveNetwork(el: {
   network?: string | null;
   urn?: string | null;
 }): "ethereum" | "polygon" {
@@ -137,7 +131,10 @@ export function shortenHex(v: string): string {
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftOwnedElement = Assert<
   AssignableTo<RsProfileWearable, z.input<typeof OwnedElementSchema>>
 >;
+

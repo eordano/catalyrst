@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { warnInvalid } from "../warn";
-
-import type { BuilderCollectionOut as RsBuilderCollectionOut } from "@ui/generated/catalyst/builder/BuilderCollectionOut";
 import type { OrphanItemOut as RsOrphanItemOut } from "@ui/generated/catalyst/builder/OrphanItemOut";
+import type { BuilderCollectionOut as RsBuilderCollectionOut } from "@ui/generated/catalyst/builder/BuilderCollectionOut";
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 const nullableNum = z.number().nullish().transform((v) => v ?? null);
@@ -10,7 +9,7 @@ const nullableNum = z.number().nullish().transform((v) => v ?? null);
 export const COLLECTION_TYPES = ["standard", "third_party"] as const;
 export type CollectionType = (typeof COLLECTION_TYPES)[number];
 
-export const COLLECTION_STATUSES = [
+const COLLECTION_STATUSES = [
   "synced",
   "under_review",
   "unsynced",
@@ -48,9 +47,9 @@ export const BuilderCollectionSchema = z.object({
 });
 export type BuilderCollection = z.infer<typeof BuilderCollectionSchema>;
 
-export const ORPHAN_ITEM_TYPES = ["wearable", "emote", "smart_wearable"] as const;
+const ORPHAN_ITEM_TYPES = ["wearable", "emote", "smart_wearable"] as const;
 
-export const ORPHAN_ITEM_STATUSES = [
+const ORPHAN_ITEM_STATUSES = [
   "synced",
   "under_review",
   "unsynced",
@@ -98,11 +97,14 @@ export function parseOrphanItems(raw: unknown): OrphanItem[] {
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
 
 export type _DriftBuilderCollection = Assert<
   AssignableTo<RsBuilderCollectionOut, z.input<typeof BuilderCollectionSchema>>
 >;
+
 export type _DriftOrphanItem = Assert<
   AssignableTo<RsOrphanItemOut, z.input<typeof OrphanItemSchema>>
 >;
+

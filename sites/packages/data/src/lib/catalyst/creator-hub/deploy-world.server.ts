@@ -1,11 +1,14 @@
 import {
   fetchOwnedNames,
-  fetchWorldsOnline,
+  fetchWorldsRealm,
   MAX_FILE_SIZE_MB,
   normalizeAddress,
   shortAddress,
+  withPersonalWorld,
+  WORLDS_REALM_UNKNOWN,
   type DeployName,
   type DeployWorldData,
+  type WorldsRealm,
 } from "./deploy-world";
 import type { GetOptions } from "../client";
 
@@ -26,44 +29,58 @@ function ownerFor(addr: string): DeployWorldData["owner"] {
   };
 }
 
+export function fallbackDeployWorld(address: string | null | undefined): DeployWorldData {
+  const addr = normalizeAddress(address);
+  return {
+    address: addr,
+    names: [],
+    liveEmpty: true,
+    worldsOnline: null,
+    personalWorlds: false,
+    project: UNKNOWN_PROJECT,
+    files: [],
+    maxFileSizeMb: MAX_FILE_SIZE_MB,
+    owner: ownerFor(addr),
+    source: "empty",
+  };
+}
+
 export async function loadDeployWorld(
   address: string | null | undefined,
   opts: GetOptions = {},
 ): Promise<DeployWorldData> {
   const addr = normalizeAddress(address);
 
-  let liveNames: DeployName[] = [];
-  let liveEmpty = true;
+  let ownedNames: DeployName[] = [];
   let source: "live" | "empty" = "empty";
   if (addr) {
     try {
       const page = await fetchOwnedNames(addr, opts);
       source = "live";
-      liveEmpty = page.elements.length === 0;
-      liveNames = page.elements.map((n) => ({
+      ownedNames = page.elements.map((n) => ({
         name: `${n.name.trim().toLowerCase().replace(/\.(dcl\.eth|eth)$/i, "")}.dcl.eth`,
         provider: "dcl" as const,
         world: null,
       }));
     } catch {
-      liveNames = [];
-      liveEmpty = true;
+      ownedNames = [];
       source = "empty";
     }
   }
-
-  let worldsOnline: boolean | null = null;
+  let realm: WorldsRealm = WORLDS_REALM_UNKNOWN;
   try {
-    worldsOnline = await fetchWorldsOnline(opts);
+    realm = await fetchWorldsRealm(opts);
   } catch {
-    worldsOnline = false;
+    realm = WORLDS_REALM_UNKNOWN;
   }
+  const liveNames = withPersonalWorld(addr, ownedNames, realm.personalWorlds);
 
   return {
     address: addr,
     names: liveNames,
-    liveEmpty,
-    worldsOnline,
+    liveEmpty: liveNames.length === 0,
+    worldsOnline: realm.online,
+    personalWorlds: realm.personalWorlds,
     project: UNKNOWN_PROJECT,
     files: [],
     maxFileSizeMb: MAX_FILE_SIZE_MB,

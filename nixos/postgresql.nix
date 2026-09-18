@@ -6,6 +6,7 @@
 }:
 let
   cfg = config.services.catalyrst;
+  d = import ./helpers.nix cfg;
 in
 lib.mkIf cfg.enable {
   services.postgresql = {
@@ -32,7 +33,8 @@ lib.mkIf cfg.enable {
       "governance"
       "presence"
       "catalyrst"
-    ];
+    ]
+    ++ lib.optional d.v4.enabled d.v4.controlDb;
     ensureUsers = [
       {
         name = "root";
@@ -46,7 +48,11 @@ lib.mkIf cfg.enable {
         name = "squid";
         ensureClauses.login = true;
       }
-    ];
+    ]
+    ++ lib.optional d.v4.enabled {
+      name = d.v4.controlRole;
+      ensureClauses.login = true;
+    };
     authentication = lib.mkForce ''
       local all         all peer
       local replication all peer
@@ -226,6 +232,41 @@ lib.mkIf cfg.enable {
       # catalyrst-market's sqlx migration bookkeeping lands in `public`; PG15+
       # no longer grants CREATE there by default.
       $PSQL -d marketplace_squid -c "GRANT ALL ON SCHEMA public TO catalyrst;"
+    '';
+  };
+
+  systemd.services.postgresql-comms-control = lib.mkIf d.v4.enabled {
+    description = "v4 assignment authority DB: archipelago owns it, catalyrst reads and fences";
+    after = [
+      "postgresql.service"
+      "postgresql-setup.service"
+      "postgresql-bundles.service"
+    ];
+    wants = [
+      "postgresql.service"
+      "postgresql-setup.service"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      User = "postgres";
+    };
+    environment = lib.optionalAttrs (cfg.pgPort != 5432) { PGPORT = toString cfg.pgPort; };
+    script = ''
+      set -e
+      PSQL="${pkgs.postgresql_18}/bin/psql -v ON_ERROR_STOP=1"
+      role=${d.v4.controlRole}
+      db=${d.v4.controlDb}
+
+      $PSQL -d postgres -c "ALTER ROLE $role NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION CONNECTION LIMIT 20;"
+      $PSQL -d postgres -c "ALTER DATABASE $db OWNER TO $role;"
+      $PSQL -d postgres -c "REVOKE CONNECT ON DATABASE $db FROM PUBLIC;"
+      $PSQL -d postgres -c "GRANT CONNECT ON DATABASE $db TO catalyrst;"
+      $PSQL -d "$db" -c "GRANT ALL ON SCHEMA public TO $role;"
+      $PSQL -d "$db" -c "GRANT USAGE ON SCHEMA public TO catalyrst;"
+      $PSQL -d "$db" -c "GRANT SELECT, UPDATE ON ALL TABLES IN SCHEMA public TO catalyrst;"
+      $PSQL -d "$db" -c "ALTER DEFAULT PRIVILEGES FOR ROLE $role IN SCHEMA public GRANT SELECT, UPDATE ON TABLES TO catalyrst;"
     '';
   };
 }

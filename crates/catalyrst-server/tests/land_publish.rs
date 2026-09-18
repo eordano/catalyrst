@@ -15,8 +15,10 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 use catalyrst_server::land_publish::{
-    local_provenance, record_local_provenance, tombstone_and_repoint, UnpublishError,
+    local_provenance, record_local_provenance, tombstone_and_repoint,
+    tombstone_and_repoint_with_schema, UnpublishError,
 };
+use catalyrst_server::schema_migrations::DeploymentSchema;
 use catalyrst_server::state::{DeployFailure, Deployer};
 use catalyrst_server::write_deployer::WriteDeployer;
 use catalyrst_validator::squid_checker::{
@@ -322,6 +324,56 @@ async fn unpublish_skips_tombstoned_locals_when_repointing() {
         active_pointer(&pool, "5,5").await.as_deref(),
         Some("bafyup5")
     );
+
+    drop_schema(&pool, &schema).await;
+}
+
+#[tokio::test]
+async fn unpublish_uses_the_boot_schema_for_the_pointer_type_column() {
+    let Some((pool, schema)) = setup_db().await else {
+        return;
+    };
+    apply_sql(
+        &pool,
+        &include_str!("../migrations/0005_active_pointers_entity_type.sql").replace("public.", ""),
+    )
+    .await;
+
+    let _r = insert_deployment(&pool, "bafyup6", 1_000, &["6,6"]).await;
+    let t = insert_deployment(&pool, "bafylocal6", 2_000, &["6,6"]).await;
+    set_deleter(&pool, "bafyup6", t).await;
+    set_active_pointer(&pool, "6,6", "bafylocal6").await;
+    record_provenance(&pool, "bafylocal6", "0xowner").await;
+
+    let absent = DeploymentSchema {
+        local_entities: false,
+        pointer_entity_type: true,
+    };
+    let err = tombstone_and_repoint_with_schema(&pool, "6,6", absent)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, UnpublishError::NotLocal(_)));
+
+    let detected = DeploymentSchema::detect(&pool).await.expect("detect");
+    assert!(detected.local_entities && detected.pointer_entity_type);
+    let outcome = tombstone_and_repoint_with_schema(&pool, "6,6", detected)
+        .await
+        .expect("unpublish");
+    assert_eq!(
+        outcome.repointed,
+        vec![("6,6".to_string(), Some("bafyup6".to_string()))]
+    );
+    let row: (String, Option<String>) =
+        sqlx::query_as("SELECT entity_id, entity_type FROM active_pointers WHERE pointer = '6,6'")
+            .fetch_one(&pool)
+            .await
+            .expect("pointer row");
+    assert_eq!(row, ("bafyup6".to_string(), Some("scene".to_string())));
+
+    let err = tombstone_and_repoint_with_schema(&pool, "6,6", detected)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, UnpublishError::NotLocal(_)));
 
     drop_schema(&pool, &schema).await;
 }

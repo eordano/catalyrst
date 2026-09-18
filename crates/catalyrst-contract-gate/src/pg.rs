@@ -196,7 +196,7 @@ impl ScratchSchema {
             .execute(&admin)
             .await
             .unwrap_or_else(|e| panic!("CREATE SCHEMA {schema} failed: {e}"));
-        let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
+        let suffixed = schema_url(&url, &schema);
         let pool = PgPoolOptions::new()
             .max_connections(8)
             .acquire_timeout(Duration::from_secs(5))
@@ -211,10 +211,7 @@ impl ScratchSchema {
     }
 
     pub fn url(&self) -> String {
-        format!(
-            "{}?options=-c%20search_path%3D{}",
-            self.admin_url, self.schema
-        )
+        schema_url(&self.admin_url, &self.schema)
     }
 
     pub async fn apply_sql(&self, sql: &str) {
@@ -239,11 +236,30 @@ impl ScratchSchema {
     }
 }
 
+fn schema_url(url: &str, schema: &str) -> String {
+    let separator = if url.contains('?') { '&' } else { '?' };
+    format!("{url}{separator}options=-c%20search_path%3D{schema}")
+}
+
 #[cfg(test)]
 mod scratch_db_schema_tests {
     use super::ScratchDb;
 
     const PG_VAR: &str = "CATALYRST_CONTRACT_GATE_TEST_PG";
+
+    #[test]
+    fn schema_url_preserves_unix_socket_and_other_query_options() {
+        for (url, separator) in [
+            ("postgresql://local/db", '?'),
+            ("postgresql://local/db?host=/tmp/socket", '&'),
+            ("postgresql://local/db?sslmode=require", '&'),
+        ] {
+            assert_eq!(
+                super::schema_url(url, "test_schema"),
+                format!("{url}{separator}options=-c%20search_path%3Dtest_schema")
+            );
+        }
+    }
 
     #[tokio::test]
     async fn a_named_schema_list_lands_on_the_search_path_ahead_of_public() {

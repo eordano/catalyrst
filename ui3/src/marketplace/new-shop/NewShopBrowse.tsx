@@ -155,7 +155,7 @@ export default function NewShopBrowse({
                   />
                 ))}
               </CardGrid>
-            ) : (
+            ) : loading ? <div className="nsbrowse__empty" role="status">Loading items&hellip;</div> : (
               <div className="nsbrowse__empty">
                 <span>{emptyLabel}</span>
                 {filtersActive && onClearFilters ? (
@@ -166,8 +166,8 @@ export default function NewShopBrowse({
               </div>
             )}
             {loading ? (
-              <div className="nsbrowse__loading" aria-hidden="true">
-                <span className="u-spinner" />
+              <div className="nsbrowse__loading" role={cards.length ? "status" : undefined} aria-label={cards.length ? "Updating items" : undefined}>
+                <span className="u-spinner" aria-hidden="true" />
               </div>
             ) : null}
           </div>

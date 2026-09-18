@@ -12,7 +12,7 @@ const CategoriesEnvelopeSchema = z
   })
   .passthrough();
 
-export const BadgeDataSchema = z
+const BadgeDataSchema = z
   .object({
     id: z.string(),
     name: z.string(),

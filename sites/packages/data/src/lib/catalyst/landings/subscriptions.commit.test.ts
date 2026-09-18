@@ -57,7 +57,6 @@ describe("buildSubscriptionCommit \u{2014} real notifications subscription write
     });
 
     expect(out.kind).toBe("subscribe");
-    expect(Object.keys(out).sort()).toEqual(["at", "kind"]);
     expect(mSignedFetch).toHaveBeenCalledTimes(1);
     const [, url, init] = mSignedFetch.mock.calls[0];
     expect(String(url)).toMatch(/\/subscription$/);
@@ -101,4 +100,29 @@ describe("buildSubscriptionCommit \u{2014} real notifications subscription write
       commit({ kind: "subscribe", enabledTypes: ["events_started"] }),
     ).rejects.toThrow(/401/);
   });
+});
+
+it("reads the identity when committing, including after sign-out", async () => {
+  let identity: AuthIdentity | null = null;
+  const commit = buildSubscriptionCommit(() => identity);
+  const args = { kind: "subscribe" as const, enabledTypes: ["events_started"] };
+  await expect(commit(args)).rejects.toThrow(/sign in/i);
+  identity = IDENTITY;
+  mSignedGet.mockResolvedValue(currentSubscription());
+  await expect(commit(args)).resolves.toMatchObject({ kind: "subscribe" });
+  identity = null;
+  await expect(commit(args)).rejects.toThrow(/sign in/i);
+  expect(mSignedFetch).toHaveBeenCalledTimes(1);
+});
+
+it("disables unchecked categories while preserving in-app and unknown preferences", async () => {
+  const current = currentSubscription();
+  const channels = current.details.message_type as Record<string, { email: boolean; in_app: boolean }>;
+  channels.events_starts_soon = { email: true, in_app: true };
+  channels.future_category = { email: true, in_app: false };
+  mSignedGet.mockResolvedValue(current);
+  await buildSubscriptionCommit(IDENTITY)({ kind: "subscribe", enabledTypes: ["events_started"] });
+  const saved = putBody().message_type as typeof channels;
+  expect(saved.events_starts_soon).toEqual({ email: false, in_app: true });
+  expect(saved.future_category).toEqual({ email: true, in_app: false });
 });

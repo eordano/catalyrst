@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import "@ui/governance/pages/gvdebugadmin.css";
-
 import DebugConsolePanels, {
   type DebugPanel,
 } from "@features/components/admin/DebugConsolePanels";

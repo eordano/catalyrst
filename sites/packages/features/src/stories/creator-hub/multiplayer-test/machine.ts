@@ -27,7 +27,7 @@ export type MpReplayFn = (args: {
   seed?: number;
 }) => Promise<unknown>;
 
-export type MpStopFn = (runId: string) => void;
+type MpStopFn = (runId: string) => void;
 
 export const MP_EVENTS = {
   paired: "ch_mp_paired",
@@ -48,7 +48,7 @@ export type MpPanelInput = {
   stop?: MpStopFn;
 };
 
-export type MpPanelContext = {
+type MpPanelContext = {
   trackCtx: TrackContext;
   track: MpTrackFn;
   launch: MpLaunchFn;
@@ -63,7 +63,7 @@ export type MpPanelContext = {
   replayError: string | null;
 };
 
-export type MpPanelEvent =
+type MpPanelEvent =
   | { type: "PAIRED" }
   | { type: "PAIR_LOST" }
   | { type: "LAUNCH"; spec: MpLaunchRequest }
@@ -374,4 +374,3 @@ export const mpPanelMachine = setup({
   },
 });
 
-export type MpPanelMachine = typeof mpPanelMachine;

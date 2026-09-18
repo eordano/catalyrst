@@ -1,12 +1,14 @@
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 
 import SitesChrome from "../../web/frames/SitesChrome";
-import "../../web/pages/stwhatsonadminusers.css";
-import "./opdashboardpage.css";
+import EmptyState from "../../components/EmptyState";
+import "../../atoms/button.css";
+import "../../admin/admin.css";
+import "../operator.css";
 
-export type OpRange = "1h" | "6h" | "24h";
+type OpRange = "1h" | "6h" | "24h";
 
-export type OpLinkProps = {
+type OpLinkProps = {
   to: string;
   prefetch?: "intent" | "render" | "none" | "viewport";
   className?: string;
@@ -16,9 +18,9 @@ export type OpLinkProps = {
   children?: ReactNode;
 };
 
-export type OpLinkComponent = ComponentType<OpLinkProps>;
+type OpLinkComponent = ComponentType<OpLinkProps>;
 
-export type OpOperatorPlace = {
+type OpOperatorPlace = {
   id: string;
   title: string | null;
   base_position: string;
@@ -33,13 +35,13 @@ export type OpOperatorPlace = {
   headcount: number[] | null;
 };
 
-export type OpOperatorDashboard = {
+type OpOperatorDashboard = {
   owner: string;
   owner_name: string | null;
   places: OpOperatorPlace[];
 };
 
-export type OpDashboardTotals = {
+type OpDashboardTotals = {
   placeCount: number;
   totalLivePlayers: number;
   headcountUnreported: number;
@@ -76,7 +78,7 @@ function rangePoints(range: OpRange): number {
       return 2;
     case "6h":
       return 12;
-    case "24h":
+    default:
       return 48;
   }
 }
@@ -91,6 +93,10 @@ function likePct(p: OpOperatorPlace): number | null {
   return p.like_rate == null ? null : Math.round(p.like_rate * 100);
 }
 
+function placeWhere(p: OpOperatorPlace): string {
+  return p.world && p.world_name ? p.world_name : p.base_position;
+}
+
 type OpModerationTarget = "scene-bans" | "scene-admins";
 
 function moderationLink(target: OpModerationTarget, placeId: string): string {
@@ -101,6 +107,8 @@ function moderationLink(target: OpModerationTarget, placeId: string): string {
 
 const W = 240;
 const H = 36;
+const TOTALS_GRID: CSSProperties = { "--adm-col": "150px" } as CSSProperties;
+const MOD_GRID: CSSProperties = { "--adm-col": "260px" } as CSSProperties;
 
 function paths(series: number[]): { line: string; area: string } | null {
   if (series.length < 2) return null;
@@ -123,7 +131,7 @@ function HeadcountTrend({
   if (series == null) {
     return (
       <span
-        className="spark__empty"
+        className="adm-dim"
         aria-label={`Headcount history unavailable for ${label ?? "this place"}`}
       >
         no history
@@ -133,7 +141,7 @@ function HeadcountTrend({
   const p = paths(series);
   if (!p) {
     return (
-      <span className="spark__empty" aria-label={`No headcount history for ${label ?? "this place"}`}>
+      <span className="adm-dim" aria-label={`No headcount history for ${label ?? "this place"}`}>
         no trend yet
       </span>
     );
@@ -141,15 +149,24 @@ function HeadcountTrend({
   const peak = Math.max(...series);
   return (
     <svg
-      className="spark"
+      className="adm-op__spark"
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
       role="img"
       aria-label={`Headcount trend for ${label ?? "this place"}: peak ${peak}`}
     >
-      <path className="spark__area" d={p.area} />
-      <path className="spark__line" d={p.line} />
+      <path className="adm-op__spark-area" d={p.area} />
+      <path className="adm-op__spark-line" d={p.line} />
     </svg>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
   );
 }
 
@@ -170,50 +187,47 @@ function OperatorPlaceSummary({
   const live = (place.user_count ?? 0) > 0;
   const headcount = place.user_count == null ? "\u2014" : place.user_count;
   const series = windowOf(place.headcount, range);
+  const flagged = live || place.highlighted || place.disabled;
 
   return (
     <LinkComponent
       to={`/places/${encodeURIComponent(place.id)}`}
       prefetch="intent"
-      className={"opc" + (place.disabled ? " is-disabled" : "")}
+      className={"adm-card adm-card--link" + (place.disabled ? " is-disabled" : "")}
       onClick={() => onOpen(place.id)}
       aria-label={`${place.title || place.id} \u{2014} operator summary`}
     >
-      <div className="opc__top">
-        <span className="opc__title">{place.title || place.id}</span>
-        <span className="opc__coords">
-          {place.world && place.world_name ? place.world_name : place.base_position}
-        </span>
+      <div className="adm-card__head">
+        <span className="adm-card__title u-truncate">{place.title || place.id}</span>
+        <span className="adm-mono adm-dim">{placeWhere(place)}</span>
       </div>
 
-      <div className="opc__badges">
-        {live && <span className="opc__badge opc__badge--live">{place.user_count} live</span>}
-        {place.highlighted && (
-          <span className="opc__badge opc__badge--featured">Featured</span>
-        )}
-        {place.disabled && (
-          <span className="opc__badge opc__badge--disabled">Disabled</span>
-        )}
-      </div>
+      {flagged && (
+        <div className="adm-pills">
+          {live && (
+            <span className="adm-status" data-tone="ok">
+              {place.user_count} live
+            </span>
+          )}
+          {place.highlighted && (
+            <span className="adm-status" data-tone="info">
+              Featured
+            </span>
+          )}
+          {place.disabled && (
+            <span className="adm-status" data-tone="bad">
+              Disabled
+            </span>
+          )}
+        </div>
+      )}
 
-      <div className="opc__kpis">
-        <div>
-          <div className="opc__kpi-n">{headcount}</div>
-          <div className="opc__kpi-l">Live</div>
-        </div>
-        <div>
-          <div className="opc__kpi-n">{place.user_visits.toLocaleString()}</div>
-          <div className="opc__kpi-l">Visits</div>
-        </div>
-        <div>
-          <div className="opc__kpi-n">{pct == null ? "\u{2014}" : `${pct}%`}</div>
-          <div className="opc__kpi-l">Like rate</div>
-        </div>
-        <div>
-          <div className="opc__kpi-n">{place.favorites.toLocaleString()}</div>
-          <div className="opc__kpi-l">Favorites</div>
-        </div>
-      </div>
+      <dl className="adm-stats">
+        <Stat label="Live" value={headcount} />
+        <Stat label="Visits" value={place.user_visits.toLocaleString()} />
+        <Stat label="Like rate" value={pct == null ? "\u{2014}" : `${pct}%`} />
+        <Stat label="Favorites" value={place.favorites.toLocaleString()} />
+      </dl>
 
       <HeadcountTrend series={series} label={place.title || place.id} />
     </LinkComponent>
@@ -231,22 +245,22 @@ function PlaceVisitTable({ places, range, onOpen, LinkComponent }: PlaceVisitTab
   const ranked = byVisits(places);
 
   return (
-    <div className="au__tablewrap">
-      <table className="au__table">
+    <div className="adm-scroll">
+      <table className="adm-table">
         <thead>
           <tr>
-            <th className="au-cell au-cell--center op__rank-num">#</th>
-            <th className="au-cell">Place</th>
-            <th className="au-cell op__num">Visits</th>
-            <th className="au-cell op__num">Live</th>
-            <th className="au-cell op__num">Like rate</th>
-            <th className="au-cell op__rank-spark">Trend</th>
+            <th className="is-center">#</th>
+            <th>Place</th>
+            <th className="is-num">Visits</th>
+            <th className="is-num">Live</th>
+            <th className="is-num">Like rate</th>
+            <th className="adm-op__trend">Trend</th>
           </tr>
         </thead>
         <tbody>
           {ranked.length === 0 ? (
             <tr>
-              <td className="au-cell au-cell--empty" colSpan={6}>
+              <td className="is-empty" colSpan={6}>
                 No operated places yet.
               </td>
             </tr>
@@ -254,32 +268,30 @@ function PlaceVisitTable({ places, range, onOpen, LinkComponent }: PlaceVisitTab
             ranked.map((p, i) => {
               const pct = likePct(p);
               return (
-                <tr className="au-row" key={p.id}>
-                  <td className="au-cell au-cell--center">{i + 1}</td>
-                  <td className="au-cell au-cell--user">
-                    <LinkComponent
-                      to={`/places/${encodeURIComponent(p.id)}`}
-                      prefetch="intent"
-                      onClick={() => onOpen(p.id)}
-                      className="au-cell__name op__rank-name"
-                    >
-                      {p.title || p.id}
-                    </LinkComponent>
-                    <span className="au-cell__addr op__rank-coords">
-                      {p.world && p.world_name ? p.world_name : p.base_position}
-                    </span>
-                    {p.disabled && (
-                      <span className="opc__badge opc__badge--disabled op__rank-badge">
-                        Disabled
-                      </span>
-                    )}
+                <tr key={p.id}>
+                  <td className="is-center">{i + 1}</td>
+                  <td>
+                    <div className="adm-pills">
+                      <LinkComponent
+                        to={`/places/${encodeURIComponent(p.id)}`}
+                        prefetch="intent"
+                        onClick={() => onOpen(p.id)}
+                        className="adm-link"
+                      >
+                        {p.title || p.id}
+                      </LinkComponent>
+                      <span className="adm-mono adm-dim">{placeWhere(p)}</span>
+                      {p.disabled && (
+                        <span className="adm-status" data-tone="bad">
+                          Disabled
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td className="au-cell op__num">{p.user_visits.toLocaleString()}</td>
-                  <td className="au-cell op__num">
-                    {p.user_count == null ? "\u2014" : p.user_count}
-                  </td>
-                  <td className="au-cell op__num">{pct == null ? "\u{2014}" : `${pct}%`}</td>
-                  <td className="au-cell op__rank-spark">
+                  <td className="is-num">{p.user_visits.toLocaleString()}</td>
+                  <td className="is-num">{p.user_count == null ? "\u2014" : p.user_count}</td>
+                  <td className="is-num">{pct == null ? "\u{2014}" : `${pct}%`}</td>
+                  <td className="adm-op__trend">
                     <HeadcountTrend series={windowOf(p.headcount, range)} label={p.title || p.id} />
                   </td>
                 </tr>
@@ -304,19 +316,19 @@ function ModerationLoadCard({
   LinkComponent,
 }: ModerationLoadCardProps) {
   return (
-    <div className="opm">
-      <div className="opm__title">{place.title || place.id}</div>
+    <div className="adm-card">
+      <div className="adm-card__title u-truncate">{place.title || place.id}</div>
 
-      <p className="opm__unknown">
+      <p className="adm-card__text">
         Ban and admin counts are not published by the places API, so none are
         shown here rather than shown as zero.
       </p>
 
-      <div className="opm__links">
+      <div className="adm-actions adm-actions--start">
         <LinkComponent
           to={moderationLink("scene-bans", place.id)}
           prefetch="intent"
-          className="opm__link"
+          className="btn btn--secondary btn--sm"
           onClick={() => onModerationLink(place.id, "scene-bans")}
         >
           Manage bans
@@ -324,7 +336,7 @@ function ModerationLoadCard({
         <LinkComponent
           to={moderationLink("scene-admins", place.id)}
           prefetch="intent"
-          className="opm__link"
+          className="btn btn--secondary btn--sm"
           onClick={() => onModerationLink(place.id, "scene-admins")}
         >
           Manage admins
@@ -336,9 +348,9 @@ function ModerationLoadCard({
 
 function Total({ n, label }: { n: number | string; label: string }) {
   return (
-    <div className="op__total">
-      <div className="op__total-n">{n}</div>
-      <div className="op__total-l">{label}</div>
+    <div className="adm-card">
+      <div className="adm-kpi__n">{n}</div>
+      <div className="adm-kpi__l">{label}</div>
     </div>
   );
 }
@@ -352,14 +364,14 @@ function RangeToggle({
 }) {
   const opts: OpRange[] = ["1h", "6h", "24h"];
   return (
-    <div className="op__range" role="tablist" aria-label="Headcount time range">
+    <div className="adm-pills" role="tablist" aria-label="Headcount time range">
       {opts.map((r) => (
         <button
           key={r}
           type="button"
           role="tab"
           aria-selected={r === range}
-          className={"op__range-btn" + (r === range ? " is-active" : "")}
+          className={"adm-pill" + (r === range ? " is-active" : "")}
           onClick={() => onSelect(r)}
         >
           {r}
@@ -369,7 +381,7 @@ function RangeToggle({
   );
 }
 
-export type OpDashboardPageProps = {
+type OpDashboardPageProps = {
   range: OpRange;
   dashboard: OpOperatorDashboard;
   viewedAddress: string;
@@ -400,94 +412,104 @@ export default function OpDashboardPage({
 
   return (
     <SitesChrome active="create" signedIn>
-      <div className="op">
-        <div className="op__head">
-          <div>
-            <h1 className="op__title">Operator dashboard</h1>
-            <p className="op__sub">
-              Visits, headcount trend and moderation load for the places
-              registered to one address. This is public data &#x2014; the place list
-              (<code>GET /places/api/places?owner=</code>) is unauthenticated,
-              and the address below is a filter, not a claim about who you are.
-            </p>
-            <p className="op__owner">
-              Viewing places for {dashboard.owner_name ? `${dashboard.owner_name} \u{B7} ` : ""}
-              {viewedAddress}
-              {isDemo && (
-                <span className="op__degraded"> &#x2014; demo address, not you</span>
-              )}
-            </p>
-          </div>
-          <RangeToggle range={range} onSelect={onSelectRange} />
-        </div>
-
-        {unavailableReason ? (
-          <p className="op__sub" role="alert">
-            The public place list could not be read: {unavailableReason}. No
-            figures are shown, because an empty dashboard and a failed read are
-            not the same thing.
-          </p>
-        ) : cards.length === 0 ? (
-          <p className="op__sub">
-            No places are registered to {viewedAddress}.
-          </p>
-        ) : (
-          <>
-            <div className="op__totals">
-              <Total n={t.placeCount} label="Places" />
-              <Total n={t.totalLivePlayers} label="Live players" />
-              <Total n={t.totalVisits.toLocaleString()} label="Visits" />
-              <Total n={t.disabledCount} label="Disabled" />
+      <div className="adm">
+        <div className="adm__page">
+          <div className="adm__inner">
+            <div className="adm__head">
+              <div>
+                <h1 className="adm__title">Operator dashboard</h1>
+                <p className="adm__sub">
+                  Visits, headcount trend and moderation load for the places
+                  registered to one address. This is public data &#x2014; the place list
+                  (<code>GET /places/api/places?owner=</code>) is unauthenticated,
+                  and the address below is a filter, not a claim about who you are.
+                </p>
+                <p className="adm__sub adm-mono">
+                  Viewing places for {dashboard.owner_name ? `${dashboard.owner_name} \u{B7} ` : ""}
+                  {viewedAddress}{" "}
+                  {isDemo && (
+                    <span className="adm-status" data-tone="warn">
+                      demo address, not you
+                    </span>
+                  )}
+                </p>
+              </div>
+              <RangeToggle range={range} onSelect={onSelectRange} />
             </div>
-            {t.headcountUnreported > 0 && (
-              <p className="op__sub">
-                {t.headcountUnreported} of these places reported no headcount, so
-                they are not counted in the live-player total.
-              </p>
-            )}
 
-            <h2 className="op__section">Per-place summary</h2>
-            <div className="op__cards">
-              {cards.map((p) => (
-                <OperatorPlaceSummary
-                  key={p.id}
-                  place={p}
+            {unavailableReason ? (
+              <div className="adm-notice" data-tone="bad" role="alert">
+                <p>
+                  The public place list could not be read: {unavailableReason}. No
+                  figures are shown, because an empty dashboard and a failed read are
+                  not the same thing.
+                </p>
+              </div>
+            ) : cards.length === 0 ? (
+              <EmptyState
+                variant="inline"
+                titleAs="p"
+                title={`No places are registered to ${viewedAddress}.`}
+              />
+            ) : (
+              <>
+                <div className="adm-grid" style={TOTALS_GRID}>
+                  <Total n={t.placeCount} label="Places" />
+                  <Total n={t.totalLivePlayers} label="Live players" />
+                  <Total n={t.totalVisits.toLocaleString()} label="Visits" />
+                  <Total n={t.disabledCount} label="Disabled" />
+                </div>
+                {t.headcountUnreported > 0 && (
+                  <p className="adm__sub">
+                    {t.headcountUnreported} of these places reported no headcount, so
+                    they are not counted in the live-player total.
+                  </p>
+                )}
+
+                <h2 className="adm__h2">Per-place summary</h2>
+                <div className="adm-grid">
+                  {cards.map((p) => (
+                    <OperatorPlaceSummary
+                      key={p.id}
+                      place={p}
+                      range={range}
+                      onOpen={onOpenPlace}
+                      LinkComponent={LinkComponent}
+                    />
+                  ))}
+                </div>
+
+                <h2 className="adm__h2">Operated places by visits</h2>
+                <PlaceVisitTable
+                  places={dashboard.places}
                   range={range}
                   onOpen={onOpenPlace}
                   LinkComponent={LinkComponent}
                 />
-              ))}
-            </div>
 
-            <h2 className="op__section">Operated places by visits</h2>
-            <PlaceVisitTable
-              places={dashboard.places}
-              range={range}
-              onOpen={onOpenPlace}
-              LinkComponent={LinkComponent}
-            />
-
-            <h2 className="op__section">Moderation load</h2>
-            <p className="op__sub">
-              The places API publishes no ban or admin counts, so this section
-              can only list places that are disabled.
-            </p>
-            {modPlaces.length === 0 ? (
-              <p className="op__sub">No place here is disabled.</p>
-            ) : (
-              <div className="op__mod">
-                {modPlaces.map((p) => (
-                  <ModerationLoadCard
-                    key={p.id}
-                    place={p}
-                    onModerationLink={onModerationLink}
-                    LinkComponent={LinkComponent}
-                  />
-                ))}
-              </div>
+                <h2 className="adm__h2">Moderation load</h2>
+                <p className="adm__sub">
+                  The places API publishes no ban or admin counts, so this section
+                  can only list places that are disabled.
+                </p>
+                {modPlaces.length === 0 ? (
+                  <p className="adm__sub">No place here is disabled.</p>
+                ) : (
+                  <div className="adm-grid" style={MOD_GRID}>
+                    {modPlaces.map((p) => (
+                      <ModerationLoadCard
+                        key={p.id}
+                        place={p}
+                        onModerationLink={onModerationLink}
+                        LinkComponent={LinkComponent}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
-          </>
-        )}
+          </div>
+        </div>
       </div>
     </SitesChrome>
   );

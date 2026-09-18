@@ -4,8 +4,7 @@ import type {
 } from "../catalyst/creator-hub/scene-composite";
 import { serializeSceneComposite } from "../catalyst/creator-hub/scene-composite";
 
-export const BUILDER_ITEMS_PREFIX = "/builder-items/";
-export const TEMPLATE_ASSET_DIR = "assets/imported/template-assets";
+const TEMPLATE_ASSET_DIR = "assets/imported/template-assets";
 
 const TRANSFORM = "core::Transform";
 const NAME = "core-schema::Name";
@@ -303,7 +302,7 @@ const LAYOUTS: Record<string, EntitySpec[]> = {
   ],
 };
 
-export type TemplateContentMeta = {
+type TemplateContentMeta = {
   id: string;
   title: string;
   githubLink: string;

@@ -15,18 +15,6 @@
   min-height: 100%;
 }
 
-.gvbv__scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  overflow: auto;
-  padding: 64px 16px;
-  background: rgba(0, 0, 0, 0.85);
-}
-
 .gvbv__modal {
   position: relative;
   width: 100%;
@@ -108,7 +96,8 @@
 .gvbv__card.is-disabled {
   pointer-events: none;
   text-decoration: none;
-  opacity: 0.55;
+  border-style: dashed;
+  cursor: default;
 }
 
 .gvbv__card-body {
@@ -262,6 +251,5 @@
 }
 
 @media (max-width: 600px) {
-  .gvbv__scrim { padding: 24px 12px; }
   .gvbv__action { max-width: 70%; }
 }

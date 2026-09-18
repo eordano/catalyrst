@@ -3,7 +3,7 @@ import { unbuilt } from "../lib/datum";
 import DatumBadge from "./DatumBadge";
 import "./unbuiltpanel.css";
 
-export type UnbuiltPanelProps = {
+type UnbuiltPanelProps = {
   title: string;
   why: string;
   today?: ReactNode;

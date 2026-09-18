@@ -7,12 +7,16 @@ import { queryClient } from "./queryClient";
 import { router } from "./router";
 import BootGate from "./BootGate";
 import ErrorBoundary from "./ErrorBoundary";
+import { enablePlayScreen } from "../data/screens/play-client";
+import { isEditorShell, isNativeHost } from "../overlay/nativeHost";
 
 import "../atoms/primitives.css";
 import "../styles.css";
 import "../explorepanel.css";
 import "../touch-targets.css";
 import "../scene-backdrop.css";
+
+if (!isEditorShell(window.location.search) && !isNativeHost()) enablePlayScreen(queryClient, window.location.origin);
 
 function mount() {
   let host = document.getElementById("root");

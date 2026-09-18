@@ -13,41 +13,27 @@ const CATALOG_URN =
   "urn:decentraland:matic:collections-v2:0xf16e015c31b9902014e7cbf049872899c5fdbc61:0";
 
 describe("mapProfile name fallback", () => {
-  it("shortens a bare address instead of rendering all 40 hex chars", () => {
+  it("keeps a real name, shortens a bare address, and yields an empty name with neither", () => {
+    expect(mapProfile(readAvatar({ name: "NicoE" }), ADDR).name).toBe("NicoE");
     const vm = mapProfile(readAvatar({}), ADDR);
     expect(vm.name).toBe("0xe2b\u{2026}5a18");
     expect(vm.tag).toBe("#5a18");
-  });
-
-  it("keeps a real profile name untouched", () => {
-    const vm = mapProfile(readAvatar({ name: "NicoE" }), ADDR);
-    expect(vm.name).toBe("NicoE");
-  });
-
-  it("yields an empty name when there is no name and no address", () => {
-    const vm = mapProfile(readAvatar({}), null);
-    expect(vm.name).toBe("");
+    expect(mapProfile(readAvatar({}), null).name).toBe("");
   });
 });
 
 describe("equipped URN matching via baseItemUrn", () => {
-  it("strips the token suffix from collections-v2 URNs", () => {
+  it("strips the token suffix from collections-v2 URNs so they match a 6-segment catalog key, and leaves base-avatar URNs untouched", () => {
     expect(baseItemUrn(TOKEN_URN)).toBe(CATALOG_URN);
-  });
-
-  it("resolves a token-suffixed profile URN against a 6-segment catalog key", () => {
     const byUrn = new Map([[baseItemUrn(CATALOG_URN), { urn: CATALOG_URN }]]);
     expect(byUrn.get(baseItemUrn(TOKEN_URN))).toEqual({ urn: CATALOG_URN });
-  });
-
-  it("leaves base-avatar URNs untouched", () => {
     const base = "urn:decentraland:off-chain:base-avatars:dcl_watch";
     expect(baseItemUrn(base)).toBe(base);
   });
 });
 
 describe("fetchUserPhotos", () => {
-  it("requests the camera-reel /api/users/... path", async () => {
+  it("requests the camera-reel /api/users/... path with a lowercased address", async () => {
     const seen: string[] = [];
     const fetchImpl = (async (url: RequestInfo | URL) => {
       seen.push(String(url));

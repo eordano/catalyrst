@@ -281,13 +281,6 @@
   letter-spacing: -0.4px;
   color: #fff;
 }
-.sh__bansub {
-  margin: 0;
-  max-width: 480px;
-  font-size: 17px;
-  line-height: 1.5;
-  color: var(--ink-7);
-}
 .sh__banner .sh__btn { margin-top: 8px; }
 
 @media (max-width: 900px) {

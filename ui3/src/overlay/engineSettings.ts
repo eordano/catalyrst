@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { SettingEntry } from "../generated/bridge/SettingEntry";
 import { attachBridge, sendBridge } from "./bridge";
 
-export type EngineVariant = { label: string; description: string | null };
+type EngineVariant = { label: string; description: string | null };
 
 export type EngineSetting = {
   name: string;
@@ -98,9 +98,10 @@ export function useEngineSettings(): {
   }, []);
 
   const setValue = useCallback((name: string, value: number) => {
+    if (info?.[name]?.category.toLowerCase().includes("graphic")) window.dispatchEvent(new Event("dcl-graphics-change"));
     setValues((prev) => ({ ...prev, [name]: value }));
     sendBridge("SetSetting", { name, value });
-  }, []);
+  }, [info]);
 
   return { info, values, setValue, connected };
 }

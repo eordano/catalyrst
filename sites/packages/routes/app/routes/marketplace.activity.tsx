@@ -58,12 +58,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const type = readType(url.searchParams);
   const page = readPage(url.searchParams);
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
   const skip = page * PAGE_SIZE;
 
   const wantSales = type !== "listing";
@@ -84,7 +78,11 @@ export async function loader({ request }: Route.LoaderArgs) {
         .catch(() => ({ data: [] as Trade[], total: 0, ok: false }))
     : Promise.resolve({ data: [] as Trade[], total: 0, ok: true });
 
-  const [sales, trades] = await Promise.all([salesP, tradesP]);
+  const [{ sid, wrap }, sales, trades] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    salesP,
+    tradesP,
+  ]);
 
   const fallback = !sales.ok || !trades.ok;
 

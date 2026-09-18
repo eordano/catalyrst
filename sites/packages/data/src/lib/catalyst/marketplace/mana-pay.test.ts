@@ -7,6 +7,7 @@ import {
   chainIdSalt,
   executeMetaTxCalldata,
   manaMetaTxTypedData,
+  manaShortfallWei,
   normalizeV,
   transferCalldata,
 } from "./mana-pay";
@@ -73,13 +74,11 @@ describe("executeMetaTxCalldata", () => {
 });
 
 describe("typed data", () => {
-  it("salt encodes chain 137 as bytes32", () => {
+  it("encodes chain 137 as a bytes32 salt, hashes as valid EIP-712 under viem, and pins the production MANA polygon domain", () => {
     expect(chainIdSalt(137)).toBe(
       "0x0000000000000000000000000000000000000000000000000000000000000089",
     );
-  });
 
-  it("hashes without throwing under viem (structure is EIP-712 valid)", () => {
     const fn = transferCalldata(PAY_TO, WEI);
     const typed = manaMetaTxTypedData(FROM, "0", fn);
     const types = { ...typed.types } as Record<
@@ -99,9 +98,7 @@ describe("typed data", () => {
       message: { nonce: 0n, from: FROM, functionSignature: fn },
     });
     expect(digest).toMatch(/^0x[0-9a-f]{64}$/);
-  });
 
-  it("pins the production MANA polygon domain", () => {
     expect(MANA_POLYGON.address).toBe(
       "0xa1c57f48f0deb89f569dfbe6e2b7f46d33606fd4",
     );
@@ -117,5 +114,21 @@ describe("normalizeV", () => {
     expect(normalizeV("1b")).toBe("1b");
     expect(normalizeV("1c")).toBe("1c");
     expect(() => normalizeV("05")).toThrow();
+  });
+});
+
+describe("manaShortfallWei", () => {
+  const NEED = "39580378408756389366";
+
+  it("reports the missing wei (whole quote for an empty wallet, the difference for a partial one) and null when covered, unknown, or unparsable", () => {
+    expect(manaShortfallWei(0n, NEED)).toBe(BigInt(NEED));
+    expect(manaShortfallWei(10n * 10n ** 18n, NEED)).toBe(
+      BigInt(NEED) - 10n * 10n ** 18n,
+    );
+    expect(manaShortfallWei(BigInt(NEED), NEED)).toBeNull();
+    expect(manaShortfallWei(BigInt(NEED) + 1n, NEED)).toBeNull();
+    expect(manaShortfallWei(null, NEED)).toBeNull();
+    expect(manaShortfallWei(0n, "not-wei")).toBeNull();
+    expect(manaShortfallWei(0n, "0")).toBeNull();
   });
 });

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import AdControlNotice, { AdBlockedAction } from "@ui/admin/pages/AdControlNotice";
 import SitesChrome from "@ui/web/frames/SitesChrome";
+import "@ui/admin/admin.css";
 
 import { controlStatus } from "@data/lib/catalyst/admin/control-availability";
 import type { Unavailable } from "@data/lib/catalyst/admin/availability";
@@ -65,21 +66,25 @@ export default function OperatorUserBansRoute({ loaderData }: Route.ComponentPro
 
   return (
     <SitesChrome active="create">
-      <main className="operator-user-bans-route">
-        <h1>Platform user bans</h1>
+      <main className="adm">
+        <div className="adm__page">
+          <div className="adm__inner adm__inner--mid">
+            <h1 className="adm__title">Platform user bans</h1>
 
-        <AdControlNotice
-          title="The active ban list cannot be read on this node"
-          message={d.list.message}
-          status={d.list.status}
-          serverCheck={d.list.serverCheck}
-          fix={d.list.fix}
-        />
+            <AdControlNotice
+              title="The active ban list cannot be read on this node"
+              message={d.list.message}
+              status={d.list.status}
+              serverCheck={d.list.serverCheck}
+              fix={d.list.fix}
+            />
 
-        <div className="sa__toolbar">
-          {d.actions.map((a) => (
-            <AdBlockedAction key={a.label} label={a.label} reason={a.reason} />
-          ))}
+            <div className="adm-actions adm-actions--start">
+              {d.actions.map((a) => (
+                <AdBlockedAction key={a.label} label={a.label} reason={a.reason} />
+              ))}
+            </div>
+          </div>
         </div>
       </main>
     </SitesChrome>

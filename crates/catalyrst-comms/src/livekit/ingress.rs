@@ -8,10 +8,14 @@ pub const INGRESS_INPUT_RTMP: &str = "RTMP_INPUT";
 pub enum IngressError {
     #[error("token mint failed: {0}")]
     Token(#[from] LivekitError),
-    #[error("livekit ingress request failed: {0}")]
-    Request(String),
-    #[error("livekit ingress returned status {0}: {1}")]
-    Status(u16, String),
+    #[error("livekit ingress request failed")]
+    Request,
+    #[error("livekit ingress returned an invalid response")]
+    InvalidResponse,
+    #[error("livekit ingress not found")]
+    NotFound,
+    #[error("livekit ingress returned status {0}")]
+    Status(u16),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -59,15 +63,18 @@ impl<'a> IngressClient<'a> {
             .json(&body)
             .send()
             .await
-            .map_err(|e| IngressError::Request(e.to_string()))?;
+            .map_err(|_| IngressError::Request)?;
         let status = resp.status();
         if !status.is_success() {
             let txt = resp.text().await.unwrap_or_default();
-            return Err(IngressError::Status(status.as_u16(), txt));
+            if status.as_u16() == 404 || txt.contains("not_found") {
+                return Err(IngressError::NotFound);
+            }
+            return Err(IngressError::Status(status.as_u16()));
         }
         resp.json::<serde_json::Value>()
             .await
-            .map_err(|e| IngressError::Request(e.to_string()))
+            .map_err(|_| IngressError::InvalidResponse)
     }
 
     pub async fn list_ingress(&self, room: &str) -> Result<Vec<IngressInfo>, IngressError> {
@@ -120,8 +127,7 @@ impl<'a> IngressClient<'a> {
             .await
         {
             Ok(_) => Ok(()),
-            Err(IngressError::Status(404, _)) => Ok(()),
-            Err(IngressError::Status(_, txt)) if txt.contains("not_found") => Ok(()),
+            Err(IngressError::NotFound) => Ok(()),
             Err(e) => Err(e),
         }
     }

@@ -1,10 +1,7 @@
 import { z } from "zod";
 
 import { ETH_ADDRESS_RE } from "../format/address";
-import {
-  AllowListPermissionSchema,
-  WorldPermissionsBlockSchema,
-} from "../generated-schemas/worlds";
+import { WorldPermissionsBlockSchema } from "../generated-schemas/worlds";
 
 export const ACCESS_TYPES = ["unrestricted", "allow-list", "shared-secret"] as const;
 export type AccessType = (typeof ACCESS_TYPES)[number];
@@ -62,10 +59,9 @@ export const WorldPermissionsSchema = z.object({
 });
 
 export type WorldPermissions = z.infer<typeof WorldPermissionsSchema>;
-export type Collaborator = z.infer<typeof CollaboratorSchema>;
 export type Community = z.infer<typeof CommunitySchema>;
-export type AccessTypeOption = z.infer<typeof AccessTypeOptionSchema>;
-export type Limits = z.infer<typeof LimitsSchema>;
+type AccessTypeOption = z.infer<typeof AccessTypeOptionSchema>;
+type Limits = z.infer<typeof LimitsSchema>;
 
 export const ACCESS_TYPES_CATALOG: AccessTypeOption[] = [
   {
@@ -117,7 +113,7 @@ export function worldExists(p: WorldPermissions, sceneCount = 0): boolean {
   return (p.owner ?? "").trim() !== "" || sceneCount > 0;
 }
 
-export type WorldViewerRole = "owner" | "collaborator" | "none";
+type WorldViewerRole = "owner" | "collaborator" | "none";
 
 export function viewerWorldRole(
   p: WorldPermissions,

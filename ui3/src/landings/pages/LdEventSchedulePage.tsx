@@ -2,7 +2,7 @@ import type { MouseEvent, ReactNode } from "react";
 
 import "./ldeventschedulepage.css";
 
-export type LdScheduleMode = "create" | "edit";
+type LdScheduleMode = "create" | "edit";
 
 type LdEventSchedulePageProps = {
   mode?: LdScheduleMode;

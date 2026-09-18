@@ -15,7 +15,7 @@ function chipLabel(value: string): string {
 }
 
 type CwieItem = { id: string; name: string; type: "wearable" | "emote" };
-type CwieDraft = { name?: string; rarity?: string; price?: string; free?: boolean };
+type CwieDraft = { modelFile?: string; name?: string; rarity?: string; price?: string; free?: boolean };
 type CwieCollection = {
   id: string;
   name: string;
@@ -24,6 +24,7 @@ type CwieCollection = {
 };
 
 type WearableItemEditorViewProps = {
+  live?: boolean;
   value?: string;
   step?: string;
   draft?: CwieDraft;
@@ -46,7 +47,7 @@ type WearableItemEditorViewProps = {
   onSelectItem?: (item: CwieItem) => void;
   onBack?: () => void;
   onNameChange?: (name: string) => void;
-  onSetModel?: (fileName?: string) => void;
+  onSetModel?: (fileName?: string, model?: File) => void;
   onCategoryChange?: (category: string) => void;
   onContinueCategory?: () => void;
   onRarityChange?: (rarity: string) => void;
@@ -61,6 +62,7 @@ type WearableItemEditorViewProps = {
 };
 
 export default function WearableItemEditorView({
+  live = false,
   value = "selecting",
   step = "select",
   draft = {},
@@ -105,7 +107,7 @@ export default function WearableItemEditorView({
     <div className="cwie-wizard" data-step={step}>
       <MobileEditorGate
         title="Open the wearable editor on a desktop"
-        message="The wearable item editor needs a wider screen and a WebGPU-capable desktop browser for the live avatar preview. Come back on a laptop or desktop to keep creating."
+        message="The wearable item editor needs a wider screen and a WebGPU-capable desktop browser for the live avatar editor. Come back on a laptop or desktop to keep creating."
         backHref="/create/collections"
         backLabel="Back to your collections"
       />
@@ -184,9 +186,7 @@ export default function WearableItemEditorView({
             <>
               <h2 className="cwie-wizard__title">Model</h2>
               <p className="cwie-wizard__hint">
-                Name your wearable and optionally pick a local .glb/.gltf
-                model &#x2014; the file stays on this device (nothing is uploaded)
-                and the preview mannequin doesn't render it yet.
+                {live ? "Name your wearable and choose a .glb or embedded .gltf model. Saving uploads the model to your draft." : "Choose a local model for this editor. Nothing is uploaded."}
               </p>
               <label className="cwie-wizard__name">
                 <span className="cwie-wizard__name-label">Name</span>
@@ -218,8 +218,8 @@ export default function WearableItemEditorView({
                 />
                 <span className="cwie-wizard__model-file">
                   {modelFile
-                    ? `${modelFile.name} \u{2014} kept locally, not uploaded`
-                    : "No file chosen \u{2014} a placeholder model reference is used"}
+                    ? `${modelFile.name}${live ? "" : " \u2014 kept locally, not uploaded"}`
+                    : draft.modelFile || "Choose a model"}
                 </span>
               </div>
               <div className="cwie-wizard__controls">
@@ -228,8 +228,8 @@ export default function WearableItemEditorView({
                 </Button>
                 <Button
                   variant="primary"
-                  disabled={itemName === ""}
-                  onClick={() => onSetModel?.(modelFile?.name)}
+                  disabled={itemName === "" || (live && !modelFile && !draft.modelFile)}
+                  onClick={() => onSetModel?.(modelFile?.name, modelFile ?? undefined)}
                 >
                   Set model
                 </Button>
@@ -313,7 +313,7 @@ export default function WearableItemEditorView({
               <h2 className="cwie-wizard__title">Price</h2>
               <p className="cwie-wizard__hint">
                 Primary-sale price ({rarity} &#xB7; {maxSupply.toLocaleString()}{" "}
-                supply). Listing is simulated.
+                supply). {live ? "Saved as a draft until you publish." : "Listing is simulated."}
               </p>
               <div className="cwie-wizard__price">
                 <input
@@ -336,15 +336,15 @@ export default function WearableItemEditorView({
                 />
                 Give away for free
               </label>
-              <ul className="cwie-wizard__splits" aria-label="Sale proceeds (simulated)">
+              <ul className="cwie-wizard__splits" aria-label="Sale proceeds">
                 <li>
                   Primary sale &#x2014; full price to your beneficiary address
-                  (simulated default: your connected wallet).
+                  {live ? "when you publish." : "(simulated)."}
                 </li>
                 <li>
                   Secondary sales &#x2014; a creator royalty goes to the beneficiary;
                   the split is read on-chain at publish time, not set in this
-                  preview.
+                  editor.
                 </li>
               </ul>
               <div className="cwie-wizard__controls">
@@ -362,7 +362,7 @@ export default function WearableItemEditorView({
             <>
               <h2 className="cwie-wizard__title">Saving&#x2026;</h2>
               <p className="cwie-wizard__hint">
-                Uploading model, writing item + listing price (simulated).
+                {live ? "Saving your model and wearable details\u2026" : "Simulating the save\u2026"}
               </p>
             </>
           )}
@@ -372,7 +372,7 @@ export default function WearableItemEditorView({
               <h2 className="cwie-wizard__title">Saved</h2>
               <p className="cwie-wizard__hint">
                 {itemName || "Your wearable"} &#xB7; {draft.rarity} &#xB7;{" "}
-                {draft.free ? "free" : `${draft.price || "0"} MANA`} (simulated persist).
+                {draft.free ? "free" : `${draft.price || "0"} MANA`}{live ? " \u00b7 Draft saved" : " (simulated persist)"}.
               </p>
               <div className="cwie-wizard__controls">
                 <Button variant="secondary" onClick={onAddAnother}>

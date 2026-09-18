@@ -35,22 +35,19 @@ export async function loadBackpackEmotes(
   const addr = normalizeAddress(address);
   if (!addr) return emptyData("", "empty");
 
-  let ownedUrns: string[] = [];
-  let error = false;
-  try {
-    ownedUrns = await fetchOwnedEmotes(addr, opts);
-  } catch {
-    error = true;
-  }
+  const [ownedRes, profileRes] = await Promise.allSettled([
+    fetchOwnedEmotes(addr, opts),
+    fetchProfileEmotes(addr, opts),
+  ]);
+  const ownedUrns: string[] =
+    ownedRes.status === "fulfilled" ? ownedRes.value : [];
+  const error = ownedRes.status === "rejected";
+  const profileEmotes: ProfileEmote[] =
+    profileRes.status === "fulfilled" ? profileRes.value : [];
 
-  let profileEmotes: ProfileEmote[] = [];
-  try {
-    profileEmotes = await fetchProfileEmotes(addr, opts);
-  } catch {
-    profileEmotes = [];
-  }
-
-  const defUrns = [...new Set([...ownedUrns, ...profileEmotes.map((e) => e.urn)])];
+  const defUrns = [
+    ...new Set([...ownedUrns, ...profileEmotes.map((e) => e.urn)]),
+  ];
   const defs = await fetchEmoteDefs(defUrns, opts);
 
   const ownedSet = new Set(ownedUrns.map(itemUrn));

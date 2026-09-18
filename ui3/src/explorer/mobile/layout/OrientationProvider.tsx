@@ -5,9 +5,9 @@ import { useViewportOrientation } from "./orientation";
 import "./viewport.css";
 import "./layout.css";
 
-export type SafeAreaEmulation = "ios" | "android";
+type SafeAreaEmulation = "ios" | "android";
 
-export type OrientationState = {
+type OrientationState = {
   orientation: Orientation;
   viewport: Orientation;
   declared: Orientation | null;
@@ -20,7 +20,7 @@ const OrientationContext = createContext<OrientationState | null>(null);
 
 let nextDeclarationId = 0;
 
-export type OrientationProviderProps = {
+type OrientationProviderProps = {
   children: ReactNode;
   orientation?: Orientation;
   safeAreaEmulation?: SafeAreaEmulation | null;
@@ -113,12 +113,3 @@ export function useOrientation(): Orientation {
   return useOrientationState().orientation;
 }
 
-export function useDeclareOrientation(orientation: Orientation | null, active = true): void {
-  const { declare } = useOrientationState();
-  useEffect(() => {
-    if (!active || orientation === null) return undefined;
-    return declare(orientation);
-  }, [active, orientation, declare]);
-}
-
-export default OrientationProvider;

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -9,7 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use catalyrst_commons::http::is_safe_http_url;
 
-use crate::db::{CreateQuest, CreateReward, CreateRewardHook, CreateRewardItem, Db};
+use crate::db::{
+    CreateQuest, CreateReward, CreateRewardHook, CreateRewardItem, Db, ToggleOutcome, UpdateOutcome,
+};
 use crate::handlers::errors::QuestError;
 use crate::handlers::signer_or_unauthorized;
 use crate::proto::{ProtocolMessage, QuestDefinition};
@@ -156,13 +157,6 @@ impl CreateQuestRequest {
     }
 }
 
-async fn require_quest_creator(db: &Db, quest_id: &str, signer: &str) -> Result<(), QuestError> {
-    if !db.is_quest_creator(quest_id, signer).await? {
-        return Err(QuestError::NotQuestCreator);
-    }
-    Ok(())
-}
-
 fn db_or_internal(s: &AppState) -> Result<&Db, QuestError> {
     s.db.as_deref().ok_or(QuestError::Internal)
 }
@@ -193,13 +187,14 @@ pub async fn update_quest(
     let db = db_or_internal(&s)?;
     let body = body.0;
     body.validate()?;
-    require_quest_creator(db, &quest_id, &signer).await?;
-    if !db.is_updatable(&quest_id).await? {
-        return Err(QuestError::QuestIsNotUpdatable);
-    }
-    let new_id = db
+    let new_id = match db
         .update_quest(&quest_id, &body.to_create_quest(), &signer)
-        .await?;
+        .await?
+    {
+        UpdateOutcome::Updated(id) => id,
+        UpdateOutcome::NotCreator => return Err(QuestError::NotQuestCreator),
+        UpdateOutcome::NotUpdatable => return Err(QuestError::QuestIsNotUpdatable),
+    };
     Ok((
         StatusCode::OK,
         Json(UpdateQuestResponse { quest_id: new_id }),
@@ -214,12 +209,11 @@ pub async fn delete_quest(
     let path = format!("/api/quests/{quest_id}");
     let signer = signer_or_unauthorized(&headers, "delete", &path).await?;
     let db = db_or_internal(&s)?;
-    require_quest_creator(db, &quest_id, &signer).await?;
-    if !db.is_active_quest(&quest_id).await? {
-        return Err(QuestError::QuestIsCurrentlyDeactivated);
+    match db.deactivate_quest(&quest_id, &signer).await? {
+        ToggleOutcome::Done => Ok(StatusCode::ACCEPTED),
+        ToggleOutcome::NotCreator => Err(QuestError::NotQuestCreator),
+        ToggleOutcome::NotApplicable => Err(QuestError::QuestIsCurrentlyDeactivated),
     }
-    db.deactivate_quest(&quest_id).await?;
-    Ok(StatusCode::ACCEPTED)
 }
 
 pub async fn activate_quest(
@@ -230,12 +224,11 @@ pub async fn activate_quest(
     let path = format!("/api/quests/{quest_id}/activate");
     let signer = signer_or_unauthorized(&headers, "put", &path).await?;
     let db = db_or_internal(&s)?;
-    require_quest_creator(db, &quest_id, &signer).await?;
-    if !db.can_activate_quest(&quest_id).await? {
-        return Err(QuestError::QuestNotActivable);
+    match db.activate_quest(&quest_id, &signer).await? {
+        ToggleOutcome::Done => Ok(StatusCode::ACCEPTED),
+        ToggleOutcome::NotCreator => Err(QuestError::NotQuestCreator),
+        ToggleOutcome::NotApplicable => Err(QuestError::QuestNotActivable),
     }
-    db.activate_quest(&quest_id).await?;
-    Ok(StatusCode::ACCEPTED)
 }
 
 pub async fn get_quest_stats(
@@ -246,28 +239,16 @@ pub async fn get_quest_stats(
     let path = format!("/api/quests/{quest_id}/stats");
     let signer = signer_or_unauthorized(&headers, "get", &path).await?;
     let db = db_or_internal(&s)?;
-    require_quest_creator(db, &quest_id, &signer).await?;
-
-    let (actives, abandoned) = db.get_all_quest_instances_by_quest_id(&quest_id).await?;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let mut completed = 0usize;
-    let mut started_in_last_24_hours = 0usize;
-    for active in &actives {
-        if now - active.start_timestamp <= 24 * 60 * 60 {
-            started_in_last_24_hours += 1;
-        }
-        if db.is_completed_instance(&active.id).await? {
-            completed += 1;
-        }
-    }
+    let since = chrono::Utc::now().naive_utc() - chrono::Duration::hours(24);
+    let stats = match db.quest_stats(&quest_id, &signer, since).await? {
+        Some(stats) if stats.is_creator => stats,
+        _ => return Err(QuestError::NotQuestCreator),
+    };
     Ok(Json(GetQuestStatsResponse {
-        active_players: actives.len(),
-        abandoned: abandoned.len(),
-        completed,
-        started_in_last_24_hours,
+        active_players: stats.active as usize,
+        abandoned: stats.abandoned as usize,
+        completed: stats.completed as usize,
+        started_in_last_24_hours: stats.started_since as usize,
     }))
 }
 

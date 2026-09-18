@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import "./viewport.css";
 import "./layout.css";
 
-export type OrientationBoxProps = {
+type OrientationBoxProps = {
   children?: ReactNode;
   invert?: boolean;
   gap?: number;

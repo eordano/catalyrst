@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-const CATALYST_STATUS_TTL: std::time::Duration = std::time::Duration::from_secs(3);
+pub(crate) const CATALYST_STATUS_TTL: std::time::Duration = std::time::Duration::from_secs(3);
 const HOT_SCENES_TTL: std::time::Duration = std::time::Duration::from_secs(3);
 
 #[derive(Debug, Deserialize)]
@@ -176,6 +176,13 @@ pub(crate) struct CatalystStatus {
     sync_state: String,
 }
 
+/// A caller-supplied `?catalyst=` after the SSRF guard: its trimmed base and the status
+/// fetched over the pinned connection (`None` when that fetch failed).
+pub(crate) struct ExternalCatalyst {
+    base: String,
+    status: Option<Arc<CatalystStatus>>,
+}
+
 async fn validate_external_catalyst(base: &str) -> Option<(String, SocketAddr)> {
     let trimmed = base.trim_end_matches('/');
     let parsed = reqwest::Url::parse(trimmed).ok()?;
@@ -208,40 +215,66 @@ fn pinned_client(host: &str, addr: SocketAddr) -> Option<reqwest::Client> {
 }
 
 async fn fetch_catalyst_status_cached(state: &AppState, base: &str) -> Option<Arc<CatalystStatus>> {
+    let base = base.to_string();
     state
         .catalyst_status_cache
-        .get_or_refresh(CATALYST_STATUS_TTL, || async {
-            Ok::<_, std::convert::Infallible>(fetch_catalyst_status(base, None).await.map(Arc::new))
+        .get_or_refresh_backoff(CATALYST_STATUS_TTL, move || async move {
+            fetch_catalyst_status(&base, None).await.map(Arc::new)
+        })
+        .await
+}
+
+async fn resolve_external_catalyst(
+    state: &AppState,
+    candidate: &str,
+) -> Option<Arc<ExternalCatalyst>> {
+    let key = candidate.to_string();
+    state
+        .external_catalyst_cache
+        .get_or_fetch(key.clone(), || async move {
+            let Some((base, addr)) = validate_external_catalyst(&key).await else {
+                tracing::warn!(
+                    catalyst = %key,
+                    "rejected caller-supplied catalyst URL (SSRF guard); using configured default"
+                );
+                return Ok::<_, std::convert::Infallible>(None);
+            };
+            let status = fetch_catalyst_status(&base, Some(addr))
+                .await
+                .map(Arc::new)
+                .ok();
+            Ok(Some(Arc::new(ExternalCatalyst { base, status })))
         })
         .await
         .unwrap()
 }
 
-async fn fetch_catalyst_status(base: &str, pin: Option<SocketAddr>) -> Option<CatalystStatus> {
+async fn fetch_catalyst_status(
+    base: &str,
+    pin: Option<SocketAddr>,
+) -> Result<CatalystStatus, String> {
     let base = base.trim_end_matches('/');
     let client = match pin {
         Some(addr) => {
             let host = reqwest::Url::parse(base)
-                .ok()?
-                .host_str()
-                .map(str::to_string)?;
-            pinned_client(&host, addr)?
+                .ok()
+                .and_then(|u| u.host_str().map(str::to_string))
+                .ok_or("catalyst base has no host")?;
+            pinned_client(&host, addr).ok_or("pinned client build failed")?
         }
         None => no_redirect_client().clone(),
     };
     let url = format!("{}/content/status", base);
-    let resp = client.get(&url).send().await.ok()?;
+    let mut resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         let url = format!("{}/status", base);
-        let resp = client.get(&url).send().await.ok()?;
+        resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
-            return None;
+            return Err(format!("{url} answered {}", resp.status()));
         }
-        let v: Value = resp.json().await.ok()?;
-        return Some(parse_catalyst_status(&v));
     }
-    let v: Value = resp.json().await.ok()?;
-    Some(parse_catalyst_status(&v))
+    let v: Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(parse_catalyst_status(&v))
 }
 
 fn parse_catalyst_status(v: &Value) -> CatalystStatus {
@@ -277,33 +310,28 @@ async fn main_about(
 ) -> Json<AboutResponse> {
     let cfg = &state.cfg;
 
-    let validated = match q.catalyst.as_deref() {
-        Some(candidate) => match validate_external_catalyst(candidate).await {
-            Some(safe) => Some(safe),
-            None => {
-                tracing::warn!(
-                    catalyst = %candidate,
-                    "rejected caller-supplied catalyst URL (SSRF guard); using configured default"
-                );
-                None
-            }
-        },
+    let external = match q.catalyst.as_deref() {
+        Some(candidate) => resolve_external_catalyst(&state, candidate).await,
         None => None,
     };
 
-    let (base, lambdas_url, pin) = match validated {
-        Some((safe, addr)) => {
-            let lambdas = format!("{}/lambdas/", safe);
-            (safe, lambdas, Some(addr))
+    let (base, lambdas_url, catalyst) = match external {
+        Some(ext) => (
+            ext.base.clone(),
+            format!("{}/lambdas/", ext.base),
+            ext.status.clone(),
+        ),
+        None => {
+            let (base, lambdas) = match cfg.public_base_url.as_deref() {
+                Some(public) => (public.to_string(), format!("{public}/lambdas/")),
+                None => (
+                    cfg.catalyst_url.trim_end_matches('/').to_string(),
+                    format!("{}/", cfg.lambdas_url.trim_end_matches('/')),
+                ),
+            };
+            let status = fetch_catalyst_status_cached(&state, &base).await;
+            (base, lambdas, status)
         }
-        None => match cfg.public_base_url.as_deref() {
-            Some(public) => (public.to_string(), format!("{public}/lambdas/"), None),
-            None => (
-                cfg.catalyst_url.trim_end_matches('/').to_string(),
-                format!("{}/", cfg.lambdas_url.trim_end_matches('/')),
-                None,
-            ),
-        },
     };
 
     let content_url = format!("{}/content/", base);
@@ -315,11 +343,6 @@ async fn main_about(
     let pkg_version = env!("CARGO_PKG_VERSION");
     let commit_hash = option_env!("GIT_COMMIT").unwrap_or("");
 
-    let catalyst = if pin.is_none() {
-        fetch_catalyst_status_cached(&state, &base).await
-    } else {
-        fetch_catalyst_status(&base, pin).await.map(Arc::new)
-    };
     let (content_version, content_commit, sync_state) = match &catalyst {
         Some(c) => (
             if c.version.is_empty() {
@@ -435,31 +458,33 @@ async fn realms(State(state): State<AppState>) -> Json<Vec<RealmEntry>> {
 }
 
 async fn hot_scenes(State(state): State<AppState>) -> Json<Arc<Vec<HotSceneInfo>>> {
-    if let Some(v) = state.hot_scenes_cache.get(HOT_SCENES_TTL).await {
-        return Json(v);
+    let http = state.http.clone();
+    let url = state.cfg.hot_scenes_url.clone();
+    let scenes = state
+        .hot_scenes_cache
+        .get_or_refresh_backoff(HOT_SCENES_TTL, move || async move {
+            fetch_hot_scenes(&http, &url).await
+        })
+        .await;
+    Json(scenes.unwrap_or_default())
+}
+
+async fn fetch_hot_scenes(
+    http: &reqwest::Client,
+    url: &str,
+) -> Result<Arc<Vec<HotSceneInfo>>, String> {
+    let resp = http
+        .get(url)
+        .send()
+        .await
+        .map_err(|err| format!("{url}: upstream unreachable: {err}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("{url}: upstream error {}", resp.status()));
     }
-    let url = &state.cfg.hot_scenes_url;
-    match state.http.get(url).send().await {
-        Ok(resp) if resp.status().is_success() => match resp.json::<Vec<HotSceneInfo>>().await {
-            Ok(scenes) => {
-                let v = Arc::new(scenes);
-                state.hot_scenes_cache.set(v.clone()).await;
-                Json(v)
-            }
-            Err(err) => {
-                tracing::warn!(%url, %err, "hot-scenes upstream body was not a conforming HotSceneInfo array; serving []");
-                Json(Arc::new(Vec::new()))
-            }
-        },
-        Ok(resp) => {
-            tracing::warn!(%url, status = %resp.status(), "hot-scenes upstream error; serving []");
-            Json(Arc::new(Vec::new()))
-        }
-        Err(err) => {
-            tracing::warn!(%url, %err, "hot-scenes upstream unreachable; serving []");
-            Json(Arc::new(Vec::new()))
-        }
-    }
+    resp.json::<Vec<HotSceneInfo>>()
+        .await
+        .map(Arc::new)
+        .map_err(|err| format!("{url}: body was not a conforming HotSceneInfo array: {err}"))
 }
 
 async fn status() -> Json<StatusResponse> {
@@ -473,6 +498,8 @@ async fn status() -> Json<StatusResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
     use serde_json::json;
     use std::future::IntoFuture;
     use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
@@ -575,9 +602,58 @@ mod tests {
             "rejected catalyst falls back to the cached configured status"
         );
 
-        state.catalyst_status_cache.invalidate().await;
+        state.catalyst_status_cache.invalidate();
         let _ = main_about(State(state.clone()), Query(AboutQuery { catalyst: None })).await;
         assert_eq!(hits_a.load(SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn about_serves_stale_status_while_the_upstream_is_down() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let h = hits.clone();
+        let app = axum::Router::new().route(
+            "/content/status",
+            axum::routing::get(move || {
+                let h = h.clone();
+                async move {
+                    if h.fetch_add(1, SeqCst) == 0 {
+                        axum::Json(json!({
+                            "version": "9.9.9",
+                            "commitHash": "deadbeef",
+                            "synchronizationStatus": { "synchronizationState": "Synced" },
+                        }))
+                        .into_response()
+                    } else {
+                        StatusCode::SERVICE_UNAVAILABLE.into_response()
+                    }
+                }
+            }),
+        );
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(axum::serve(l, app).into_future());
+
+        let mut cfg = crate::config::Config::from_env().unwrap();
+        cfg.catalyst_url = format!("http://{addr}");
+        let state = crate::build_state(&cfg).await.unwrap();
+        let body = main_about(State(state.clone()), Query(AboutQuery { catalyst: None })).await;
+        assert_eq!(body.0.content.synchronization_status, "Synced");
+
+        tokio::time::sleep(CATALYST_STATUS_TTL + std::time::Duration::from_millis(100)).await;
+        for _ in 0..5 {
+            let body = main_about(State(state.clone()), Query(AboutQuery { catalyst: None })).await;
+            assert_eq!(
+                body.0.content.synchronization_status, "Synced",
+                "a failed refresh must serve the stale status"
+            );
+            tokio::task::yield_now().await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(
+            hits.load(SeqCst),
+            2,
+            "one success, one failed refresh, then backoff for the ttl"
+        );
     }
 
     #[tokio::test]
@@ -607,7 +683,7 @@ mod tests {
             "50 polls inside the TTL must cost 1 upstream fetch"
         );
 
-        state.hot_scenes_cache.invalidate().await;
+        state.hot_scenes_cache.invalidate();
         let body = hot_scenes(State(state.clone())).await;
         assert_eq!(body.0[0].name, "scene-1");
         assert_eq!(
