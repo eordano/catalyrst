@@ -4,9 +4,8 @@ import GovernanceChrome, { type GovernanceNavId } from "../frames/GovernanceChro
 import "./gvhomelanding.css";
 
 type Metric = { category: string; title: string; description: string };
-export type GvHomeMetric = Metric;
 
-export type GvHomeStat = { value: string; label: string };
+type GvHomeStat = { value: string; label: string };
 
 export type GvHomeProposal = {
   id: number | string;
@@ -50,7 +49,7 @@ type Delegate = GvHomeDelegate;
 export type GvHomeTopVoter = { rank: number; name: string; hue: number; votes: number };
 type TopVoter = GvHomeTopVoter;
 
-export type GvHomeChartPoint = { label: string; value: number };
+type GvHomeChartPoint = { label: string; value: number };
 
 export type GvHomeActivity = { id: number; kind: string; hue?: number; html: string; date: string };
 type HomeActivity = GvHomeActivity;

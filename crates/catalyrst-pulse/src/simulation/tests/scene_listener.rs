@@ -530,7 +530,7 @@ fn scene_listener_is_invisible_to_players() {
 
 fn seed_teleport(
     board: &mut SnapshotBoard,
-    grid: &mut SpatialGrid,
+    grid: &mut RealmSpatialGrids,
     encoder: &ParcelEncoder,
     id: u32,
     parcel: i32,
@@ -555,7 +555,7 @@ fn seed_teleport(
 fn scene_listener_iterations_independent_of_total_peers() {
     fn examined_for(n: u32) -> usize {
         let mut board = SnapshotBoard::new((n + 1) as usize, 16);
-        let mut grid = SpatialGrid::new(SPATIAL_GRID_CELL_SIZE);
+        let mut grid = RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, (n + 1) as usize);
         let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
         let watched: Vec<i32> = (0..3).map(|x| encoder.encode(x, 0)).collect();
         let mut id = 0u32;
@@ -594,7 +594,7 @@ fn scene_listener_iterations_independent_of_total_peers() {
 #[test]
 fn scene_listener_full_budget_tick_cost_is_bounded_by_cover() {
     let mut board = SnapshotBoard::new(64, 16);
-    let mut grid = SpatialGrid::new(SPATIAL_GRID_CELL_SIZE);
+    let mut grid = RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, 64);
     let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
     let mapper = SceneListenerCellMapper::new(&grid, &encoder);
 
@@ -677,7 +677,7 @@ fn scene_listener_full_budget_tick_cost_is_bounded_by_cover() {
 fn scene_listener_index_matches_linear() {
     let n = 400u32;
     let mut board = SnapshotBoard::new((n + 1) as usize, 16);
-    let mut grid = SpatialGrid::new(SPATIAL_GRID_CELL_SIZE);
+    let mut grid = RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, (n + 1) as usize);
     let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
     let mut seed: u64 = 0xdead_beef_0000_0001;
     let mut rng = || {

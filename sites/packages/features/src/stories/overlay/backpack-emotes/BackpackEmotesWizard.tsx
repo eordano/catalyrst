@@ -16,7 +16,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type EmoteOption = {
+type EmoteOption = {
   urn: string;
   name: string;
   description: string | null;
@@ -26,7 +26,7 @@ export type EmoteOption = {
   loop: boolean;
 };
 
-export type BackpackEmotesWizardProps = {
+type BackpackEmotesWizardProps = {
   trackCtx: TrackContext;
   profile?: string;
   catalog: EmoteOption[];

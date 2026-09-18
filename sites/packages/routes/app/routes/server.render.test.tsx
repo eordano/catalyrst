@@ -51,6 +51,8 @@ const offService: ServerServiceRow = {
   ageMs: 0,
 };
 
+const ENV_PATH = "/var/lib/catalyrst-sites/operator.env";
+
 function textOf(html: string): string {
   return html.replace(/<!-- -->/g, "");
 }
@@ -86,7 +88,7 @@ describe("ServerOpsPage SSR", () => {
     expect(html).toContain("ADMIN_WALLETS");
   });
 
-  it("keeps healthy rows quiet: no commands, no chips, no stranded labels", () => {
+  it("keeps healthy rows quiet, no commands or stranded labels, and marks a watched service that came back", () => {
     const html = textOf(
       renderToString(
         <ServerOpsPage
@@ -94,7 +96,7 @@ describe("ServerOpsPage SSR", () => {
           env={{
             ok: true,
             data: {
-              path: "/var/lib/catalyrst-sites/operator.env",
+              path: ENV_PATH,
               preservedLines: 0,
               rows: [
                 {
@@ -115,11 +117,22 @@ describe("ServerOpsPage SSR", () => {
     );
     expect(html).toContain("1 of 1 up");
     expect(html).not.toContain("systemctl");
-    expect(html).not.toContain("srvops-remedy");
     expect(html).not.toContain("restart to apply");
     expect(html).not.toContain("set outside this file");
     expect(html).not.toContain("not enabled on this node");
     expect(html).not.toContain("hand-written");
+    expect(html).not.toContain("recovered");
+
+    const recovered = textOf(
+      renderToString(
+        <ServerOpsPage
+          services={[{ ...upService, recovered: true }]}
+          env={{ ok: false, message: "x" }}
+          authMode="wallet"
+        />,
+      ),
+    );
+    expect(recovered).toContain("recovered");
   });
 
   it("chips carry only actionable env state and secrets never render", () => {
@@ -130,7 +143,7 @@ describe("ServerOpsPage SSR", () => {
           env={{
             ok: true,
             data: {
-              path: "/var/lib/catalyrst-sites/operator.env",
+              path: ENV_PATH,
               preservedLines: 2,
               rows: [
                 {
@@ -167,18 +180,5 @@ describe("ServerOpsPage SSR", () => {
     expect(html).toContain("http://127.0.0.1:5143");
     expect(html).toContain("2 hand-written lines in the file are kept as-is");
     expect(html).toContain("NEW_VARIABLE");
-  });
-
-  it("marks a watched service that came back", () => {
-    const html = textOf(
-      renderToString(
-        <ServerOpsPage
-          services={[{ ...upService, recovered: true }]}
-          env={{ ok: false, message: "x" }}
-          authMode="wallet"
-        />,
-      ),
-    );
-    expect(html).toContain("recovered");
   });
 });

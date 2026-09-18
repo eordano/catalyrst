@@ -6,13 +6,13 @@ function env(name: string): string | undefined {
   }
 }
 
-export type RuntimeFlag = {
+type RuntimeFlag = {
   killed?: boolean;
   variant?: string;
   flags?: Record<string, unknown>;
 };
 
-export type ForcedFlag = {
+type ForcedFlag = {
   value: boolean;
   variant?: string;
   overridden: boolean;
@@ -41,7 +41,7 @@ function coerceFlag(value: unknown): RuntimeFlag | null {
   return out;
 }
 
-export type FlagOpts = {
+type FlagOpts = {
   signal?: AbortSignal;
   timeoutMs?: number;
   user?: string;

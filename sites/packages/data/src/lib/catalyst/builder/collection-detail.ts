@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getJSON } from "../client";
 import type { GetOptions } from "../client";
 
-export const RARITIES = [
+const RARITIES = [
   "unique",
   "mythic",
   "exotic",
@@ -14,7 +14,7 @@ export const RARITIES = [
   "common",
 ] as const;
 
-export const ITEM_STATUSES = [
+const ITEM_STATUSES = [
   "ready",
   "not_ready",
   "published",
@@ -22,7 +22,7 @@ export const ITEM_STATUSES = [
   "unsynced",
 ] as const;
 
-export const COLLECTION_STATUSES = [
+const COLLECTION_STATUSES = [
   "synced",
   "under_review",
   "unsynced",
@@ -31,7 +31,7 @@ export const COLLECTION_STATUSES = [
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-export const WearableItemSchema = z.object({
+const WearableItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   rarity: z.enum(RARITIES),
@@ -44,7 +44,7 @@ export const WearableItemSchema = z.object({
 });
 export type WearableItem = z.infer<typeof WearableItemSchema>;
 
-export const EmoteItemSchema = z.object({
+const EmoteItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   rarity: z.enum(RARITIES),
@@ -57,7 +57,7 @@ export const EmoteItemSchema = z.object({
 });
 export type EmoteItem = z.infer<typeof EmoteItemSchema>;
 
-export const CollectionSchema = z.object({
+const CollectionSchema = z.object({
   id: z.string(),
   name: z.string(),
   status: z.enum(COLLECTION_STATUSES),
@@ -327,7 +327,7 @@ function onchainRarity(r: string | null | undefined): (typeof RARITIES)[number] 
     : "common";
 }
 
-export type OnchainCollectionDetail = {
+type OnchainCollectionDetail = {
   found: boolean;
   meta: CollectionMeta | null;
   wearables: WearableItem[];

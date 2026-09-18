@@ -58,19 +58,15 @@ export async function loader({ request }: Route.LoaderArgs) {
   const address =
     url.searchParams.get("address")?.trim().toLowerCase() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const loaded = address ? await loadLists(address, { signal: request.signal }) : [];
+  const [{ sid, wrap }, loaded, open] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    address ? loadLists(address, { signal: request.signal }) : Promise.resolve([]),
+    address && listId
+      ? loadList(listId, address, { signal: request.signal })
+      : Promise.resolve(null as List | null),
+  ]);
   const overview: ListCard[] = (loaded ?? []).map(toListCard);
   const overviewUnavailable = loaded === null;
-  const open: List | null =
-    address && listId
-      ? await loadList(listId, address, { signal: request.signal })
-      : null;
 
   const quoted = open
     ? await tryQuoteCreditItems(

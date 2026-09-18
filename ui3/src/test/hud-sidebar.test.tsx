@@ -1,177 +1,199 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 
 import { renderHud } from "./harness";
+import { siteUrl } from "../data/site";
 
 const sidebar = () => screen.getByRole("navigation", { name: "Main menu" });
+const sidebarButton = (name: string) => within(sidebar()).getByRole("button", { name });
+
+const PANELS: { button: string; shown: () => HTMLElement | null }[] = [
+  { button: "Voice Chat", shown: () => screen.queryByText("NEARBY VOICE") },
+  { button: "Skybox", shown: () => screen.queryByText("NIGHT/DAY") },
+  { button: "Portable Experiences", shown: () => screen.queryByText(/Nothing is running right now/i) },
+  { button: "Friends", shown: () => screen.queryByRole("tab", { name: "Friends" }) },
+  { button: "Notifications", shown: () => document.querySelector(".ui3-overlay__notifications") },
+  { button: "Profile", shown: () => screen.queryByText("VIEW PROFILE") },
+  { button: "Emotes", shown: () => screen.queryByRole("button", { name: "Wave" }) },
+];
 
 describe("sidebar toggles", () => {
-  test("chat button opens the chat panel; second click collapses it back to the bare bar", async () => {
+  test("chat renders nothing while closed; click or Enter opens it with the input focused", async () => {
     const { user } = renderHud();
-    expect(screen.getByLabelText("Send a message to Nearby chat")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Send a message to Nearby chat")).toBeNull();
     expect(screen.queryByRole("button", { name: "Close chat" })).toBeNull();
 
-    await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
+    await user.click(sidebarButton("Chat"));
     expect(screen.getByRole("button", { name: "Close chat" })).toBeInTheDocument();
-
-    await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
+    expect(screen.getByLabelText("Send a message to Nearby chat")).toHaveFocus();
+    await user.click(sidebarButton("Chat"));
     expect(screen.queryByRole("button", { name: "Close chat" })).toBeNull();
-    expect(screen.getByLabelText("Send a message to Nearby chat")).toBeInTheDocument();
-  });
+    expect(screen.queryByLabelText("Send a message to Nearby chat")).toBeNull();
 
-  test("Enter opens the chat widget when closed", async () => {
-    const { user } = renderHud();
-    expect(screen.queryByRole("button", { name: "Close chat" })).toBeNull();
     await user.keyboard("{Enter}");
     expect(screen.getByRole("button", { name: "Close chat" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Send a message to Nearby chat")).toHaveFocus();
+
+    await user.click(document.body);
+    expect(screen.getByLabelText("Send a message to Nearby chat")).not.toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByLabelText("Send a message to Nearby chat")).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Close chat" })).toBeInTheDocument();
   });
 
-  test("voice chat toggles the NEARBY VOICE panel", async () => {
+  test("every sidebar button toggles its own panel", async () => {
     const { user } = renderHud();
-    await user.click(within(sidebar()).getByRole("button", { name: "Voice Chat" }));
-    expect(screen.getByText("NEARBY VOICE")).toBeInTheDocument();
-
-    await user.click(within(sidebar()).getByRole("button", { name: "Voice Chat" }));
-    expect(screen.queryByText("NEARBY VOICE")).toBeNull();
-  });
-
-  test("skybox toggles the NIGHT/DAY panel", async () => {
-    const { user } = renderHud();
-    await user.click(within(sidebar()).getByRole("button", { name: "Skybox" }));
-    expect(screen.getByText("NIGHT/DAY")).toBeInTheDocument();
-
-    await user.click(within(sidebar()).getByRole("button", { name: "Skybox" }));
-    expect(screen.queryByText("NIGHT/DAY")).toBeNull();
-  });
-
-  test("portable experiences toggles the honest explainer panel (no fake permission dialog)", async () => {
-    const { user } = renderHud();
-    await user.click(
-      within(sidebar()).getByRole("button", { name: "Portable Experiences" }),
-    );
-    expect(await screen.findByText("Portable experiences")).toBeInTheDocument();
-    expect(screen.getByText(/Nothing is running right now/i)).toBeInTheDocument();
+    for (const { button, shown } of PANELS) {
+      expect(shown(), `${button} closed before`).toBeNull();
+      await user.click(sidebarButton(button));
+      await vi.waitFor(() => expect(shown(), `${button} open`).not.toBeNull());
+      await user.click(sidebarButton(button));
+      expect(shown(), `${button} closed after`).toBeNull();
+    }
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(screen.queryByText(/Magic Sneakers/)).toBeNull();
-
-    await user.click(
-      within(sidebar()).getByRole("button", { name: "Portable Experiences" }),
-    );
-    expect(screen.queryByText(/Nothing is running right now/i)).toBeNull();
-  });
-
-  test("friends toggles the Friends panel (Friends/Requests/Blocked tabs)", async () => {
-    const { user } = renderHud();
-    await user.click(within(sidebar()).getByRole("button", { name: "Friends" }));
-    expect(await screen.findByRole("tab", { name: "Friends" })).toBeInTheDocument();
+    await user.click(sidebarButton("Friends"));
     expect(screen.getByRole("tab", { name: "Requests" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Blocked" })).toBeInTheDocument();
-
-    await user.click(within(sidebar()).getByRole("button", { name: "Friends" }));
-    expect(screen.queryByRole("tab", { name: "Friends" })).toBeNull();
   });
 
-  test("notifications bell toggles the notifications widget", async () => {
-    const { user, container } = renderHud();
-    await user.click(
-      within(sidebar()).getByRole("button", { name: "Notifications" }),
-    );
-    expect(container.querySelector(".ui3-overlay__notifications")).not.toBeNull();
-
-    await user.click(
-      within(sidebar()).getByRole("button", { name: "Notifications" }),
-    );
-    expect(container.querySelector(".ui3-overlay__notifications")).toBeNull();
-  });
-
-  test("profile button toggles the profile widget", async () => {
+  test("left panels are exclusive and Escape closes panels, chat and profile widgets", async () => {
     const { user } = renderHud();
-    expect(screen.queryByText("VIEW PROFILE")).toBeNull();
-
-    await user.click(within(sidebar()).getByRole("button", { name: "Profile" }));
-    expect(screen.getByText("VIEW PROFILE")).toBeInTheDocument();
-
-    await user.click(within(sidebar()).getByRole("button", { name: "Profile" }));
-    expect(screen.queryByText("VIEW PROFILE")).toBeNull();
-  });
-
-  test("left panels are exclusive \u{2014} opening one closes the other", async () => {
-    const { user } = renderHud();
-    await user.click(within(sidebar()).getByRole("button", { name: "Voice Chat" }));
+    await user.click(sidebarButton("Voice Chat"));
     expect(screen.getByText("NEARBY VOICE")).toBeInTheDocument();
-
-    await user.click(within(sidebar()).getByRole("button", { name: "Friends" }));
+    await user.click(sidebarButton("Friends"));
     expect(screen.queryByText("NEARBY VOICE")).toBeNull();
-    expect(screen.getByRole("tab", { name: "Friends" })).toBeInTheDocument();
-  });
-
-  test("ESC closes an open left panel", async () => {
-    const { user } = renderHud();
-    await user.click(within(sidebar()).getByRole("button", { name: "Skybox" }));
-    expect(screen.getByText("NIGHT/DAY")).toBeInTheDocument();
-
+    expect(await screen.findByRole("tab", { name: "Friends" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
-    expect(screen.queryByText("NIGHT/DAY")).toBeNull();
-  });
+    expect(screen.queryByRole("tab", { name: "Friends" })).toBeNull();
 
-  test("ESC closes the chat and profile widgets", async () => {
-    const { user } = renderHud();
-    await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
-    await user.click(within(sidebar()).getByRole("button", { name: "Profile" }));
+    await user.click(sidebarButton("Chat"));
+    await user.click(sidebarButton("Profile"));
     expect(screen.getByText(/No messages yet|Connecting to Nearby chat/)).toBeInTheDocument();
     expect(screen.getByText("VIEW PROFILE")).toBeInTheDocument();
-
     await user.keyboard("{Escape}");
     expect(screen.queryByText(/No messages yet|Connecting to Nearby chat/)).toBeNull();
-    expect(screen.getByLabelText("Send a message to Nearby chat")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Send a message to Nearby chat")).toBeNull();
     expect(screen.queryByText("VIEW PROFILE")).toBeNull();
   });
 
-  test("minimap hides while a left panel is open and returns on close", async () => {
-    const { user, bridge } = renderHud();
-    bridge.pushScene({ title: "Test Plaza", coords: "5,5" });
+  test("the minimap hides behind left panels, defaults to hidden, and Hide map leaves no restore pin", async () => {
+    const shown = renderHud({ minimapShown: true });
+    shown.bridge.pushScene({ title: "Test Plaza", coords: "5,5" });
+    expect(screen.getByText("Test Plaza")).toBeInTheDocument();
+    await shown.user.click(sidebarButton("Friends"));
+    expect(screen.queryByText("Test Plaza")).toBeNull();
+    await shown.user.keyboard("{Escape}");
     expect(screen.getByText("Test Plaza")).toBeInTheDocument();
 
-    await user.click(within(sidebar()).getByRole("button", { name: "Friends" }));
+    await shown.user.click(screen.getByRole("button", { name: "Hide map" }));
     expect(screen.queryByText("Test Plaza")).toBeNull();
+    expect(localStorage.getItem("dcl.minimap.userHidden")).toBe("1");
+    expect(screen.queryByRole("button", { name: "Show map" })).toBeNull();
+    expect(document.querySelector(".mm__restore")).toBeNull();
+    shown.unmount();
 
-    await user.keyboard("{Escape}");
-    expect(screen.getByText("Test Plaza")).toBeInTheDocument();
-  });
-
-  test("minimap defaults to hidden; the restore pin opts it back on", async () => {
-    const { user, bridge } = renderHud({ minimapShown: false });
-    bridge.pushScene({ title: "Test Plaza", coords: "5,5" });
+    const hidden = renderHud({ minimapShown: false });
+    hidden.bridge.pushScene({ title: "Test Plaza", coords: "5,5" });
     expect(screen.queryByText("Test Plaza")).toBeNull();
-
-    await user.click(screen.getByRole("button", { name: "Show map" }));
-    expect(screen.getByText("Test Plaza")).toBeInTheDocument();
-    expect(localStorage.getItem("dcl.minimap.userHidden")).toBe("0");
-
-    await user.click(screen.getByRole("button", { name: "Hide map" }));
-    expect(screen.queryByText("Test Plaza")).toBeNull();
-    expect(screen.getByRole("button", { name: "Show map" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show map" })).toBeNull();
+    expect(document.querySelector(".mm__restore")).toBeNull();
   });
 
   test("SIGN OUT sends a bridge Logout and closes the profile widget", async () => {
     const { user, bridge } = renderHud();
     bridge.pushIdentity();
-
-    await user.click(within(sidebar()).getByRole("button", { name: "Profile" }));
+    await user.click(sidebarButton("Profile"));
     expect(screen.getByText("VIEW PROFILE")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "SIGN OUT" }));
     bridge.expectSent("Logout", {});
     expect(screen.queryByText("VIEW PROFILE")).toBeNull();
   });
+});
 
-  test("emotes button toggles the emote wheel", async () => {
-    const { user } = renderHud();
-    await user.click(within(sidebar()).getByRole("button", { name: "Emotes" }));
-    expect(screen.getByRole("button", { name: "Wave" })).toBeInTheDocument();
+describe("sidebar nav", () => {
+  test("Events and Help & Support open in-screen pages; help links stay same-origin", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { user, path } = renderHud();
+    await user.click(sidebarButton("Events"));
+    expect(path()).toBe("/events");
+    expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
 
-    await user.click(within(sidebar()).getByRole("button", { name: "Emotes" }));
-    expect(screen.queryByRole("button", { name: "Wave" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(sidebarButton("Help & Support"));
+    expect(path()).toBe("/help");
+    expect(await screen.findByRole("heading", { name: "Help & Support" })).toBeInTheDocument();
+    expect(document.getElementById("xc-page")).toContainElement(screen.getByText("Open chat"));
+    expect(screen.getByText("Take a photo")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "What's in the sidebar" })).toBeInTheDocument();
+    expect(screen.getByText("Portable Experiences")).toBeInTheDocument();
+    const origin = new URL(siteUrl()).origin;
+    for (const name of ["Support center", "Documentation", "Shortcuts & chat commands"]) {
+      const href = screen.getByRole("link", { name }).getAttribute("href") ?? "";
+      expect(new URL(href).origin).toBe(origin);
+    }
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
   });
 
+  test("Marketplace opens inside the explorer shell instead of a new tab", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { user, path } = renderHud();
+    await user.click(sidebarButton("Marketplace"));
+    expect(path()).toBe("/marketplace");
+    const frame = await screen.findByTitle("Marketplace");
+    expect(frame.tagName).toBe("IFRAME");
+    expect(frame.getAttribute("src")).toMatch(/\/shop$/);
+    expect(document.getElementById("xc-page")).toContainElement(frame);
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  test("Places opens directly while the minimap is shown", async () => {
+    const { user, path } = renderHud({ minimapShown: true });
+    const places = sidebarButton("Places");
+    expect(places).not.toHaveAttribute("aria-haspopup");
+    expect(within(sidebar()).getAllByRole("tooltip").map((t) => t.textContent)).toContain("Places[Z]");
+    await user.click(places);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(path()).toBe("/places");
+  });
+
+  test("with the minimap hidden Places shows a menu: Show minimap restores it, Open Places opens the page, Escape and outside clicks close it", async () => {
+    const { user, path, bridge } = renderHud({ minimapShown: false });
+    bridge.pushScene({ title: "Test Plaza", coords: "5,5" });
+    expect(screen.queryByText("Test Plaza")).toBeNull();
+    const places = sidebarButton("Places");
+    expect(places).toHaveAttribute("aria-haspopup", "menu");
+    expect(within(sidebar()).getAllByRole("tooltip").map((t) => t.textContent)).toContain("Places[Z]");
+
+    await user.click(places);
+    expect(path()).toBe("/");
+    expect(places).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    await user.click(places);
+    await user.click(sidebarButton("Profile"));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(path()).toBe("/");
+
+    await user.click(places);
+    await user.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Open Places" }));
+    expect(path()).toBe("/places");
+    expect(localStorage.getItem("dcl.minimap.userHidden")).toBeNull();
+    await user.keyboard("{Escape}");
+
+    await user.click(sidebarButton("Places"));
+    await user.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Show minimap" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByText("Test Plaza")).toBeInTheDocument();
+    expect(localStorage.getItem("dcl.minimap.userHidden")).toBe("0");
+    expect(path()).toBe("/");
+
+    await user.click(sidebarButton("Places"));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(path()).toBe("/places");
+  });
 });

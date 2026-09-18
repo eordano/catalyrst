@@ -13,7 +13,7 @@ export type SelectedPeriod = {
   pricePerDayMana: number;
 };
 
-export type RentalCommitResult = {
+type RentalCommitResult = {
   rentalId: string;
   txHash: string;
 };
@@ -23,7 +23,7 @@ export type CommitPhaseFn = (args: {
   signal?: AbortSignal;
 }) => Promise<void>;
 
-export type RentInput = {
+type RentInput = {
   trackCtx: TrackContext;
   commit?: CommitPhaseFn;
   track?: TrackFn;
@@ -31,7 +31,7 @@ export type RentInput = {
   rentalContractAddress?: string;
 };
 
-export type RentContext = {
+type RentContext = {
   trackCtx: TrackContext;
   commit: CommitPhaseFn;
   track: TrackFn;
@@ -44,7 +44,7 @@ export type RentContext = {
   error?: string;
 };
 
-export type RentEvent =
+type RentEvent =
   | { type: "START" }
   | { type: "SELECT_PERIOD"; period: SelectedPeriod }
   | { type: "SET_DAYS"; days: number }
@@ -76,8 +76,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type RentStateId = keyof typeof STATE_TO_SLUG;
-export type RentStepSlug = (typeof STATE_TO_SLUG)[RentStateId];
+type RentStateId = keyof typeof STATE_TO_SLUG;
+type RentStepSlug = (typeof STATE_TO_SLUG)[RentStateId];
 
 export const FIRST_STEP_SLUG: RentStepSlug = STATE_TO_SLUG.review;
 
@@ -272,8 +272,6 @@ export const rentMachine = setup({
     },
   },
 });
-
-export type RentMachine = typeof rentMachine;
 
 export function resolveRentSnapshot(args: {
   step: RentStateId;

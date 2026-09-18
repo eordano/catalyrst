@@ -10,8 +10,6 @@
   width: 36%; min-width: 540px; max-width: 640px; gap: 16px;
   top: 50%; transform: translateY(-50%);
 }
-
-.lobbynew__backrow { display: inline-flex; align-items: center; gap: 14px; }
 .lobbynew__back {
   display: inline-flex; align-items: center; justify-content: center;
   width: 44px; height: 44px; border-radius: 12px; cursor: pointer; border: none;
@@ -20,9 +18,6 @@
 }
 .lobbynew__back:hover { background: rgba(255,255,255,.26); }
 .lobbynew__back svg { display: block; }
-.lobbynew__backlabel {
-  color: #fff; font-size: var(--fs-md); font-weight: 800; letter-spacing: 1px;
-}
 
 .lobbynew__head { display: flex; flex-direction: column; gap: 14px; }
 .lobbynew__logo { width: 40px; height: 40px; display: block; }
@@ -149,17 +144,6 @@
   width: 100%; margin-top: 2px;
 }
 
-.lobbynew__chromerow { display: inline-flex; align-items: center; gap: 10px; }
-.lobbynew__exit {
-  display: inline-flex; align-items: center; gap: 8px;
-  height: 42px; padding: 0 18px; border-radius: 12px; cursor: pointer; border: none;
-  background: rgba(255,255,255,.16); color: #fff;
-  font-family: inherit; font-size: var(--fs-sm); font-weight: 800; letter-spacing: 1px;
-  transition: background .12s ease;
-}
-.lobbynew__exit:hover { background: rgba(255,255,255,.26); }
-.lobbynew__exit svg { display: block; }
-
 .lobbynew__iconbtn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 42px; height: 42px; border-radius: 12px; cursor: pointer; border: none;
@@ -168,11 +152,6 @@
 }
 .lobbynew__iconbtn:hover { background: rgba(255,255,255,.26); }
 .lobbynew__iconbtn svg { display: block; }
-
-.lobbynew__editorver {
-  display: block; margin-top: 8px;
-  font-size: var(--fs-sm); color: rgba(255,255,255,.55);
-}
 
 .lobbynew__avatar {
   position: absolute; left: 50%; top: 0; width: 50%; height: 100%;

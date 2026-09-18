@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { ComponentType } from "react";
-import { lazy, Suspense } from "react";
+import { lazy } from "react";
 import { createHashRouter, Navigate } from "react-router";
 import type { RouteObject } from "react-router";
 
@@ -57,4 +57,3 @@ export const router = createHashRouter([
   },
 ]);
 
-export { Suspense };

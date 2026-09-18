@@ -174,7 +174,7 @@ function droppedFieldsNote(dropped: string[]): string {
   );
 }
 
-export type RequestSummary = { title: string; detail: string; note?: string };
+type RequestSummary = { title: string; detail: string; note?: string };
 
 export function describeRequest(request: ReadyRequest): RequestSummary {
   switch (request.method) {
@@ -331,7 +331,7 @@ export default function AuthRequestRoute() {
   return <AuthRequestPage key={loaded.id} loaded={loaded} />;
 }
 
-export function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
+function AuthRequestPage({ loaded }: { loaded: LoadedRequest }) {
   const [phase, setPhase] = useState<Phase>(() => {
     if (loaded.isDeepLink) {
       return loaded.deepLinkIdValid ? "deeplink_ready" : "client_login_error";

@@ -45,6 +45,7 @@ const RANGE_CAP: u64 = 2048;
 const ENUMERATE_CAP: u64 = 1000;
 const MULTICALL_CHUNK: usize = 1000;
 const RPC_BATCH: usize = 50;
+const CONTRACT_LEG_CONCURRENCY: usize = 8;
 const CACHE_TTL: Duration = Duration::from_secs(60);
 const CACHE_MAX_ENTRIES: usize = 4096;
 
@@ -156,15 +157,14 @@ pub async fn owned_via_rpc(owner: &str, candidates: &CandidateMap) -> Vec<String
             .or_default()
             .push((contract.clone(), c.clone()));
     }
-    let mut all = Vec::new();
-    for (network, contracts) in by_network {
+    let per_network = by_network.into_iter().filter_map(|(network, contracts)| {
         let Some(rpc) = rpc_url_for(network) else {
             tracing::warn!(
                 network,
                 "third-party wearable ownership: no NFT_WORKER_BASE_URL and no RPC endpoint \
                  for this network; reporting nothing owned"
             );
-            continue;
+            return None;
         };
         let fingerprint = contracts
             .iter()
@@ -173,16 +173,21 @@ pub async fn owned_via_rpc(owner: &str, candidates: &CandidateMap) -> Vec<String
             .join(",");
         let key = (owner.to_lowercase(), network.to_string(), fingerprint);
         let network = network.to_string();
-        let found = cache()
-            .get_or_fetch(key, move || async move {
-                let owned = owned_on_network(&rpc, owner_addr, &network, &contracts).await;
-                Ok::<Arc<Vec<String>>, String>(Arc::new(owned))
-            })
-            .await
-            .unwrap_or_default();
-        all.extend(found.iter().cloned());
-    }
-    all
+        Some(async move {
+            cache()
+                .get_or_fetch(key, move || async move {
+                    let owned = owned_on_network(&rpc, owner_addr, &network, &contracts).await;
+                    Ok::<Arc<Vec<String>>, String>(Arc::new(owned))
+                })
+                .await
+                .unwrap_or_default()
+        })
+    });
+    futures::future::join_all(per_network)
+        .await
+        .into_iter()
+        .flat_map(|found| found.iter().cloned().collect::<Vec<_>>())
+        .collect()
 }
 
 async fn owned_on_network(
@@ -222,7 +227,8 @@ async fn owned_on_network(
     }
     let answers = eth_call_batch(rpc, &probes).await;
 
-    let mut out = Vec::new();
+    // One leg per contract, run concurrently; the answer keeps contract order.
+    let mut legs = Vec::with_capacity(contracts.len());
     let mut i = 0;
     for ((contract, cand), addr) in contracts.iter().zip(addrs) {
         let Some(addr) = addr else {
@@ -237,28 +243,33 @@ async fn owned_on_network(
         i += 3;
 
         let holds_721 = balance.is_some_and(|b| !b.is_zero());
-        let ids = if is_1155 {
-            owned_1155(rpc, addr, owner, cand).await
-        } else if holds_721 && enumerable {
-            enumerate_721(rpc, addr, owner, balance.unwrap_or_default()).await
-        } else if holds_721 {
-            if cand.open {
-                tracing::debug!(
-                    contract,
-                    "third-party mapping is open-ended on a non-enumerable ERC721; only the \
-                     explicitly mapped ids are checked"
-                );
-            }
-            check_721(rpc, addr, owner, cand).await
-        } else {
-            Vec::new()
-        };
-        out.extend(
+        legs.push(async move {
+            let ids = if is_1155 {
+                owned_1155(rpc, addr, owner, cand).await
+            } else if holds_721 && enumerable {
+                enumerate_721(rpc, addr, owner, balance.unwrap_or_default()).await
+            } else if holds_721 {
+                if cand.open {
+                    tracing::debug!(
+                        contract,
+                        "third-party mapping is open-ended on a non-enumerable ERC721; only the \
+                         explicitly mapped ids are checked"
+                    );
+                }
+                check_721(rpc, addr, owner, cand).await
+            } else {
+                Vec::new()
+            };
             ids.into_iter()
-                .map(|id| format!("{network}:{contract}:{id}")),
-        );
+                .map(|id| format!("{network}:{contract}:{id}"))
+                .collect::<Vec<_>>()
+        });
     }
-    out
+    use futures::stream::StreamExt;
+    futures::stream::iter(legs)
+        .buffered(CONTRACT_LEG_CONCURRENCY)
+        .concat()
+        .await
 }
 
 fn decode_bool(answer: Option<&Option<Bytes>>) -> bool {
@@ -351,7 +362,11 @@ async fn owned_1155(rpc: &str, addr: Address, owner: Address, cand: &Candidates)
 }
 
 /// One entry per calldata: the sub-call's return data when it succeeded.
-async fn multicall(rpc: &str, target: Address, calldatas: Vec<Bytes>) -> Vec<Option<Bytes>> {
+pub(crate) async fn multicall(
+    rpc: &str,
+    target: Address,
+    calldatas: Vec<Bytes>,
+) -> Vec<Option<Bytes>> {
     let calls: Vec<RpcCall> = calldatas
         .chunks(MULTICALL_CHUNK)
         .map(|chunk| RpcCall {

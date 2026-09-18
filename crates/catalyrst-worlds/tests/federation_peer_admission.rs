@@ -969,13 +969,17 @@ mod tls {
             .push(rcgen::DnType::CommonName, "localhost");
         let leaf = params.signed_by(&leaf_key, &ca.issuer).unwrap();
 
-        let cfg = rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(
-                vec![leaf.der().clone(), ca.root_der.clone()],
-                rustls::pki_types::PrivateKeyDer::Pkcs8(leaf_key.serialize_der().into()),
-            )
-            .unwrap();
+        let cfg = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .expect("supported TLS versions")
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![leaf.der().clone(), ca.root_der.clone()],
+            rustls::pki_types::PrivateKeyDer::Pkcs8(leaf_key.serialize_der().into()),
+        )
+        .unwrap();
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(cfg));
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -10,7 +10,9 @@ use crate::errors::{AppError, AppResult, NotFoundError};
 use crate::formatters::{
     check_not_modified, content_file_headers, parse_range_header, ParsedRange,
 };
-use crate::handlers::get_content::{x_accel_base, x_accel_redirect_path};
+use crate::handlers::get_content::{
+    detect_content_type, set_content_type, x_accel_base, x_accel_redirect_path,
+};
 use crate::state::AppState;
 
 pub async fn get_entity_thumbnail(
@@ -70,40 +72,29 @@ fn extract_thumbnail_hash(entity: &serde_json::Value) -> Option<String> {
     None
 }
 
-fn set_content_type(headers: &mut [(&'static str, String)], mime: &str) {
-    for (name, value) in headers.iter_mut() {
-        if *name == "Content-Type" {
-            *value = mime.to_string();
-        }
-    }
-}
-
 pub(crate) async fn serve_content_blob(
     state: &AppState,
     hash: &str,
     method: &Method,
     headers: &HeaderMap,
 ) -> AppResult<Response> {
-    let file_info = state
+    let mut opened = state
         .storage
-        .file_info(hash)
+        .open(hash)
         .await?
         .ok_or_else(|| NotFoundError::new("Content not found."))?;
 
-    let detected = state
-        .storage
-        .retrieve_range(hash, 0, 31)
-        .await?
-        .map(|head| crate::handlers::get_content::detect_content_type(&head))
-        .unwrap_or("application/octet-stream");
+    let head = opened.read_range(0, 31).await?;
+    let detected = detect_content_type(&head);
 
     let range_header = headers.get("range").and_then(|v| v.to_str().ok());
-    let total_size = file_info.content_size.or(file_info.size);
-    let range = parse_range_header(range_header, total_size);
+    let total = opened.size;
+    let range = parse_range_header(range_header, Some(total));
+    let mut base_headers = content_file_headers(hash, Some(total), opened.encoding.as_deref());
+    set_content_type(&mut base_headers, detected);
 
     match range {
         Some(ParsedRange::Unsatisfiable) => {
-            let total = total_size.unwrap_or(0);
             let mut response = StatusCode::RANGE_NOT_SATISFIABLE.into_response();
             let resp_headers = response.headers_mut();
             if let Ok(hv) = format!("bytes */{}", total).parse() {
@@ -118,17 +109,8 @@ pub(crate) async fn serve_content_blob(
             let body: Bytes = if *method == Method::HEAD {
                 Bytes::new()
             } else {
-                state
-                    .storage
-                    .retrieve_range(hash, start, end)
-                    .await?
-                    .ok_or_else(|| NotFoundError::new("Content not found."))?
+                opened.read_range(start, end).await?
             };
-
-            let total = total_size.unwrap_or(0);
-            let mut base_headers =
-                content_file_headers(hash, file_info.size, file_info.encoding.as_deref());
-            set_content_type(&mut base_headers, detected);
 
             let content_len = end - start + 1;
             let mut response = (StatusCode::PARTIAL_CONTENT, body).into_response();
@@ -147,10 +129,6 @@ pub(crate) async fn serve_content_blob(
             Ok(response)
         }
         None => {
-            let mut base_headers =
-                content_file_headers(hash, file_info.size, file_info.encoding.as_deref());
-            set_content_type(&mut base_headers, detected);
-
             if let Some(accel) = x_accel_base().and_then(|b| x_accel_redirect_path(Some(&b), hash))
             {
                 base_headers.retain(|(n, _)| *n != "Content-Length");
@@ -170,14 +148,10 @@ pub(crate) async fn serve_content_blob(
                 return Ok(response);
             }
 
-            let body: Bytes = if *method == Method::HEAD {
-                Bytes::new()
+            let body = if *method == Method::HEAD {
+                Body::empty()
             } else {
-                state
-                    .storage
-                    .retrieve(hash)
-                    .await?
-                    .ok_or_else(|| NotFoundError::new("Content not found."))?
+                opened.into_body(head)
             };
 
             let mut response = (StatusCode::OK, body).into_response();
@@ -195,13 +169,12 @@ pub(crate) async fn serve_content_blob(
 #[cfg(test)]
 mod head_body_tests {
     use super::*;
-    use crate::state::{ContentStorage, FileInfo};
+    use crate::state::{ContentStorage, FileInfo, OpenedContent};
     use async_trait::async_trait;
     use axum::body::to_bytes;
     use catalyrst_storage::StorageError;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
 
     const HASH: &str = "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenosa7776";
 
@@ -214,59 +187,82 @@ mod head_body_tests {
         Bytes::from(blob)
     }
 
-    /// Records every `retrieve`/`retrieve_range` call so a test can prove HEAD reads no body.
+    /// Records every read off the opened handle so a test can prove HEAD reads no body.
     struct RecordingStorage {
         blob: Bytes,
-        retrieve_calls: AtomicUsize,
-        ranges: Mutex<Vec<(u64, u64)>>,
+        opens: AtomicUsize,
+        bytes_read: Arc<AtomicUsize>,
     }
 
     impl RecordingStorage {
         fn new(blob: Bytes) -> Arc<Self> {
             Arc::new(Self {
                 blob,
-                retrieve_calls: AtomicUsize::new(0),
-                ranges: Mutex::new(Vec::new()),
+                opens: AtomicUsize::new(0),
+                bytes_read: Arc::new(AtomicUsize::new(0)),
             })
+        }
+    }
+
+    struct CountingReader {
+        inner: std::io::Cursor<Bytes>,
+        bytes_read: Arc<AtomicUsize>,
+    }
+
+    impl tokio::io::AsyncRead for CountingReader {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            let before = buf.filled().len();
+            let res = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
+            self.bytes_read
+                .fetch_add(buf.filled().len() - before, Ordering::SeqCst);
+            res
+        }
+    }
+
+    impl tokio::io::AsyncSeek for CountingReader {
+        fn start_seek(
+            mut self: std::pin::Pin<&mut Self>,
+            position: std::io::SeekFrom,
+        ) -> std::io::Result<()> {
+            std::pin::Pin::new(&mut self.inner).start_seek(position)
+        }
+
+        fn poll_complete(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<u64>> {
+            std::pin::Pin::new(&mut self.inner).poll_complete(cx)
         }
     }
 
     #[async_trait]
     impl ContentStorage for RecordingStorage {
         async fn retrieve(&self, _hash: &str) -> Result<Option<Bytes>, StorageError> {
-            self.retrieve_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(Some(self.blob.clone()))
+            panic!("serve_content_blob must go through open()");
         }
 
         async fn retrieve_stream(
             &self,
             _hash: &str,
         ) -> Result<Option<(axum::body::Body, u64)>, StorageError> {
-            Ok(None)
+            panic!("serve_content_blob must go through open()");
         }
 
         async fn retrieve_range(
             &self,
             _hash: &str,
-            start: u64,
-            end: u64,
+            _start: u64,
+            _end: u64,
         ) -> Result<Option<Bytes>, StorageError> {
-            self.ranges.lock().unwrap().push((start, end));
-            let len = self.blob.len() as u64;
-            let end = end.min(len.saturating_sub(1));
-            if start > end || start >= len {
-                return Ok(None);
-            }
-            Ok(Some(self.blob.slice(start as usize..=end as usize)))
+            panic!("serve_content_blob must go through open()");
         }
 
         async fn file_info(&self, _hash: &str) -> Result<Option<FileInfo>, StorageError> {
-            let len = self.blob.len() as u64;
-            Ok(Some(FileInfo {
-                size: Some(len),
-                content_size: Some(len),
-                encoding: None,
-            }))
+            panic!("serve_content_blob must go through open()");
         }
 
         async fn exist_multiple(
@@ -274,6 +270,18 @@ mod head_body_tests {
             _hashes: &[String],
         ) -> Result<HashMap<String, bool>, StorageError> {
             Ok(HashMap::new())
+        }
+
+        async fn open(&self, _hash: &str) -> Result<Option<OpenedContent>, StorageError> {
+            self.opens.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(OpenedContent {
+                size: self.blob.len() as u64,
+                encoding: None,
+                reader: Box::new(CountingReader {
+                    inner: std::io::Cursor::new(self.blob.clone()),
+                    bytes_read: self.bytes_read.clone(),
+                }),
+            }))
         }
     }
 
@@ -300,8 +308,8 @@ mod head_body_tests {
         assert_eq!(header(&resp, "content-length").unwrap(), size.to_string());
         let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
         assert!(body.is_empty());
-        assert_eq!(storage.retrieve_calls.load(Ordering::SeqCst), 0);
-        assert_eq!(&*storage.ranges.lock().unwrap(), &[(0, 31)]);
+        assert_eq!(storage.opens.load(Ordering::SeqCst), 1);
+        assert_eq!(storage.bytes_read.load(Ordering::SeqCst), 32);
 
         let mut headers = HeaderMap::new();
         headers.insert("range", "bytes=5-9".parse().unwrap());
@@ -316,17 +324,22 @@ mod head_body_tests {
         assert_eq!(header(&resp, "content-length").unwrap(), "5");
         let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
         assert!(body.is_empty());
-        assert_eq!(storage.retrieve_calls.load(Ordering::SeqCst), 0);
-        assert!(storage.ranges.lock().unwrap().iter().all(|&w| w == (0, 31)));
+        assert_eq!(storage.opens.load(Ordering::SeqCst), 2);
+        assert_eq!(storage.bytes_read.load(Ordering::SeqCst), 64);
 
         let resp = serve_content_blob(&state, HASH, &Method::GET, &HeaderMap::new())
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(header(&resp, "content-type").unwrap(), ctype_head);
+        assert_eq!(header(&resp, "content-length").unwrap(), size.to_string());
         let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
         assert_eq!(body, blob);
-        assert_eq!(storage.retrieve_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(storage.opens.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            storage.bytes_read.load(Ordering::SeqCst),
+            64 + size as usize
+        );
 
         let resp = serve_content_blob(&state, HASH, &Method::GET, &headers)
             .await
@@ -334,6 +347,6 @@ mod head_body_tests {
         assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
         let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
         assert_eq!(&body[..], &blob[5..=9]);
-        assert!(storage.ranges.lock().unwrap().contains(&(5, 9)));
+        assert_eq!(storage.opens.load(Ordering::SeqCst), 4);
     }
 }

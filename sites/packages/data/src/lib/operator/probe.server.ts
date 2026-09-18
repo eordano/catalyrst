@@ -1,8 +1,8 @@
 import type { HealthExpectation, OperatorService } from "./registry";
 
-export type ProbeState = "ok" | "answering" | "down";
+type ProbeState = "ok" | "answering" | "down";
 
-export type ServiceProbe = {
+type ServiceProbe = {
   key: string;
   url: string;
   state: ProbeState;
@@ -13,7 +13,7 @@ export type ServiceProbe = {
 
 const PROBE_TIMEOUT_MS = 1500;
 
-export function probeHost(): string {
+function probeHost(): string {
   const h = process.env.OPERATOR_PROBE_HOST;
   return h && h.trim() !== "" ? h.trim() : "127.0.0.1";
 }
@@ -69,14 +69,14 @@ export async function probeService(
   }
 }
 
-export async function probeServices(
+async function probeServices(
   services: OperatorService[],
   signal?: AbortSignal,
 ): Promise<ServiceProbe[]> {
   return Promise.all(services.map((s) => probeService(s, signal)));
 }
 
-export type SnapshotProbe = ServiceProbe & { probedAt: number };
+type SnapshotProbe = ServiceProbe & { probedAt: number };
 
 const snapshot = new Map<string, SnapshotProbe>();
 

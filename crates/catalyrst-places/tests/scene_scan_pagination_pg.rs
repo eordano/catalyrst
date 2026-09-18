@@ -199,3 +199,67 @@ async fn a_complete_scan_refreshes_every_place_and_prunes_none() {
 
     scratch.drop().await;
 }
+
+/// Curation inheritance inside one page keeps its row-by-row meaning: a fresh
+/// scene that just inherited counts as curated for the fresh scenes after it.
+#[tokio::test]
+async fn a_page_inherits_curation_in_scene_order() {
+    let Some(scratch) = setup().await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    ensure_schema(&pool).await.expect("place schema");
+    create_content_tables(&pool).await;
+    sqlx::query(
+        "INSERT INTO place (id, title, base_position, creator_address, highlighted, raw) \
+         VALUES ('curated-x', 'X', '9,9', '0x0000000000000000000000000000000000000abc', true, \
+                 '{\"positions\": [\"1,0\", \"2,0\", \"3,0\"]}'::jsonb)",
+    )
+    .execute(&pool)
+    .await
+    .expect("seed curated place");
+    for (base, pointers) in [
+        ("1,0", vec!["1,0"]),
+        ("2,0", vec!["1,0", "2,0"]),
+        ("3,0", vec!["3,0"]),
+    ] {
+        sqlx::query(
+            "INSERT INTO deployments \
+             (deployer_address, entity_type, entity_id, entity_metadata, entity_timestamp, entity_pointers) \
+             VALUES ('0x0000000000000000000000000000000000000abc', 'scene', 'entity-' || $1, \
+                     json_build_object('scene', json_build_object('base', $1::text, 'parcels', to_json($2::text[])), \
+                                       'display', json_build_object('title', 'Harbour ' || $1)), \
+                     now(), $2)",
+        )
+        .bind(base)
+        .bind(pointers)
+        .execute(&pool)
+        .await
+        .expect("seed scene");
+    }
+
+    let (derived, _) = run_once(&pool, &pool, "/content")
+        .await
+        .expect("catalog sync");
+    assert_eq!(derived, 3);
+    let highlighted = |base: &'static str| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT highlighted FROM place WHERE base_position = $1 AND id <> 'curated-x'",
+            )
+            .bind(base)
+            .fetch_one(&pool)
+            .await
+            .expect("derived place")
+        }
+    };
+    assert!(highlighted("1,0").await, "one curated overlap is inherited");
+    assert!(
+        !highlighted("2,0").await,
+        "two curated overlaps (the seed and the row before) are ambiguous"
+    );
+    assert!(highlighted("3,0").await);
+
+    scratch.drop().await;
+}

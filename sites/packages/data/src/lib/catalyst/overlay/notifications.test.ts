@@ -18,16 +18,13 @@ import {
 const ROWS = parseNotifications({ notifications: fixture.notifications });
 
 describe("parseNotifications", () => {
-  it("parses the fixture rows and keeps the NotificationItem shape", () => {
+  it("parses the fixture rows into the NotificationItem shape, sorted newest-first by timestamp", () => {
     expect(ROWS.length).toBe(fixture.notifications.length);
     const first = ROWS[0];
     expect(typeof first.id).toBe("string");
     expect(typeof first.type).toBe("string");
     expect(typeof first.timestamp).toBe("string");
     expect(typeof first.read).toBe("boolean");
-  });
-
-  it("sorts newest-first by timestamp", () => {
     for (let i = 1; i < ROWS.length; i++) {
       expect(Number(ROWS[i - 1].timestamp)).toBeGreaterThanOrEqual(
         Number(ROWS[i].timestamp),
@@ -35,7 +32,7 @@ describe("parseNotifications", () => {
     }
   });
 
-  it("drops rows missing required fields, never throws", () => {
+  it("drops rows missing required fields without throwing and tolerates a non-envelope input", () => {
     const full = {
       id: "x",
       type: "badge_granted",
@@ -56,22 +53,18 @@ describe("parseNotifications", () => {
     });
     expect(mixed.length).toBe(1);
     expect(mixed[0].id).toBe("x");
-  });
 
-  it("tolerates a non-envelope input", () => {
     expect(parseNotifications(null)).toEqual([]);
     expect(parseNotifications({})).toEqual([]);
   });
 });
 
 describe("categoryForType", () => {
-  it("maps the fixture's types onto a known category", () => {
+  it("maps every fixture type and the canonical types onto a known category, falling back to system for governance/reward/worlds/unknown", () => {
     for (const n of ROWS) {
       expect(NOTIFICATION_CATEGORIES).toContain(categoryForType(n.type));
     }
-  });
 
-  it("maps representative canonical types correctly", () => {
     expect(categoryForType("social_service_friendship_request")).toBe("friends");
     expect(categoryForType("badge_granted")).toBe("badge");
     expect(categoryForType("tip_received")).toBe("gift");
@@ -80,9 +73,7 @@ describe("categoryForType", () => {
     expect(categoryForType("item_sold")).toBe("marketplace");
     expect(categoryForType("credits_goal_completed")).toBe("marketplace");
     expect(categoryForType("rental_started")).toBe("marketplace");
-  });
 
-  it("falls back to system for governance/reward/worlds/unknown types", () => {
     expect(categoryForType("governance_proposal_enacted")).toBe("system");
     expect(categoryForType("reward_assignment")).toBe("system");
     expect(categoryForType("worlds_access_restored")).toBe("system");
@@ -91,12 +82,10 @@ describe("categoryForType", () => {
 });
 
 describe("filterByCategory", () => {
-  it("returns all rows for an empty / 'all' filter", () => {
+  it("returns all rows for an empty / 'all' filter and only the requested category otherwise", () => {
     expect(filterByCategory(ROWS, "")).toHaveLength(ROWS.length);
     expect(filterByCategory(ROWS, "all")).toHaveLength(ROWS.length);
-  });
 
-  it("returns only rows in the requested category", () => {
     const friends = filterByCategory(ROWS, "friends");
     expect(friends.length).toBeGreaterThan(0);
     for (const n of friends) expect(categoryForType(n.type)).toBe("friends");
@@ -120,36 +109,27 @@ describe("markRead", () => {
     { id: "c", type: "tip_received", address: "", timestamp: "1", read: true, created_at: "", updated_at: "", metadata: {} },
   ];
 
-  it("marks a single id read, leaving others untouched (pure)", () => {
+  it("marks a single id read leaving others untouched (pure), marks all read, and is idempotent on already-read rows", () => {
     const next = markRead(seed, ["a"]);
     expect(next).not.toBe(seed);
     expect(next.find((n) => n.id === "a")?.read).toBe(true);
     expect(next.find((n) => n.id === "b")?.read).toBe(false);
     expect(seed.find((n) => n.id === "a")?.read).toBe(false);
-  });
 
-  it("marks all read", () => {
-    const next = markRead(seed, "all");
-    expect(unreadCount(next)).toBe(0);
-  });
+    expect(unreadCount(markRead(seed, "all"))).toBe(0);
 
-  it("is idempotent on already-read rows", () => {
-    const next = markRead(seed, ["c"]);
-    expect(unreadCount(next)).toBe(unreadCount(seed));
+    expect(unreadCount(markRead(seed, ["c"]))).toBe(unreadCount(seed));
   });
 });
 
 describe("relativeTime", () => {
   const now = 1_000_000_000_000;
-  it("produces deterministic coarse labels", () => {
+  it("produces deterministic coarse labels and clamps future timestamps to Just Now", () => {
     expect(relativeTime(now, now)).toBe("Just Now");
     expect(relativeTime(now - 2 * 60_000, now)).toBe("2m");
     expect(relativeTime(now - 3 * 3_600_000, now)).toBe("3h");
     expect(relativeTime(now - 24 * 3_600_000, now)).toBe("Yesterday");
     expect(relativeTime(now - 3 * 86_400_000, now)).toBe("3d");
-  });
-
-  it("clamps future timestamps to Just Now", () => {
     expect(relativeTime(now + 5000, now)).toBe("Just Now");
   });
 });
@@ -163,28 +143,24 @@ describe("loadNotifications", () => {
     });
   }
 
-  it("reports the feed as unavailable on a non-2xx, not as an empty inbox", async () => {
-    const fetchImpl = vi.fn(async (_url: string) => jsonResponse({ error: "nope" }, 500));
-    const feed = await loadNotifications({ base: BASE, fetchImpl: fetchImpl as never });
-    expect(feed.unavailable).toMatch(/500/);
-    expect(feed.notifications).toEqual([]);
+  it("reports the feed as unavailable on a non-2xx or a body that is not the notifications envelope, not as an empty inbox", async () => {
+    const failing = vi.fn(async (_url: string) => jsonResponse({ error: "nope" }, 500));
+    const nonOk = await loadNotifications({ base: BASE, fetchImpl: failing as never });
+    expect(nonOk.unavailable).toMatch(/500/);
+    expect(nonOk.notifications).toEqual([]);
+
+    const junk = vi.fn(async (_url: string) => jsonResponse({ nope: true }));
+    const malformed = await loadNotifications({ base: BASE, fetchImpl: junk as never });
+    expect(malformed.unavailable).toMatch(/notifications array/);
   });
 
-  it("reports a body that is not the notifications envelope as unavailable", async () => {
-    const fetchImpl = vi.fn(async (_url: string) => jsonResponse({ nope: true }));
-    const feed = await loadNotifications({ base: BASE, fetchImpl: fetchImpl as never });
-    expect(feed.unavailable).toMatch(/notifications array/);
-  });
+  it("reports an empty feed as read and empty, and returns the rows it read", async () => {
+    const emptyFetch = vi.fn(async (_url: string) => jsonResponse({ notifications: [] }));
+    const empty = await loadNotifications({ base: BASE, fetchImpl: emptyFetch as never });
+    expect(empty.unavailable).toBeNull();
+    expect(empty.notifications).toEqual([]);
 
-  it("reports an empty feed as read and empty", async () => {
-    const fetchImpl = vi.fn(async (_url: string) => jsonResponse({ notifications: [] }));
-    const feed = await loadNotifications({ base: BASE, fetchImpl: fetchImpl as never });
-    expect(feed.unavailable).toBeNull();
-    expect(feed.notifications).toEqual([]);
-  });
-
-  it("returns the rows it read", async () => {
-    const fetchImpl = vi.fn(async (_url: string) =>
+    const rowsFetch = vi.fn(async (_url: string) =>
       jsonResponse({
         notifications: [
           {
@@ -200,7 +176,7 @@ describe("loadNotifications", () => {
         ],
       }),
     );
-    const feed = await loadNotifications({ base: BASE, fetchImpl: fetchImpl as never });
+    const feed = await loadNotifications({ base: BASE, fetchImpl: rowsFetch as never });
     expect(feed.unavailable).toBeNull();
     expect(feed.notifications).toHaveLength(1);
     expect(feed.address).toBe("0xabc");

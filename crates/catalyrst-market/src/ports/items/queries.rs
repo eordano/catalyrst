@@ -126,6 +126,8 @@ fn build_items_query_with(
     let mut next_idx = 1usize;
 
     let mut wheres: Vec<String> = Vec::new();
+    // Set once a predicate reads a joined relation; the page can then only be cut after the joins.
+    let mut joined_filter = false;
 
     if catalog.is_some() {
         wheres.push(" item.search_is_collection_approved = true ".to_string());
@@ -139,7 +141,7 @@ fn build_items_query_with(
                 &mut binds,
                 &mut next_idx,
             );
-            wheres.push(format!(" LOWER(item.item_type) = ANY ({}) ", p));
+            wheres.push(format!(" item.item_type = ANY ({}) ", p));
         }
     }
 
@@ -163,6 +165,7 @@ fn build_items_query_with(
     }
 
     if filters.is_on_sale == Some(true) {
+        joined_filter = true;
         wheres.push(
             " (((unified_trades.id IS NOT NULL AND item.search_is_marketplace_v3_minter = true) \
                 OR item.search_is_store_minter = true) AND item.available > 0) "
@@ -171,6 +174,7 @@ fn build_items_query_with(
     }
 
     if let Some(ref s) = filters.search {
+        joined_filter = true;
         let p = emit(Bind::Text(s.clone()), &mut binds, &mut next_idx);
         let matched = crate::logic::search_match::item_search_where(
             "COALESCE(wearable.name, emote.name)",
@@ -196,6 +200,7 @@ fn build_items_query_with(
     }
 
     if let Some(ref wc) = filters.wearable_category {
+        joined_filter = true;
         let p = emit(Bind::Text(wc.clone()), &mut binds, &mut next_idx);
         wheres.push(format!(" wearable.category = {} ", p));
     }
@@ -208,6 +213,7 @@ fn build_items_query_with(
     }
 
     if let Some(ref ec) = filters.emote_category {
+        joined_filter = true;
         let p = emit(Bind::Text(ec.clone()), &mut binds, &mut next_idx);
         wheres.push(format!(" emote.category = {} ", p));
     }
@@ -259,6 +265,7 @@ fn build_items_query_with(
     }
 
     if let Some(ref mn) = filters.min_price {
+        joined_filter = true;
         let p = emit(Bind::Text(mn.clone()), &mut binds, &mut next_idx);
         wheres.push(format!(
             " ((item.search_is_store_minter = true AND item.price >= {p}) \
@@ -268,6 +275,7 @@ fn build_items_query_with(
         ));
     }
     if let Some(ref mx) = filters.max_price {
+        joined_filter = true;
         let p = emit(Bind::Text(mx.clone()), &mut binds, &mut next_idx);
         wheres.push(format!(
             " ((item.search_is_store_minter = true AND item.price <= {p}) \
@@ -278,16 +286,20 @@ fn build_items_query_with(
     }
 
     if filters.emote_has_sound {
+        joined_filter = true;
         wheres.push(" emote.has_sound = true ".to_string());
     }
     if filters.emote_has_geometry {
+        joined_filter = true;
         wheres.push(" emote.has_geometry = true ".to_string());
     }
     if filters.emote_outcome_type.is_some() {
+        joined_filter = true;
         wheres.push(" emote.outcome_type IS NOT NULL ".to_string());
     }
 
     if !filters.include_social_emotes {
+        joined_filter = true;
         wheres.push(" emote.outcome_type IS NULL ".to_string());
     }
 
@@ -313,10 +325,12 @@ fn build_items_query_with(
 
     if let (Some(catalog), Some(expr)) = (catalog, price_expr.as_deref()) {
         if let Some(min) = catalog.min_price_credits {
+            joined_filter = true;
             let p = emit(Bind::Text(min.to_string()), &mut binds, &mut next_idx);
             wheres.push(format!(" NULLIF({expr}, 0) >= {p}::numeric "));
         }
         if let Some(max) = catalog.max_price_credits {
+            joined_filter = true;
             let p = emit(Bind::Text(max.to_string()), &mut binds, &mut next_idx);
             wheres.push(format!(" NULLIF({expr}, 0) <= {p}::numeric "));
         }
@@ -324,27 +338,37 @@ fn build_items_query_with(
 
     let where_clause = where_from(&wheres);
 
-    let order_by = match (catalog, price_expr.as_deref()) {
-        (Some(catalog), Some(expr)) => catalog_items_order_by(catalog.sort_by, expr),
-        _ => filters
-            .sort_by
-            .unwrap_or(ItemSortBy::Newest)
-            .order_by()
-            .to_string(),
+    let (order_by, order_on_item) = match (catalog, price_expr.as_deref()) {
+        (Some(catalog), Some(expr)) => (
+            catalog_items_order_by(catalog.sort_by, expr),
+            matches!(
+                catalog.sort_by,
+                Some(ShopSortBy::Newest) | Some(ShopSortBy::Discount) | None
+            ),
+        ),
+        _ => {
+            let sort = filters.sort_by.unwrap_or(ItemSortBy::Newest);
+            (
+                sort.order_by().to_string(),
+                matches!(
+                    sort,
+                    ItemSortBy::Newest
+                        | ItemSortBy::RecentlyReviewed
+                        | ItemSortBy::RecentlySold
+                        | ItemSortBy::Cheapest
+                ),
+            )
+        }
     };
+    let page_first = !joined_filter && order_on_item;
 
     let limit = clamp_first(filters.first, DEFAULT_LIMIT);
     let offset = clamp_skip(filters.skip);
     let limit_p = emit(Bind::Int(limit), &mut binds, &mut next_idx);
     let offset_p = emit(Bind::Int(offset), &mut binds, &mut next_idx);
 
-    let sql = format!(
-        "WITH item_trades AS (\
-            SELECT * FROM marketplace.mv_trades\
-         )\n\
-         SELECT\n\
-           COUNT(*) OVER() as count,\n\
-           item.id,\n\
+    let select_list = format!(
+        "item.id,\n\
            item.image,\n\
            item.uri,\n\
            item.blockchain_id::text as item_id,\n\
@@ -379,9 +403,10 @@ fn build_items_query_with(
            unified_trades.expires_at as trade_expires_at,\n\
            unified_trades.trade_contract as trade_contract,\n\
            (unified_trades.assets -> 'received' ->> 'amount')::text as trade_price,\n\
-           NULL::text as utility{price_credits_column}\n\
-         FROM {schema}.item item\n\
-         LEFT JOIN {schema}.metadata metadata ON item.metadata_id = metadata.id\n\
+           NULL::text as utility{price_credits_column}"
+    );
+    let joins = format!(
+        "LEFT JOIN {schema}.metadata metadata ON item.metadata_id = metadata.id\n\
          LEFT JOIN {schema}.wearable wearable ON metadata.wearable_id = wearable.id\n\
          LEFT JOIN {schema}.emote emote ON metadata.emote_id = emote.id\n\
          LEFT JOIN LATERAL (\n\
@@ -392,16 +417,51 @@ fn build_items_query_with(
               AND status = 'open'\n\
             ORDER BY id::text DESC\n\
             LIMIT 1\n\
-         ) unified_trades ON TRUE\n\
-         {where_clause}\n\
-         {order_by}\n\
-         LIMIT {limit_p} OFFSET {offset_p}",
+         ) unified_trades ON TRUE",
         schema = MARKETPLACE_SQUID_SCHEMA,
-        where_clause = where_clause,
-        order_by = order_by,
-        limit_p = limit_p,
-        offset_p = offset_p,
     );
+
+    let sql = if page_first {
+        // Every predicate and the sort key live on item, so cut the page there and join only its rows.
+        format!(
+            "WITH item_trades AS (\
+                SELECT * FROM marketplace.mv_trades\
+             ),\n\
+             page AS (\n\
+               SELECT * FROM {schema}.item item\n\
+               {where_clause}\n\
+               {order_by}\n\
+               LIMIT {limit_p} OFFSET {offset_p}\n\
+             ),\n\
+             total AS (\n\
+               SELECT count(*) AS count FROM {schema}.item item\n\
+               {where_clause}\n\
+             )\n\
+             SELECT\n\
+               total.count as count,\n\
+               {select_list}\n\
+             FROM page item\n\
+             CROSS JOIN total\n\
+             {joins}\n\
+             {order_by}",
+            schema = MARKETPLACE_SQUID_SCHEMA,
+        )
+    } else {
+        format!(
+            "WITH item_trades AS (\
+                SELECT * FROM marketplace.mv_trades\
+             )\n\
+             SELECT\n\
+               COUNT(*) OVER() as count,\n\
+               {select_list}\n\
+             FROM {schema}.item item\n\
+             {joins}\n\
+             {where_clause}\n\
+             {order_by}\n\
+             LIMIT {limit_p} OFFSET {offset_p}",
+            schema = MARKETPLACE_SQUID_SCHEMA,
+        )
+    };
 
     (sql, binds)
 }
@@ -511,8 +571,98 @@ mod tests {
         let (sql, _) = build_catalog_items_query(&filters, &CatalogItemsParams::default(), "0");
         assert!(sql.contains("LOWER(item.creator) = ANY($"), "{sql}");
         assert!(sql.contains("LIMIT $"), "{sql}");
-        assert!(sql.contains("COUNT(*) OVER() as count"), "{sql}");
+        assert!(sql.contains("total.count as count"), "{sql}");
         assert!(sql.contains("WITH item_trades AS"), "{sql}");
+    }
+
+    /// Filters and sorts that only read `item` cut the page before the metadata and trade joins;
+    /// anything that reads a joined relation keeps the single-pass shape.
+    #[test]
+    fn item_only_feeds_cut_the_page_before_the_joins() {
+        let page_first = [
+            ItemFilters::default(),
+            ItemFilters {
+                category: Some(crate::dcl_schemas::NftCategory::Wearable),
+                first: Some(40),
+                skip: Some(40),
+                ..Default::default()
+            },
+            ItemFilters {
+                sort_by: Some(ItemSortBy::Cheapest),
+                creator: vec!["0xCreator".to_string()],
+                ..Default::default()
+            },
+            // The profile Creations tab: creator filter, first page, default Newest sort.
+            ItemFilters {
+                creator: vec!["0x17a253c2ac0d5ba92cadbbf665e3390c9913dc5d".to_string()],
+                first: Some(48),
+                ..Default::default()
+            },
+        ];
+        for filters in &page_first {
+            for sql in both_item_feeds(filters) {
+                assert!(sql.contains("page AS (\n"), "{sql}");
+                assert!(sql.contains("total AS (\n"), "{sql}");
+                assert!(sql.contains("FROM page item\n"), "{sql}");
+                assert!(!sql.contains("COUNT(*) OVER()"), "{sql}");
+                assert_eq!(sql.matches("LIMIT $").count(), 1, "{sql}");
+            }
+        }
+
+        let single_pass = [
+            ItemFilters {
+                is_on_sale: Some(true),
+                ..Default::default()
+            },
+            ItemFilters {
+                search: Some("hat".to_string()),
+                ..Default::default()
+            },
+            ItemFilters {
+                wearable_category: Some("hat".to_string()),
+                ..Default::default()
+            },
+            ItemFilters {
+                min_price: Some("1".to_string()),
+                ..Default::default()
+            },
+            ItemFilters {
+                include_social_emotes: false,
+                ..Default::default()
+            },
+            ItemFilters {
+                sort_by: Some(ItemSortBy::Name),
+                ..Default::default()
+            },
+            ItemFilters {
+                sort_by: Some(ItemSortBy::RecentlyListed),
+                ..Default::default()
+            },
+        ];
+        for filters in &single_pass {
+            let sql = build_items_query(filters).0;
+            assert!(!sql.contains("page AS ("), "{sql}");
+            assert!(sql.contains("COUNT(*) OVER() as count"), "{sql}");
+        }
+
+        for sort in [
+            ShopSortBy::Cheapest,
+            ShopSortBy::MostExpensive,
+            ShopSortBy::Name,
+        ] {
+            let params = CatalogItemsParams {
+                sort_by: Some(sort),
+                ..Default::default()
+            };
+            let (sql, _) = build_catalog_items_query(&ItemFilters::default(), &params, "0.5");
+            assert!(!sql.contains("page AS ("), "{sql}");
+        }
+        let params = CatalogItemsParams {
+            min_price_credits: Some(1.0),
+            ..Default::default()
+        };
+        let (sql, _) = build_catalog_items_query(&ItemFilters::default(), &params, "0.5");
+        assert!(!sql.contains("page AS ("), "{sql}");
     }
 
     #[test]
@@ -653,7 +803,8 @@ mod tests {
         };
         for sql in both_item_feeds(&filters) {
             assert!(!sql.contains("sent_nft_category"), "{sql}");
-            assert!(sql.contains("LOWER(item.item_type) = ANY"), "{sql}");
+            assert!(sql.contains("item.item_type = ANY"), "{sql}");
+            assert!(!sql.contains("LOWER(item.item_type)"), "{sql}");
         }
     }
 

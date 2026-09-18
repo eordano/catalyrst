@@ -218,15 +218,10 @@ pub(super) async fn friendship_requests(
     let me = SocialServiceImpl::caller(context)?;
     let db = context.server_context.db();
     let (limit, offset) = page_friendship_requests(&request.pagination);
-    let fetched = async {
-        let rows = db
-            .get_friendship_requests(&me, incoming, limit, offset)
-            .await?;
-        let total = db.count_friendship_requests(&me, incoming).await?;
-        Ok::<_, crate::rpc::db::DbError>((rows, total))
-    }
-    .await;
-    let (rows, total) = match fetched {
+    let (rows, total) = match db
+        .get_friendship_requests(&me, incoming, limit, offset)
+        .await
+    {
         Ok(v) => v,
         Err(_) => {
             return Ok(PaginatedFriendshipRequestsResponse {
@@ -285,21 +280,36 @@ pub(super) async fn fan_community_voice(
     status: CommunityVoiceChatStatus,
     exclude: Option<&str>,
 ) {
-    let db = ctx.db();
-    let community_name = db
-        .community_name(community_id)
+    let (community_name, members) = ctx
+        .db()
+        .community_voice_fanout(community_id)
         .await
         .ok()
         .flatten()
         .unwrap_or_default();
-    let members = db
-        .community_member_addresses(community_id)
-        .await
-        .unwrap_or_default();
+    fan_community_voice_to(
+        ctx,
+        community_id,
+        status,
+        exclude,
+        &community_name,
+        &members,
+    );
+}
+
+/// [`fan_community_voice`] with the name and member list already read.
+pub(super) fn fan_community_voice_to(
+    ctx: &Context,
+    community_id: &str,
+    status: CommunityVoiceChatStatus,
+    exclude: Option<&str>,
+    community_name: &str,
+    members: &[String],
+) {
     let now_ms = chrono::Utc::now().timestamp_millis();
     let ended_at =
         matches!(status, CommunityVoiceChatStatus::CommunityVoiceChatEnded).then_some(now_ms);
-    for member in &members {
+    for member in members {
         if exclude.is_some_and(|e| e.eq_ignore_ascii_case(member)) {
             continue;
         }
@@ -312,7 +322,7 @@ pub(super) async fn fan_community_voice(
                 ended_at,
                 positions: Vec::new(),
                 is_member: true,
-                community_name: community_name.clone(),
+                community_name: community_name.to_string(),
                 community_image: None,
                 worlds: Vec::new(),
             }),
@@ -331,35 +341,51 @@ pub(super) async fn require_moderator(
     community_id: &str,
     address: &str,
 ) -> Result<Result<(), ForbiddenError>, SocialError> {
-    use crate::rest::community_membership_authority::CommunityMembershipTier;
-    use crate::rest::handlers::permissions::Permission;
+    let standing = load_voice_standing(db, community_id, address, address).await?;
+    Ok(moderator_gate(standing.actor))
+}
 
-    let tier = match db.community_role(community_id, address).await? {
-        Some(stored_role_text) => {
-            CommunityMembershipTier::parse_role_text_as_stored_in_a_table(&stored_role_text)
-        }
-        None => CommunityMembershipTier::NotAMemberOfThisCommunity,
-    };
+fn moderator_gate(
+    tier: crate::rest::community_membership_authority::CommunityMembershipTier,
+) -> Result<(), ForbiddenError> {
+    use crate::rest::handlers::permissions::Permission;
     if tier.holds_capability_within_this_community(Permission::BanPlayers) {
-        Ok(Ok(()))
+        Ok(())
     } else {
-        Ok(Err(ForbiddenError {
+        Err(ForbiddenError {
             message: Some("requires moderator or owner role".into()),
-        }))
+        })
     }
 }
 
-/// Reads `community_members`, the same row the REST paths read. An absent or unrecognised
-/// value is [`CommunityMembershipTier::NotAMemberOfThisCommunity`].
-async fn community_tier(
+/// The community's privacy and two members' tiers, which every voice-room gate below
+/// decides from -- one read of `community_members`, the same rows the REST paths read.
+struct VoiceStanding {
+    private: bool,
+    actor: crate::rest::community_membership_authority::CommunityMembershipTier,
+    target: crate::rest::community_membership_authority::CommunityMembershipTier,
+}
+
+/// An absent or unrecognised value is `NotAMemberOfThisCommunity`.
+async fn load_voice_standing(
     db: &Db,
     community_id: &str,
-    address: &str,
-) -> Result<crate::rest::community_membership_authority::CommunityMembershipTier, SocialError> {
+    actor: &str,
+    target: &str,
+) -> Result<VoiceStanding, SocialError> {
     use crate::rest::community_membership_authority::CommunityMembershipTier;
-    Ok(match db.community_role(community_id, address).await? {
+    let tier_of = |role: Option<String>| match role {
         Some(text) => CommunityMembershipTier::parse_role_text_as_stored_in_a_table(&text),
         None => CommunityMembershipTier::NotAMemberOfThisCommunity,
+    };
+    let (private, actor, target) = db
+        .community_voice_roles(community_id, actor, target)
+        .await?
+        .unwrap_or((false, None, None));
+    Ok(VoiceStanding {
+        private,
+        actor: tier_of(actor),
+        target: tier_of(target),
     })
 }
 
@@ -379,49 +405,45 @@ pub(super) async fn validate_community_voice_participation(
 ) -> Result<Result<(), ForbiddenError>, SocialError> {
     use crate::rest::community_membership_authority::CommunityMembershipTier;
 
-    let tier = community_tier(db, community_id, address).await?;
-    if tier == CommunityMembershipTier::BannedFromThisCommunity {
+    let standing = load_voice_standing(db, community_id, address, address).await?;
+    if standing.actor == CommunityMembershipTier::BannedFromThisCommunity {
         return Ok(Err(ForbiddenError {
             message: Some("banned from this community".into()),
         }));
     }
-    let private = db
-        .community_is_private(community_id)
-        .await?
-        .unwrap_or(false);
-    if private && tier == CommunityMembershipTier::NotAMemberOfThisCommunity {
-        return Ok(Err(ForbiddenError {
-            message: Some("not a community member".into()),
-        }));
-    }
-    Ok(Ok(()))
+    Ok(target_membership_gate(standing.private, standing.actor))
 }
 
 /// Target-membership gate for promote/demote/reject, mirroring upstream
 /// `validateCommunityVoiceChatTargetMembership` (#447). A public community admits any
 /// target the live room already holds -- comms-gatekeeper owns presence -- while a private
-/// community requires the target to be a member. Called only after the actor has cleared
+/// community requires the target to be a member. Applied only after the actor has cleared
 /// the moderator/owner gate.
-pub(super) async fn validate_community_voice_target_membership(
+fn target_membership_gate(
+    private: bool,
+    tier: crate::rest::community_membership_authority::CommunityMembershipTier,
+) -> Result<(), ForbiddenError> {
+    use crate::rest::community_membership_authority::CommunityMembershipTier;
+    if private && tier == CommunityMembershipTier::NotAMemberOfThisCommunity {
+        return Err(ForbiddenError {
+            message: Some("not a community member".into()),
+        });
+    }
+    Ok(())
+}
+
+/// [`require_moderator_protecting_owner`] followed by the target-membership gate, decided
+/// from the same read. Promote/demote/reject use this.
+pub(super) async fn require_moderator_over_member(
     db: &Db,
     community_id: &str,
+    actor: &str,
     target: &str,
+    action: &str,
 ) -> Result<Result<(), ForbiddenError>, SocialError> {
-    use crate::rest::community_membership_authority::CommunityMembershipTier;
-
-    let private = db
-        .community_is_private(community_id)
-        .await?
-        .unwrap_or(false);
-    if private {
-        let tier = community_tier(db, community_id, target).await?;
-        if tier == CommunityMembershipTier::NotAMemberOfThisCommunity {
-            return Ok(Err(ForbiddenError {
-                message: Some("not a community member".into()),
-            }));
-        }
-    }
-    Ok(Ok(()))
+    let standing = load_voice_standing(db, community_id, actor, target).await?;
+    Ok(owner_protecting_gate(&standing, actor, target, action)
+        .and_then(|()| target_membership_gate(standing.private, standing.target)))
 }
 
 /// Like [`require_moderator`], but additionally protects the community owner: a voice-room
@@ -438,23 +460,29 @@ pub(super) async fn require_moderator_protecting_owner(
     target: &str,
     action: &str,
 ) -> Result<Result<(), ForbiddenError>, SocialError> {
-    if let Err(f) = require_moderator(db, community_id, actor).await? {
-        return Ok(Err(f));
-    }
+    let standing = load_voice_standing(db, community_id, actor, target).await?;
+    Ok(owner_protecting_gate(&standing, actor, target, action))
+}
+
+fn owner_protecting_gate(
+    standing: &VoiceStanding,
+    actor: &str,
+    target: &str,
+    action: &str,
+) -> Result<(), ForbiddenError> {
+    moderator_gate(standing.actor)?;
 
     let is_self_action = actor.trim().to_lowercase() == target.trim().to_lowercase();
     if is_self_action {
-        return Ok(Ok(()));
+        return Ok(());
     }
 
-    let actor_tier = community_tier(db, community_id, actor).await?;
-    let target_tier = community_tier(db, community_id, target).await?;
-    if targeting_the_owner_as_a_non_owner(actor_tier, target_tier) {
-        return Ok(Err(ForbiddenError {
+    if targeting_the_owner_as_a_non_owner(standing.actor, standing.target) {
+        return Err(ForbiddenError {
             message: Some(format!("Not enough permissions to {} this user", action)),
-        }));
+        });
     }
-    Ok(Ok(()))
+    Ok(())
 }
 
 /// Only the owner may be acted on, and only by the owner. Peer moderators may still

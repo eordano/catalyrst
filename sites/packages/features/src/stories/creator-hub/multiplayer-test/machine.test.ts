@@ -54,8 +54,22 @@ function boot(overrides: Partial<MpPanelInput> = {}) {
   return { actor, track: input.track as ReturnType<typeof vi.fn> };
 }
 
+async function toRunning(overrides: Partial<MpPanelInput> = {}) {
+  const ctx = boot(overrides);
+  ctx.actor.send({ type: "PAIRED" });
+  ctx.actor.send({ type: "LAUNCH", spec: SPEC });
+  await waitFor(ctx.actor, (s) => s.matches("running"));
+  return ctx;
+}
+
+async function toReviewing(overrides: Partial<MpPanelInput> = {}) {
+  const ctx = await toRunning(overrides);
+  ctx.actor.send({ type: "STATUS", state: "done" });
+  return ctx;
+}
+
 describe("lane rules", () => {
-  it("caps protocol at 2-8 and engine/mixed at 2-3", () => {
+  it("caps protocol at 2-8 and engine/mixed at 2-3, and gates game fixtures to the protocol lane (mp-sync everywhere)", () => {
     expect(LANE_CAPS.protocol).toEqual({ min: 2, max: 8 });
     expect(LANE_CAPS.engine).toEqual({ min: 2, max: 3 });
     expect(LANE_CAPS.mixed).toEqual({ min: 2, max: 3 });
@@ -69,9 +83,7 @@ describe("lane rules", () => {
       expect(over.ok).toBe(false);
       if (!over.ok) expect(over.field).toBe("bots");
     }
-  });
 
-  it("gates game fixtures to the protocol lane; mp-sync everywhere", () => {
     for (const g of GAME_FIXTURES) {
       expect(fixtureAllowed("protocol", g)).toBe(true);
       expect(fixtureAllowed("engine", g)).toBe(false);
@@ -122,17 +134,13 @@ describe("lane rules", () => {
 });
 
 describe("mpPanelMachine \u{2014} pairing", () => {
-  it("boots unpaired; PAIRED reaches idle and tracks it", () => {
+  it("boots unpaired; PAIRED reaches idle and tracks it; PAIR_LOST drops a running run back to unpaired", async () => {
     const { actor, track } = boot();
     expect(actor.getSnapshot().value).toBe("unpaired");
     actor.send({ type: "PAIRED" });
     expect(actor.getSnapshot().value).toBe("idle");
     expect(track).toHaveBeenCalledWith(MP_EVENTS.paired, {}, TRACK_CTX);
-  });
 
-  it("PAIR_LOST drops back to unpaired from any state", async () => {
-    const { actor } = boot();
-    actor.send({ type: "PAIRED" });
     actor.send({ type: "LAUNCH", spec: SPEC });
     await waitFor(actor, (s) => s.matches("running"));
     actor.send({ type: "PAIR_LOST" });
@@ -141,9 +149,9 @@ describe("mpPanelMachine \u{2014} pairing", () => {
 });
 
 describe("mpPanelMachine \u{2014} launch", () => {
-  it("ignores LAUNCH with an over-cap or gated spec", () => {
+  it("ignores LAUNCH with an over-cap or gated spec; a valid LAUNCH calls the sidecar, stores the run id, tracks the spec", async () => {
     const launch = vi.fn(okLaunch);
-    const { actor } = boot({ launch });
+    const { actor, track } = boot({ launch });
     actor.send({ type: "PAIRED" });
     actor.send({ type: "LAUNCH", spec: { ...SPEC, lane: "engine", bots: 4 } });
     actor.send({
@@ -152,12 +160,7 @@ describe("mpPanelMachine \u{2014} launch", () => {
     });
     expect(actor.getSnapshot().value).toBe("idle");
     expect(launch).not.toHaveBeenCalled();
-  });
 
-  it("valid LAUNCH calls the sidecar, stores the run id, tracks the spec", async () => {
-    const launch = vi.fn(okLaunch);
-    const { actor, track } = boot({ launch });
-    actor.send({ type: "PAIRED" });
     actor.send({ type: "LAUNCH", spec: SPEC });
     await waitFor(actor, (s) => s.matches("running"));
     expect(launch).toHaveBeenCalledWith(SPEC);
@@ -194,26 +197,15 @@ describe("mpPanelMachine \u{2014} launch", () => {
 });
 
 describe("mpPanelMachine \u{2014} run lifecycle", () => {
-  async function toRunning() {
-    const ctx = boot();
-    ctx.actor.send({ type: "PAIRED" });
-    ctx.actor.send({ type: "LAUNCH", spec: SPEC });
-    await waitFor(ctx.actor, (s) => s.matches("running"));
-    return ctx;
-  }
-
-  it("walks starting \u{2192} running \u{2192} analyzing without leaving the running state", async () => {
-    const { actor } = await toRunning();
+  it("walks starting \u{2192} running \u{2192} analyzing inside running, then STATUS done lands in reviewing and tracks completion", async () => {
+    const { actor, track } = await toRunning();
     for (const state of ["starting", "running", "analyzing"] as const) {
       actor.send({ type: "STATUS", state, detail: `in ${state}` });
       expect(actor.getSnapshot().value).toBe("running");
       expect(actor.getSnapshot().context.phase).toBe(state);
       expect(actor.getSnapshot().context.detail).toBe(`in ${state}`);
     }
-  });
 
-  it("STATUS done lands in reviewing and tracks completion", async () => {
-    const { actor, track } = await toRunning();
     actor.send({ type: "STATUS", state: "done" });
     expect(actor.getSnapshot().matches({ reviewing: "report" })).toBe(true);
     expect(track).toHaveBeenCalledWith(
@@ -223,7 +215,7 @@ describe("mpPanelMachine \u{2014} run lifecycle", () => {
     );
   });
 
-  it("STATUS failed lands back in idle with the detail as error", async () => {
+  it("STATUS failed lands back in idle with the detail as error; STOP forwards to the sidecar and stays running", async () => {
     const { actor, track } = await toRunning();
     actor.send({ type: "STATUS", state: "failed", detail: "livekit died" });
     expect(actor.getSnapshot().value).toBe("idle");
@@ -233,14 +225,9 @@ describe("mpPanelMachine \u{2014} run lifecycle", () => {
       { run: "run-1", detail: "livekit died" },
       TRACK_CTX,
     );
-  });
 
-  it("STOP forwards to the sidecar stop fn and stays running until status says otherwise", async () => {
     const stop = vi.fn();
-    const ctx = boot({ stop });
-    ctx.actor.send({ type: "PAIRED" });
-    ctx.actor.send({ type: "LAUNCH", spec: SPEC });
-    await waitFor(ctx.actor, (s) => s.matches("running"));
+    const ctx = await toRunning({ stop });
     ctx.actor.send({ type: "STOP" });
     expect(stop).toHaveBeenCalledWith("run-1");
     expect(ctx.actor.getSnapshot().value).toBe("running");
@@ -248,24 +235,7 @@ describe("mpPanelMachine \u{2014} run lifecycle", () => {
 });
 
 describe("mpPanelMachine \u{2014} reviewing + replay substate", () => {
-  async function toReviewing() {
-    const ctx = boot();
-    ctx.actor.send({ type: "PAIRED" });
-    ctx.actor.send({ type: "LAUNCH", spec: SPEC });
-    await waitFor(ctx.actor, (s) => s.matches("running"));
-    ctx.actor.send({ type: "STATUS", state: "done" });
-    return ctx;
-  }
-
-  it("SELECT_RUN from idle reviews an old run", () => {
-    const { actor } = boot();
-    actor.send({ type: "PAIRED" });
-    actor.send({ type: "SELECT_RUN", runId: "run-9" });
-    expect(actor.getSnapshot().matches({ reviewing: "report" })).toBe(true);
-    expect(actor.getSnapshot().context.runId).toBe("run-9");
-  });
-
-  it("Tier A replay resolves an outcome hash", async () => {
+  it("Tier A replay resolves an outcome hash; SELECT_RUN reviews an old run; CLOSE_REPLAY returns to the report; NEW_RUN clears the run", async () => {
     const { actor, track } = await toReviewing();
     actor.send({ type: "OPEN_REPLAY" });
     expect(actor.getSnapshot().matches({ reviewing: { replay: "form" } })).toBe(true);
@@ -285,9 +255,23 @@ describe("mpPanelMachine \u{2014} reviewing + replay substate", () => {
       { run: "run-1", tier: "a" },
       TRACK_CTX,
     );
+
+    const old = boot();
+    old.actor.send({ type: "PAIRED" });
+    old.actor.send({ type: "SELECT_RUN", runId: "run-9" });
+    expect(old.actor.getSnapshot().matches({ reviewing: "report" })).toBe(true);
+    expect(old.actor.getSnapshot().context.runId).toBe("run-9");
+
+    old.actor.send({ type: "OPEN_REPLAY" });
+    old.actor.send({ type: "CLOSE_REPLAY" });
+    expect(old.actor.getSnapshot().matches({ reviewing: "report" })).toBe(true);
+    old.actor.send({ type: "NEW_RUN" });
+    expect(old.actor.getSnapshot().value).toBe("idle");
+    expect(old.actor.getSnapshot().context.runId).toBeNull();
+    expect(old.actor.getSnapshot().context.replayOutcome).toBeNull();
   });
 
-  it("Tier B replay surfaces the new live run id", async () => {
+  it("Tier B replay surfaces the new live run id; a replay failure returns to the form with the error", async () => {
     const { actor } = await toReviewing();
     actor.send({ type: "OPEN_REPLAY" });
     actor.send({ type: "REPLAY", tier: "b" });
@@ -296,31 +280,14 @@ describe("mpPanelMachine \u{2014} reviewing + replay substate", () => {
     expect(out?.tier).toBe("b");
     expect(out?.id).toBe("run-2");
     expect(out?.hash).toBeNull();
-  });
 
-  it("replay failure returns to the form with the error", async () => {
     const replay: MpReplayFn = async () => {
       throw new Error("bundle missing frames");
     };
-    const ctx = boot({ replay });
-    ctx.actor.send({ type: "PAIRED" });
-    ctx.actor.send({ type: "LAUNCH", spec: SPEC });
-    await waitFor(ctx.actor, (s) => s.matches("running"));
-    ctx.actor.send({ type: "STATUS", state: "done" });
-    ctx.actor.send({ type: "OPEN_REPLAY" });
-    ctx.actor.send({ type: "REPLAY", tier: "a" });
-    await waitFor(ctx.actor, (s) => s.matches({ reviewing: { replay: "form" } }));
-    expect(ctx.actor.getSnapshot().context.replayError).toBe("bundle missing frames");
-  });
-
-  it("CLOSE_REPLAY returns to the report; NEW_RUN clears the run", async () => {
-    const { actor } = await toReviewing();
-    actor.send({ type: "OPEN_REPLAY" });
-    actor.send({ type: "CLOSE_REPLAY" });
-    expect(actor.getSnapshot().matches({ reviewing: "report" })).toBe(true);
-    actor.send({ type: "NEW_RUN" });
-    expect(actor.getSnapshot().value).toBe("idle");
-    expect(actor.getSnapshot().context.runId).toBeNull();
-    expect(actor.getSnapshot().context.replayOutcome).toBeNull();
+    const failing = await toReviewing({ replay });
+    failing.actor.send({ type: "OPEN_REPLAY" });
+    failing.actor.send({ type: "REPLAY", tier: "a" });
+    await waitFor(failing.actor, (s) => s.matches({ reviewing: { replay: "form" } }));
+    expect(failing.actor.getSnapshot().context.replayError).toBe("bundle missing frames");
   });
 });

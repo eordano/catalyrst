@@ -549,32 +549,27 @@ pub async fn apply_places_add(
     let uuid = community_uuid_from_hex(&signed.message.community_id);
     let now = now_secs();
 
-    let mut tx = pool.begin().await?;
-    for (i, pid) in signed.message.place_ids.iter().enumerate() {
-        let per_sig = format!("{}-add-{}", sig_hash, i);
-        sqlx::query(
-            "INSERT INTO community_places_log (signature_hash, community_id, place_id, action, signer, signed_at, received_at) \
-             VALUES ($1,$2,$3,'add',$4,$5,$6) ON CONFLICT (signature_hash) DO NOTHING",
-        )
-        .bind(&per_sig)
-        .bind(&signed.message.community_id)
-        .bind(pid)
-        .bind(signer.to_ascii_lowercase())
-        .bind(signed.signed_at)
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "INSERT INTO community_places (id, community_id, added_by, added_at) \
-             VALUES ($1,$2,$3, now()) ON CONFLICT (id, community_id) DO NOTHING",
-        )
-        .bind(pid)
-        .bind(uuid)
-        .bind(signer.to_ascii_lowercase())
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
+    // Log rows keep their `<sig>-add-<index>` hashes; both inserts ride one statement.
+    sqlx::query(
+        "WITH logged AS ( \
+           INSERT INTO community_places_log (signature_hash, community_id, place_id, action, signer, signed_at, received_at) \
+           SELECT $1 || '-add-' || (t.ord - 1)::text, $2, t.pid, 'add', $3, $4, $5 \
+           FROM unnest($6::text[]) WITH ORDINALITY AS t(pid, ord) \
+           ON CONFLICT (signature_hash) DO NOTHING \
+         ) \
+         INSERT INTO community_places (id, community_id, added_by, added_at) \
+         SELECT t.pid, $7, $3, now() FROM unnest($6::text[]) AS t(pid) \
+         ON CONFLICT (id, community_id) DO NOTHING",
+    )
+    .bind(&sig_hash)
+    .bind(&signed.message.community_id)
+    .bind(signer.to_ascii_lowercase())
+    .bind(signed.signed_at)
+    .bind(now)
+    .bind(&signed.message.place_ids)
+    .bind(uuid)
+    .execute(pool)
+    .await?;
     Ok(sig_hash)
 }
 

@@ -2,16 +2,9 @@ import { useSyncExternalStore } from "react";
 
 export type Orientation = "portrait" | "landscape";
 
-export const PORTRAIT_MEDIA_QUERY = "(orientation: portrait)";
+const PORTRAIT_MEDIA_QUERY = "(orientation: portrait)";
 
-export const SERVER_ORIENTATION: Orientation = "landscape";
-
-export const DESIGN_BASE_LANDSCAPE = { width: 1600, height: 720 } as const;
-export const DESIGN_BASE_PORTRAIT = { width: 720, height: 1600 } as const;
-
-export function designBase(orientation: Orientation): { width: number; height: number } {
-  return orientation === "portrait" ? DESIGN_BASE_PORTRAIT : DESIGN_BASE_LANDSCAPE;
-}
+const SERVER_ORIENTATION: Orientation = "landscape";
 
 let cachedQuery: MediaQueryList | null | undefined;
 
@@ -24,7 +17,7 @@ function portraitQuery(): MediaQueryList | null {
   return cachedQuery;
 }
 
-export function readViewportOrientation(): Orientation {
+function readViewportOrientation(): Orientation {
   if (typeof window === "undefined") return SERVER_ORIENTATION;
   const query = portraitQuery();
   if (query) return query.matches ? "portrait" : "landscape";

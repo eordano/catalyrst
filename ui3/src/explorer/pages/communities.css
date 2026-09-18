@@ -53,21 +53,6 @@
   border-radius: 12px;
 }
 .cm__invites:hover { background: rgba(255, 255, 255, 0.12); }
-.cm__invbadge {
-  flex: 0 0 auto;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--r-pill);
-  background: var(--brand);
-  color: #fff;
-  font-size: var(--fs-xs);
-  font-weight: 800;
-  line-height: 1;
-}
 
 .cm__minesection {
   display: flex;

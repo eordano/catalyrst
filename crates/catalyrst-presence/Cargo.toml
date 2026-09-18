@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-presence"
-version = "0.26.0"
+version = "0.27.0"
 edition = "2021"
 description = "Presence API component for the catalyrst stack"
 
@@ -33,3 +33,6 @@ ts-rs = { workspace = true, optional = true }
 
 [features]
 ts = ["dep:ts-rs"]
+
+[dev-dependencies]
+catalyrst-contract-gate = { workspace = true }

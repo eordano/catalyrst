@@ -26,7 +26,7 @@ async fn fresh_database_runs_the_full_reconciled_history() {
     MIGRATOR.run(&pool).await.expect("full migration run");
 
     let versions = applied_versions(&pool).await;
-    assert_eq!(versions, (1..=12).collect::<Vec<i64>>());
+    assert_eq!(versions, (1..=13).collect::<Vec<i64>>());
     for table in [
         "communities",
         "community_members",
@@ -141,7 +141,7 @@ async fn existing_deployments_converge_without_data_loss() {
     MIGRATOR.run(&pool).await.expect("converging migration run");
 
     let versions = applied_versions(&pool).await;
-    assert_eq!(versions, (1..=12).collect::<Vec<i64>>());
+    assert_eq!(versions, (1..=13).collect::<Vec<i64>>());
     let kept: String = sqlx::query("SELECT description FROM communities WHERE id = $1")
         .bind(community_id)
         .fetch_one(&pool)

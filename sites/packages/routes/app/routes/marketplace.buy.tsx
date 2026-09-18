@@ -5,19 +5,11 @@ import FlowFallback from "@features/components/marketplace/FlowFallback";
 import { type BuyableListing } from "@data/lib/catalyst/marketplace/buy";
 import { loadBuyListing } from "@data/lib/catalyst/marketplace/buy.server";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 import { withCreatorFunnel } from "@core/lib/telemetry/creator-funnel";
 import BuyWizard from "@features/stories/marketplace/buy-nft/BuyWizard";
-import type { SimFn } from "@features/stories/marketplace/buy-nft/machine";
-import {
-  hasWallet,
-  getConnectedAddress,
-  connectWallet,
-  getChainId,
-} from "@data/lib/auth/wallet";
-import { signTypedData } from "@data/lib/auth/typed-data";
-import { prepareBuyMetaTx } from "@data/lib/catalyst/marketplace/tx";
+import { unavailablePurchase } from "@data/lib/catalyst/marketplace/unavailable-actions";
 
 import type { Route } from "./+types/marketplace.buy";
 import type { StoryId } from "@core/lib/telemetry/story-id";
@@ -42,19 +34,20 @@ type Display = {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    "marketplace/buy-nft",
-    FALLBACK,
-  );
-
   const item = url.searchParams.get("item")?.trim() || undefined;
   const nft = url.searchParams.get("nft")?.trim() || undefined;
-  const { listing, source, reason, itemId } = await loadBuyListing({
-    itemId: item,
-    nftId: nft,
-    opts: { signal: request.signal },
-  });
+  const {
+    sid,
+    assignment,
+    wrap,
+    data: { listing, source, reason, itemId },
+  } = await storyLoaderWith(request, "marketplace/buy-nft", FALLBACK, () =>
+    loadBuyListing({
+      itemId: item,
+      nftId: nft,
+      opts: { signal: request.signal },
+    }),
+  );
 
   if (!listing) {
     const payload = {
@@ -126,40 +119,11 @@ export default function MarketplaceBuyRoute({ loaderData }: Route.ComponentProps
     );
   }
 
-  const realConnect: SimFn = async () => {
-    if (!hasWallet())
-      throw new Error("No browser wallet found. Install MetaMask (or another EIP-1193 wallet).");
-    const from = (await getConnectedAddress()) ?? (await connectWallet());
-    if (from && from.toLowerCase() === listing.seller.toLowerCase())
-      throw new Error("This is your own listing \u{2014} cancel it from My Assets instead of buying it.");
-    const chain = await getChainId();
-    if (listing.chainId != null && chain !== listing.chainId)
-      throw new Error(
-        `Switch your wallet to ${listing.network} (chain ${listing.chainId}) and retry.`,
-      );
-    return { txHash: "" };
-  };
-  const realCommit: SimFn = async () => {
-    if (!listing.marketplaceAddress || listing.chainId == null)
-      throw new Error("Listing is missing on-chain data (marketplace address / chain).");
-    const from = (await getConnectedAddress()) ?? (await connectWallet());
-    if (from && from.toLowerCase() === listing.seller.toLowerCase())
-      throw new Error("This is your own listing \u{2014} cancel it from My Assets instead of buying it.");
-    const { typedData } = prepareBuyMetaTx({
-      marketplaceAddress: listing.marketplaceAddress,
-      contractAddress: listing.contractAddress,
-      tokenId: listing.tokenId,
-      priceWei: listing.priceWei,
-      chainId: listing.chainId,
-      from,
-    });
-    await signTypedData(typedData, from);
-    return { txHash: "" };
-  };
 
   return (
     <MkBuyPage found>
       <BuyWizard
+        allowStepPreview={false}
         listing={{
           assetId: listing.assetId,
           contractAddress: listing.contractAddress,
@@ -171,8 +135,9 @@ export default function MarketplaceBuyRoute({ loaderData }: Route.ComponentProps
           chainId: listing.chainId,
           seller: listing.seller,
         }}
-        connect={realConnect}
-        commit={realCommit}
+        connect={unavailablePurchase}
+        approve={unavailablePurchase}
+        commit={unavailablePurchase}
         display={display}
         trackCtx={{
           sid,

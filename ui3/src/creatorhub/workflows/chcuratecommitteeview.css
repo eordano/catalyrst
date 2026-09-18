@@ -275,17 +275,6 @@
   cursor: not-allowed;
 }
 
-.curw__btn--primary {
-  background: #2f6fd6;
-  border-color: #2f6fd6;
-  color: #fff;
-}
-
-.curw__btn--primary:hover:not(:disabled) {
-  background: #4a86e6;
-  border-color: #4a86e6;
-}
-
 .curw__btn--approve {
   background: #27794a;
   border-color: #27794a;

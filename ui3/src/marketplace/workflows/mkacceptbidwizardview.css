@@ -44,15 +44,6 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-.acceptbid__btn--primary {
-  background: var(--brand-cta);
-  border-color: var(--brand-cta);
-}
-
-.acceptbid__btn--primary:hover {
-  background: #ff4d70;
-}
-
 .acceptbid__price {
   display: inline-flex;
   align-items: center;

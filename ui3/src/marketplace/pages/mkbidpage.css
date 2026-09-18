@@ -121,12 +121,6 @@
 }
 .mkbidpage__input::placeholder { color: #b3afba; font-weight: 500; }
 .mkbidpage__input[type="date"] { font-weight: 600; }
-.mkbidpage__fiat {
-  flex: 0 0 auto;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--undefined-ink-3);
-}
 .mkbidpage__msg {
   margin: 7px 0 0;
   font-size: 12.5px;

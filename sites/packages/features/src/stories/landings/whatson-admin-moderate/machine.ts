@@ -21,13 +21,13 @@ export type ModerateFn = (args: {
   signal?: AbortSignal;
 }) => Promise<PatchResult | SimulatedModeration>;
 
-export type ModerateInput = {
+type ModerateInput = {
   trackCtx: TrackContext;
   moderate?: ModerateFn;
   track?: TrackFn;
 };
 
-export type ModerateContext = {
+type ModerateContext = {
   trackCtx: TrackContext;
   moderate: ModerateFn;
   track: TrackFn;
@@ -39,7 +39,7 @@ export type ModerateContext = {
   error?: string;
 };
 
-export type ModerateEvent =
+type ModerateEvent =
   | { type: "SIGN_IN" }
   | { type: "OPEN"; eventId: string }
   | { type: "CLOSE" }
@@ -70,7 +70,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type ModerateStateId = keyof typeof STATE_TO_SLUG;
-export type ModerateStepSlug = (typeof STATE_TO_SLUG)[ModerateStateId];
+type ModerateStepSlug = (typeof STATE_TO_SLUG)[ModerateStateId];
 
 export const FIRST_STEP_SLUG: ModerateStepSlug = STATE_TO_SLUG.authGate;
 
@@ -249,8 +249,6 @@ export const moderateMachine = setup({
     },
   },
 });
-
-export type ModerateMachine = typeof moderateMachine;
 
 export function resolveModerateSnapshot(args: {
   step: ModerateStateId;

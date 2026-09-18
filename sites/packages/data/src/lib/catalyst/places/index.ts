@@ -1,26 +1,13 @@
-export type { Place, Category, Envelope } from "../schema";
-export type { FetchPlacesParams, PlacesSource } from "../types";
+export type { Place, Category } from "../schema";
 
 import { z } from "zod";
 
-import { apiSource } from "../api";
 import { getJSON } from "../client";
 import type { GetOptions } from "../client";
 import { placesApiPath } from "../typed";
 import { ApiDataTotalSchema } from "../generated-schemas/places";
 import { parsePlaces, reportSchemaDrift } from "../schema";
 import type { Place } from "../schema";
-import type { FetchPlacesParams } from "../types";
-
-export function fetchPlaces(params?: FetchPlacesParams, opts?: GetOptions) {
-  return apiSource.fetchPlaces(params, opts);
-}
-export function fetchPlace(id: string, opts?: GetOptions) {
-  return apiSource.fetchPlace(id, opts);
-}
-export function fetchCategories(opts?: GetOptions) {
-  return apiSource.fetchCategories(opts);
-}
 
 export type PlaceCardProps = {
   id: string;
@@ -71,7 +58,7 @@ function placeImageCss(image: string | null | undefined): string | undefined {
   return `url("${v.replace(/"/g, "%22")}")`;
 }
 
-export function mapProfilePlace(p: Place, fallbackName?: string): ProfilePlace {
+function mapProfilePlace(p: Place, fallbackName?: string): ProfilePlace {
   return {
     id: p.id,
     title: p.title ?? "",
@@ -86,6 +73,11 @@ export function mapProfilePlace(p: Place, fallbackName?: string): ProfilePlace {
     user_count: p.user_count ?? 0,
     contact_name: p.contact_name?.trim() || fallbackName || "",
   };
+}
+
+export function withContactName(places: ProfilePlace[], fallbackName?: string): ProfilePlace[] {
+  if (!fallbackName) return places;
+  return places.map((p) => (p.contact_name ? p : { ...p, contact_name: fallbackName }));
 }
 
 const PlacesListEnvelope = ApiDataTotalSchema(z.unknown());
@@ -119,9 +111,8 @@ export async function fetchProfilePlaces(
   const raw = await getJSON<unknown>(placesApiPath("get", "/api/places"), {
     ...opts,
     query: {
-      creator_address: address,
+      creator_address: address.toLowerCase(),
       limit: params.limit ?? 100,
-      order_by: "updated_at",
     },
   });
   const env = PlacesListEnvelope.safeParse(raw);

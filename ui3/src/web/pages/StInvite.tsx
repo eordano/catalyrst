@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import SitesChrome from "../frames/SitesChrome";
 import "./stinvite.css";
+import { docsUrl } from "../../data/docs";
 
-export type Referrer = { name: string; ethAddress: string };
+type Referrer = { name: string; ethAddress: string };
 
 const ENVELOPE_SRC = "/assets/twemoji-1f48c.svg";
 
@@ -173,7 +174,7 @@ function InviteFaqs() {
               </div>
             );
           })}
-          <a className="stinvite__faqs-cta" href="https://docs.decentraland.org/faqs/decentraland-101">
+          <a className="stinvite__faqs-cta" href={docsUrl("player/faqs/decentraland-101")}>
             see more
           </a>
         </div>

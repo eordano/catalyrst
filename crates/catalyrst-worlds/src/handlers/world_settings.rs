@@ -163,26 +163,27 @@ pub async fn update_world_settings(
 
     let timeout_ms = state.cfg.deployment_processing_timeout_ms;
     tokio::time::timeout(Duration::from_millis(timeout_ms), async {
-        let world = state.worlds.get_world(&world_name).await?;
+        let lookup = state
+            .worlds
+            .lookup_world(
+                &world_name,
+                crate::ports::worlds::WorldProbe {
+                    world_wide_deployer: Some(&signer),
+                    ..Default::default()
+                },
+            )
+            .await?;
         let owner = crate::handlers::permissions::resolve_world_owner(
             &state,
             &crate::fed::names::LocalWorldName::from_request_path(&world_name),
-            world.and_then(|w| w.owner),
+            lookup.world.and_then(|w| w.owner),
         )
         .await;
         let is_owner = owner
             .as_deref()
             .map(|o| o.eq_ignore_ascii_case(&signer))
             .unwrap_or(false);
-        let is_world_wide_deployer = if is_owner {
-            false
-        } else {
-            state
-                .worlds
-                .has_world_wide_permission(&world_name, "deployment", &signer)
-                .await?
-        };
-        if !is_owner && !is_world_wide_deployer {
+        if !is_owner && !lookup.world_wide_deployer {
             return Err(ApiError::forbidden(
                 "You are not authorized to update the settings of this world.",
             ));

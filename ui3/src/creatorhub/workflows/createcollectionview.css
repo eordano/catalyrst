@@ -59,7 +59,6 @@
   border-radius: var(--r-card, 14px);
   padding: 24px;
 }
-.cwc-create-collection__panel--editor { padding: 16px; }
 .cwc-create-collection__panel--progress,
 .cwc-create-collection__panel--done { text-align: center; padding: 48px 24px; }
 

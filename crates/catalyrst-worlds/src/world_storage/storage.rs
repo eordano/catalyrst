@@ -51,6 +51,38 @@ fn quota_lock_key(namespace: &str, world: &str, place: &str, player: Option<&str
     key
 }
 
+/// Quota check and upsert as one statement: `info` is the namespace's size picture
+/// (taken after the advisory lock, so it sees every earlier writer), the insert runs
+/// only when the limits hold, and the row reports which so the caller can raise the
+/// exact `check_limits` error otherwise.
+fn quota_upsert_sql(size_info: String, guarded_insert: &str) -> String {
+    format!(
+        "WITH info AS ({size_info}), ins AS ({guarded_insert} RETURNING 1)
+         SELECT info.existing, info.total, EXISTS (SELECT 1 FROM ins) AS inserted FROM info"
+    )
+}
+
+fn quota_outcome(
+    row: &sqlx::postgres::PgRow,
+    size: i64,
+    limits: NamespaceLimits,
+) -> Result<(), ApiError> {
+    if row.get::<bool, _>("inserted") {
+        return Ok(());
+    }
+    check_limits(
+        size,
+        SizeInfo {
+            existing_value_size: row.get("existing"),
+            total_size: row.get("total"),
+        },
+        limits,
+    )?;
+    Err(ApiError::internal(
+        "storage quota check and upsert disagreed",
+    ))
+}
+
 fn size_info_sql(table: &str, world: &str, extra_where: &str) -> String {
     let mut sql = format!(
         "SELECT COALESCE(MAX(value_size) FILTER (WHERE place_id = $2::uuid AND key = $3), 0)::bigint AS existing,
@@ -202,21 +234,25 @@ impl Storage {
             .bind(quota_lock_key("world-storage", world, place, None))
             .execute(&mut *tx)
             .await?;
-        let info = world_size_info_in(&mut *tx, world, place, Some(key)).await?;
-        check_limits(size, info, limits)?;
-        sqlx::query(
+        let sql = quota_upsert_sql(
+            size_info_sql("world_storage", world, ""),
             "INSERT INTO world_storage (world_name, place_id, key, value, value_size, created_at, updated_at)
-             VALUES ($1, $2::uuid, $3, $4::jsonb, $5, now(), now())
+             SELECT $1::text, $2::uuid, $3::text, $4::jsonb, $5::bigint, now(), now() FROM info
+             WHERE $5::bigint <= $6::bigint AND info.total - info.existing + $5::bigint <= $7::bigint
              ON CONFLICT (world_name, place_id, key)
-             DO UPDATE SET value = $4::jsonb, value_size = $5, updated_at = now()",
-        )
-        .bind(world)
-        .bind(place)
-        .bind(key)
-        .bind(serialized)
-        .bind(size)
-        .execute(&mut *tx)
-        .await?;
+             DO UPDATE SET value = $4::jsonb, value_size = $5::bigint, updated_at = now()",
+        );
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(world)
+            .bind(place)
+            .bind(key)
+            .bind(serialized)
+            .bind(size)
+            .bind(limits.max_value_size_bytes)
+            .bind(limits.max_total_size_bytes)
+            .fetch_one(&mut *tx)
+            .await?;
+        quota_outcome(&row, size, limits)?;
         tx.commit().await?;
         self.cache
             .invalidate(&world_value_cache_key(world, place, key))
@@ -279,6 +315,45 @@ impl Storage {
                 value: r.get("value"),
             })
             .collect())
+    }
+
+    /// `world_list` + `world_count` in one statement; an empty page past the start
+    /// falls back to the count so `total` stays exact.
+    pub async fn world_list_page(
+        &self,
+        world: &str,
+        place: &str,
+        limit: i64,
+        offset: i64,
+        prefix: Option<&str>,
+    ) -> Result<(Vec<StorageEntry>, i64), ApiError> {
+        let pat = prefix_pattern(prefix);
+        let rows = sqlx::query(
+            "SELECT key, value::text AS value, count(*) OVER ()::bigint AS total FROM world_storage
+             WHERE world_name = $1 AND place_id = $2::uuid
+               AND ($3::text IS NULL OR key LIKE $3)
+             ORDER BY key ASC LIMIT $4 OFFSET $5",
+        )
+        .bind(world)
+        .bind(place)
+        .bind(pat)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let total = match rows.first() {
+            Some(r) => r.get("total"),
+            None if offset > 0 => self.world_count(world, place, prefix).await?,
+            None => 0,
+        };
+        let entries = rows
+            .into_iter()
+            .map(|r| StorageEntry {
+                key: r.get("key"),
+                value: r.get("value"),
+            })
+            .collect();
+        Ok((entries, total))
     }
 
     pub async fn world_count(
@@ -352,22 +427,26 @@ impl Storage {
             .bind(quota_lock_key("player-storage", world, place, Some(player)))
             .execute(&mut *tx)
             .await?;
-        let info = player_size_info_in(&mut *tx, world, place, player, Some(key)).await?;
-        check_limits(size, info, limits)?;
-        sqlx::query(
+        let sql = quota_upsert_sql(
+            size_info_sql("player_storage", world, " AND player_address = $4"),
             "INSERT INTO player_storage (world_name, place_id, player_address, key, value, value_size, created_at, updated_at)
-             VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6, now(), now())
+             SELECT $1::text, $2::uuid, $4::text, $3::text, $5::jsonb, $6::bigint, now(), now() FROM info
+             WHERE $6::bigint <= $7::bigint AND info.total - info.existing + $6::bigint <= $8::bigint
              ON CONFLICT (world_name, place_id, player_address, key)
-             DO UPDATE SET value = $5::jsonb, value_size = $6, updated_at = now()",
-        )
-        .bind(world)
-        .bind(place)
-        .bind(player)
-        .bind(key)
-        .bind(serialized)
-        .bind(size)
-        .execute(&mut *tx)
-        .await?;
+             DO UPDATE SET value = $5::jsonb, value_size = $6::bigint, updated_at = now()",
+        );
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(world)
+            .bind(place)
+            .bind(key)
+            .bind(player)
+            .bind(serialized)
+            .bind(size)
+            .bind(limits.max_value_size_bytes)
+            .bind(limits.max_total_size_bytes)
+            .fetch_one(&mut *tx)
+            .await?;
+        quota_outcome(&row, size, limits)?;
         tx.commit().await?;
         self.cache
             .invalidate(&player_value_cache_key(world, place, player, key))
@@ -462,6 +541,45 @@ impl Storage {
             .collect())
     }
 
+    pub async fn player_list_page(
+        &self,
+        world: &str,
+        place: &str,
+        player: &str,
+        limit: i64,
+        offset: i64,
+        prefix: Option<&str>,
+    ) -> Result<(Vec<StorageEntry>, i64), ApiError> {
+        let pat = prefix_pattern(prefix);
+        let rows = sqlx::query(
+            "SELECT key, value::text AS value, count(*) OVER ()::bigint AS total FROM player_storage
+             WHERE world_name = $1 AND place_id = $2::uuid AND player_address = $3
+               AND ($4::text IS NULL OR key LIKE $4)
+             ORDER BY key ASC LIMIT $5 OFFSET $6",
+        )
+        .bind(world)
+        .bind(place)
+        .bind(player)
+        .bind(pat)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let total = match rows.first() {
+            Some(r) => r.get("total"),
+            None if offset > 0 => self.player_count(world, place, player, prefix).await?,
+            None => 0,
+        };
+        let entries = rows
+            .into_iter()
+            .map(|r| StorageEntry {
+                key: r.get("key"),
+                value: r.get("value"),
+            })
+            .collect();
+        Ok((entries, total))
+    }
+
     pub async fn player_count(
         &self,
         world: &str,
@@ -503,6 +621,34 @@ impl Storage {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(|r| r.get("player_address")).collect())
+    }
+
+    pub async fn player_list_players_page(
+        &self,
+        world: &str,
+        place: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<String>, i64), ApiError> {
+        let rows = sqlx::query(
+            "SELECT player_address, count(*) OVER ()::bigint AS total
+             FROM (SELECT DISTINCT player_address FROM player_storage
+                   WHERE world_name = $1 AND place_id = $2::uuid) d
+             ORDER BY player_address ASC LIMIT $3 OFFSET $4",
+        )
+        .bind(world)
+        .bind(place)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let total = match rows.first() {
+            Some(r) => r.get("total"),
+            None if offset > 0 => self.player_count_players(world, place).await?,
+            None => 0,
+        };
+        let players = rows.into_iter().map(|r| r.get("player_address")).collect();
+        Ok((players, total))
     }
 
     pub async fn player_count_players(&self, world: &str, place: &str) -> Result<i64, ApiError> {
@@ -558,21 +704,25 @@ impl Storage {
             .bind(quota_lock_key("env-storage", world, place, None))
             .execute(&mut *tx)
             .await?;
-        let info = env_size_info_in(&mut *tx, world, place, Some(key)).await?;
-        check_limits(size, info, limits)?;
-        sqlx::query(
+        let sql = quota_upsert_sql(
+            size_info_sql("env_variables", world, ""),
             "INSERT INTO env_variables (world_name, place_id, key, value_enc, value_size, created_at, updated_at)
-             VALUES ($1, $2::uuid, $3, $4, $5, now(), now())
+             SELECT $1::text, $2::uuid, $3::text, $4::bytea, $5::bigint, now(), now() FROM info
+             WHERE $5::bigint <= $6::bigint AND info.total - info.existing + $5::bigint <= $7::bigint
              ON CONFLICT (world_name, place_id, key)
-             DO UPDATE SET value_enc = $4, value_size = $5, updated_at = now()",
-        )
-        .bind(world)
-        .bind(place)
-        .bind(key)
-        .bind(value_enc)
-        .bind(size)
-        .execute(&mut *tx)
-        .await?;
+             DO UPDATE SET value_enc = $4::bytea, value_size = $5::bigint, updated_at = now()",
+        );
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(world)
+            .bind(place)
+            .bind(key)
+            .bind(value_enc)
+            .bind(size)
+            .bind(limits.max_value_size_bytes)
+            .bind(limits.max_total_size_bytes)
+            .fetch_one(&mut *tx)
+            .await?;
+        quota_outcome(&row, size, limits)?;
         tx.commit().await?;
         Ok(())
     }
@@ -621,6 +771,37 @@ impl Storage {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(|r| r.get("key")).collect())
+    }
+
+    pub async fn env_list_keys_page(
+        &self,
+        world: &str,
+        place: &str,
+        limit: i64,
+        offset: i64,
+        prefix: Option<&str>,
+    ) -> Result<(Vec<String>, i64), ApiError> {
+        let pat = prefix_pattern(prefix);
+        let rows = sqlx::query(
+            "SELECT key, count(*) OVER ()::bigint AS total FROM env_variables
+             WHERE world_name = $1 AND place_id = $2::uuid
+               AND ($3::text IS NULL OR key LIKE $3)
+             ORDER BY key ASC LIMIT $4 OFFSET $5",
+        )
+        .bind(world)
+        .bind(place)
+        .bind(pat)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        let total = match rows.first() {
+            Some(r) => r.get("total"),
+            None if offset > 0 => self.env_count(world, place, prefix).await?,
+            None => 0,
+        };
+        let keys = rows.into_iter().map(|r| r.get("key")).collect();
+        Ok((keys, total))
     }
 
     pub async fn env_count(

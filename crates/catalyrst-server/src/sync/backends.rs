@@ -311,18 +311,13 @@ async fn flush_batch(pool: &PgPool, entities: &[ParsedEntity]) -> Result<(), Syn
         .map_err(|e| SyncError::Storage(e.to_string()))?;
 
     {
-        let mut all_pointers: Vec<&String> = entities
+        let all_pointers: Vec<String> = entities
             .iter()
-            .flat_map(|e| e.entity_pointers.iter())
+            .flat_map(|e| e.entity_pointers.iter().cloned())
             .collect();
-        all_pointers.sort();
-        all_pointers.dedup();
-        for p in all_pointers {
-            sqlx::query!("SELECT pg_advisory_xact_lock(hashtext($1))", p)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| SyncError::Storage(e.to_string()))?;
-        }
+        crate::write_deployer::lock_deployment_pointers(&mut tx, &all_pointers)
+            .await
+            .map_err(|e| SyncError::Storage(e.to_string()))?;
     }
 
     let mut deployer_addrs: Vec<String> = Vec::with_capacity(count);
@@ -697,6 +692,22 @@ impl LiveProcessedSnapshotStore {
     pub async fn mark_processed(&self, hash: &str) -> Result<(), SyncError> {
         sqlx::query!("INSERT INTO processed_snapshots (hash, process_time) VALUES ($1, now()) ON CONFLICT DO NOTHING", hash)
             .execute(&self.pool).await.map_err(|e| SyncError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub async fn mark_processed_many(&self, hashes: &[String]) -> Result<(), SyncError> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
+        sqlx::query(
+            "INSERT INTO processed_snapshots (hash, process_time)
+             SELECT h, now() FROM unnest($1::text[]) AS h
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(hashes)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| SyncError::Storage(e.to_string()))?;
         Ok(())
     }
 }

@@ -7,7 +7,7 @@ function shortAddress(addr: string): string {
   return `${addr.slice(0, 6)}\u{2026}${addr.slice(-4)}`;
 }
 
-export type ConnectButtonProps = {
+type ConnectButtonProps = {
   label?: string;
   className?: string;
 };

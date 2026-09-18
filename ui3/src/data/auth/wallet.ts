@@ -10,7 +10,7 @@ declare global {
   }
 }
 
-export class WalletError extends Error {
+class WalletError extends Error {
   readonly code?: number;
   constructor(message: string, code?: number) {
     super(message);
@@ -26,7 +26,7 @@ export function hasWallet(): boolean {
   return eip6963Registry.size > 0;
 }
 
-export type DetectedWallet = {
+type DetectedWallet = {
   rdns: string;
   name: string;
   icon?: string;
@@ -86,10 +86,14 @@ export function selectWallet(rdns: string | null): void {
   activeProvider = eip6963Registry.get(rdns)?.provider ?? null;
 }
 
+export function walletProvider(): Eip1193Provider | null {
+  if (typeof window === "undefined") return null;
+  startWalletDiscovery();
+  return activeProvider ?? window.ethereum ?? null;
+}
+
 function provider(): Eip1193Provider {
-  const p =
-    activeProvider ??
-    (typeof window !== "undefined" ? window.ethereum : undefined);
+  const p = walletProvider();
   if (!p) {
     throw new WalletError(
       "No browser wallet found. Install MetaMask (or another EIP-1193 wallet) to continue.",
@@ -100,18 +104,6 @@ function provider(): Eip1193Provider {
 
 function normalize(addr: string): string {
   return addr.trim().toLowerCase();
-}
-
-export async function getConnectedAddress(): Promise<string | null> {
-  if (!hasWallet()) return null;
-  try {
-    const accounts = (await provider().request({
-      method: "eth_accounts",
-    })) as string[];
-    return accounts?.[0] ? normalize(accounts[0]) : null;
-  } catch {
-    return null;
-  }
 }
 
 export async function connectWallet(): Promise<string> {

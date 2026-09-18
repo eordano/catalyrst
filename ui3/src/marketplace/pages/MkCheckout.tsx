@@ -78,7 +78,7 @@ export function MkCheckoutActions({
   );
 }
 
-export type MkCheckoutLine = {
+type MkCheckoutLine = {
   key: string;
   name: string;
   qty?: number;

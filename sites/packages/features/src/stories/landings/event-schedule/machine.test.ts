@@ -72,122 +72,71 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
+
 describe("scheduleMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(scheduleMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("the audit-spec step ids are exactly the slugs", () => {
+  it("uses the audit-spec step ids, unique and round-tripping, falling back to auth-gate", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(scheduleMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
     expect(new Set(Object.values(STATE_TO_SLUG))).toEqual(
       new Set(["auth-gate", "basics", "dates", "review", "submitting", "created"]),
     );
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
+    }
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.authGate);
-    expect(slugToState(null)).toBe("authGate");
-    expect(slugToState(undefined)).toBe("authGate");
-    expect(slugToState("")).toBe("authGate");
-    expect(slugToState("nope")).toBe("authGate");
-    expect(slugToState("basics")).toBe("basics");
-    expect(slugToState("dates")).toBe("dates");
-    expect(slugToState("review")).toBe("review");
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("authGate");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
-
-  it("FORM_ORDER is the linear forward path", () => {
     expect(FORM_ORDER).toEqual(["basics", "dates", "review"]);
   });
 });
 
 describe("scheduleMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveScheduleSnapshot({
-      step: "authGate",
-      trackCtx: inputFor(okSubmit, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating `submitting` does NOT fire telemetry and does NOT auto-submit", async () => {
+  it("boots authGate without a snapshot, hydrates submitting/review silently, and only real transitions track", async () => {
     const track = vi.fn();
     const submit = vi.fn(okSubmit);
-    const snapshot = resolveScheduleSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(submit, track).trackCtx,
-      draft: validDraft(),
-      submit,
-      track,
-    });
-    const actor = createActor(scheduleMachine, {
+    const trackCtx = inputFor(submit, track).trackCtx;
+    expect(resolveScheduleSnapshot({ step: "authGate", trackCtx })).toBeUndefined();
+
+    const submitting = createActor(scheduleMachine, {
       input: inputFor(submit, track),
-      snapshot,
+      snapshot: resolveScheduleSnapshot({
+        step: "submitting",
+        trackCtx,
+        draft: validDraft(),
+        submit,
+        track,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(submit).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("hydrating `review` is telemetry-silent despite its entry action", () => {
-    const track = vi.fn();
-    const snapshot = resolveScheduleSnapshot({
-      step: "review",
-      trackCtx: inputFor(okSubmit, track).trackCtx,
-      draft: validDraft(),
-      track,
-    });
-    const actor = createActor(scheduleMachine, {
+    const review = createActor(scheduleMachine, {
       input: inputFor(okSubmit, track),
-      snapshot,
+      snapshot: resolveScheduleSnapshot({ step: "review", trackCtx, draft: validDraft(), track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("review")).toBe(true);
+    expect(review.getSnapshot().matches("review")).toBe(true);
     expect(track).not.toHaveBeenCalled();
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveScheduleSnapshot({
-      step: "review",
-      trackCtx: inputFor(okSubmit, track).trackCtx,
-      draft: validDraft(),
-      track,
-    });
-    const actor = createActor(scheduleMachine, {
-      input: inputFor(okSubmit, track),
-      snapshot,
-    }).start();
-
-    expect(track).not.toHaveBeenCalled();
-    actor.send({ type: "SUBMIT" });
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(SCHEDULE_EVENTS.submitAttempted);
+    review.send({ type: "SUBMIT" });
+    expect(review.getSnapshot().matches("submitting")).toBe(true);
+    expect(names(track)).toContain(SCHEDULE_EVENTS.submitAttempted);
   });
 });
 
 describe("scheduleMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and review takes SIGN_IN plus two NEXTs", () => {
     const paths = getShortestPaths(scheduleMachine, {
       input: inputFor(okSubmit, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
@@ -195,19 +144,8 @@ describe("scheduleMachine \u{2014} model-based path coverage (@xstate/graph)", (
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("basics")).toBe(true);
-    expect(ends.has("dates")).toBe(true);
-    expect(ends.has("review")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
-
-  it("reaching review passes through SIGN_IN and two forward NEXTs", () => {
-    const paths = getShortestPaths(scheduleMachine, {
-      input: inputFor(okSubmit, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["basics", "dates", "review", "submitting"]) expect(ends.has(s)).toBe(true);
     const review = paths.find((p) => (p.state.value as string) === "review");
-    expect(review).toBeDefined();
     const events = review!.steps.map((s) => s.event.type);
     expect(events).toContain("SIGN_IN");
     expect(events.filter((e) => e === "NEXT").length).toBe(2);
@@ -220,31 +158,29 @@ describe("scheduleMachine \u{2014} telemetry events (happy path)", () => {
     const actor = createActor(scheduleMachine, {
       input: inputFor(okSubmit, track),
     }).start();
-
-    expect(track.mock.calls.map((c) => c[0])).toContain(SCHEDULE_EVENTS.gateViewed);
+    expect(names(track)).toContain(SCHEDULE_EVENTS.gateViewed);
 
     actor.send({ type: "SIGN_IN" });
     expect(actor.getSnapshot().matches("basics")).toBe(true);
-
     actor.send({ type: "NEXT" });
     expect(actor.getSnapshot().matches("dates")).toBe(true);
-
     actor.send({ type: "NEXT" });
     expect(actor.getSnapshot().matches("review")).toBe(true);
-
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("created"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(SCHEDULE_EVENTS.started);
-    expect(events).toContain(SCHEDULE_EVENTS.reviewReached);
-    expect(events).toContain(SCHEDULE_EVENTS.submitAttempted);
-    expect(events).toContain(SCHEDULE_EVENTS.created);
-
+    const events = names(track);
+    for (const e of [
+      SCHEDULE_EVENTS.started,
+      SCHEDULE_EVENTS.reviewReached,
+      SCHEDULE_EVENTS.submitAttempted,
+      SCHEDULE_EVENTS.created,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(SCHEDULE_EVENTS.reviewReached)).toBeLessThan(
       events.indexOf(SCHEDULE_EVENTS.created),
     );
-
     const startedCall = track.mock.calls.find((c) => c[0] === SCHEDULE_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
@@ -255,11 +191,9 @@ describe("scheduleMachine \u{2014} telemetry events (happy path)", () => {
   });
 
   it("NEXT is blocked when the current step is invalid (guard holds)", () => {
-    const track = vi.fn();
     const actor = createActor(scheduleMachine, {
-      input: inputFor(okSubmit, track, emptyDraft()),
+      input: inputFor(okSubmit, vi.fn(), emptyDraft()),
     }).start();
-
     actor.send({ type: "SIGN_IN" });
     expect(actor.getSnapshot().matches("basics")).toBe(true);
     actor.send({ type: "NEXT" });
@@ -276,7 +210,6 @@ describe("scheduleMachine \u{2014} submit failure + retry", () => {
       if (calls === 1) throw new Error("catalyst unreachable");
       return okSubmit(args);
     };
-
     const actor = createActor(scheduleMachine, {
       input: inputFor(submit, track),
     }).start();
@@ -284,34 +217,29 @@ describe("scheduleMachine \u{2014} submit failure + retry", () => {
     actor.send({ type: "SIGN_IN" });
     actor.send({ type: "NEXT" });
     actor.send({ type: "NEXT" });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
-
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("review") && s.context.error !== undefined);
     expect(actor.getSnapshot().context.error).toBe("catalyst unreachable");
-    expect(track.mock.calls.map((c) => c[0])).toContain(SCHEDULE_EVENTS.submitFailed);
+    expect(names(track)).toContain(SCHEDULE_EVENTS.submitFailed);
 
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("created"));
-    expect(track.mock.calls.map((c) => c[0])).toContain(SCHEDULE_EVENTS.created);
+    expect(names(track)).toContain(SCHEDULE_EVENTS.created);
   });
 });
 
 describe("schedule draft model", () => {
-  it("basics validation requires a name and a background color", () => {
+  it("basics needs a name and background color; dates needs start <= end", () => {
     expect(isStepValid("basics", emptyDraft())).toBe(false);
     expect(validateStep("basics", emptyDraft())).toHaveProperty("name");
     expect(isStepValid("basics", validDraft())).toBe(true);
-  });
-
-  it("dates validation requires start <= end", () => {
     const d = { ...validDraft(), activeSinceDate: "2026-08-01", activeUntilDate: "2026-07-01" };
     expect(isStepValid("dates", d)).toBe(false);
     expect(validateStep("dates", d)).toHaveProperty("activeUntilDate");
     expect(isStepValid("dates", validDraft())).toBe(true);
   });
 
-  it("toUpsertBody derives epoch-ms timestamps and omits schedule_id on create", () => {
+  it("toUpsertBody derives epoch-ms timestamps, omits schedule_id on create and carries it on edit", () => {
     const body = toUpsertBody(validDraft());
     expect(body.schedule_id).toBeUndefined();
     expect(body.name).toBe("Summer Sounds 2026");
@@ -319,27 +247,17 @@ describe("schedule draft model", () => {
     expect(body.active_until).toBeGreaterThan(body.active_since);
     expect(body.background).toEqual(["#00D6CE", "#0B6E99"]);
     expect(typeof body.signed_at).toBe("number");
-  });
-
-  it("toUpsertBody carries schedule_id when editing (PATCH)", () => {
-    const body = toUpsertBody(validDraft(), "sample-mvfw-2026");
-    expect(body.schedule_id).toBe("sample-mvfw-2026");
+    expect(toUpsertBody(validDraft(), "sample-mvfw-2026").schedule_id).toBe("sample-mvfw-2026");
   });
 });
 
 describe("simulateSubmit", () => {
-  it("resolves a local-sim id for a create (no network)", async () => {
-    const res = await simulateSubmit({ draft: validDraft() });
-    expect(res.id).toMatch(/^local-sim-/);
-    expect(res.active).toBe(true);
-  });
-
-  it("preserves the schedule id for an edit", async () => {
-    const res = await simulateSubmit({ draft: validDraft(), scheduleId: "sample-pride-2026" });
-    expect(res.id).toBe("sample-pride-2026");
-  });
-
-  it("rejects a draft without a name", async () => {
+  it("mints a local-sim id on create, preserves the id on edit, and rejects a nameless draft", async () => {
+    const created = await simulateSubmit({ draft: validDraft() });
+    expect(created.id).toMatch(/^local-sim-/);
+    expect(created.active).toBe(true);
+    const edited = await simulateSubmit({ draft: validDraft(), scheduleId: "sample-pride-2026" });
+    expect(edited.id).toBe("sample-pride-2026");
     await expect(simulateSubmit({ draft: emptyDraft() })).rejects.toThrow(/name/);
   });
 });

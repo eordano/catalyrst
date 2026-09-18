@@ -18,7 +18,7 @@ export type CreateFn = (args: {
   signal?: AbortSignal;
 }) => Promise<CreateResult>;
 
-export type CommunityInput = {
+type CommunityInput = {
   trackCtx: TrackContext;
   hasName?: boolean;
   draft?: CommunityDraft;
@@ -26,7 +26,7 @@ export type CommunityInput = {
   track?: TrackFn;
 };
 
-export type CommunityContext = {
+type CommunityContext = {
   trackCtx: TrackContext;
   hasName: boolean;
   draft: CommunityDraft;
@@ -36,9 +36,9 @@ export type CommunityContext = {
   error?: string;
 };
 
-export type DraftPatch = Partial<CommunityDraft>;
+type DraftPatch = Partial<CommunityDraft>;
 
-export type CommunityEvent =
+type CommunityEvent =
   | { type: "OPEN" }
   | { type: "GET_NAME" }
   | { type: "EDIT"; patch: DraftPatch }
@@ -69,7 +69,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type CommunityStateId = keyof typeof STATE_TO_SLUG;
-export type CommunityStepSlug = (typeof STATE_TO_SLUG)[CommunityStateId];
+type CommunityStepSlug = (typeof STATE_TO_SLUG)[CommunityStateId];
 
 export const FIRST_STEP_SLUG: CommunityStepSlug = STATE_TO_SLUG.create;
 
@@ -233,8 +233,6 @@ export const communityMachine = setup({
     },
   },
 });
-
-export type CommunityMachine = typeof communityMachine;
 
 export function emitStepCompleted(
   track: TrackFn,

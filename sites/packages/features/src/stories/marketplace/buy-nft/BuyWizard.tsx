@@ -19,7 +19,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type BuyWizardProps = {
+type BuyWizardProps = {
   listing: BuyListing;
   display: {
     name: string;
@@ -30,6 +30,7 @@ export type BuyWizardProps = {
   };
   trackCtx: TrackContext;
   initialStep?: string;
+  allowStepPreview?: boolean;
   connect?: SimFn;
   approve?: SimFn;
   commit?: SimFn;
@@ -41,6 +42,7 @@ export default function BuyWizard({
   display,
   trackCtx,
   initialStep,
+  allowStepPreview = true,
   connect,
   approve,
   commit,
@@ -48,7 +50,7 @@ export default function BuyWizard({
 }: BuyWizardProps) {
   const [searchParams] = useSearchParams();
 
-  const urlStep = (searchParams.get("step")?.trim() || initialStep) ?? undefined;
+  const urlStep = allowStepPreview ? (searchParams.get("step")?.trim() || initialStep) ?? undefined : undefined;
   const TRANSIENT = new Set(["connecting", "approving", "submitting"]);
   const rawState = slugToState(urlStep);
   const stateId = TRANSIENT.has(rawState) ? "review" : rawState;

@@ -75,6 +75,7 @@ struct DbCollection {
     first_listed_at: Option<i64>,
     search_is_store_minter: bool,
     network: String,
+    total: i64,
 }
 
 pub struct CollectionsComponent {
@@ -163,7 +164,7 @@ impl CollectionsComponent {
             "SELECT id, creator, name, urn, items_count, \
                     created_at::int8 AS created_at, updated_at::int8 AS updated_at, \
                     reviewed_at::int8 AS reviewed_at, first_listed_at::int8 AS first_listed_at, \
-                    search_is_store_minter, network \
+                    search_is_store_minter, network, COUNT(*) OVER() AS total \
              FROM {schema}.collection {where_} {sort_} LIMIT ${limit_idx} OFFSET ${offset_idx}",
             schema = MARKETPLACE_SQUID_SCHEMA,
             where_ = where_sql,
@@ -194,31 +195,37 @@ impl CollectionsComponent {
         q = q.bind(limit).bind(offset);
         let rows = q.fetch_all(&self.pool).await?;
 
-        let count_sql = format!(
-            "SELECT COUNT(*) FROM {schema}.collection {where_}",
-            schema = MARKETPLACE_SQUID_SCHEMA,
-            where_ = where_sql,
-        );
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
-        if let Some(ref s) = contract_address_lower {
-            cq = cq.bind(s);
-        }
-        if let Some(ref s) = creator_lower {
-            cq = cq.bind(s);
-        }
-        if let Some(ref s) = filters.urn {
-            cq = cq.bind(s);
-        }
-        if let Some(ref s) = filters.name {
-            cq = cq.bind(s);
-        }
-        if let Some(ref s) = search_pattern {
-            cq = cq.bind(s);
-        }
-        if let Some(ref n) = networks {
-            cq = cq.bind(n);
-        }
-        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.total,
+            None if offset > 0 => {
+                let count_sql = format!(
+                    "SELECT COUNT(*) FROM {schema}.collection {where_}",
+                    schema = MARKETPLACE_SQUID_SCHEMA,
+                    where_ = where_sql,
+                );
+                let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
+                if let Some(ref s) = contract_address_lower {
+                    cq = cq.bind(s);
+                }
+                if let Some(ref s) = creator_lower {
+                    cq = cq.bind(s);
+                }
+                if let Some(ref s) = filters.urn {
+                    cq = cq.bind(s);
+                }
+                if let Some(ref s) = filters.name {
+                    cq = cq.bind(s);
+                }
+                if let Some(ref s) = search_pattern {
+                    cq = cq.bind(s);
+                }
+                if let Some(ref n) = networks {
+                    cq = cq.bind(n);
+                }
+                cq.fetch_one(&self.pool).await.unwrap_or(0)
+            }
+            None => 0,
+        };
 
         let data = rows
             .into_iter()
@@ -261,5 +268,66 @@ fn from_db_collection_to_collection(c: DbCollection) -> Collection {
         network,
         chain_id,
         first_listed_at: c.first_listed_at.map(from_seconds_to_milliseconds),
+    }
+}
+
+#[cfg(test)]
+mod pg_tests {
+    use super::*;
+    use catalyrst_contract_gate::pg::ScratchDb;
+
+    #[tokio::test]
+    async fn page_total_rides_the_page_query() {
+        let Some(scratch) = ScratchDb::builder("CATALYRST_MARKET_TEST_PG", "collections")
+            .schemas(["squid_marketplace"])
+            .build()
+            .await
+        else {
+            return;
+        };
+        scratch
+            .apply_sql(
+                "CREATE TABLE squid_marketplace.collection (id text, creator text, name text, \
+                    urn text, items_count int4, created_at int8, updated_at int8, reviewed_at int8, \
+                    first_listed_at int8, search_is_store_minter bool, network text, \
+                    is_approved bool, search_text text);
+                 INSERT INTO squid_marketplace.collection VALUES
+                    ('0x1', '0xa', 'Alpha', 'urn:1', 3, 100, 100, 100, NULL, true, 'POLYGON', true, 'alpha'),
+                    ('0x2', '0xa', 'Beta', 'urn:2', 1, 200, 200, 200, 150, false, 'POLYGON', true, 'beta'),
+                    ('0x3', '0xb', 'Gamma', 'urn:3', 2, 300, 300, 300, NULL, true, 'ETHEREUM', true, 'gamma'),
+                    ('0x4', '0xb', 'Hidden', 'urn:4', 2, 400, 400, 400, NULL, true, 'POLYGON', false, 'hidden');",
+            )
+            .await;
+        let c = CollectionsComponent::new(scratch.pool.clone());
+        let page = |first, skip| CollectionFilters {
+            first: Some(first),
+            skip: Some(skip),
+            ..Default::default()
+        };
+
+        let (rows, total) = c.get_collections(&page(2, 0)).await.unwrap();
+        assert_eq!((rows.len(), total), (2, 3), "unapproved rows never count");
+        assert_eq!(rows[0].name, "Alpha");
+        let (rows, total) = c.get_collections(&page(2, 10)).await.unwrap();
+        assert_eq!(
+            (rows.len(), total),
+            (0, 3),
+            "past the end: standalone count"
+        );
+        let creator = CollectionFilters {
+            creator: Some("0xA".to_string()),
+            is_on_sale: true,
+            ..Default::default()
+        };
+        let (rows, total) = c.get_collections(&creator).await.unwrap();
+        assert_eq!((rows.len(), total), (1, 1));
+        assert_eq!(rows[0].contract_address, "0x1");
+        let none = CollectionFilters {
+            search: Some("nothing".to_string()),
+            ..Default::default()
+        };
+        let (rows, total) = c.get_collections(&none).await.unwrap();
+        assert_eq!((rows.len(), total), (0, 0));
+        scratch.drop().await;
     }
 }

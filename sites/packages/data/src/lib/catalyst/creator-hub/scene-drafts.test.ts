@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -12,6 +12,8 @@ import {
   loader,
 } from "@routes/routes/api.creator-hub.drafts.$";
 import {
+  DraftStoreUnavailable,
+  draftsRoot,
   getDraft,
   listDrafts,
   putDraft,
@@ -33,8 +35,39 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+async function signed(
+  key: `0x${string}`,
+  method: string,
+  pathname: string,
+  body?: unknown,
+  identityOpts: { expirationMs?: number } = {},
+): Promise<{ request: Request; wallet: string }> {
+  const identity = await createIdentityFromPrivateKey(key, identityOpts);
+  const url = `http://localhost${pathname}`;
+  const s = await signRequest(identity, method, pathname, {});
+  const headers = new Headers(s.headers);
+  if (body !== undefined) headers.set("content-type", "application/json");
+  return {
+    request: new Request(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }),
+    wallet: identity.signer,
+  };
+}
+
+async function signedReq(
+  key: `0x${string}`,
+  method: string,
+  pathname: string,
+  body?: unknown,
+): Promise<Request> {
+  return (await signed(key, method, pathname, body)).request;
+}
+
 describe("scene-drafts store: durable persistence + optimistic concurrency", () => {
-  it("creates at version 1 and round-trips the blob byte-equal", async () => {
+  it("creates at version 1, round-trips the blob byte-equal, and re-uses the stored title when a put omits it", async () => {
     const blob = {
       composite: { version: 1, components: [{ name: "Transform" }] },
       files: { "main.crdt": "AQID", "assets/cat.glb": "bafkreicat" },
@@ -58,6 +91,11 @@ describe("scene-drafts store: durable persistence + optimistic concurrency", () 
     expect(pulled!.version).toBe(1);
     expect(pulled!.blob).toEqual(blob);
     expect(JSON.stringify(pulled!.blob)).toBe(JSON.stringify(blob));
+
+    const next = await putDraft(A, "-86,78", { baseVersion: 1, hash: "hash-2", blob: { x: 1 } });
+    expect(next.ok).toBe(true);
+    if (!next.ok) return;
+    expect(next.meta.title).toBe("UAP");
   });
 
   it("matching baseVersion advances; stale baseVersion conflicts with the server copy and does not write", async () => {
@@ -86,18 +124,41 @@ describe("scene-drafts store: durable persistence + optimistic concurrency", () 
     expect(current!.version).toBe(2);
     expect(current!.blob).toEqual({ v: 2 });
   });
+});
 
-  it("re-uses the stored title when a put omits it", async () => {
-    await putDraft(A, "keep", { baseVersion: 0, hash: "h1", blob: {}, title: "Kept" });
-    const next = await putDraft(A, "keep", { baseVersion: 1, hash: "h2", blob: { x: 1 } });
-    expect(next.ok).toBe(true);
-    if (!next.ok) return;
-    expect(next.meta.title).toBe("Kept");
+describe("scene-drafts store: location + unavailable store", () => {
+  it("resolves the root from CH_DRAFTS_DIR, then SITES_STATE_DIR, then cwd; an unwritable root is DraftStoreUnavailable and the route answers 503 with retry-after", async () => {
+    expect(draftsRoot()).toBe(dir);
+    delete process.env.CH_DRAFTS_DIR;
+    process.env.SITES_STATE_DIR = "/var/lib/sites-state";
+    expect(draftsRoot()).toBe(path.join("/var/lib/sites-state", "ch-drafts"));
+    delete process.env.SITES_STATE_DIR;
+    expect(draftsRoot()).toBe(path.join(process.cwd(), "data", "ch-drafts"));
+
+    const blocker = path.join(dir, "blocker");
+    await writeFile(blocker, "not a directory", "utf8");
+    process.env.CH_DRAFTS_DIR = path.join(blocker, "ch-drafts");
+    await expect(
+      putDraft(A, "scene", { baseVersion: 0, hash: "h", blob: { v: 1 } }),
+    ).rejects.toBeInstanceOf(DraftStoreUnavailable);
+    await expect(listDrafts(A)).rejects.toBeInstanceOf(DraftStoreUnavailable);
+    await expect(getDraft(A, "scene")).rejects.toBeInstanceOf(DraftStoreUnavailable);
+
+    const key = generatePrivateKey();
+    const idPath = "/creator-hub/drafts/untitled-scene";
+    const res = await action({
+      request: await signedReq(key, "PUT", idPath, { baseVersion: 0, hash: "h1", blob: { v: 1 } }),
+      params: { "*": "untitled-scene" },
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("30");
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("CH_DRAFTS_DIR");
   });
 });
 
 describe("scene-drafts store: wallet scoping + path safety", () => {
-  it("lists only the requesting wallet's drafts, newest first", async () => {
+  it("lists only the requesting wallet's drafts newest first, and wallet A cannot read wallet B's draft", async () => {
     await putDraft(A, "a", { baseVersion: 0, hash: "h", blob: {} });
     await new Promise((r) => setTimeout(r, 2));
     await putDraft(A, "b", { baseVersion: 0, hash: "h", blob: {} });
@@ -109,15 +170,13 @@ describe("scene-drafts store: wallet scoping + path safety", () => {
 
     const listB = await listDrafts(B);
     expect(listB.map((d) => d.id)).toEqual(["c"]);
-  });
 
-  it("wallet A cannot read wallet B's draft", async () => {
     await putDraft(B, "secret", { baseVersion: 0, hash: "h", blob: { s: 42 } });
     expect(await getDraft(A, "secret")).toBeNull();
     expect(await getDraft(B, "secret")).not.toBeNull();
   });
 
-  it("rejects path-traversal / unsafe ids and never escapes the wallet dir", async () => {
+  it("rejects path-traversal / unsafe ids, never escapes the wallet dir, and rejects an invalid wallet", async () => {
     await expect(
       putDraft(A, "../evil", { baseVersion: 0, hash: "h", blob: {} }),
     ).rejects.toThrow();
@@ -131,9 +190,7 @@ describe("scene-drafts store: wallet scoping + path safety", () => {
       putDraft(A, ".", { baseVersion: 0, hash: "h", blob: {} }),
     ).rejects.toThrow();
     expect(await getDraft(A, "../evil")).toBeNull();
-  });
 
-  it("rejects an invalid wallet", async () => {
     await expect(
       putDraft("not-a-wallet", "x", { baseVersion: 0, hash: "h", blob: {} }),
     ).rejects.toThrow();
@@ -143,29 +200,7 @@ describe("scene-drafts store: wallet scoping + path safety", () => {
 });
 
 describe("scene-drafts auth: ADR-44 AuthChain verification", () => {
-  async function signed(
-    key: `0x${string}`,
-    method: string,
-    pathname: string,
-    body?: unknown,
-    identityOpts: { expirationMs?: number } = {},
-  ): Promise<{ request: Request; wallet: string }> {
-    const identity = await createIdentityFromPrivateKey(key, identityOpts);
-    const url = `http://localhost${pathname}`;
-    const s = await signRequest(identity, method, pathname, {});
-    const headers = new Headers(s.headers);
-    if (body !== undefined) headers.set("content-type", "application/json");
-    return {
-      request: new Request(url, {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      }),
-      wallet: identity.signer,
-    };
-  }
-
-  it("verifies a real signed request and derives the wallet from the chain", async () => {
+  it("verifies a real signed request, derives the wallet from the chain, and rejects an unauthenticated request with 401 at the verifier and the route", async () => {
     const key = generatePrivateKey();
     const { request, wallet } = await signed(key, "GET", "/creator-hub/drafts");
     const res = await verifyAuthChainRequest(request);
@@ -173,76 +208,65 @@ describe("scene-drafts auth: ADR-44 AuthChain verification", () => {
     if (!res.ok) return;
     expect(res.wallet).toBe(wallet);
     expect(res.wallet).toBe(privateKeyToAccount(key).address.toLowerCase());
-  });
 
-  it("rejects an unauthenticated request with 401", async () => {
-    const res = await verifyAuthChainRequest(
+    const anon = await verifyAuthChainRequest(
       new Request("http://localhost/creator-hub/drafts"),
     );
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.status).toBe(401);
+    expect(anon.ok).toBe(false);
+    if (anon.ok) return;
+    expect(anon.status).toBe(401);
+
+    const list = await loader({
+      request: new Request("http://localhost/creator-hub/drafts"),
+      params: { "*": "" },
+    });
+    expect(list.status).toBe(401);
   });
 
-  it("rejects an expired ephemeral identity with 401", async () => {
-    const key = generatePrivateKey();
-    const { request } = await signed(key, "GET", "/creator-hub/drafts", undefined, {
+  it("rejects an expired ephemeral identity, a stale timestamp, and a signature replayed across paths with 401", async () => {
+    const expiredKey = generatePrivateKey();
+    const expired = await signed(expiredKey, "GET", "/creator-hub/drafts", undefined, {
       expirationMs: 1_000,
     });
-    const ts = Number(request.headers.get("x-identity-timestamp"));
-    const res = await verifyAuthChainRequest(request, { now: ts + 2_000 });
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.status).toBe(401);
-    expect(res.error).toContain("expired");
-  });
+    const expiredTs = Number(expired.request.headers.get("x-identity-timestamp"));
+    const expiredRes = await verifyAuthChainRequest(expired.request, { now: expiredTs + 2_000 });
+    expect(expiredRes.ok).toBe(false);
+    if (expiredRes.ok) return;
+    expect(expiredRes.status).toBe(401);
+    expect(expiredRes.error).toContain("expired");
 
-  it("rejects a stale timestamp with 401", async () => {
-    const key = generatePrivateKey();
-    const { request } = await signed(key, "GET", "/creator-hub/drafts");
-    const ts = Number(request.headers.get("x-identity-timestamp"));
-    const res = await verifyAuthChainRequest(request, { now: ts + 20 * 60_000 });
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.status).toBe(401);
-  });
+    const staleKey = generatePrivateKey();
+    const stale = await signed(staleKey, "GET", "/creator-hub/drafts");
+    const staleTs = Number(stale.request.headers.get("x-identity-timestamp"));
+    const staleRes = await verifyAuthChainRequest(stale.request, { now: staleTs + 20 * 60_000 });
+    expect(staleRes.ok).toBe(false);
+    if (staleRes.ok) return;
+    expect(staleRes.status).toBe(401);
 
-  it("rejects a signature bound to a different path (replay across endpoints)", async () => {
-    const key = generatePrivateKey();
-    const { request } = await signed(key, "GET", "/creator-hub/drafts/one");
+    const replayKey = generatePrivateKey();
+    const { request } = await signed(replayKey, "GET", "/creator-hub/drafts/one");
     const moved = new Request("http://localhost/creator-hub/drafts/two", {
       method: "GET",
       headers: request.headers,
     });
-    const res = await verifyAuthChainRequest(moved);
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.status).toBe(401);
+    const replayRes = await verifyAuthChainRequest(moved);
+    expect(replayRes.ok).toBe(false);
+    if (replayRes.ok) return;
+    expect(replayRes.status).toBe(401);
   });
 });
 
 describe("scene-drafts route: authenticated PUT + GET round trip", () => {
-  async function signedReq(
-    key: `0x${string}`,
-    method: string,
-    pathname: string,
-    body?: unknown,
-  ): Promise<Request> {
-    const identity = await createIdentityFromPrivateKey(key);
-    const s = await signRequest(identity, method, pathname, {});
-    const headers = new Headers(s.headers);
-    if (body !== undefined) headers.set("content-type", "application/json");
-    return new Request(`http://localhost${pathname}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  }
-
-  it("PUT persists under the verified wallet (ignoring any body-supplied address); GET reads it back", async () => {
+  it("GET of a missing draft is 404; PUT persists under the verified wallet (ignoring any body-supplied address) at version 1; GET reads it back", async () => {
     const key = generatePrivateKey();
     const wallet = privateKeyToAccount(key).address.toLowerCase();
     const idPath = "/creator-hub/drafts/-86,78";
+
+    const missing = await loader({
+      request: await signedReq(key, "GET", idPath),
+      params: { "*": "-86,78" },
+    });
+    expect(missing.status).toBe(404);
 
     const putReq = await signedReq(key, "PUT", idPath, {
       baseVersion: 0,
@@ -290,14 +314,6 @@ describe("scene-drafts route: authenticated PUT + GET round trip", () => {
     if (body.ok) return;
     expect(body.conflict).toBe(true);
     expect(body.server.version).toBe(2);
-  });
-
-  it("unauthenticated GET list returns 401", async () => {
-    const res = await loader({
-      request: new Request("http://localhost/creator-hub/drafts"),
-      params: { "*": "" },
-    });
-    expect(res.status).toBe(401);
   });
 });
 

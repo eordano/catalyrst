@@ -13,14 +13,14 @@ import {
 
 export type { TrackFn };
 
-export type SellInput = {
+type SellInput = {
   trackCtx: TrackContext;
   assets: OwnedAsset[];
   createOrder?: CreateOrderFn;
   track?: TrackFn;
 };
 
-export type SellContext = {
+type SellContext = {
   trackCtx: TrackContext;
   assets: OwnedAsset[];
   createOrder: CreateOrderFn;
@@ -32,7 +32,7 @@ export type SellContext = {
   error?: string;
 };
 
-export type SellEvent =
+type SellEvent =
   | { type: "SELECT_ASSET"; assetId: string }
   | { type: "SET_PRICE"; priceMana: number }
   | { type: "SET_EXPIRATION"; expiresAt: number }
@@ -65,8 +65,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type SellStateId = keyof typeof STATE_TO_SLUG;
-export type SellStepSlug = (typeof STATE_TO_SLUG)[SellStateId];
+type SellStateId = keyof typeof STATE_TO_SLUG;
+type SellStepSlug = (typeof STATE_TO_SLUG)[SellStateId];
 
 export const FIRST_STEP_SLUG: SellStepSlug = STATE_TO_SLUG.selectAsset;
 
@@ -273,8 +273,6 @@ export const sellMachine = setup({
     },
   },
 });
-
-export type SellMachine = typeof sellMachine;
 
 export function resolveSellSnapshot(args: {
   step: SellStateId;

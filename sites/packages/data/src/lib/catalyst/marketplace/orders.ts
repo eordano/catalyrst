@@ -8,11 +8,11 @@ import { warnInvalid } from "../warn";
 
 export { OrderSchema };
 
-export type MarketEnvelope<T> = { data: T; total: number };
+type MarketEnvelope<T> = { data: T; total: number };
 
 export type Order = z.infer<typeof OrderSchema>;
 
-export function parseOrder(raw: unknown): Order | null {
+function parseOrder(raw: unknown): Order | null {
   const r = OrderSchema.safeParse(raw);
   if (r.success) return r.data;
   warnInvalid("Order", r.error.issues);
@@ -28,7 +28,7 @@ export function parseOrders(raw: unknown[]): Order[] {
   return out;
 }
 
-export type FetchOrdersParams = {
+type FetchOrdersParams = {
   owner?: string;
   status?: string;
   contractAddress?: string;

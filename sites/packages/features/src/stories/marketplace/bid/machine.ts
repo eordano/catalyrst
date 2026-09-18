@@ -6,7 +6,7 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type { TrackFn };
 
-export type BidPhase = "approve" | "sign" | "place";
+type BidPhase = "approve" | "sign" | "place";
 
 export type ChainFn = (args: {
   phase: BidPhase;
@@ -15,14 +15,14 @@ export type ChainFn = (args: {
   signal?: AbortSignal;
 }) => Promise<void>;
 
-export type BidInput = {
+type BidInput = {
   trackCtx: TrackContext;
   manaBalance?: number;
   chain?: ChainFn;
   track?: TrackFn;
 };
 
-export type BidContext = {
+type BidContext = {
   trackCtx: TrackContext;
   manaBalance: number;
   chain: ChainFn;
@@ -32,7 +32,7 @@ export type BidContext = {
   error?: string;
 };
 
-export type BidEvent =
+type BidEvent =
   | { type: "REVIEW" }
   | { type: "SET_AMOUNT"; price: number }
   | { type: "SET_EXPIRATION"; expiration: string }
@@ -64,8 +64,8 @@ export const STATE_TO_SLUG = {
   failed: "failed",
 } as const;
 
-export type BidStateId = keyof typeof STATE_TO_SLUG;
-export type BidStepSlug = (typeof STATE_TO_SLUG)[BidStateId];
+type BidStateId = keyof typeof STATE_TO_SLUG;
+type BidStepSlug = (typeof STATE_TO_SLUG)[BidStateId];
 
 export const FIRST_STEP_SLUG: BidStepSlug = STATE_TO_SLUG.asset;
 
@@ -266,8 +266,6 @@ export const bidMachine = setup({
     },
   },
 });
-
-export type BidMachine = typeof bidMachine;
 
 export function resolveBidSnapshot(args: {
   step: BidStateId;

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { sendBridge, useBridgeState } from "../../overlay/bridge";
+import { FLOATING_PANEL_TITLES } from "../../explorer/components/FloatingPanel";
 import "./smartwearablespanel.css";
 
 type SmartWearablesPanelProps = {
   floating?: boolean;
-  onClose?: () => void;
 };
 
 function shortPid(pid: string): string {
@@ -13,7 +13,7 @@ function shortPid(pid: string): string {
   return bare.length > 14 ? `${bare.slice(0, 6)}\u{2026}${bare.slice(-6)}` : bare;
 }
 
-export default function SmartWearablesPanel(_props: SmartWearablesPanelProps = {}) {
+export default function SmartWearablesPanel({ floating = false }: SmartWearablesPanelProps = {}) {
   const portables = useBridgeState((s) => s.portables);
   const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set());
   const lastPushRef = useRef(portables);
@@ -34,8 +34,8 @@ export default function SmartWearablesPanel(_props: SmartWearablesPanelProps = {
 
   const count = portables.length;
   return (
-    <div className="swpanel">
-      <h2 className="swpanel__title">Portable experiences</h2>
+    <div className={"swpanel" + (floating ? " swpanel--floating" : "")}>
+      {floating ? null : <h2 className="swpanel__title">{FLOATING_PANEL_TITLES.portables}</h2>}
       {count === 0 ? (
         <>
           <p className="swpanel__empty">Nothing is running right now.</p>

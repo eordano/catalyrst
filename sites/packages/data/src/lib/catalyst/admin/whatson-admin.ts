@@ -9,12 +9,12 @@ import {
   EventRecordSchema,
 } from "../generated-schemas/events";
 
+import { warnInvalid } from "../warn";
+import type { EventRecord as RsEvent } from "@ui/generated/catalyst/events/EventRecord";
 import type { ApiOk as RsApiOk } from "@ui/generated/catalyst/events/ApiOk";
 import type { EventListData as RsEventListData } from "@ui/generated/catalyst/events/EventListData";
-import type { EventRecord as RsEvent } from "@ui/generated/catalyst/events/EventRecord";
-import { warnInvalid } from "../warn";
 
-export const MODERATION_ACTIONS = [
+const MODERATION_ACTIONS = [
   "approve",
   "reject",
   "feature",
@@ -25,7 +25,7 @@ export type ModerationAction = (typeof MODERATION_ACTIONS)[number];
 
 export const MAX_REJECTION_REASON_LENGTH = 500;
 
-export type PatchEventBody = {
+type PatchEventBody = {
   action?: ModerationAction;
   approved?: boolean;
   rejected?: boolean;
@@ -35,10 +35,10 @@ export type PatchEventBody = {
   description?: string;
 };
 
-export const PatchResultSchema = ApiOkSchema(EventRecordSchema);
+const PatchResultSchema = ApiOkSchema(EventRecordSchema);
 export type PatchResult = z.infer<typeof PatchResultSchema>;
 
-export function actionToFlags(action: ModerationAction): {
+function actionToFlags(action: ModerationAction): {
   approved?: boolean;
   rejected?: boolean;
   highlighted?: boolean;
@@ -70,20 +70,20 @@ export const REJECT_REASONS: RejectReason[] = [
   { code: "invalid_location", title: "Invalid location", description: "Incorrect coordinates" },
 ];
 
-export type QueueBucket = "pending" | "approved" | "featured";
+type QueueBucket = "pending" | "approved" | "featured";
 
-export const ModeratableEventSchema = EventRecordSchema;
+const ModeratableEventSchema = EventRecordSchema;
 export type ModeratableEvent = z.infer<typeof ModeratableEventSchema>;
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
 
-export const AdminEntrySchema = z.object({
+z.object({
   user: z.string(),
   name: z.string().nullish().transform((v) => v ?? null),
   permissions: z.array(z.string()),
 });
-export type AdminEntry = z.infer<typeof AdminEntrySchema>;
 
 const QueueListEnvelope = apiOkOf(
   z.union([
@@ -96,6 +96,7 @@ const ModerationListEnvelope = apiOkOf(z.array(z.unknown()));
 export type _DriftQueueListEnvelope = Assert<
   AssignableTo<RsApiOk<RsEventListData>, z.input<typeof QueueListEnvelope>>
 >;
+
 export type _DriftModerationListEnvelope = Assert<
   AssignableTo<RsApiOk<RsEvent[]>, z.input<typeof ModerationListEnvelope>>
 >;
@@ -148,7 +149,7 @@ function hueFor(id: string): number {
   return h;
 }
 
-export function dateLabel(iso: string | null, now: Date = new Date()): string {
+function dateLabel(iso: string | null, now: Date = new Date()): string {
   if (!iso) return "SOON";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "SOON";
@@ -164,7 +165,7 @@ export function dateLabel(iso: string | null, now: Date = new Date()): string {
     .toUpperCase();
 }
 
-export function timeLabel(iso: string | null): string {
+function timeLabel(iso: string | null): string {
   if (!iso) return "--:--";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "--:--";

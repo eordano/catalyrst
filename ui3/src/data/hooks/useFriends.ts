@@ -34,9 +34,9 @@ type RawBlocked = Partial<FriendRef> & {
   blockedAt?: number;
 };
 
-export type FriendStatus = "online" | "away" | "offline";
+type FriendStatus = "online" | "away" | "offline";
 
-export type NormalizedFriend = {
+type NormalizedFriend = {
   address: string;
   name: string;
   tag: string;
@@ -48,7 +48,7 @@ export type NormalizedFriend = {
   hasClaimedName: boolean;
 };
 
-export type NormalizedRequest = {
+type NormalizedRequest = {
   id: string;
   address: string;
   name: string;
@@ -60,7 +60,7 @@ export type NormalizedRequest = {
   hasClaimedName: boolean;
 };
 
-export type NormalizedBlocked = {
+type NormalizedBlocked = {
   address: string;
   name: string;
   tag: string;
@@ -70,7 +70,7 @@ export type NormalizedBlocked = {
   hasClaimedName: boolean;
 };
 
-export type FriendsData = {
+type FriendsData = {
   self: unknown;
   friends: NormalizedFriend[];
   received: NormalizedRequest[];
@@ -265,7 +265,7 @@ function useBridgeFriendsPush(): FriendsPush | null {
   return push;
 }
 
-export async function fetchFriends(
+async function fetchFriends(
   { signal }: { signal?: AbortSignal } = {},
 ): Promise<FriendsData> {
   if (signal?.aborted) {

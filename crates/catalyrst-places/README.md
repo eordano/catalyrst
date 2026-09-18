@@ -13,7 +13,7 @@ runs 0000/0002/0003/0004 on the reader pool when `place_indexed` is missing (a r
 i.e. a federation-native node), and 0005 (`road_positions` + the `place_raw_positions_gin`
 index) runs through the writer pool when one is configured. A deployment whose reader role
 holds SELECT only (the managing deployment) applies every one of them out of band:
-the deployment's places bootstrap and world-places sync scripts list 0002-0005 explicitly, so
+the deployment's places bootstrap and world-places sync scripts list 0002-0008 explicitly, so
 a new file here must be appended to both. Startup probes `road_positions` for SELECT as the
 reader role (not mere existence: 0005 can land through the writer before the reader's grant
 does) and logs an error while it is missing or unreadable; the generic `/destinations` feed
@@ -64,3 +64,18 @@ AWS_ENDPOINT=http://localhost:9000 \
 
 Other env: see [`src/config.rs`](./src/config.rs) for the full list
 (`PLACES_PG_COMPONENT_PSQL_CONNECTION_STRING` and the writer/squid/admin/comms-gatekeeper/events knobs).
+
+
+## Database report storage
+
+Self-hosted nodes may set `PLACES_REPORT_STORAGE=database` with a configured places
+writer. Report JSON is stored in `place_reports_local`, covered by PostgreSQL
+backup and retention. POST `/api/report` persists a report and returns a same-origin
+upload URL; PUT to that URL requires the same reporter's signed authentication.
+A signed URL alone is not an upload capability. Gateway prefixes are preserved.
+The normal request-body limit applies. S3 clients must send authenticated uploads
+when selecting this backend; no AWS credentials or public object bucket is needed.
+
+`PLACES_REPORT_STORAGE=s3` explicitly requires S3 credentials. An invalid storage
+setting fails closed. Leaving the setting absent preserves the existing S3/dev
+fallback behavior; the legacy dev fallback remains dev-only.

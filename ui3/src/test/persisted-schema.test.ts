@@ -39,46 +39,31 @@ const identity = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("stored identity validation", () => {
-  const cases: [string, unknown, boolean][] = [
-    ["what this build writes", identity(), true],
-    [
-      "a writer that also stored the ephemeral public key",
-      identity({
-        ephemeralIdentity: { address: "0xeee", privateKey: "0xkey", publicKey: "0xpub" },
-      }),
-      true,
-    ],
-    [
-      "auth link renamed its payload field",
-      identity({ authChain: [{ type: "SIGNER", message: "0xabc", signature: "" }] }),
-      false,
-    ],
-    [
-      "auth link carries a link type this build does not know",
-      identity({
-        authChain: [{ type: "ECDSA_SIGNED_ENTITY_V2", payload: "x", signature: "y" }],
-      }),
-      false,
-    ],
-    [
-      "auth link signature became a structured signature",
-      identity({
-        authChain: [{ type: "SIGNER", payload: "0xabc", signature: { r: "1", s: "2" } }],
-      }),
-      false,
-    ],
-    [
-      "ephemeral address dropped",
-      identity({ ephemeralIdentity: { privateKey: "0xkey" } }),
-      false,
-    ],
-  ];
-  for (const [name, value, shouldPass] of cases) {
-    test(name, () => {
-      expect(StoredAuthIdentitySchema.safeParse(value).success).toBe(shouldPass);
-      expect(oldIdentityGuard(value)).toBe(true);
-    });
-  }
+  test("accepts what this build writes (plus extra keys) and rejects drifted auth links the old guard let through", () => {
+    const cases: [string, unknown, boolean][] = [
+      ["what this build writes", identity(), true],
+      [
+        "a writer that also stored the ephemeral public key",
+        identity({ ephemeralIdentity: { address: "0xeee", privateKey: "0xkey", publicKey: "0xpub" } }),
+        true,
+      ],
+      ["auth link renamed its payload field", identity({ authChain: [{ type: "SIGNER", message: "0xabc", signature: "" }] }), false],
+      [
+        "auth link carries a link type this build does not know",
+        identity({ authChain: [{ type: "ECDSA_SIGNED_ENTITY_V2", payload: "x", signature: "y" }] }),
+        false,
+      ],
+      [
+        "auth link signature became a structured signature",
+        identity({ authChain: [{ type: "SIGNER", payload: "0xabc", signature: { r: "1", s: "2" } }] }),
+        false,
+      ],
+      ["ephemeral address dropped", identity({ ephemeralIdentity: { privateKey: "0xkey" } }), false],
+    ];
+    const verdicts = cases.map(([name, value]) => [name, StoredAuthIdentitySchema.safeParse(value).success]);
+    expect(verdicts).toEqual(cases.map(([name, , shouldPass]) => [name, shouldPass]));
+    expect(cases.every(([, value]) => oldIdentityGuard(value))).toBe(true);
+  });
 });
 
 const place = (over: Record<string, unknown> = {}) => ({
@@ -110,28 +95,17 @@ const place = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("recent places validation", () => {
-  const oldRecentGuard = (v: unknown) => Array.isArray(v);
-
-  const cases: [string, unknown, boolean][] = [
-    ["a place this build wrote", [place()], true],
-    ["a place with no image, which JSON drops rather than stores", [without(place(), "image")], true],
-    ["an older build's list of ids", [{ id: "0,0" }], false],
-    ["coords stored as a pair instead of a string", [place({ coords: [0, 0] })], false],
-    [
-      "worldName still under its API spelling",
-      [{ ...without(place(), "worldName"), world_name: "shibuya.dcl.eth" }],
-      false,
-    ],
-    [
-      "categories became objects rather than names",
-      [place({ categories: [{ name: "game" }] })],
-      false,
-    ],
-  ];
-  for (const [name, value, shouldPass] of cases) {
-    test(name, () => {
-      expect(RecentPlacesSchema.safeParse(value).success).toBe(shouldPass);
-      expect(oldRecentGuard(value)).toBe(true);
-    });
-  }
+  test("accepts places this build wrote (with or without an image) and rejects older or drifted shapes the old array guard let through", () => {
+    const cases: [string, unknown, boolean][] = [
+      ["a place this build wrote", [place()], true],
+      ["a place with no image, which JSON drops rather than stores", [without(place(), "image")], true],
+      ["an older build's list of ids", [{ id: "0,0" }], false],
+      ["coords stored as a pair instead of a string", [place({ coords: [0, 0] })], false],
+      ["worldName still under its API spelling", [{ ...without(place(), "worldName"), world_name: "shibuya.dcl.eth" }], false],
+      ["categories became objects rather than names", [place({ categories: [{ name: "game" }] })], false],
+    ];
+    const verdicts = cases.map(([name, value]) => [name, RecentPlacesSchema.safeParse(value).success]);
+    expect(verdicts).toEqual(cases.map(([name, , shouldPass]) => [name, shouldPass]));
+    expect(cases.every(([, value]) => Array.isArray(value))).toBe(true);
+  });
 });

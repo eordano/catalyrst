@@ -1,18 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-import type { TeleportPayload } from "../../generated/bridge/TeleportPayload";
+import type { ContextMenuItem } from "../../components/ContextMenu";
 import { servicePath } from "../../data/catalyst/client";
 import { safeCssUrl } from "../../data/cssUrl";
+import { siteUrl } from "../../data/site";
+import { truncateAddress } from "../../data/format";
 import { useFriendPins } from "../../data/hooks/useFriendPins";
-import { sendBridge } from "../../overlay/bridge";
+import { useBridgeState } from "../../overlay/bridge";
 import { useMinimapVisibility } from "../../overlay/minimapVisibility";
 import ContextMenu from "../../components/ContextMenu";
+import { SceneFeedbackModal, SceneTipModal, useSceneOwner } from "../components/SceneOwnerActions";
 import "./minimap.css";
-
-const MENU = [
-  "Jump to coordinates", "Copy coordinates", "Copy Link", "Share on Twitter",
-] as const;
-
-type MenuItem = (typeof MENU)[number];
 
 const COORDS_RE = /^\s*(-?\d+)\s*,\s*(-?\d+)\s*$/;
 
@@ -23,14 +20,14 @@ function parseParcel(coords: string): { x: number; y: number } | null {
   return { x: Number(m[1]), y: Number(m[2]) };
 }
 
-const PARCEL_SIZE = 16;
-function parcelToTeleport(coords: string): TeleportPayload | null {
+export function jumpUrl(coords: string): string {
   const p = parseParcel(coords);
-  if (!p) return null;
-  return {
-    x: p.x * PARCEL_SIZE + PARCEL_SIZE / 2,
-    z: p.y * PARCEL_SIZE + PARCEL_SIZE / 2,
-  };
+  const pos = p ? `${p.x},${p.y}` : "0,0";
+  const origin =
+    typeof window !== "undefined" && window.location?.origin && window.location.origin !== "null"
+      ? window.location.origin
+      : siteUrl();
+  return `${origin}/play/?position=${pos}`;
 }
 
 const MINIMAP_PX = 472;
@@ -53,13 +50,29 @@ function minimapDotPos(
   return { left, top };
 }
 
+function MenuLabel({ main, hint }: { main: string; hint: string }) {
+  return (
+    <span className="mm__mlabel">
+      <span className="mm__mmain">{main}</span>
+      <span className="mm__mhint">{hint}</span>
+    </span>
+  );
+}
+
+type OwnerModal = "feedback" | "tip" | null;
+
 type MinimapProps = { place?: string; coords?: string; heading?: number };
 
 export default function Minimap({ place = "", coords = "", heading }: MinimapProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [ownerModal, setOwnerModal] = useState<OwnerModal>(null);
   const kebabRef = useRef<HTMLDivElement>(null);
   const { minimapHidden, userHidden, toggleUserHidden } = useMinimapVisibility();
+  const realm = useBridgeState((s) => s.scene.realm);
+  const shown = !(minimapHidden || userHidden);
+  const owner = useSceneOwner(coords, realm, menuOpen && shown);
   const parcel = parseParcel(coords);
+  const parcelText = parcel ? `${parcel.x},${parcel.y}` : "";
   const friendPins = useFriendPins();
 
   useEffect(() => {
@@ -76,12 +89,6 @@ export default function Minimap({ place = "", coords = "", heading }: MinimapPro
     };
   }, [menuOpen]);
 
-  function jumpToCoords() {
-    const dest = parcelToTeleport(coords);
-    if (!dest) return;
-    sendBridge("Teleport", dest);
-  }
-
   function copyText(text: string) {
     if (!text) return;
     try {
@@ -90,60 +97,50 @@ export default function Minimap({ place = "", coords = "", heading }: MinimapPro
     }
   }
 
-  function placeUrl() {
-    const p = parseParcel(coords);
-    const pos = p ? `${p.x},${p.y}` : "0,0";
-    return `https://decentraland.org/play/?position=${pos}`;
-  }
-
-  function onMenuItem(item: MenuItem) {
-    switch (item) {
-      case "Jump to coordinates":
-        jumpToCoords();
-        break;
-      case "Copy coordinates":
-        copyText(coords);
-        break;
-      case "Copy Link":
-        copyText(placeUrl());
-        break;
-      case "Share on Twitter":
-        if (typeof window !== "undefined")
-          window.open(
-            `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-              `Check out ${place} in Decentraland`,
-            )}&url=${encodeURIComponent(placeUrl())}`,
-            "_blank",
-            "noopener,noreferrer",
-          );
-        break;
-      default:
-        break;
-    }
+  function pick(action: () => void) {
     setMenuOpen(false);
+    action();
   }
 
-  if (minimapHidden) return null;
+  const ownerHint = owner.address
+    ? `owner ${truncateAddress(owner.address)}`
+    : owner.loading
+      ? "finding the owner\u{2026}"
+      : owner.world
+        ? "not available in worlds"
+        : "owner unknown";
 
-  if (userHidden) {
-    return (
-      <div className="mm__stage">
-        <button
-          type="button"
-          className="mm__restore"
-          onClick={toggleUserHidden}
-          aria-label="Show map"
-          title="Show map"
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path d="M12 2c-3.9 0-7 3-7 6.9 0 4.6 7 12.1 7 12.1s7-7.5 7-12.1C19 5 15.9 2 12 2z"
-              fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-            <circle cx="12" cy="9" r="2.4" fill="currentColor" />
-          </svg>
-        </button>
-      </div>
-    );
-  }
+  const menuItems: ContextMenuItem[] = [
+    {
+      kind: "button",
+      label: <MenuLabel main="Copy coordinates" hint={parcelText || "no parcel"} />,
+      disabled: !parcel,
+      onClick: () => pick(() => copyText(parcelText)),
+    },
+    {
+      kind: "button",
+      label: <MenuLabel main="Copy jump link" hint={jumpUrl(coords)} />,
+      disabled: !parcel,
+      onClick: () => pick(() => copyText(jumpUrl(coords))),
+    },
+    { kind: "separator" },
+    {
+      kind: "button",
+      label: <MenuLabel main="Send feedback to scene owner" hint={ownerHint} />,
+      disabled: !owner.address,
+      onClick: () => pick(() => setOwnerModal("feedback")),
+    },
+    {
+      kind: "button",
+      label: <MenuLabel main="Send tip to scene owner" hint={ownerHint} />,
+      disabled: !owner.address,
+      onClick: () => pick(() => setOwnerModal("tip")),
+    },
+  ];
+
+  if (!shown) return null;
+
+  const modalScene = place || owner.sceneTitle || "";
 
   return (
     <div className="mm__stage">
@@ -197,11 +194,7 @@ export default function Minimap({ place = "", coords = "", heading }: MinimapPro
 
               {menuOpen && (
                 <div className="mm__menu">
-                  <ContextMenu
-                    items={MENU.map((m) => ({ kind: "button", label: m, onClick: () => onMenuItem(m) }))}
-                    onClose={() => setMenuOpen(false)}
-                    autoFocus
-                  />
+                  <ContextMenu items={menuItems} onClose={() => setMenuOpen(false)} autoFocus />
                 </div>
               )}
             </div>
@@ -255,6 +248,23 @@ export default function Minimap({ place = "", coords = "", heading }: MinimapPro
             </svg>
           </button>
       </div>
+
+      {ownerModal === "feedback" && owner.address && (
+        <SceneFeedbackModal
+          owner={owner.address}
+          sceneTitle={modalScene}
+          coords={parcelText || coords}
+          onClose={() => setOwnerModal(null)}
+        />
+      )}
+      {ownerModal === "tip" && owner.address && (
+        <SceneTipModal
+          owner={owner.address}
+          sceneTitle={modalScene}
+          coords={parcelText || coords}
+          onClose={() => setOwnerModal(null)}
+        />
+      )}
     </div>
   );
 }

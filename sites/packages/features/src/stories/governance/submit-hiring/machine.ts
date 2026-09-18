@@ -25,7 +25,7 @@ export type HiringDraft = {
   coAuthors: string[];
 };
 
-export type ErrorCopy = SubmitHiringData["copy"]["errors"];
+type ErrorCopy = SubmitHiringData["copy"]["errors"];
 
 export type SubmitFn = (args: {
   request: HiringRequest;
@@ -33,7 +33,7 @@ export type SubmitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<CreatedProposal>;
 
-export type HiringInput = {
+type HiringInput = {
   trackCtx: TrackContext;
   request: HiringRequest;
   errorCopy: ErrorCopy;
@@ -41,7 +41,7 @@ export type HiringInput = {
   track?: TrackFn;
 };
 
-export type HiringContext = {
+type HiringContext = {
   trackCtx: TrackContext;
   request: HiringRequest;
   errorCopy: ErrorCopy;
@@ -53,7 +53,7 @@ export type HiringContext = {
   error?: string;
 };
 
-export type HiringEvent =
+type HiringEvent =
   | { type: "SUBMIT_TARGET"; committee: string; address: string }
   | {
       type: "SUBMIT_REASONS";
@@ -85,8 +85,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type HiringStateId = keyof typeof STATE_TO_SLUG;
-export type HiringStepSlug = (typeof STATE_TO_SLUG)[HiringStateId];
+type HiringStateId = keyof typeof STATE_TO_SLUG;
+type HiringStepSlug = (typeof STATE_TO_SLUG)[HiringStateId];
 
 export const FIRST_STEP_SLUG: HiringStepSlug = STATE_TO_SLUG.target;
 
@@ -323,8 +323,6 @@ export const hiringMachine = setup({
     },
   },
 });
-
-export type HiringMachine = typeof hiringMachine;
 
 export function resolveHiringSnapshot(args: {
   step: HiringStateId;

@@ -15,14 +15,14 @@ export type ConnectFn = (args: {
   signal?: AbortSignal;
 }) => Promise<ConnectResult>;
 
-export type VoiceInput = {
+type VoiceInput = {
   trackCtx: TrackContext;
   connect?: ConnectFn;
   track?: TrackFn;
   roomId?: string;
 };
 
-export type VoiceContext = {
+type VoiceContext = {
   trackCtx: TrackContext;
   connect: ConnectFn;
   track: TrackFn;
@@ -33,7 +33,7 @@ export type VoiceContext = {
   error?: string;
 };
 
-export type VoiceEvent =
+type VoiceEvent =
   | { type: "REQUEST"; kind: VoiceKind }
   | { type: "TOGGLE_MUTE" }
   | { type: "LEAVE" }
@@ -58,8 +58,8 @@ export const STATE_TO_SLUG = {
   failed: "failed",
 } as const;
 
-export type VoiceStateId = keyof typeof STATE_TO_SLUG;
-export type VoiceStepSlug = (typeof STATE_TO_SLUG)[VoiceStateId] | "mute";
+type VoiceStateId = keyof typeof STATE_TO_SLUG;
+type VoiceStepSlug = (typeof STATE_TO_SLUG)[VoiceStateId] | "mute";
 
 export const FIRST_STEP_SLUG: VoiceStepSlug = STATE_TO_SLUG.resting;
 
@@ -88,7 +88,7 @@ export function slugIsMuted(slug: string | null | undefined): boolean {
   return !!slug && MUTED_SLUGS.has(slug as VoiceStepSlug);
 }
 
-export const simulateConnect: ConnectFn = async ({ kind, roomId, signal }) => {
+const simulateConnect: ConnectFn = async ({ kind, roomId, signal }) => {
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, 400);
     signal?.addEventListener("abort", () => {
@@ -234,8 +234,6 @@ export const voiceMachine = setup({
     },
   },
 });
-
-export type VoiceMachine = typeof voiceMachine;
 
 export function resolveVoiceSnapshot(args: {
   step: VoiceStateId;

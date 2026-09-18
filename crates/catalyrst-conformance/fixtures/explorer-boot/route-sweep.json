@@ -1,52 +1,11 @@
 {
- "description": "Route-existence sweep of every first-party needs-real-wallet shape against the production candidate ORIGIN (198.51.100.21), probed via curl --resolve <vhost>:443:198.51.100.21 to BYPASS Cloudflare. Reads: unauthenticated GET. Writes: OPTIONS (never mutates). Each form judged INDEPENDENTLY; routePresent is True (service/nginx non-routing response), False (nginx routing 404/405: text/plain 'not found'|empty or nginx html), or null=UNPROVEN (Cloudflare/WAF signature or 502/503 upstream-down). Cloudflare responses (server: cloudflare, cf-ray, 'error code: NNNN') are NEVER counted as present. mapping=dual requires subdomain AND gateway both True; subdomain-only requires subdomain True. authEvidence links committed signed-flow evidence and never substitutes for a route form. Gaps are exact-path fix items for the conformance lane and may not be waived.",
- "candidateDomain": "interconnected.online",
- "candidateOriginIp": "198.51.100.21",
+ "description": "Route-existence sweep of every first-party needs-real-wallet shape against the production candidate ORIGIN (127.0.0.1), probed via curl --resolve <vhost>:443:127.0.0.1 to BYPASS Cloudflare. Reads: unauthenticated GET. Writes: OPTIONS (never mutates). Each form judged INDEPENDENTLY; routePresent is True (service/nginx non-routing response), False (nginx routing 404/405: text/plain 'not found'|empty or nginx html), or null=UNPROVEN (Cloudflare/WAF signature or 502/503 upstream-down). Cloudflare responses (server: cloudflare, cf-ray, 'error code: NNNN') are NEVER counted as present. mapping=dual requires subdomain AND gateway both True; subdomain-only requires subdomain True. authEvidence links committed signed-flow evidence and never substitutes for a route form. Gaps are exact-path fix items for the conformance lane and may not be waived.",
+ "candidateDomain": "catalyst.example.com",
+ "candidateOriginIp": "127.0.0.1",
  "mappingRule": "dual => subdomainPresent AND gatewayPresent (both strictly True); subdomain-only => subdomainPresent True. Any missing/unproven required form is a gap.",
  "sweptShapeCount": 68,
- "gapCount": 2,
- "gaps": [
-  {
-   "id": "POST autotranslate-server.decentraland.org /translate",
-   "mapping": "dual",
-   "method": "POST",
-   "concretePath": "/translate",
-   "missingForms": [
-    "subdomain",
-    "gateway"
-   ],
-   "subdomain": {
-    "url": "https://autotranslate-server.interconnected.online/translate",
-    "status": 404,
-    "routePresent": false
-   },
-   "gateway": {
-    "url": "https://gateway.interconnected.online/autotranslate-server/translate",
-    "status": 404,
-    "routePresent": false
-   }
-  },
-  {
-   "id": "POST transactions-api.decentraland.org /v{n}/transactions",
-   "mapping": "dual",
-   "method": "POST",
-   "concretePath": "/v1/transactions",
-   "missingForms": [
-    "subdomain",
-    "gateway"
-   ],
-   "subdomain": {
-    "url": "https://transactions-api.interconnected.online/v1/transactions",
-    "status": 404,
-    "routePresent": false
-   },
-   "gateway": {
-    "url": "https://gateway.interconnected.online/transactions-api/v1/transactions",
-    "status": 404,
-    "routePresent": false
-   }
-  }
- ],
+ "gapCount": 0,
+ "gaps": [],
  "rows": [
   {
    "id": "DELETE camera-reel-service.decentraland.org /api/images/{v}",
@@ -56,16 +15,16 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://camera-reel-service.interconnected.online/api/images/00000000-0000-0000-0000-000000000000",
+    "url": "https://camera-reel-service.catalyst.example.com/api/images/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/camera-reel-service/api/images/00000000-0000-0000-0000-000000000000",
+    "url": "https://gateway.catalyst.example.com/camera-reel-service/api/images/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
     "status": 200,
     "server": "nginx",
@@ -85,9 +44,9 @@
    "mapping": "subdomain-only",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://events.interconnected.online/api/events/00000000-0000-0000-0000-000000000000/attendees",
+    "url": "https://events.catalyst.example.com/api/events/00000000-0000-0000-0000-000000000000/attendees",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -106,18 +65,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://notifications.interconnected.online/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+    "url": "https://notifications.catalyst.example.com/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/notifications/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+    "url": "https://gateway.catalyst.example.com/notifications/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -135,18 +94,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -164,18 +123,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -193,18 +152,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -222,18 +181,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/places/00000000-0000-0000-0000-000000000000",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/places/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/places/00000000-0000-0000-0000-000000000000",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/places/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -251,18 +210,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -280,18 +239,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -309,18 +268,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/mutes",
+    "url": "https://social-api.catalyst.example.com/v1/mutes",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/mutes",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/mutes",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -338,7 +297,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://camera-reel-service.interconnected.online/api/images",
+    "url": "https://camera-reel-service.catalyst.example.com/api/images",
     "method": "GET",
     "status": 405,
     "server": "nginx",
@@ -347,7 +306,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/camera-reel-service/api/images",
+    "url": "https://gateway.catalyst.example.com/camera-reel-service/api/images",
     "method": "GET",
     "status": 405,
     "server": "nginx",
@@ -367,21 +326,21 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://camera-reel-service.interconnected.online/api/images/00000000-0000-0000-0000-000000000000/metadata",
+    "url": "https://camera-reel-service.catalyst.example.com/api/images/00000000-0000-0000-0000-000000000000/metadata",
     "method": "GET",
     "status": 404,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"image not found\",\"message\":",
+    "body": "{\"message\":\"image not found\"}",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/camera-reel-service/api/images/00000000-0000-0000-0000-000000000000/metadata",
+    "url": "https://gateway.catalyst.example.com/camera-reel-service/api/images/00000000-0000-0000-0000-000000000000/metadata",
     "method": "GET",
     "status": 404,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"image not found\",\"message\":",
+    "body": "{\"message\":\"image not found\"}",
     "routePresent": true
    },
    "authEvidence": null,
@@ -396,7 +355,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://camera-reel-service.interconnected.online/api/places",
+    "url": "https://camera-reel-service.catalyst.example.com/api/places",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -405,7 +364,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/camera-reel-service/api/places",
+    "url": "https://gateway.catalyst.example.com/camera-reel-service/api/places",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -425,7 +384,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://camera-reel-service.interconnected.online/api/users",
+    "url": "https://camera-reel-service.catalyst.example.com/api/users",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -434,7 +393,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/camera-reel-service/api/users",
+    "url": "https://gateway.catalyst.example.com/camera-reel-service/api/users",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -454,7 +413,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://camera-reel-service.interconnected.online/api/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/images",
+    "url": "https://camera-reel-service.catalyst.example.com/api/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/images",
     "method": "GET",
     "status": 200,
     "server": "nginx",
@@ -463,7 +422,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/camera-reel-service/api/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/images",
+    "url": "https://gateway.catalyst.example.com/camera-reel-service/api/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/images",
     "method": "GET",
     "status": 200,
     "server": "nginx",
@@ -483,7 +442,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://comms-gatekeeper.interconnected.online/get-scene-adapter",
+    "url": "https://comms-gatekeeper.catalyst.example.com/get-scene-adapter",
     "method": "GET",
     "status": 405,
     "server": "nginx",
@@ -492,7 +451,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/comms-gatekeeper/get-scene-adapter",
+    "url": "https://gateway.catalyst.example.com/comms-gatekeeper/get-scene-adapter",
     "method": "GET",
     "status": 405,
     "server": "nginx",
@@ -512,21 +471,21 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://credits.interconnected.online/captcha",
+    "url": "https://credits.catalyst.example.com/captcha",
     "method": "GET",
-    "status": 401,
+    "status": 400,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "body": "{\"error\":\"Invalid Auth Chain\",\"message\":\"This en",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/credits/captcha",
+    "url": "https://gateway.catalyst.example.com/credits/captcha",
     "method": "GET",
-    "status": 401,
+    "status": 400,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "body": "{\"error\":\"Invalid Auth Chain\",\"message\":\"This en",
     "routePresent": true
    },
    "authEvidence": null,
@@ -541,21 +500,21 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://credits.interconnected.online/credits/orders/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "url": "https://credits.catalyst.example.com/credits/orders/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
     "method": "GET",
-    "status": 404,
+    "status": 400,
     "server": "nginx",
-    "contentType": "",
-    "body": "",
+    "contentType": "application/json",
+    "body": "{\"error\":\"Invalid Auth Chain\",\"message\":\"This en",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/credits/credits/orders/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "url": "https://gateway.catalyst.example.com/credits/credits/orders/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
     "method": "GET",
-    "status": 404,
+    "status": 400,
     "server": "nginx",
-    "contentType": "",
-    "body": "",
+    "contentType": "application/json",
+    "body": "{\"error\":\"Invalid Auth Chain\",\"message\":\"This en",
     "routePresent": true
    },
    "authEvidence": null,
@@ -570,7 +529,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://credits.interconnected.online/seasons",
+    "url": "https://credits.catalyst.example.com/seasons",
     "method": "GET",
     "status": 200,
     "server": "nginx",
@@ -579,7 +538,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/credits/seasons",
+    "url": "https://gateway.catalyst.example.com/credits/seasons",
     "method": "GET",
     "status": 200,
     "server": "nginx",
@@ -599,21 +558,21 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://credits.interconnected.online/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/progress",
+    "url": "https://credits.catalyst.example.com/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/progress",
     "method": "GET",
-    "status": 401,
+    "status": 400,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "body": "{\"error\":\"Invalid Auth Chain\",\"message\":\"This en",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/credits/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/progress",
+    "url": "https://gateway.catalyst.example.com/credits/users/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/progress",
     "method": "GET",
-    "status": 401,
+    "status": 400,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
+    "body": "{\"error\":\"Invalid Auth Chain\",\"message\":\"This en",
     "routePresent": true
    },
    "authEvidence": null,
@@ -628,7 +587,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://notifications.interconnected.online/subscription",
+    "url": "https://notifications.catalyst.example.com/subscription",
     "method": "GET",
     "status": 401,
     "server": "nginx",
@@ -637,7 +596,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/notifications/subscription",
+    "url": "https://gateway.catalyst.example.com/notifications/subscription",
     "method": "GET",
     "status": 401,
     "server": "nginx",
@@ -657,7 +616,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://notifications.interconnected.online/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+    "url": "https://notifications.catalyst.example.com/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
     "method": "GET",
     "status": 401,
     "server": "nginx",
@@ -666,7 +625,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/notifications/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
+    "url": "https://gateway.catalyst.example.com/notifications/subscription/opt-outs/community/00000000-0000-0000-0000-000000000000",
     "method": "GET",
     "status": 401,
     "server": "nginx",
@@ -686,7 +645,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://places.interconnected.online/api/report",
+    "url": "https://places.catalyst.example.com/api/report",
     "method": "GET",
     "status": 405,
     "server": "nginx",
@@ -695,7 +654,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/places/api/report",
+    "url": "https://gateway.catalyst.example.com/places/api/report",
     "method": "GET",
     "status": 405,
     "server": "nginx",
@@ -715,7 +674,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -724,7 +683,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -744,21 +703,21 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/bans",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/bans",
     "method": "GET",
     "status": 401,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/bans",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/bans",
     "method": "GET",
     "status": 401,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
     "routePresent": true
    },
    "authEvidence": null,
@@ -773,7 +732,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/members",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -782,7 +741,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -802,7 +761,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/places",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/places",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -811,7 +770,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/places",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/places",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -831,7 +790,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/posts",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -840,7 +799,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -860,21 +819,21 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/requests",
     "method": "GET",
     "status": 401,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/requests",
     "method": "GET",
     "status": 401,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
     "routePresent": true
    },
    "authEvidence": null,
@@ -889,7 +848,7 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/members",
+    "url": "https://social-api.catalyst.example.com/v1/members",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -898,7 +857,7 @@
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/members",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/members",
     "method": "GET",
     "status": 404,
     "server": "nginx",
@@ -918,21 +877,21 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/invites",
+    "url": "https://social-api.catalyst.example.com/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/invites",
     "method": "GET",
     "status": 401,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/invites",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/invites",
     "method": "GET",
     "status": 401,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
     "routePresent": true
    },
    "authEvidence": null,
@@ -947,21 +906,21 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/requests",
+    "url": "https://social-api.catalyst.example.com/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/requests",
     "method": "GET",
     "status": 401,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/requests",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/requests",
     "method": "GET",
     "status": 401,
     "server": "nginx",
     "contentType": "application/json",
-    "body": "{\"ok\":false,\"error\":\"Not Authorized\",\"message\":\"",
+    "body": "{\"ok\":false,\"error\":\"Invalid Auth Chain\",\"messag",
     "routePresent": true
    },
    "authEvidence": null,
@@ -976,16 +935,16 @@
    "mapping": "dual",
    "probeMethod": "GET",
    "subdomain": {
-    "url": "https://worlds-content-server.interconnected.online/worlds/0/scenes/0/comms",
+    "url": "https://worlds-content-server.catalyst.example.com/worlds/0/scenes/0/comms",
     "method": "GET",
-    "status": 405,
+    "status": 404,
     "server": "nginx",
-    "contentType": "",
-    "body": "",
+    "contentType": "text/html; charset=utf-8",
+    "body": "<!DOCTYPE html><html lang=\"en\"><head><meta charS",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/worlds-content-server/worlds/0/scenes/0/comms",
+    "url": "https://gateway.catalyst.example.com/worlds-content-server/worlds/0/scenes/0/comms",
     "method": "GET",
     "status": 405,
     "server": "nginx",
@@ -1005,16 +964,16 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://camera-reel-service.interconnected.online/api/images/00000000-0000-0000-0000-000000000000/visibility",
+    "url": "https://camera-reel-service.catalyst.example.com/api/images/00000000-0000-0000-0000-000000000000/visibility",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/camera-reel-service/api/images/00000000-0000-0000-0000-000000000000/visibility",
+    "url": "https://gateway.catalyst.example.com/camera-reel-service/api/images/00000000-0000-0000-0000-000000000000/visibility",
     "method": "OPTIONS",
     "status": 200,
     "server": "nginx",
@@ -1034,18 +993,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://places.interconnected.online/api/places/00000000-0000-0000-0000-000000000000/favorites",
+    "url": "https://places.catalyst.example.com/api/places/00000000-0000-0000-0000-000000000000/favorites",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/places/api/places/00000000-0000-0000-0000-000000000000/favorites",
+    "url": "https://gateway.catalyst.example.com/places/api/places/00000000-0000-0000-0000-000000000000/favorites",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1063,18 +1022,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://places.interconnected.online/api/places/00000000-0000-0000-0000-000000000000/likes",
+    "url": "https://places.catalyst.example.com/api/places/00000000-0000-0000-0000-000000000000/likes",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/places/api/places/00000000-0000-0000-0000-000000000000/likes",
+    "url": "https://gateway.catalyst.example.com/places/api/places/00000000-0000-0000-0000-000000000000/likes",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1092,18 +1051,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1121,18 +1080,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/requests/00000000-0000-0000-0000-000000000000",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/requests/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/requests/00000000-0000-0000-0000-000000000000",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/requests/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1150,16 +1109,16 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://asset-bundle-registry.interconnected.online/profiles/metadata",
+    "url": "https://asset-bundle-registry.catalyst.example.com/profiles/metadata",
     "method": "OPTIONS",
-    "status": 405,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/asset-bundle-registry/profiles/metadata",
+    "url": "https://gateway.catalyst.example.com/asset-bundle-registry/profiles/metadata",
     "method": "OPTIONS",
     "status": 405,
     "server": "nginx",
@@ -1179,29 +1138,26 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://autotranslate-server.interconnected.online/translate",
+    "url": "https://autotranslate-server.catalyst.example.com/translate",
     "method": "OPTIONS",
-    "status": 404,
+    "status": 204,
     "server": "nginx",
-    "contentType": "text/plain; charset=utf-8",
-    "body": "not found",
-    "routePresent": false
+    "contentType": "",
+    "body": "",
+    "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/autotranslate-server/translate",
+    "url": "https://gateway.catalyst.example.com/autotranslate-server/translate",
     "method": "OPTIONS",
-    "status": 404,
+    "status": 204,
     "server": "nginx",
-    "contentType": "text/html",
-    "body": "<html>\r\n<head><title>404 Not Found</title></head",
-    "routePresent": false
+    "contentType": "",
+    "body": "",
+    "routePresent": true
    },
    "authEvidence": null,
-   "missingForms": [
-    "subdomain",
-    "gateway"
-   ],
-   "pass": false
+   "missingForms": [],
+   "pass": true
   },
   {
    "id": "POST camera-reel-service.decentraland.org /api/images",
@@ -1211,16 +1167,16 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://camera-reel-service.interconnected.online/api/images",
+    "url": "https://camera-reel-service.catalyst.example.com/api/images",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/camera-reel-service/api/images",
+    "url": "https://gateway.catalyst.example.com/camera-reel-service/api/images",
     "method": "OPTIONS",
     "status": 200,
     "server": "nginx",
@@ -1240,16 +1196,16 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://camera-reel-service.interconnected.online/api/places/images",
+    "url": "https://camera-reel-service.catalyst.example.com/api/places/images",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/camera-reel-service/api/places/images",
+    "url": "https://gateway.catalyst.example.com/camera-reel-service/api/places/images",
     "method": "OPTIONS",
     "status": 200,
     "server": "nginx",
@@ -1269,18 +1225,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://credits.interconnected.online/captcha",
+    "url": "https://credits.catalyst.example.com/captcha",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/credits/captcha",
+    "url": "https://gateway.catalyst.example.com/credits/captcha",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1298,18 +1254,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://credits.interconnected.online/credits/authorize",
+    "url": "https://credits.catalyst.example.com/credits/authorize",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/credits/credits/authorize",
+    "url": "https://gateway.catalyst.example.com/credits/credits/authorize",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1327,18 +1283,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://credits.interconnected.online/credits/authorize/cancel",
+    "url": "https://credits.catalyst.example.com/credits/authorize/cancel",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/credits/credits/authorize/cancel",
+    "url": "https://gateway.catalyst.example.com/credits/credits/authorize/cancel",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1356,18 +1312,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://credits.interconnected.online/credits/checkout",
+    "url": "https://credits.catalyst.example.com/credits/checkout",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/credits/credits/checkout",
+    "url": "https://gateway.catalyst.example.com/credits/credits/checkout",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1385,18 +1341,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://credits.interconnected.online/users",
+    "url": "https://credits.catalyst.example.com/users",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/credits/users",
+    "url": "https://gateway.catalyst.example.com/credits/users",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1414,9 +1370,9 @@
    "mapping": "subdomain-only",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://events.interconnected.online/api/events/search",
+    "url": "https://events.catalyst.example.com/api/events/search",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1435,9 +1391,9 @@
    "mapping": "subdomain-only",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://events.interconnected.online/api/events/00000000-0000-0000-0000-000000000000/attendees",
+    "url": "https://events.catalyst.example.com/api/events/00000000-0000-0000-0000-000000000000/attendees",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1456,18 +1412,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://notifications.interconnected.online/subscription/opt-outs",
+    "url": "https://notifications.catalyst.example.com/subscription/opt-outs",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/notifications/subscription/opt-outs",
+    "url": "https://gateway.catalyst.example.com/notifications/subscription/opt-outs",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1485,7 +1441,7 @@
    "mapping": "subdomain-only",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://peer.interconnected.online/content/entities",
+    "url": "https://peer.catalyst.example.com/content/entities",
     "method": "OPTIONS",
     "status": 204,
     "server": "nginx",
@@ -1506,7 +1462,7 @@
    "mapping": "subdomain-only",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://peer.interconnected.online/content/entities/active/",
+    "url": "https://peer.catalyst.example.com/content/entities/active/",
     "method": "OPTIONS",
     "status": 204,
     "server": "nginx",
@@ -1527,7 +1483,7 @@
    "mapping": "subdomain-only",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://peer.interconnected.online/lambdas/profiles",
+    "url": "https://peer.catalyst.example.com/lambdas/profiles",
     "method": "OPTIONS",
     "status": 204,
     "server": "nginx",
@@ -1548,18 +1504,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://places.interconnected.online/api/destinations",
+    "url": "https://places.catalyst.example.com/api/destinations",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/places/api/destinations",
+    "url": "https://gateway.catalyst.example.com/places/api/destinations",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1577,18 +1533,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://places.interconnected.online/api/places",
+    "url": "https://places.catalyst.example.com/api/places",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/places/api/places",
+    "url": "https://gateway.catalyst.example.com/places/api/places",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1606,18 +1562,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://places.interconnected.online/api/report",
+    "url": "https://places.catalyst.example.com/api/report",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/places/api/report",
+    "url": "https://gateway.catalyst.example.com/places/api/report",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1635,18 +1591,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities",
+    "url": "https://social-api.catalyst.example.com/v1/communities",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1664,18 +1620,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/members",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1693,18 +1649,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/members/0x8d6f63e382d73cf53858864f673f39e9ff915a1e/bans",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1722,18 +1678,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/posts",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1751,18 +1707,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/posts/00000000-0000-0000-0000-000000000000/like",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1780,18 +1736,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000/requests",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000/requests",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000/requests",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1809,18 +1765,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/mutes",
+    "url": "https://social-api.catalyst.example.com/v1/mutes",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/mutes",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/mutes",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1838,29 +1794,26 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://transactions-api.interconnected.online/v1/transactions",
+    "url": "https://transactions-api.catalyst.example.com/v1/transactions",
     "method": "OPTIONS",
-    "status": 404,
+    "status": 204,
     "server": "nginx",
-    "contentType": "text/plain; charset=utf-8",
-    "body": "not found",
-    "routePresent": false
+    "contentType": "",
+    "body": "",
+    "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/transactions-api/v1/transactions",
+    "url": "https://gateway.catalyst.example.com/transactions-api/v1/transactions",
     "method": "OPTIONS",
-    "status": 404,
+    "status": 405,
     "server": "nginx",
-    "contentType": "text/html",
-    "body": "<html>\r\n<head><title>404 Not Found</title></head",
-    "routePresent": false
+    "contentType": "",
+    "body": "",
+    "routePresent": true
    },
    "authEvidence": null,
-   "missingForms": [
-    "subdomain",
-    "gateway"
-   ],
-   "pass": false
+   "missingForms": [],
+   "pass": true
   },
   {
    "id": "POST worlds-content-server.decentraland.org /worlds/{v}/comms",
@@ -1870,18 +1823,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://worlds-content-server.interconnected.online/worlds/0/comms",
+    "url": "https://worlds-content-server.catalyst.example.com/worlds/0/comms",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
-    "contentType": "",
-    "body": "",
+    "contentType": "text/html; charset=utf-8",
+    "body": "<!DOCTYPE html><html lang=\"en\"><head><meta charS",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/worlds-content-server/worlds/0/comms",
+    "url": "https://gateway.catalyst.example.com/worlds-content-server/worlds/0/comms",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1899,18 +1852,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://notifications.interconnected.online/notifications/read",
+    "url": "https://notifications.catalyst.example.com/notifications/read",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/notifications/notifications/read",
+    "url": "https://gateway.catalyst.example.com/notifications/notifications/read",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1928,18 +1881,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://notifications.interconnected.online/set-email",
+    "url": "https://notifications.catalyst.example.com/set-email",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/notifications/set-email",
+    "url": "https://gateway.catalyst.example.com/notifications/set-email",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",
@@ -1957,18 +1910,18 @@
    "mapping": "dual",
    "probeMethod": "OPTIONS",
    "subdomain": {
-    "url": "https://social-api.interconnected.online/v1/communities/00000000-0000-0000-0000-000000000000",
+    "url": "https://social-api.catalyst.example.com/v1/communities/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 204,
     "server": "nginx",
     "contentType": "",
     "body": "",
     "routePresent": true
    },
    "gateway": {
-    "url": "https://gateway.interconnected.online/social-api/v1/communities/00000000-0000-0000-0000-000000000000",
+    "url": "https://gateway.catalyst.example.com/social-api/v1/communities/00000000-0000-0000-0000-000000000000",
     "method": "OPTIONS",
-    "status": 200,
+    "status": 405,
     "server": "nginx",
     "contentType": "",
     "body": "",

@@ -1,6 +1,7 @@
 import { isSafeDraftId, type PutDraftInput, type PutResult } from "@data/lib/catalyst/creator-hub/scene-drafts";
 import {
   DraftStoreError,
+  DraftStoreUnavailable,
   getDraft,
   listDrafts,
   putDraft,
@@ -69,14 +70,26 @@ export async function loader({ request, params }: RouteArgs) {
   if (!auth.ok) return json(auth.status, { error: auth.error });
 
   const id = draftId(params);
-  if (!id) {
-    return json(200, { drafts: await listDrafts(auth.wallet) });
-  }
-  if (!isSafeDraftId(id)) return json(400, { error: "invalid draft id" });
+  if (id && !isSafeDraftId(id)) return json(400, { error: "invalid draft id" });
 
-  const draft = await getDraft(auth.wallet, id);
-  if (!draft) return json(404, { error: "draft not found" });
-  return json(200, draft);
+  try {
+    if (!id) {
+      return json(200, { drafts: await listDrafts(auth.wallet) });
+    }
+    const draft = await getDraft(auth.wallet, id);
+    if (!draft) return json(404, { error: "draft not found" });
+    return json(200, draft);
+  } catch (err) {
+    return storeFailure(err);
+  }
+}
+
+function storeFailure(err: unknown): Response {
+  if (err instanceof DraftStoreUnavailable) {
+    console.error("[creator-hub drafts]", err.message);
+    return json(503, { error: err.message }, { "retry-after": "30" });
+  }
+  throw err;
 }
 
 export async function action({ request, params }: RouteArgs) {
@@ -107,7 +120,7 @@ export async function action({ request, params }: RouteArgs) {
     if (err instanceof DraftStoreError) {
       return json(400, { error: err.message });
     }
-    throw err;
+    return storeFailure(err);
   }
 
   return json(result.ok ? 200 : 409, result);

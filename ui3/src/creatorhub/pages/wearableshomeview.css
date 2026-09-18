@@ -56,16 +56,6 @@
   font-size: 13px;
 }
 
-.cwh__notebox {
-  border: 1px solid var(--fill-4);
-  background: var(--fill-2);
-  color: var(--ink-85);
-  border-radius: var(--r-control);
-  padding: 10px 14px;
-  margin-bottom: 14px;
-  font-size: 13px;
-}
-
 .cwh__tabs {
   display: flex;
   gap: 6px;

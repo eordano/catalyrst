@@ -44,7 +44,7 @@ const SubmitHubSchema = z.object({
 
 export type SubmitChooser = z.infer<typeof ChooserSchema>;
 export type SubmitGroup = z.infer<typeof GroupSchema>;
-export type SubmitHub = z.infer<typeof SubmitHubSchema>;
+type SubmitHub = z.infer<typeof SubmitHubSchema>;
 
 const FALLBACK: SubmitHub = {
   page: { title: "Submit Proposal", lead: "Select a proposal category to get started" },

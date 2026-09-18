@@ -44,7 +44,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const sortRaw = url.searchParams.get("sort")?.trim() ?? "";
   const sort = SORTS.has(sortRaw) ? sortRaw : "update_timestamp";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,

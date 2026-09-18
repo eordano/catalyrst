@@ -26,7 +26,7 @@ export type MintFn = (args: {
   signal?: AbortSignal;
 }) => Promise<MintResult>;
 
-export type CreateCollectionInput = {
+type CreateCollectionInput = {
   trackCtx: TrackContext;
   type?: CollectionType;
   feePerItem?: number;
@@ -34,7 +34,7 @@ export type CreateCollectionInput = {
   track?: TrackFn;
 };
 
-export type CreateCollectionContext = {
+type CreateCollectionContext = {
   trackCtx: TrackContext;
   feePerItem: number;
   mint: MintFn;
@@ -46,7 +46,7 @@ export type CreateCollectionContext = {
   error?: string;
 };
 
-export type CreateCollectionEvent =
+type CreateCollectionEvent =
   | { type: "SUBMIT_NAME"; name: string }
   | { type: "ADD_ITEMS"; items: DraftItem[] }
   | { type: "SUBMIT" }
@@ -63,7 +63,7 @@ export const CREATE_COLLECTION_EVENTS = {
   completed: "bd_create_collection_completed",
 } as const;
 
-export const DEFAULT_FEE_PER_ITEM = 100;
+const DEFAULT_FEE_PER_ITEM = 100;
 
 export const ACCEPTED_FILE_EXTENSIONS = [".zip", ".gltf", ".glb", ".png"] as const;
 
@@ -98,8 +98,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type CreateStateId = keyof typeof STATE_TO_SLUG;
-export type CreateStepSlug = (typeof STATE_TO_SLUG)[CreateStateId];
+type CreateStateId = keyof typeof STATE_TO_SLUG;
+type CreateStepSlug = (typeof STATE_TO_SLUG)[CreateStateId];
 
 export const FIRST_STEP_SLUG: CreateStepSlug = STATE_TO_SLUG.naming;
 
@@ -306,8 +306,6 @@ export const createCollectionMachine = setup({
     },
   },
 });
-
-export type CreateCollectionMachine = typeof createCollectionMachine;
 
 export function resolveCreateSnapshot(args: {
   step: CreateStateId;

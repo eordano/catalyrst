@@ -178,6 +178,65 @@ async fn reserve_enforces_daily_limit_and_release_refunds_a_slot() {
 }
 
 #[tokio::test]
+async fn concurrent_reservations_never_exceed_the_limit() {
+    let Some((pool, schema, admin_url)) = setup_db().await else {
+        return;
+    };
+    let tc = std::sync::Arc::new(component(pool.clone()));
+    let addr = "0xcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcCcC";
+    const MAX: i64 = 3;
+    const ATTEMPTS: i64 = 8;
+
+    let tasks: Vec<_> = (0..ATTEMPTS)
+        .map(|_| {
+            let tc = tc.clone();
+            tokio::spawn(async move {
+                tc.reserve_quota(MAX, &sender(addr), &Uuid::new_v4().to_string())
+                    .await
+            })
+        })
+        .collect();
+
+    let (mut reserved, mut refused) = (0, 0);
+    for task in tasks {
+        match task.await.expect("task") {
+            Ok(()) => reserved += 1,
+            Err(ApiError::QuotaReached(msg)) => {
+                assert!(msg.ends_with(&format!("Quota: {MAX}")), "{msg}");
+                refused += 1;
+            }
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
+    }
+    assert_eq!(
+        reserved, MAX,
+        "exactly MAX reservations land under contention"
+    );
+    assert_eq!(refused, ATTEMPTS - MAX);
+    assert_eq!(row_count(&pool, addr).await, MAX);
+
+    cleanup(&admin_url, &schema).await;
+}
+
+#[tokio::test]
+async fn reservation_refuses_a_non_canonical_session_id() {
+    let Some((pool, schema, admin_url)) = setup_db().await else {
+        return;
+    };
+    let tc = component(pool.clone());
+    let addr = "0xdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdDdD";
+
+    let err = tc
+        .reserve_quota(10, &sender(addr), "x'; DELETE FROM transactions; --")
+        .await
+        .expect_err("a session id outside [A-Za-z0-9-] is refused before any SQL runs");
+    assert!(matches!(err, ApiError::Internal(_)), "{err:?}");
+    assert_eq!(row_count(&pool, addr).await, 0);
+
+    cleanup(&admin_url, &schema).await;
+}
+
+#[tokio::test]
 async fn reservations_are_isolated_per_user() {
     let Some((pool, schema, admin_url)) = setup_db().await else {
         return;

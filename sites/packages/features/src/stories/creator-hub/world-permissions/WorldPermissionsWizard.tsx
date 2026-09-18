@@ -25,7 +25,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type WorldPermissionsWizardProps = {
+type WorldPermissionsWizardProps = {
   trackCtx: TrackContext;
   data: WorldPermissions;
   initialStep?: string;
@@ -271,7 +271,7 @@ function InviteSurface() {
 const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MIN_NUMBERS = 2;
 
-export function isValidWorldPassword(password: string, confirm: string): boolean {
+function isValidWorldPassword(password: string, confirm: string): boolean {
   return (
     password.length >= PASSWORD_MIN_LENGTH &&
     (password.match(/\d/g) ?? []).length >= PASSWORD_MIN_NUMBERS &&

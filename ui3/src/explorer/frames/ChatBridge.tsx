@@ -1,8 +1,18 @@
 import { useMemo } from "react";
 
-import { sendBridge, useBridgeState } from "../../overlay/bridge";
+import { sendBridge, subscribeBridge, useBridgeState } from "../../overlay/bridge";
 import ProfileCard from "../components/ProfileCard";
 import { ChatView, type ChatIo } from "./Chat";
+import type { ConsoleLine, ConsoleSource } from "./chatCommands";
+
+function isChatPush(push: unknown): push is ConsoleLine & { kind: "chat" } {
+  return typeof push === "object" && push !== null && (push as { kind?: unknown }).kind === "chat";
+}
+
+const consoleSource: ConsoleSource = (listener) =>
+  subscribeBridge((push) => {
+    if (isChatPush(push)) listener(push);
+  });
 
 export default function Chat(props: {
   open: boolean;
@@ -22,6 +32,7 @@ export default function Chat(props: {
       live,
       me: identity.address ? { address: identity.address, name: identity.name } : null,
       send: (message) => sendBridge("SendChat", { channel: "Nearby", message }),
+      console: live ? consoleSource : undefined,
       teleport: (x, z) => sendBridge("Teleport", { x, z }),
       changeRealm: (realm) => sendBridge("ChangeRealm", { realm }),
     }),

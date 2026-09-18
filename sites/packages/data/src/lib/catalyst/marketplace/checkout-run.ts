@@ -15,7 +15,7 @@ export const POLL_MAX = 60;
 
 export type CancelTarget = { label: string; href: string };
 
-export type GetSigned = () => SignedPurchaseIntent | null;
+type GetSigned = () => SignedPurchaseIntent | null;
 export type CreateRun = (getSigned: GetSigned) => FulfillFn;
 
 export type FreshLines = { totalCredits: string; intentLines: IntentLine[] };
@@ -31,7 +31,7 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-export async function pollToTerminal(
+async function pollToTerminal(
   identity: AuthIdentity,
   start: { id: number; status: string },
   signal?: AbortSignal,

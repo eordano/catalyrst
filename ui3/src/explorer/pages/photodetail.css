@@ -11,22 +11,6 @@
   display: flex; align-items: center; justify-content: center;
 }
 .pd__close:hover { color: #fff; }
-.pd__toolbar { position: absolute; top: 18px; right: 18px; z-index: 4; display: flex; align-items: center; gap: 13px; }
-.pd__tool {
-  background: transparent; border: none; color: #fff; cursor: pointer; opacity: .9;
-  display: flex; align-items: center; justify-content: center; padding: 0;
-}
-.pd__tool:hover { opacity: 1; }
-.pd__toolsep { width: 1px; height: 18px; background: rgba(255,255,255,.35); }
-.pd__nav {
-  position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
-  width: 30px; height: 48px; cursor: pointer; font-size: 30px; line-height: 1;
-  background: transparent; border: none; color: rgba(255,255,255,.7);
-  display: flex; align-items: center; justify-content: center; padding: 0;
-}
-.pd__nav:hover { color: #fff; }
-.pd__nav--prev { left: 8px; }
-.pd__nav--next { right: 8px; }
 
 .pd__info {
   flex: 0 0 380px; min-width: 0; height: 100%; overflow: auto;
@@ -55,11 +39,6 @@
 .pd__personhead { display: flex; align-items: center; gap: 10px; }
 .pd__pname { flex: 1; font-size: var(--fs-md); font-weight: 700; color: var(--text); }
 .pd__ptag { color: rgba(255,255,255,.35); }
-.pd__pview {
-  background: var(--fill-3); border: none; color: #fff; cursor: pointer;
-  font-family: inherit; font-size: var(--fs-xs); font-weight: 700; padding: 6px 11px; border-radius: var(--r-pill);
-}
-.pd__pview:hover { background: rgba(255,255,255,.16); }
 
 .pd__weartitle {
   margin: 14px 0 8px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: .05em;
@@ -77,7 +56,6 @@
 }
 .pd__wearinfo { flex: 1; min-width: 0; }
 .pd__wearname { font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
-.pd__wearrarity { font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: .03em; margin-top: 1px; }
 .pd__buy {
   flex: 0 0 auto; background: var(--brand); color: #fff; border: none; cursor: pointer;
   font-family: inherit; font-size: var(--fs-xs); font-weight: 800; padding: 7px 14px; border-radius: var(--r-pill);

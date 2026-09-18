@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 describe("bridge store teardown", () => {
-  it("keeps the live state across an unmount/remount pair (StrictMode)", () => {
+  it("keeps the live state across an unmount/remount pair (StrictMode) but resets to the offline snapshot once zero listeners survive a tick", async () => {
     const bridge = new FakeBridge();
     window.dclBridge = bridge;
     const first = renderHook(() => useBridgeState());
@@ -33,24 +33,14 @@ describe("bridge store teardown", () => {
     const second = renderHook(() => useBridgeState());
     expect(second.result.current.identity.name).toBe("Neo");
     expect(bridge.subscriberCount).toBe(1);
-    second.unmount();
-  });
 
-  it("resets to the offline snapshot once zero listeners survive a tick", async () => {
-    const bridge = new FakeBridge();
-    window.dclBridge = bridge;
-    const hook = renderHook(() => useBridgeState());
-    act(() => {
-      bridge.push({ ...IDENTITY });
-    });
-    hook.unmount();
+    second.unmount();
     await tick();
     expect(bridge.subscriberCount).toBe(0);
-
-    const again = renderHook(() => useBridgeState());
-    expect(again.result.current.identity.name).toBe("Guest");
+    const third = renderHook(() => useBridgeState());
+    expect(third.result.current.identity.name).toBe("Guest");
     expect(bridge.subscriberCount).toBe(1);
-    again.unmount();
+    third.unmount();
   });
 
   it("re-attaches when the bridge global is replaced", () => {

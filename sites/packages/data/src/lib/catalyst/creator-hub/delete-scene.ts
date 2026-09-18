@@ -10,7 +10,7 @@ import {
 
 const PARCEL_RE = /^-?\d+,-?\d+$/;
 
-export type SceneDeletionInput = {
+type SceneDeletionInput = {
   pointers: string[];
   base?: string;
   timestamp?: number;
@@ -63,7 +63,7 @@ export async function buildSceneDeletion(
   });
 }
 
-export type ActiveScene = {
+type ActiveScene = {
   id: string;
   pointers: string[];
   timestamp: number;
@@ -88,11 +88,11 @@ export async function resolveActiveScene(
   };
 }
 
-export type DeleteSceneResult =
+type DeleteSceneResult =
   | { ok: true; status: number; tombstoneId: string; overrode: string[] }
   | { ok: false; status: number; errors: string[] };
 
-export type DeleteSceneOptions = DeployOptions & {
+type DeleteSceneOptions = DeployOptions & {
   expectedOwner?: string;
 };
 

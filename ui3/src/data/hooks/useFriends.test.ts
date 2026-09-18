@@ -25,59 +25,35 @@ function friendsPush(over: Partial<FriendsPush> = {}): FriendsPush {
 }
 
 describe("adaptBridgeFriends", () => {
-  test("maps a friends push carrying blockedByMe addresses into the blocked list", () => {
-    const blockedByMe = ["0xdef0000000000000000000000000000000000002"];
+  test("the blocked list holds only blockedByMe addresses, with the full friend shape when known and address-only otherwise", () => {
+    const stranger = "0xdef0000000000000000000000000000000000002";
     const data = normalizeFriends(
-      adaptBridgeFriends(friendsPush({ blocked: blockedByMe, blockedByMe })),
+      adaptBridgeFriends(friendsPush({ blocked: [stranger], blockedByMe: [stranger] })),
     );
     expect(data.blocked).toHaveLength(1);
-    expect(data.blocked[0]).toMatchObject({
-      address: "0xdef0000000000000000000000000000000000002",
-      tag: "#0002",
-    });
+    expect(data.blocked[0]).toMatchObject({ address: stranger, tag: "#0002", name: "unknown", profilePictureUrl: "" });
     expect(data.friends).toHaveLength(1);
-  });
 
-  test("a blocked address still present in the friends push keeps its full shape", () => {
     const address = "0xABC0000000000000000000000000000000000001";
-    const data = normalizeFriends(
+    const known = normalizeFriends(
       adaptBridgeFriends(friendsPush({ blocked: [address], blockedByMe: [address] })),
     );
-    expect(data.blocked).toHaveLength(1);
-    expect(data.blocked[0]).toMatchObject({
+    expect(known.blocked).toHaveLength(1);
+    expect(known.blocked[0]).toMatchObject({
       address,
       name: "Ada",
       hasClaimedName: true,
       profilePictureUrl: "https://peer.example/face.png",
     });
-  });
 
-  test("a blocked address with no friend entry degrades to address-only", () => {
-    const stranger = "0xdef0000000000000000000000000000000000009";
-    const data = normalizeFriends(
-      adaptBridgeFriends(friendsPush({ blocked: [stranger], blockedByMe: [stranger] })),
-    );
-    expect(data.blocked[0]).toMatchObject({
-      address: stranger,
-      name: "unknown",
-      profilePictureUrl: "",
-    });
-  });
-
-  test("a by-them-only address in the union blocked field never reaches the panel list", () => {
     const byThemOnly = "0xdef0000000000000000000000000000000000003";
-    const data = normalizeFriends(
-      adaptBridgeFriends(friendsPush({ blocked: [byThemOnly], blockedByMe: [] })),
-    );
-    expect(data.blocked).toEqual([]);
+    expect(
+      normalizeFriends(adaptBridgeFriends(friendsPush({ blocked: [byThemOnly], blockedByMe: [] }))).blocked,
+    ).toEqual([]);
   });
 
-  test("a push without the optional blocked fields yields an empty blocked list", () => {
-    const data = normalizeFriends(adaptBridgeFriends(friendsPush()));
-    expect(data.blocked).toEqual([]);
-  });
-
-  test("a null push adapts to null", () => {
+  test("a push without the optional blocked fields yields an empty blocked list and a null push adapts to null", () => {
+    expect(normalizeFriends(adaptBridgeFriends(friendsPush())).blocked).toEqual([]);
     expect(adaptBridgeFriends(null)).toBeNull();
   });
 });

@@ -17,7 +17,7 @@ export type DelegateFn = (args: {
   signal?: AbortSignal;
 }) => Promise<DelegateReceipt>;
 
-export type DelegateInput = {
+type DelegateInput = {
   trackCtx: TrackContext;
   space: string;
   vp: number | null;
@@ -28,7 +28,7 @@ export type DelegateInput = {
   track?: TrackFn;
 };
 
-export type DelegateContext = {
+type DelegateContext = {
   trackCtx: TrackContext;
   space: string;
   vp: number | null;
@@ -41,7 +41,7 @@ export type DelegateContext = {
   error?: string;
 };
 
-export type DelegateEvent =
+type DelegateEvent =
   | { type: "PICK_CANDIDATE"; id: string; address: string; name: string }
   | { type: "CONFIRM" }
   | { type: "SIGN" }
@@ -65,8 +65,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type DelegateStateId = keyof typeof STATE_TO_SLUG;
-export type DelegateStepSlug = (typeof STATE_TO_SLUG)[DelegateStateId];
+type DelegateStateId = keyof typeof STATE_TO_SLUG;
+type DelegateStepSlug = (typeof STATE_TO_SLUG)[DelegateStateId];
 
 export const FIRST_STEP_SLUG: DelegateStepSlug = STATE_TO_SLUG.browsing;
 
@@ -217,8 +217,6 @@ export const delegateMachine = setup({
     },
   },
 });
-
-export type DelegateMachine = typeof delegateMachine;
 
 export function resolveDelegateSnapshot(args: {
   step: DelegateStateId;

@@ -54,7 +54,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     throw new Response(null, { status: 404, statusText: "Not Found" });
   }
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,

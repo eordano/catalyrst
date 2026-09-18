@@ -116,11 +116,7 @@ pub async fn get_curation_collections(
     .await?;
 
     let (committee, collections) = match &state.marketplace {
-        Some(mp) => {
-            let committee = mp.committee_members().await?;
-            let collections = mp.collections_under_review().await?;
-            (committee, collections)
-        }
+        Some(mp) => tokio::try_join!(mp.committee_members(), mp.collections_under_review())?,
         None => (Vec::new(), Vec::new()),
     };
 

@@ -362,10 +362,6 @@ export type GovernanceEvents = {
     request: "add" | "remove";
   };
   gv_profile_delegate_clicked: Record<string, never>;
-  gv_profile_proposal_clicked: {
-    proposal_id: string;
-    tab: "coauthoring" | "proposals" | "watchlist";
-  };
   gv_profile_tab_changed: {
     from_tab: "coauthoring" | "proposals" | "watchlist";
     to_tab: "coauthoring" | "proposals" | "watchlist";
@@ -505,12 +501,6 @@ export type GovernanceEvents = {
   gv_tender_vp_gated: {
     threshold: number;
     voting_power: number;
-  };
-  gv_transparency_committee_expanded: {
-    card: "expenses" | "income";
-  };
-  gv_transparency_dashboard_clicked: {
-    href: string;
   };
   gv_transparency_viewed: {
     committees: number;

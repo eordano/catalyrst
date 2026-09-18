@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { CatalystError, getJSON, worldsBase } from "../client";
 import type { GetOptions } from "../client";
+import { StatusResponseSchema } from "../generated-schemas/worlds";
 import { worldsApiPath } from "../typed";
 import { ETH_ADDRESS_RE } from "../format/address";
 
@@ -16,22 +17,42 @@ export function shortAddress(addr: string | null | undefined): string {
   return ETH_ADDRESS_RE.test(a) ? `${a.slice(0, 6)}\u{2026}${a.slice(-4)}` : a;
 }
 
-export const OwnedNameSchema = z.object({
+const WORLD_SUFFIX = ".dcl.eth";
+
+export function personalWorldName(
+  address: string | null | undefined,
+): string | null {
+  const addr = normalizeAddress(address);
+  return ETH_ADDRESS_RE.test(addr) ? `${addr}${WORLD_SUFFIX}` : null;
+}
+
+export function isPersonalWorld(worldName: string): boolean {
+  const label = worldName
+    .trim()
+    .toLowerCase()
+    .replace(/\.dcl\.eth$/, "");
+  return ETH_ADDRESS_RE.test(label);
+}
+
+const OwnedNameSchema = z.object({
   name: z.string(),
-  contractAddress: z.string().nullish().transform((v) => v ?? null),
+  contractAddress: z
+    .string()
+    .nullish()
+    .transform((v) => v ?? null),
   tokenId: z
     .union([z.string(), z.number()])
     .nullish()
     .transform((v) => (v == null ? null : String(v))),
 });
-export type OwnedName = z.infer<typeof OwnedNameSchema>;
+type OwnedName = z.infer<typeof OwnedNameSchema>;
 
 const NamesEnvelopeSchema = z.object({
   elements: z.array(z.unknown()),
   totalAmount: z.number(),
 });
 
-export type OwnedNamesPage = {
+type OwnedNamesPage = {
   elements: OwnedName[];
   total: number;
 };
@@ -59,20 +80,48 @@ export async function fetchOwnedNames(
   return { elements, total: parsed.data.totalAmount };
 }
 
-const WorldsStatusSchema = z.object({
-  ok: z.boolean().nullish(),
-});
+export type WorldsRealm = {
+  online: boolean;
+  personalWorlds: boolean;
+};
 
-export async function fetchWorldsOnline(opts: GetOptions = {}): Promise<boolean> {
+export const WORLDS_REALM_UNKNOWN: WorldsRealm = {
+  online: false,
+  personalWorlds: false,
+};
+
+const realmByRequest = new WeakMap<AbortSignal, Promise<WorldsRealm>>();
+
+// One realm status read per request; a rejected read is not retained.
+export function fetchWorldsRealm(opts: GetOptions = {}): Promise<WorldsRealm> {
+  const signal = opts.signal;
+  if (!signal || opts.fetchImpl || opts.base) return fetchWorldsRealmLive(opts);
+  const memo = realmByRequest.get(signal);
+  if (memo) return memo;
+  const p = fetchWorldsRealmLive(opts).then(
+    (realm) => realm,
+    (err: unknown) => {
+      realmByRequest.delete(signal);
+      throw err;
+    },
+  );
+  realmByRequest.set(signal, p);
+  return p;
+}
+
+async function fetchWorldsRealmLive(opts: GetOptions): Promise<WorldsRealm> {
   const raw = await getJSON<unknown>(worldsApiPath("get", "/status"), {
     ...opts,
     base: worldsBase(),
   });
-  const parsed = WorldsStatusSchema.safeParse(raw);
-  return !parsed.success || parsed.data.ok !== false;
+  const parsed = StatusResponseSchema.safeParse(raw);
+  return {
+    online: true,
+    personalWorlds: parsed.success && parsed.data.personalWorlds != null,
+  };
 }
 
-export type WorldInfo = {
+type WorldInfo = {
   title: string;
   scenes: number;
   sizeMb: number;
@@ -85,6 +134,17 @@ export type DeployName = {
   world: WorldInfo;
 };
 
+export function withPersonalWorld(
+  address: string | null | undefined,
+  names: ReadonlyArray<DeployName>,
+  offered: boolean,
+): DeployName[] {
+  const personal = offered ? personalWorldName(address) : null;
+  if (!personal || names.some((n) => n.name.toLowerCase() === personal))
+    return [...names];
+  return [...names, { name: personal, provider: "dcl", world: null }];
+}
+
 export type DeployFile = { name: string; size: number };
 
 export type DeployWorldData = {
@@ -92,6 +152,7 @@ export type DeployWorldData = {
   names: DeployName[];
   liveEmpty: boolean;
   worldsOnline: boolean | null;
+  personalWorlds: boolean;
   project: { title: string; size: string; grad: string };
   files: DeployFile[];
   maxFileSizeMb: number;
@@ -109,8 +170,13 @@ export function totalBytes(files: ReadonlyArray<DeployFile>): number {
   return files.reduce((t, f) => t + (f.size || 0), 0);
 }
 
-export function exceedsQuota(files: ReadonlyArray<DeployFile>, maxMb = MAX_FILE_SIZE_MB): boolean {
-  return totalBytes(files) > maxMb * 1e6 || files.some((f) => f.size > maxMb * 1e6);
+export function exceedsQuota(
+  files: ReadonlyArray<DeployFile>,
+  maxMb = MAX_FILE_SIZE_MB,
+): boolean {
+  return (
+    totalBytes(files) > maxMb * 1e6 || files.some((f) => f.size > maxMb * 1e6)
+  );
 }
 
 export function formatSize(size: number): string {

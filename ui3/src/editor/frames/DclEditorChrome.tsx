@@ -51,7 +51,7 @@ function formatElapsed(seconds: number): string {
 
 export type EditorEngineStatus = "connecting" | "online" | "offline";
 
-export interface DclEditorChromeProps {
+interface DclEditorChromeProps {
   children?: ReactNode;
   viewportSrc?: string | null;
   viewportRef?: RefObject<HTMLIFrameElement | null> | null;

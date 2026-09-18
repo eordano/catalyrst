@@ -1,6 +1,7 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use catalyrst_envcfg::{get_port, required, required_endpoint};
 use std::env;
+use std::path::PathBuf;
 
 pub struct Config {
     pub http_host: String,
@@ -9,6 +10,8 @@ pub struct Config {
 
     pub marketplace_database_url: Option<String>,
     pub content_bucket_url: String,
+    pub catalog_dir: Option<PathBuf>,
+    pub catalog_pull_cache_bytes: u64,
     pub admin_addresses: Vec<String>,
     pub newsletter_service_url: Option<String>,
     pub newsletter_publication_id: Option<String>,
@@ -32,6 +35,12 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             content_bucket_url: required_endpoint("BUILDER_CONTENT_BUCKET_URL")?,
+            catalog_dir: env::var("BUILDER_CATALOG_DIR")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from),
+            catalog_pull_cache_bytes: pull_cache_bytes()?,
             admin_addresses,
             newsletter_service_url: env::var("NEWSLETTER_SERVICE_URL")
                 .ok()
@@ -47,4 +56,14 @@ impl Config {
                 .filter(|s| !s.is_empty()),
         })
     }
+}
+
+fn pull_cache_bytes() -> Result<u64> {
+    let raw = env::var("BUILDER_CATALOG_PULL_CACHE_BYTES").unwrap_or_default();
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(0);
+    }
+    raw.parse::<u64>()
+        .with_context(|| format!("invalid BUILDER_CATALOG_PULL_CACHE_BYTES: {raw:?}"))
 }

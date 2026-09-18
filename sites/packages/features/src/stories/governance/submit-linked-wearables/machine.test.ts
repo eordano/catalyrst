@@ -69,108 +69,6 @@ const EXPECTED_STATES = new Set([
   "error",
 ]);
 
-describe("submitLwMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(submitLwMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.identity);
-    expect(slugToState(null)).toBe("identity");
-    expect(slugToState(undefined)).toBe("identity");
-    expect(slugToState("")).toBe("identity");
-    expect(slugToState("nope")).toBe("identity");
-    expect(slugToState("collection")).toBe("collection");
-    expect(slugToState("technical")).toBe("technical");
-    expect(slugToState("review")).toBe("review");
-    expect(slugToState("submitting")).toBe("submitting");
-    expect(slugToState("success")).toBe("success");
-    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
-});
-
-describe("submitLwMachine \u{2014} deep-link hydration", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveLwSnapshot({
-      step: "identity",
-      trackCtx: inputFor(okCreate, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submitting does NOT fire telemetry and does NOT auto-submit", async () => {
-    const track = vi.fn();
-    const create = vi.fn(okCreate);
-    const snapshot = resolveLwSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(create, track).trackCtx,
-      create,
-      track,
-    });
-    const actor = createActor(submitLwMachine, {
-      input: inputFor(create, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-
-    await Promise.resolve();
-    expect(track).not.toHaveBeenCalled();
-    expect(create).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
-
-  it("hydrating review does NOT fire trackReviewReached (no entry-action replay)", () => {
-    const track = vi.fn();
-    const snapshot = resolveLwSnapshot({
-      step: "review",
-      trackCtx: inputFor(okCreate, track).trackCtx,
-      track,
-    });
-    const actor = createActor(submitLwMachine, {
-      input: inputFor(okCreate, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("review")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveLwSnapshot({
-      step: "technical",
-      trackCtx: inputFor(okCreate, track).trackCtx,
-      track,
-    });
-    const actor = createActor(submitLwMachine, {
-      input: inputFor(okCreate, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("technical")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "FILL_TECHNICAL", technical: VALID_TECHNICAL });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(LW_EVENTS.technicalFilled);
-    expect(events).toContain(LW_EVENTS.reviewReached);
-  });
-});
-
 const TRAVERSAL_EVENTS = [
   { type: "FILL_IDENTITY" as const, identity: VALID_IDENTITY },
   { type: "FILL_COLLECTION" as const, collection: VALID_COLLECTION },
@@ -180,8 +78,71 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
+describe("submitLwMachine \u{2014} URL ?step slug map", () => {
+  it("covers every state, round-trips uniquely, and falls back to the first step", () => {
+    const machineStates = new Set(Object.keys(submitLwMachine.states));
+    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mappedStates).toEqual(machineStates);
+    expect(mappedStates).toEqual(EXPECTED_STATES);
+
+    const slugs = Object.values(STATE_TO_SLUG);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
+    }
+
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.identity);
+    for (const bad of [null, undefined, "", "nope"]) {
+      expect(slugToState(bad)).toBe("identity");
+    }
+    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
+  });
+});
+
+describe("submitLwMachine \u{2014} deep-link hydration", () => {
+  it("first step boots from initial; later steps hydrate silently; only real transitions fire telemetry", async () => {
+    const track = vi.fn();
+    const create = vi.fn(okCreate);
+    const input = inputFor(create, track);
+
+    expect(resolveLwSnapshot({ step: "identity", trackCtx: input.trackCtx })).toBeUndefined();
+
+    const submitting = createActor(submitLwMachine, {
+      input,
+      snapshot: resolveLwSnapshot({ step: "submitting", trackCtx: input.trackCtx, create, track }),
+    }).start();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    await Promise.resolve();
+    expect(track).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+
+    const review = createActor(submitLwMachine, {
+      input,
+      snapshot: resolveLwSnapshot({ step: "review", trackCtx: input.trackCtx, track }),
+    }).start();
+    expect(review.getSnapshot().matches("review")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+
+    const technical = createActor(submitLwMachine, {
+      input,
+      snapshot: resolveLwSnapshot({ step: "technical", trackCtx: input.trackCtx, track }),
+    }).start();
+    expect(technical.getSnapshot().matches("technical")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+
+    technical.send({ type: "FILL_TECHNICAL", technical: VALID_TECHNICAL });
+    expect(technical.getSnapshot().matches("review")).toBe(true);
+    const events = track.mock.calls.map((c) => c[0]);
+    expect(events).toContain(LW_EVENTS.technicalFilled);
+    expect(events).toContain(LW_EVENTS.reviewReached);
+  });
+});
+
 describe("submitLwMachine \u{2014} model-based path coverage", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and review needs all three form steps", () => {
     const paths = getShortestPaths(submitLwMachine, {
       input: inputFor(okCreate, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -193,24 +154,16 @@ describe("submitLwMachine \u{2014} model-based path coverage", () => {
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("identity")).toBe(true);
-    expect(ends.has("collection")).toBe(true);
-    expect(ends.has("technical")).toBe(true);
-    expect(ends.has("review")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
+    for (const s of ["identity", "collection", "technical", "review", "submitting"]) {
+      expect(ends.has(s)).toBe(true);
+    }
 
-  it("reaching review passes through all three form steps", () => {
-    const paths = getShortestPaths(submitLwMachine, {
-      input: inputFor(okCreate, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const review = paths.find((p) => (p.state.value as string) === "review");
     expect(review).toBeDefined();
     const events = review!.steps.map((s) => s.event.type);
-    expect(events).toContain("FILL_IDENTITY");
-    expect(events).toContain("FILL_COLLECTION");
-    expect(events).toContain("FILL_TECHNICAL");
+    expect(events).toEqual(
+      expect.arrayContaining(["FILL_IDENTITY", "FILL_COLLECTION", "FILL_TECHNICAL"]),
+    );
   });
 });
 
@@ -238,14 +191,17 @@ describe("submitLwMachine \u{2014} telemetry (happy path)", () => {
     await waitFor(actor, (s) => s.matches("success"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(LW_EVENTS.started);
-    expect(events).toContain(LW_EVENTS.identityFilled);
-    expect(events).toContain(LW_EVENTS.collectionFilled);
-    expect(events).toContain(LW_EVENTS.technicalFilled);
-    expect(events).toContain(LW_EVENTS.reviewReached);
-    expect(events).toContain(LW_EVENTS.submitting);
-    expect(events).toContain(LW_EVENTS.submitted);
-
+    expect(events).toEqual(
+      expect.arrayContaining([
+        LW_EVENTS.started,
+        LW_EVENTS.identityFilled,
+        LW_EVENTS.collectionFilled,
+        LW_EVENTS.technicalFilled,
+        LW_EVENTS.reviewReached,
+        LW_EVENTS.submitting,
+        LW_EVENTS.submitted,
+      ]),
+    );
     expect(events.indexOf(LW_EVENTS.reviewReached)).toBeLessThan(
       events.indexOf(LW_EVENTS.submitted),
     );
@@ -264,7 +220,7 @@ describe("submitLwMachine \u{2014} telemetry (happy path)", () => {
 });
 
 describe("submitLwMachine \u{2014} validation guardrail", () => {
-  it("an invalid identity stays on identity, fires gv_lw_validation_error, no advance", () => {
+  it("an invalid identity stays put with gv_lw_validation_error; a programmatic collection needs Method on the technical step", () => {
     const track = vi.fn();
     const actor = createActor(submitLwMachine, {
       input: inputFor(okCreate, track),
@@ -274,29 +230,21 @@ describe("submitLwMachine \u{2014} validation guardrail", () => {
       type: "FILL_IDENTITY",
       identity: { name: "", marketplaceLink: "not-a-url", links: [""] },
     });
-
     expect(actor.getSnapshot().matches("identity")).toBe(true);
     const events = track.mock.calls.map((c) => c[0]);
     expect(events).toContain(LW_EVENTS.validationError);
     expect(events).not.toContain(LW_EVENTS.started);
-
     const errs = actor.getSnapshot().context.errors;
     expect(errs.name).toBeTruthy();
     expect(errs.marketplace_link).toBeTruthy();
     expect(errs.links).toBeTruthy();
-
     const errCall = track.mock.calls.find((c) => c[0] === LW_EVENTS.validationError);
     expect(errCall?.[1]).toMatchObject({ step: "identity" });
-  });
-
-  it("a programmatic collection requires Method on the technical step", () => {
-    const track = vi.fn();
-    const actor = createActor(submitLwMachine, {
-      input: inputFor(okCreate, track),
-    }).start();
 
     actor.send({ type: "FILL_IDENTITY", identity: VALID_IDENTITY });
+    expect(actor.getSnapshot().matches("collection")).toBe(true);
     actor.send({ type: "FILL_COLLECTION", collection: VALID_COLLECTION });
+    expect(actor.getSnapshot().matches("technical")).toBe(true);
 
     actor.send({
       type: "FILL_TECHNICAL",

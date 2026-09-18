@@ -3,7 +3,7 @@ import type { MpBotRow, MpRunPhase, MpTimelineEntry } from "./types";
 
 import "./mpliverunview.css";
 
-export type MpLiveRunViewProps = {
+type MpLiveRunViewProps = {
   runId: string;
   lane: MpLane;
   phase: MpRunPhase;

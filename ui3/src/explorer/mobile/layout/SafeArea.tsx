@@ -2,21 +2,21 @@ import type { CSSProperties, ReactNode } from "react";
 import "./viewport.css";
 import "./layout.css";
 
-export type SafeAreaEdges = {
+type SafeAreaEdges = {
   top?: boolean;
   right?: boolean;
   bottom?: boolean;
   left?: boolean;
 };
 
-export type SafeAreaMinMargins = {
+type SafeAreaMinMargins = {
   top?: number;
   right?: number;
   bottom?: number;
   left?: number;
 };
 
-export type SafeAreaProps = {
+type SafeAreaProps = {
   children?: ReactNode;
   defaultMargin?: number;
   edges?: SafeAreaEdges;

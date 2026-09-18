@@ -2,22 +2,20 @@ import type { GetOptions } from "../client";
 import { shortAddress } from "../format/address";
 import { MembersEnvelopeSchema } from "../generated-schemas/governance";
 import { governanceApiBase } from "./api-base";
+import { ttlMemo } from "../../ttl-memo";
 
-export type CommitteeMember = {
+type CommitteeMember = {
   name: string;
   address: string;
   addressShort: string;
   hue: number;
 };
 
-export type Committee = {
+type Committee = {
   name: string;
   description: string;
   members: CommitteeMember[];
 };
-
-export type MonthlyDetail = { name: string; value: number; description: string };
-export type MonthlyTotal = { total: number; previous: number; details: MonthlyDetail[] };
 
 export type TransparencyData = {
   source: "live" | "empty" | "error";
@@ -53,9 +51,21 @@ function titleCase(s: string): string {
     .join(" ");
 }
 
-export async function loadTransparencyData(
-  opts: GetOptions = {},
-): Promise<TransparencyData> {
+const TRANSPARENCY_TTL_MS = 60_000;
+
+const transparencyMemo = ttlMemo({
+  ttlMs: TRANSPARENCY_TTL_MS,
+  keyOf: (opts: GetOptions) => (opts.fetchImpl || opts.base ? null : ""),
+  keep: (d: TransparencyData) => d.source === "live",
+  load: (opts) => loadTransparencyLive(opts.fetchImpl || opts.base ? opts : {}),
+});
+
+// Committee membership is visitor-independent; a live read serves a minute of requests.
+export function loadTransparencyData(opts: GetOptions = {}): Promise<TransparencyData> {
+  return transparencyMemo(opts);
+}
+
+async function loadTransparencyLive(opts: GetOptions): Promise<TransparencyData> {
   const base = governanceApiBase(opts.base);
   const doFetch = opts.fetchImpl ?? fetch;
   const url = `${base}/members?limit=200`;

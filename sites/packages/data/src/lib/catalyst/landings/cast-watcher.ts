@@ -17,10 +17,10 @@ export const StreamInfoSchema = z.object({
 });
 export type StreamInfo = z.infer<typeof StreamInfoSchema>;
 
-export const WATCH_ERRORS = ["no_active_stream", "access_expired"] as const;
-export type WatchError = (typeof WATCH_ERRORS)[number];
+const WATCH_ERRORS = ["no_active_stream", "access_expired"] as const;
+type WatchError = (typeof WATCH_ERRORS)[number];
 
-export type WatchStatus = "live" | "waiting" | "expired";
+type WatchStatus = "live" | "waiting" | "expired";
 
 export type WatchResult = {
   status: WatchStatus;

@@ -52,108 +52,81 @@ function row(name: string, count: number): WorldOccupancyRow {
 }
 
 describe("the world -> presence join (the highest-risk rule in this build)", () => {
-  it("a world ABSENT from the snapshot is no-sample, never a live zero", () => {
-    const { now } = joinWorldPresence(world(), presence([row("other.dcl.eth", 4)]));
-    expect(now.state).toBe("no-sample");
-    expect(Object.keys(now)).not.toContain("value");
-    if (now.state !== "no-sample") throw new Error("unreachable");
-    expect(now.note).toContain("Not the same as zero");
+  it("absent from the snapshot is no-sample, present with 0 is a noted real zero, present with a count is sampled at the row's taken_at", () => {
+    const absent = joinWorldPresence(world(), presence([row("other.dcl.eth", 4)])).now;
+    expect(absent.state).toBe("no-sample");
+    expect(Object.keys(absent)).not.toContain("value");
+    if (absent.state !== "no-sample") throw new Error("unreachable");
+    expect(absent.note).toContain("Not the same as zero");
+
+    const zero = joinWorldPresence(world(), presence([row("petbarn.dcl.eth", 0)]));
+    expect(zero.now.state).toBe("sampled");
+    if (zero.now.state !== "sampled") throw new Error("unreachable");
+    expect(zero.now.value).toBe(0);
+    expect(zero.note).toContain("a real zero");
+
+    const some = joinWorldPresence(world(), presence([row("PETBARN.DCL.ETH", 2)]));
+    expect(some.now.state).toBe("sampled");
+    if (some.now.state !== "sampled") throw new Error("unreachable");
+    expect(some.now.value).toBe(2);
+    expect(some.now.takenAt).toBe(TAKEN);
+    expect(some.note).toBeNull();
   });
 
-  it("a world PRESENT with count 0 is a showable zero with the mandatory note", () => {
-    const { now, note } = joinWorldPresence(
-      world(),
-      presence([row("petbarn.dcl.eth", 0)]),
-    );
-    expect(now.state).toBe("sampled");
-    if (now.state !== "sampled") throw new Error("unreachable");
-    expect(now.value).toBe(0);
-    expect(note).toContain("a real zero");
-  });
-
-  it("a world present with a count is sampled at the row's own taken_at", () => {
-    const { now, note } = joinWorldPresence(
-      world(),
-      presence([row("PETBARN.DCL.ETH", 2)]),
-    );
-    expect(now.state).toBe("sampled");
-    if (now.state !== "sampled") throw new Error("unreachable");
-    expect(now.value).toBe(2);
-    expect(now.takenAt).toBe(TAKEN);
-    expect(note).toBeNull();
-  });
-
-  it("a world with zero deployed scenes is unbuilt, not zero and not no-sample", () => {
-    const { now } = joinWorldPresence(
+  it("zero deployed scenes is unbuilt, an unknown count is not, and a dead read propagates instead of inventing a headcount", () => {
+    const unbuilt = joinWorldPresence(
       world({ deployedScenes: 0 }),
       presence([row("petbarn.dcl.eth", 3)]),
-    );
-    expect(now.state).toBe("unbuilt");
-    if (now.state !== "unbuilt") throw new Error("unreachable");
-    expect(now.reason).toContain("presence has never had anything to sample");
-  });
-
-  it("an UNKNOWN deployed-scene count does not take the never-deployed branch", () => {
-    const { now } = joinWorldPresence(
-      { name: "petbarn.dcl.eth", deployedScenes: null },
-      presence([row("petbarn.dcl.eth", 2)]),
-    );
-    expect(now.state).toBe("sampled");
-  });
-
-  it("propagates a dead presence read instead of inventing a headcount", () => {
+    ).now;
+    expect(unbuilt.state).toBe("unbuilt");
+    if (unbuilt.state !== "unbuilt") throw new Error("unreachable");
+    expect(unbuilt.reason).toContain("presence has never had anything to sample");
+    expect(
+      joinWorldPresence(
+        { name: "petbarn.dcl.eth", deployedScenes: null },
+        presence([row("petbarn.dcl.eth", 2)]),
+      ).now.state,
+    ).toBe("sampled");
     const dead: Datum<WorldOccupancyRow[]> = {
       state: "unavailable",
       endpoint: ENDPOINT,
       status: 500,
       reason: "boom",
     };
-    const { now } = joinWorldPresence(world(), dead);
-    expect(now.state).toBe("unavailable");
+    expect(joinWorldPresence(world(), dead).now.state).toBe("unavailable");
   });
 });
 
 describe("joinLiveUsers", () => {
-  const live: Datum<LiveData> = {
-    state: "live",
-    value: {
-      data: { totalUsers: 5, perWorld: [{ worldName: "petbarn.dcl.eth", users: 3 }] },
-      lastUpdated: TAKEN,
-    },
-    endpoint: "GET worlds-content-server.decentraland.org/live-data",
-    readAt: TAKEN,
-  };
-
-  it("reads the world's own figure", () => {
-    const { users, note } = joinLiveUsers("petbarn.dcl.eth", live);
-    expect(users.state).toBe("live");
-    if (users.state !== "live") throw new Error("unreachable");
-    expect(users.value).toBe(3);
-    expect(note).toBeNull();
-  });
-
-  it("treats an unlisted world as a real zero and says how that was derived", () => {
-    const { users, note } = joinLiveUsers("elsewhere.dcl.eth", live);
-    expect(users.state).toBe("live");
-    if (users.state !== "live") throw new Error("unreachable");
-    expect(users.value).toBe(0);
-    expect(note).toContain("lists only rooms with users");
+  it("reads the world's own figure and treats an unlisted world as a derived real zero", () => {
+    const live: Datum<LiveData> = {
+      state: "live",
+      value: {
+        data: { totalUsers: 5, perWorld: [{ worldName: "petbarn.dcl.eth", users: 3 }] },
+        lastUpdated: TAKEN,
+      },
+      endpoint: "GET worlds-content-server.decentraland.org/live-data",
+      readAt: TAKEN,
+    };
+    const own = joinLiveUsers("petbarn.dcl.eth", live);
+    expect(own.users.state).toBe("live");
+    if (own.users.state !== "live") throw new Error("unreachable");
+    expect(own.users.value).toBe(3);
+    expect(own.note).toBeNull();
+    const unlisted = joinLiveUsers("elsewhere.dcl.eth", live);
+    expect(unlisted.users.state).toBe("live");
+    if (unlisted.users.state !== "live") throw new Error("unreachable");
+    expect(unlisted.users.value).toBe(0);
+    expect(unlisted.note).toContain("lists only rooms with users");
   });
 });
 
-describe("disagreeing sources are shown, never reconciled", () => {
-  it("states the disagreement when the two differ", () => {
+describe("row classification", () => {
+  it("disagreeing sources are stated, never reconciled; worldRowKind classifies deployed, never-deployed and blocked", () => {
     expect(disagreementSentence(2, 3)).toContain("These disagree (2 vs 3)");
-  });
-  it("says nothing when they agree or when one side is missing", () => {
     expect(disagreementSentence(3, 3)).toBeNull();
     expect(disagreementSentence(null, 3)).toBeNull();
     expect(disagreementSentence(2, null)).toBeNull();
-  });
-});
-
-describe("worldRowKind", () => {
-  it("classifies deployed, never-deployed and blocked", () => {
     expect(worldRowKind(world())).toBe("deployed");
     expect(worldRowKind(world({ deployedScenes: 0 }))).toBe("never-deployed");
     expect(worldRowKind(world({ blockedSince: "2026-01-01" }))).toBe("blocked");
@@ -201,42 +174,40 @@ function showableCount(values: unknown[]): number {
 }
 
 describe("every upstream down", () => {
-  it("loadActivityIndex reports allUpstreamsDown and exposes no showable datum", async () => {
-    const data = await loadActivityIndex({
+  it("both loaders report allUpstreamsDown, expose no showable datum, and never claim the world is unknown-for-sure", async () => {
+    const index = await loadActivityIndex({
       address: "0xabc",
       fetchImpl: rejectAll,
       wcsBase: "https://wcs.example.test",
     });
-    expect(data.allUpstreamsDown).toBe(true);
-    expect(data.rows).toEqual([]);
+    expect(index.allUpstreamsDown).toBe(true);
+    expect(index.rows).toEqual([]);
     expect(
       showableCount([
-        data.worlds,
-        data.presenceWorlds,
-        data.presenceScenes,
-        data.current,
-        data.liveData,
+        index.worlds,
+        index.presenceWorlds,
+        index.presenceScenes,
+        index.current,
+        index.liveData,
       ]),
     ).toBe(0);
-  });
 
-  it("loadWorldActivity reports allUpstreamsDown and does not claim the world is unknown-for-sure", async () => {
-    const data = await loadWorldActivity("petbarn.dcl.eth", {
+    const detail = await loadWorldActivity("petbarn.dcl.eth", {
       address: "0xabc",
       fetchImpl: rejectAll,
       wcsBase: "https://wcs.example.test",
     });
-    expect(data.allUpstreamsDown).toBe(true);
-    expect(data.worldKnown).toBe(true);
+    expect(detail.allUpstreamsDown).toBe(true);
+    expect(detail.worldKnown).toBe(true);
     expect(
       showableCount([
-        data.about,
-        data.history,
-        data.permissions,
-        data.reception,
-        data.realm,
-        data.now,
-        data.liveUsers,
+        detail.about,
+        detail.history,
+        detail.permissions,
+        detail.reception,
+        detail.realm,
+        detail.now,
+        detail.liveUsers,
       ]),
     ).toBe(0);
   });

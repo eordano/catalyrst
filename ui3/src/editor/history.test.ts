@@ -23,8 +23,12 @@ const entry = (over: Partial<HistoryEntry> = {}): HistoryEntry => ({
 });
 
 describe("createHistory", () => {
-  it("undo replays before, redo replays after, through the write path", () => {
+  it("undo replays before and redo replays after through the write path; an empty stack is a safe no-op", () => {
     const { h, log } = makeEngine();
+    expect(h.undo()).toBe(false);
+    expect(h.redo()).toBe(false);
+    expect(log).toEqual([]);
+
     h.push([entry()]);
     expect(h.canUndo()).toBe(true);
     expect(h.canRedo()).toBe(false);
@@ -40,23 +44,27 @@ describe("createHistory", () => {
     expect(h.canRedo()).toBe(false);
   });
 
-  it("undo/redo on an empty stack is a safe no-op", () => {
-    const { h, log } = makeEngine();
-    expect(h.undo()).toBe(false);
-    expect(h.redo()).toBe(false);
-    expect(log).toEqual([]);
-  });
+  it("a fresh push clears the redo branch, empty batches are ignored, and every real change notifies", () => {
+    const { h, onChange } = makeEngine();
+    h.push([]);
+    h.push(null as unknown as HistoryEntry[]);
+    expect(h.canUndo()).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
 
-  it("a fresh push clears the redo branch", () => {
-    const { h } = makeEngine();
     h.push([entry()]);
     h.undo();
     expect(h.canRedo()).toBe(true);
     h.push([entry({ after: { roughness: 0.25 } })]);
     expect(h.canRedo()).toBe(false);
+    h.undo();
+    h.redo();
+    h.clear();
+    expect(onChange).toHaveBeenCalledTimes(6);
+    expect(h.canUndo()).toBe(false);
+    expect(h.canRedo()).toBe(false);
   });
 
-  it("undefined values mean create/delete: undo of a first-write deletes, undo of a removal restores", () => {
+  it("undefined values mean create/delete: undo of a first write deletes, undo of a removal restores", () => {
     const { h, log } = makeEngine();
     h.push([entry({ before: undefined, after: { visible: true }, name: "VisibilityComponent" })]);
     h.undo();
@@ -68,17 +76,26 @@ describe("createHistory", () => {
     expect(log[2]).toEqual({ entity: "512", name: "GltfContainer", value: undefined });
   });
 
-  it("batches (multi-entity gizmo drags) replay every entry", () => {
-    const { h, log } = makeEngine();
-    h.push([
+  it("batches replay every entry and the undo depth is capped at maxSteps, oldest dropped first", () => {
+    const multi = makeEngine();
+    multi.h.push([
       entry({ entity: "1", name: "Transform", before: { x: 0 }, after: { x: 5 } }),
       entry({ entity: "2", name: "Transform", before: { x: 1 }, after: { x: 6 } }),
     ]);
-    h.undo();
-    expect(log).toEqual([
+    multi.h.undo();
+    expect(multi.log).toEqual([
       { entity: "1", name: "Transform", value: { x: 0 } },
       { entity: "2", name: "Transform", value: { x: 1 } },
     ]);
+
+    const { h, log } = makeEngine(3);
+    for (let i = 0; i < 5; i += 1) {
+      h.push([entry({ before: { i }, after: { i: i + 100 } })]);
+    }
+    let undone = 0;
+    while (h.undo()) undone += 1;
+    expect(undone).toBe(3);
+    expect(log.map((w) => (w.value as { i: number }).i)).toEqual([4, 3, 2]);
   });
 
   it("pushes during a replay are suppressed (no self-recording loops)", () => {
@@ -93,36 +110,6 @@ describe("createHistory", () => {
     expect(h.canUndo()).toBe(false);
     expect(h.canRedo()).toBe(true);
     expect(log).toHaveLength(1);
-  });
-
-  it("empty and non-array batches are ignored", () => {
-    const { h, onChange } = makeEngine();
-    h.push([]);
-    h.push(null as unknown as HistoryEntry[]);
-    expect(h.canUndo()).toBe(false);
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it("caps the undo depth at maxSteps (oldest dropped first)", () => {
-    const { h, log } = makeEngine(3);
-    for (let i = 0; i < 5; i += 1) {
-      h.push([entry({ before: { i }, after: { i: i + 100 } })]);
-    }
-    let undone = 0;
-    while (h.undo()) undone += 1;
-    expect(undone).toBe(3);
-    expect(log.map((w) => (w.value as { i: number }).i)).toEqual([4, 3, 2]);
-  });
-
-  it("notifies on push/undo/redo/clear so UI buttons can refresh", () => {
-    const { h, onChange } = makeEngine();
-    h.push([entry()]);
-    h.undo();
-    h.redo();
-    h.clear();
-    expect(onChange).toHaveBeenCalledTimes(4);
-    expect(h.canUndo()).toBe(false);
-    expect(h.canRedo()).toBe(false);
   });
 });
 

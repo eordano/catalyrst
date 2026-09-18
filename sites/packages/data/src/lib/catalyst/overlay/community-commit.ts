@@ -1,10 +1,10 @@
 import { signedFetch } from "../../auth/signer";
 import type { AuthIdentity } from "../../auth/types";
 import { CatalystError, catalystBase } from "../client";
-import type { CommitResult, JoinAction } from "./community-join";
+import type { CommitFn, CommitResult, JoinAction } from "./community-join";
 import type { CommunityDraft } from "./create-community";
 
-export type CommunityCommitOptions = {
+type CommunityCommitOptions = {
   identity: AuthIdentity;
   base?: string;
   signal?: AbortSignal;
@@ -19,7 +19,7 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
-export async function commitCommunityJoin(
+async function commitCommunityJoin(
   args: { communityId: string; action: JoinAction },
   opts: CommunityCommitOptions,
 ): Promise<CommitResult> {
@@ -62,7 +62,7 @@ export async function commitCommunityJoin(
   };
 }
 
-export type CreatedCommunity = { id: string; name: string };
+type CreatedCommunity = { id: string; name: string };
 
 export async function createCommunity(
   draft: CommunityDraft,
@@ -113,4 +113,12 @@ export async function createCommunity(
     throw new CatalystError("Create community: response had no community id", url);
   }
   return { id: String(data.id), name: String(data.name ?? draft.name) };
+}
+
+export function buildCommunityJoinCommit(identitySource: () => AuthIdentity | null): CommitFn {
+  return async ({ communityId, action, signal }) => {
+    const identity = identitySource();
+    if (!identity) throw new Error("Sign in to join a community.");
+    return commitCommunityJoin({ communityId, action }, { identity, signal });
+  };
 }

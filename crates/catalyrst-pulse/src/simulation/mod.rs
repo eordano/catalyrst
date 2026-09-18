@@ -9,8 +9,9 @@ use crate::decentraland::pulse::{
 };
 use crate::interest::{
     InterestCollector, InterestEntry, PeerViewSimulationTier, SceneListenerState,
-    SpatialAreaOfInterest, SpatialGrid,
+    SpatialAreaOfInterest,
 };
+use crate::realm_grids::RealmSpatialGrids;
 use crate::snapshot::{EmoteState, IdentityBoard, PeerSnapshot, ProfileBoard, SnapshotBoard};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -328,7 +329,7 @@ impl PeerSimulation {
         &mut self,
         peers: &mut HashMap<u32, PeerState>,
         board: &SnapshotBoard,
-        grid: &SpatialGrid,
+        grids: &RealmSpatialGrids,
         aoi: &SpatialAreaOfInterest,
         identity: &IdentityBoard,
         profiles: &ProfileBoard,
@@ -396,19 +397,19 @@ impl PeerSimulation {
 
             let mut collector = std::mem::take(&mut self.collector);
             let positional_only = if let Some(listener) = &listener {
-                listener.get_visible_subjects(board, grid, observer_id, &mut collector);
+                listener.get_visible_subjects(board, grids, observer_id, &mut collector);
                 true
             } else {
                 let snap = observer_snapshot.as_ref().unwrap();
                 aoi.get_visible_subjects(
                     board,
-                    grid,
+                    grids,
                     observer_id,
                     snap.realm.as_deref(),
                     snap.global_position,
                     &mut collector,
                 );
-                if self.self_mirror_enabled {
+                if self.self_mirror_enabled && snap.realm.is_some() {
                     collector.add(observer_id, self.self_mirror_tier);
                 }
                 false

@@ -6,21 +6,21 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type { TrackFn };
 
-export type StreamInfo = {
+type StreamInfo = {
   placeName: string;
   placeId: string;
   location: string;
   isWorld: boolean;
 };
 
-export type StreamerCredentials = {
+type StreamerCredentials = {
   url: string;
   token: string;
   roomId: string;
   identity: string;
 };
 
-export type DeviceSelection = {
+type DeviceSelection = {
   mic: string;
   speaker: string;
   camera: string;
@@ -45,7 +45,7 @@ export type ShareScreenFn = (args: {
   signal?: AbortSignal;
 }) => Promise<{ published: boolean }>;
 
-export type CastInput = {
+type CastInput = {
   trackCtx: TrackContext;
   token: string;
   identity?: string;
@@ -56,7 +56,7 @@ export type CastInput = {
   track?: TrackFn;
 };
 
-export type CastContext = {
+type CastContext = {
   trackCtx: TrackContext;
   token: string;
   identity: string;
@@ -74,7 +74,7 @@ export type CastContext = {
   invalidReason?: string;
 };
 
-export type CastEvent =
+type CastEvent =
   | { type: "SELECT_DEVICES"; devices: DeviceSelection }
   | { type: "GRANT" }
   | { type: "RETRY_PERMISSIONS" }
@@ -111,8 +111,8 @@ export const STATE_TO_SLUG = {
   invalid: "invalid",
 } as const;
 
-export type CastStateId = keyof typeof STATE_TO_SLUG;
-export type CastStepSlug = (typeof STATE_TO_SLUG)[CastStateId];
+type CastStateId = keyof typeof STATE_TO_SLUG;
+type CastStepSlug = (typeof STATE_TO_SLUG)[CastStateId];
 
 export const FIRST_STEP_SLUG: CastStepSlug = STATE_TO_SLUG.tokenCheck;
 
@@ -162,7 +162,7 @@ export const simulateGrant: RequestPermissionsFn = async ({ signal }) => {
   return { granted: true };
 };
 
-export const simulateEndCast: EndCastFn = async ({ signal }) => {
+const simulateEndCast: EndCastFn = async ({ signal }) => {
   await delay(300, signal);
 };
 
@@ -449,8 +449,6 @@ export const castMachine = setup({
     },
   },
 });
-
-export type CastMachine = typeof castMachine;
 
 export function resolveCastSnapshot(args: {
   step: CastStateId;

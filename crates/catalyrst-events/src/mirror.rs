@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
@@ -27,9 +28,17 @@ const UPSERT: &str = r#"
         (id, name, start_at, finish_at, next_start_at, next_finish_at, duration_ms,
          recurrent, highlighted, trending, approved, attending, community_id,
          user_creator, coordinates_x, coordinates_y, description, raw, fetched_at)
-    VALUES
-        ($1, $2, $3::timestamptz, $4::timestamptz, $5::timestamptz, $6::timestamptz, $7,
-         $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now())
+    SELECT u.id, u.name, u.start_at::timestamptz, u.finish_at::timestamptz,
+           u.next_start_at::timestamptz, u.next_finish_at::timestamptz, u.duration_ms,
+           u.recurrent, u.highlighted, u.trending, u.approved, u.attending, u.community_id,
+           u.user_creator, u.coordinates_x, u.coordinates_y, u.description, u.raw, now()
+    FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
+                $7::int8[], $8::boolean[], $9::boolean[], $10::boolean[], $11::boolean[],
+                $12::boolean[], $13::text[], $14::text[], $15::int4[], $16::int4[],
+                $17::text[], $18::jsonb[])
+         AS u(id, name, start_at, finish_at, next_start_at, next_finish_at, duration_ms,
+              recurrent, highlighted, trending, approved, attending, community_id,
+              user_creator, coordinates_x, coordinates_y, description, raw)
     ON CONFLICT (id) DO UPDATE SET
         name           = EXCLUDED.name,
         start_at       = EXCLUDED.start_at,
@@ -161,18 +170,7 @@ pub async fn run_cycle(
                     break;
                 }
                 let count = events.len() as i64;
-                for event in &events {
-                    match upsert_event(pool, event).await {
-                        Ok(true) => out.upserted += 1,
-                        Ok(false) => out.skipped_rows += 1,
-                        Err(e) => {
-                            out.failed_rows += 1;
-                            out.complete = false;
-                            let id = event.get("id").and_then(Value::as_str).unwrap_or("?");
-                            tracing::warn!(error = %e, event_id = id, "event mirror: upsert failed; row skipped");
-                        }
-                    }
-                }
+                upsert_page(pool, &events, &mut out).await;
                 if count < PAGE {
                     break;
                 }
@@ -312,28 +310,86 @@ pub async fn upsert_event(pool: &PgPool, event: &Value) -> Result<bool> {
     let Some(f) = extract_fields(event) else {
         return Ok(false);
     };
+    upsert_rows(pool, &[(f, event)]).await?;
+    Ok(true)
+}
+
+/// One multi-row upsert per page; a later duplicate id wins as it did row by row.
+/// A failed batch falls back to row-by-row so one bad row still only costs itself.
+async fn upsert_page(pool: &PgPool, events: &[Value], out: &mut CycleOutcome) {
+    let mut by_id: HashMap<&str, usize> = HashMap::new();
+    let mut rows: Vec<(EventFields, &Value)> = Vec::with_capacity(events.len());
+    let mut extracted = 0usize;
+    for event in events {
+        let Some(f) = extract_fields(event) else {
+            continue;
+        };
+        extracted += 1;
+        match by_id.get(f.id) {
+            Some(&i) => rows[i] = (f, event),
+            None => {
+                by_id.insert(f.id, rows.len());
+                rows.push((f, event));
+            }
+        }
+    }
+    match upsert_rows(pool, &rows).await {
+        Ok(()) => {
+            out.upserted += extracted;
+            out.skipped_rows += events.len() - extracted;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "event mirror: page upsert failed; retrying row by row");
+            for event in events {
+                match upsert_event(pool, event).await {
+                    Ok(true) => out.upserted += 1,
+                    Ok(false) => out.skipped_rows += 1,
+                    Err(e) => {
+                        out.failed_rows += 1;
+                        out.complete = false;
+                        let id = event.get("id").and_then(Value::as_str).unwrap_or("?");
+                        tracing::warn!(error = %e, event_id = id, "event mirror: upsert failed; row skipped");
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn upsert_rows(pool: &PgPool, rows: &[(EventFields<'_>, &Value)]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
     sqlx::query(UPSERT)
-        .bind(f.id)
-        .bind(f.name)
-        .bind(f.start_at)
-        .bind(f.finish_at)
-        .bind(f.next_start_at)
-        .bind(f.next_finish_at)
-        .bind(f.duration_ms)
-        .bind(f.recurrent)
-        .bind(f.highlighted)
-        .bind(f.trending)
-        .bind(f.approved)
-        .bind(f.attending)
-        .bind(f.community_id)
-        .bind(f.user)
-        .bind(f.x)
-        .bind(f.y)
-        .bind(f.description)
-        .bind(event)
+        .bind(rows.iter().map(|(f, _)| f.id).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.name).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.start_at).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.finish_at).collect::<Vec<_>>())
+        .bind(
+            rows.iter()
+                .map(|(f, _)| f.next_start_at)
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|(f, _)| f.next_finish_at)
+                .collect::<Vec<_>>(),
+        )
+        .bind(rows.iter().map(|(f, _)| f.duration_ms).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.recurrent).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.highlighted).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.trending).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.approved).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.attending).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.community_id).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.user).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.x).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.y).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(f, _)| f.description).collect::<Vec<_>>())
+        .bind(rows.iter().map(|(_, e)| (*e).clone()).collect::<Vec<_>>())
         .execute(pool)
         .await?;
-    Ok(true)
+    Ok(())
 }
 
 #[derive(Debug, PartialEq, Eq)]

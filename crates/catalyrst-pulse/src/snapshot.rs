@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use crate::decentraland::common::Vector3;
 use crate::decentraland::pulse::{EmoteStopReason, GlideState, PlayerAnimationFlags, PlayerState};
-use crate::interest::{ParcelEncoder, SpatialGrid};
+use crate::interest::ParcelEncoder;
 use crate::messages::spec;
+use crate::realm_grids::RealmSpatialGrids;
 
 pub const NO_SEQ: u32 = u32::MAX;
 
@@ -92,7 +93,10 @@ impl SnapshotBoard {
         }
     }
 
-    pub fn publish(&mut self, id: u32, snapshot: PeerSnapshot) {
+    /// Returns what was actually written: the caller's snapshot with `emote`, `realm` and
+    /// `last_teleport_seq` resolved by carry-forward, so the realm grid is fed the resolved realm
+    /// rather than the `None` a movement publish carries.
+    pub fn publish(&mut self, id: u32, snapshot: PeerSnapshot) -> PeerSnapshot {
         let index = id as usize;
         let emote = snapshot
             .emote
@@ -115,7 +119,8 @@ impl SnapshotBoard {
         let slot = (to_write.seq as usize) % self.ring_capacity;
         let p = &mut self.peers[index];
         p.last_seq = to_write.seq;
-        p.ring[slot] = to_write;
+        p.ring[slot] = to_write.clone();
+        to_write
     }
 
     fn inherit_emote_state(&self, index: usize) -> Option<EmoteState> {
@@ -224,7 +229,7 @@ pub struct PeerSnapshotPublisher;
 impl PeerSnapshotPublisher {
     pub fn publish_from_player_state(
         board: &mut SnapshotBoard,
-        grid: &mut SpatialGrid,
+        grids: &mut RealmSpatialGrids,
         encoder: &ParcelEncoder,
         from: u32,
         now: u32,
@@ -275,15 +280,15 @@ impl PeerSnapshotPublisher {
             last_teleport_seq: 0,
         };
 
-        board.publish(from, snapshot.clone());
-        grid.set(from, global_position);
-        snapshot
+        let published = board.publish(from, snapshot);
+        Self::place_in_realm_grid(grids, from, published.realm.as_deref(), global_position);
+        published
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn publish_teleport(
         board: &mut SnapshotBoard,
-        grid: &mut SpatialGrid,
+        grids: &mut RealmSpatialGrids,
         encoder: &ParcelEncoder,
         from: u32,
         now: u32,
@@ -336,19 +341,39 @@ impl PeerSnapshotPublisher {
             glide_state: GlideState::PropClosed as i32,
             is_teleport: true,
             emote: None,
-            realm: Some(realm.into()),
+            realm: Some(Arc::from(realm.as_str())),
             last_teleport_seq: 0,
         };
 
-        board.publish(from, snapshot.clone());
-        grid.set(from, global_position);
-        snapshot
+        let published = board.publish(from, snapshot);
+        Self::place_in_realm_grid(grids, from, Some(realm.as_str()), global_position);
+        published
+    }
+
+    /// A peer with no realm -- connected but neither seeded nor teleported -- belongs to no grid,
+    /// so it is invisible to interest management and to cluster derivation until it has one.
+    fn place_in_realm_grid(
+        grids: &mut RealmSpatialGrids,
+        peer: u32,
+        realm: Option<&str>,
+        global_position: Vector3,
+    ) {
+        let Some(realm) = realm else {
+            return;
+        };
+        grids.set(peer, realm, global_position);
     }
 }
 
+/// Peer wallet addresses and the session each authenticated with, indexed by peer slot and
+/// written once per peer at authentication time. The session is the lower-cased ephemeral address
+/// of the peer's auth chain (the wallet itself when the chain carries no delegation): distinct per
+/// device, stable across one device's reconnects, and what the cluster feed addresses a takeover
+/// by. Written and cleared together with the wallet.
 #[derive(Default)]
 pub struct IdentityBoard {
     wallets_by_peer: Vec<Option<String>>,
+    sessions_by_peer: Vec<Option<String>>,
     peers_by_wallet: HashMap<String, u32>,
 }
 
@@ -356,17 +381,29 @@ impl IdentityBoard {
     pub fn new(max_peers: usize) -> Self {
         Self {
             wallets_by_peer: vec![None; max_peers],
+            sessions_by_peer: vec![None; max_peers],
             peers_by_wallet: HashMap::new(),
         }
     }
 
+    /// Registers a wallet whose auth chain carried no delegation, so the session is the wallet.
     pub fn set(&mut self, id: u32, wallet: String) {
+        let session = wallet.clone();
+        self.set_with_session(id, wallet, session);
+    }
+
+    pub fn set_with_session(&mut self, id: u32, wallet: String, session: String) {
         self.peers_by_wallet.insert(wallet.to_lowercase(), id);
         self.wallets_by_peer[id as usize] = Some(wallet);
+        self.sessions_by_peer[id as usize] = Some(session);
     }
 
     pub fn wallet_by_peer(&self, id: u32) -> Option<&str> {
         self.wallets_by_peer[id as usize].as_deref()
+    }
+
+    pub fn session_by_peer(&self, id: u32) -> Option<&str> {
+        self.sessions_by_peer[id as usize].as_deref()
     }
 
     pub fn peer_by_wallet(&self, wallet: &str) -> Option<u32> {
@@ -374,6 +411,7 @@ impl IdentityBoard {
     }
 
     pub fn remove(&mut self, id: u32) {
+        self.sessions_by_peer[id as usize] = None;
         if let Some(w) = self.wallets_by_peer[id as usize].take() {
             let key = w.to_lowercase();
             if self.peers_by_wallet.get(&key) == Some(&id) {

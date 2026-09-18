@@ -318,7 +318,6 @@
   color: var(--gv-ink);
 }
 
-.gvpoi__login,
 .gvpoi__notfound {
   max-width: 460px;
   margin: 64px auto;
@@ -329,35 +328,8 @@
   box-shadow: 0 1px 3px rgba(22, 20, 26, 0.05);
   padding: 48px 40px;
 }
-.gvpoi__loginicon,
-.gvpoi__notfoundicon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: var(--gv-tint);
-  color: var(--brand);
-  margin-bottom: 18px;
-}
-.gvpoi__logintitle,
 .gvpoi__notfoundtitle { margin: 0 0 8px; font-size: 24px; font-weight: 700; color: var(--gv-ink); }
-.gvpoi__logindesc,
 .gvpoi__notfounddesc { margin: 0 0 24px; font-size: 14px; line-height: 1.5; font-weight: 500; color: var(--gv-muted); }
-.gvpoi__loginbtn {
-  border: 0;
-  cursor: pointer;
-  background: var(--brand);
-  color: #fff;
-  font: inherit;
-  font-size: 15px;
-  font-weight: 700;
-  height: 48px;
-  padding: 0 36px;
-  border-radius: var(--r-pill);
-}
-.gvpoi__loginbtn:hover { background: var(--brand-hover); }
 
 .gvpoi__loading {
   display: flex;

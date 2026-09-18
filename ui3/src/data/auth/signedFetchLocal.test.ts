@@ -47,10 +47,10 @@ afterEach(() => {
 });
 
 describe("signedFetchHeaders", () => {
-  test("appends a verifiable ECDSA_SIGNED_ENTITY link over the canonical", async () => {
+  test("appends a verifiable ECDSA_SIGNED_ENTITY link over the lowercased canonical", async () => {
     const { stored, ephemeralAddress } = await makeStoredIdentity();
     const ts = 1_751_500_000_000;
-    const headers = await signedFetchHeaders("post", "/v1/communities", {
+    const headers = await signedFetchHeaders("POST", "/v1/Communities", {
       identity: stored,
       now: () => ts,
     });
@@ -77,29 +77,17 @@ describe("signedFetchHeaders", () => {
     expect(recovered.toLowerCase()).toBe(ephemeralAddress.toLowerCase());
   });
 
-  test("lowercases mixed-case canonical inputs (server compares lowercased)", async () => {
-    const { stored } = await makeStoredIdentity();
-    const headers = await signedFetchHeaders("POST", "/v1/Communities", {
-      identity: stored,
-      now: () => 42,
-    });
-    const entity = JSON.parse(headers["x-identity-auth-chain-2"] ?? "{}") as { payload?: string };
-    expect(entity.payload).toBe("post:/v1/communities:42:{}");
-  });
-
-  test("no stored identity -> 401 CatalystError", async () => {
+  test("no stored identity or an expired one -> 401 CatalystError, and the expired one is dropped at load", async () => {
     localStorage.removeItem(IDENTITY_STORAGE_KEY);
-    const err = await rejectionOf(signedFetchHeaders("post", "/v1/communities"));
-    expect(err).toBeInstanceOf(CatalystError);
-    expect((err as CatalystError).status).toBe(401);
-  });
+    const missing = await rejectionOf(signedFetchHeaders("post", "/v1/communities"));
+    expect(missing).toBeInstanceOf(CatalystError);
+    expect((missing as CatalystError).status).toBe(401);
 
-  test("expired stored identity is rejected at load and at signing", async () => {
     const { stored } = await makeStoredIdentity(Date.now() - 1000);
     localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(stored));
     expect(loadStoredIdentity()).toBeNull();
-    const err = await rejectionOf(signedFetchHeaders("post", "/v1/communities"));
-    expect((err as CatalystError).status).toBe(401);
+    const expired = await rejectionOf(signedFetchHeaders("post", "/v1/communities"));
+    expect((expired as CatalystError).status).toBe(401);
   });
 
   test("valid persisted identity loads from localStorage and signs", async () => {

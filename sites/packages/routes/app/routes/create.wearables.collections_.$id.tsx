@@ -15,7 +15,7 @@ import { useAuth } from "@data/lib/auth/context";
 import { openSignIn } from "@features/components/auth/signin-store";
 import { useProfileName } from "@data/lib/auth/use-profile-name";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
@@ -44,19 +44,18 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   const id = (params.id ?? "").trim();
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
   const address =
     url.searchParams.get("address")?.trim().toLowerCase() ||
     readWallet(request) ||
     null;
 
-  const { collection, source, itemCount, fallback, missing } =
-    await loadCollectionDetail(id, { signal: request.signal }, address);
+  const {
+    sid,
+    wrap,
+    data: { collection, source, itemCount, fallback, missing },
+  } = await storyLoaderWith(request, STORY, FALLBACK, () =>
+    loadCollectionDetail(id, { signal: request.signal }, address),
+  );
 
   const payload = {
     sid,

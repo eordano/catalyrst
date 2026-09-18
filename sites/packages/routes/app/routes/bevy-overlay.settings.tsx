@@ -33,7 +33,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const tab = parseTab(url.searchParams.get("tab"));
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,

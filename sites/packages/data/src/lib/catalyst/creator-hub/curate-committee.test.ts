@@ -18,11 +18,8 @@ const fixtureCommittee = () => parsedFixture.committee;
 const fixtureRows = (): CommitteeRow[] => parsedFixture.collections;
 
 describe("fixture / schema", () => {
-  it("the fixture validates against the zod contract", () => {
+  it("the fixture validates, exposes a committee with a connected member, and carries ForumNewPost-faithful comment threads", () => {
     expect(CommitteeFixtureSchema.safeParse(fixture).success).toBe(true);
-  });
-
-  it("exposes a committee + a connected (you) member", () => {
     const committee = fixtureCommittee();
     expect(committee.you.address).toMatch(/^0x/);
     expect(
@@ -30,9 +27,6 @@ describe("fixture / schema", () => {
         (m) => m.address.toLowerCase() === committee.you.address.toLowerCase(),
       ),
     ).toBe(true);
-  });
-
-  it("carries CurationComment threads faithful to ForumNewPost { raw, topic_id }", () => {
     const withThread = fixtureRows().find((r) => r.comments.length > 0);
     expect(withThread).toBeDefined();
     const c = withThread!.comments[0];
@@ -57,43 +51,32 @@ describe("display-state derivation (reused from builder-curation)", () => {
 });
 
 describe("URL filter readers", () => {
-  const you = "0x9F3C4D1E7A2188CF90B3A6E7C4D5F6A7B8C9D0E1";
-
-  it("readStatusFilter normalises to a known CurationStatusFilter", () => {
+  it("normalise status and type to known filters and map me/you to the connected wallet", () => {
+    const you = "0x9F3C4D1E7A2188CF90B3A6E7C4D5F6A7B8C9D0E1";
     expect(readStatusFilter("to_review")).toBe("to_review");
     expect(readStatusFilter("bogus")).toBe("ALL_STATUS");
-  });
-
-  it("readTypeFilter normalises to a known type", () => {
     expect(readTypeFilter("third_party")).toBe("third_party");
     expect(readTypeFilter("")).toBe("ALL_TYPES");
-  });
-
-  it("readAssigneeFilter maps me/you to the connected wallet", () => {
     expect(readAssigneeFilter("me", you)).toBe(you.toLowerCase());
     expect(readAssigneeFilter("all", you)).toBe("all");
   });
 });
 
 describe("filterRows", () => {
-  const rows = fixtureRows();
-
-  it("?status=to_review keeps only To review rows", () => {
+  it("?status=to_review keeps only To review rows and ALL filters return every row", () => {
+    const rows = fixtureRows();
     const out = filterRows(rows, { status: "to_review", type: "ALL_TYPES", assignee: "all" });
     expect(out.length).toBeGreaterThan(0);
     for (const r of out) expect(deriveDisplayState(r)).toBe("to_review");
-  });
-
-  it("ALL filters return every row", () => {
-    const out = filterRows(rows, { status: "ALL_STATUS", type: "ALL_TYPES", assignee: "all" });
-    expect(out.length).toBe(rows.length);
+    expect(
+      filterRows(rows, { status: "ALL_STATUS", type: "ALL_TYPES", assignee: "all" }).length,
+    ).toBe(rows.length);
   });
 });
 
-describe("toBdRow projection (carries the comment thread)", () => {
-  const committee = fixtureCommittee();
-
-  it("projects assignee name + you flag + comments + forumTopicId", () => {
+describe("row projection and optimistic comments", () => {
+  it("toBdRow carries assignee, you flag, comments and forumTopicId; buildOptimisticComment mirrors the would-be ForumNewPost", () => {
+    const committee = fixtureCommittee();
     const row = fixtureRows().find((r) => r.name === "Neon Streetwear Drop") as CommitteeRow;
     const bd = toBdRow(row, committee);
     expect(bd.assignee).toBe(committee.you.address);
@@ -101,13 +84,7 @@ describe("toBdRow projection (carries the comment thread)", () => {
     expect(bd.assigneeName).toBe(committee.you.name);
     expect(bd.comments.length).toBe(row.comments.length);
     expect(bd.forumTopicId).toBe(row.forumTopicId);
-  });
-});
 
-describe("buildOptimisticComment (mirrors the would-be ForumNewPost)", () => {
-  const committee = fixtureCommittee();
-
-  it("builds a comment tagged with the decision + author", () => {
     const c = buildOptimisticComment({
       collectionId: "0x1f2e3d4c5b6a7980a1b2c3d4e5f60718293a4b5c",
       author: committee.you,

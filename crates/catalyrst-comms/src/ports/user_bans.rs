@@ -184,6 +184,23 @@ const BAN_SELECT_FIELDS: &str =
 
 const WARNING_SELECT_FIELDS: &str = "id, warned_address, warned_by, reason, warned_at, created_at";
 
+/// Boolean expression over `$1` (lowercased address) and `$2` (the device id the
+/// caller sent, or NULL to fall back to the device recorded for the address).
+pub(crate) const CONNECTION_BAN_EXISTS: &str = "EXISTS (SELECT 1 FROM user_bans ub \
+     WHERE (ub.banned_address = $1 \
+            OR ub.banned_device_id = COALESCE($2::text, (SELECT NULLIF(p.device_id, '') \
+                                                         FROM player_connection_info p \
+                                                         WHERE p.address = $1))) \
+       AND ub.lifted_at IS NULL \
+       AND (ub.expires_at IS NULL OR ub.expires_at > now()))";
+
+pub(crate) fn sent_device_id(device_id: Option<&str>) -> Option<String> {
+    device_id
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(String::from)
+}
+
 fn ban_from_row(row: BanRow) -> UserBan {
     let (
         id,
@@ -286,38 +303,69 @@ impl UserBansComponent {
         Ok(n > 0)
     }
 
+    /// Upstream's `getActiveBanForConnection`: the device the caller sends, else
+    /// the one recorded for the address, matched alongside the address itself.
     pub async fn is_banned_for_connection(
         &self,
         address: &str,
         device_id: Option<&str>,
     ) -> Result<bool, ApiError> {
         let address = address.to_lowercase();
-        let device_id = device_id.filter(|s| !s.is_empty());
-        let n: i64 = match device_id {
-            Some(device_id) => {
-                sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM user_bans \
-                 WHERE (banned_address = $1 OR banned_device_id = $2) \
-                   AND lifted_at IS NULL \
-                   AND (expires_at IS NULL OR expires_at > now())",
-                )
-                .bind(&address)
-                .bind(device_id)
-                .fetch_one(&self.pool)
-                .await?
-            }
-            None => {
-                sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM user_bans \
-                 WHERE banned_address = $1 AND lifted_at IS NULL \
-                   AND (expires_at IS NULL OR expires_at > now())",
-                )
-                .bind(&address)
-                .fetch_one(&self.pool)
-                .await?
-            }
-        };
-        Ok(n > 0)
+        let banned: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT {CONNECTION_BAN_EXISTS}"
+        )))
+        .bind(&address)
+        .bind(sent_device_id(device_id))
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(banned)
+    }
+
+    /// Platform ban and scene ban for one connection in a single statement.
+    pub async fn connection_gate(
+        &self,
+        address: &str,
+        device_id: Option<&str>,
+        place_id: &str,
+    ) -> Result<(bool, bool), ApiError> {
+        let address = address.to_lowercase();
+        let row: (bool, bool) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {CONNECTION_BAN_EXISTS}, \
+                    EXISTS (SELECT 1 FROM scene_bans WHERE place_id = $3 AND banned_address = $1)"
+        )))
+        .bind(&address)
+        .bind(sent_device_id(device_id))
+        .bind(place_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Index of the first address (in the given order) with an active platform ban
+    /// on its wallet or its recorded device.
+    pub async fn first_banned_for_connection(
+        &self,
+        addresses: &[&str],
+    ) -> Result<Option<usize>, ApiError> {
+        if addresses.is_empty() {
+            return Ok(None);
+        }
+        let lowered: Vec<String> = addresses.iter().map(|a| a.to_lowercase()).collect();
+        let idx: Option<i64> = sqlx::query_scalar(
+            "SELECT a.ord - 1 FROM unnest($1::text[]) WITH ORDINALITY AS a(address, ord) \
+             WHERE EXISTS (SELECT 1 FROM user_bans ub \
+                 WHERE (ub.banned_address = a.address \
+                        OR ub.banned_device_id = (SELECT NULLIF(p.device_id, '') \
+                                                  FROM player_connection_info p \
+                                                  WHERE p.address = a.address)) \
+                   AND ub.lifted_at IS NULL \
+                   AND (ub.expires_at IS NULL OR ub.expires_at > now())) \
+             ORDER BY a.ord LIMIT 1",
+        )
+        .bind(&lowered)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(idx.map(|i| i as usize))
     }
 
     pub async fn get_status(&self, address: &str) -> Result<BanStatus, ApiError> {
@@ -345,8 +393,29 @@ impl UserBansComponent {
     }
 
     pub async fn create_ban(&self, input: CreateBan) -> Result<UserBan, BanWriteError> {
+        self.insert_ban(input, false).await
+    }
+
+    /// `create_ban` that snapshots the player's recorded device id when the
+    /// caller sends none.
+    pub async fn create_ban_with_recorded_device(
+        &self,
+        input: CreateBan,
+    ) -> Result<UserBan, BanWriteError> {
+        self.insert_ban(input, true).await
+    }
+
+    async fn insert_ban(
+        &self,
+        input: CreateBan,
+        snapshot_device: bool,
+    ) -> Result<UserBan, BanWriteError> {
         let banned_address = input.banned_address.to_lowercase();
         let banned_by = input.banned_by.to_lowercase();
+        let expires_at = input
+            .duration_ms
+            .map(|d| Utc::now() + Duration::milliseconds(d));
+        let banned_device_id = input.banned_device_id.filter(|s| !s.is_empty());
 
         let mut txn = self.pool.begin().await?;
 
@@ -355,29 +424,24 @@ impl UserBansComponent {
             .execute(&mut *txn)
             .await?;
 
-        let existing: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM user_bans \
-             WHERE banned_address = $1 AND lifted_at IS NULL \
-               AND (expires_at IS NULL OR expires_at > now())",
-        )
-        .bind(&banned_address)
-        .fetch_one(&mut *txn)
-        .await?;
-        if existing > 0 {
-            return Err(BanWriteError::AlreadyBanned(banned_address));
-        }
-
-        let expires_at = input
-            .duration_ms
-            .map(|d| Utc::now() + Duration::milliseconds(d));
-
-        let banned_device_id = input.banned_device_id.filter(|s| !s.is_empty());
-
         let row = sqlx::query_as::<_, BanRow>(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO user_bans \
-               (banned_address, banned_by, reason, custom_message, banned_device_id, expires_at, active) \
-             VALUES ($1, $2, $3, $4, $5, $6, TRUE) \
-             RETURNING {BAN_SELECT_FIELDS}"
+            "WITH existing AS ( \
+                SELECT count(*) AS n FROM user_bans \
+                WHERE banned_address = $1 AND lifted_at IS NULL \
+                  AND (expires_at IS NULL OR expires_at > now()) \
+             ), ins AS ( \
+                INSERT INTO user_bans \
+                  (banned_address, banned_by, reason, custom_message, banned_device_id, expires_at, active) \
+                SELECT $1, $2, $3, $4, \
+                       CASE WHEN $7::bool \
+                            THEN COALESCE($5::text, (SELECT NULLIF(p.device_id, '') \
+                                                     FROM player_connection_info p \
+                                                     WHERE p.address = $1)) \
+                            ELSE $5::text END, \
+                       $6, TRUE \
+                WHERE (SELECT n FROM existing) = 0 \
+                RETURNING {BAN_SELECT_FIELDS} \
+             ) SELECT {BAN_SELECT_FIELDS} FROM ins"
         )))
         .bind(&banned_address)
         .bind(&banned_by)
@@ -385,8 +449,13 @@ impl UserBansComponent {
         .bind(&input.custom_message)
         .bind(&banned_device_id)
         .bind(expires_at)
-        .fetch_one(&mut *txn)
+        .bind(snapshot_device)
+        .fetch_optional(&mut *txn)
         .await?;
+
+        let Some(row) = row else {
+            return Err(BanWriteError::AlreadyBanned(banned_address));
+        };
 
         txn.commit().await?;
 

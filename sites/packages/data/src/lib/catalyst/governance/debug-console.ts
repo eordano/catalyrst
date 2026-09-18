@@ -37,10 +37,10 @@ const FixtureSchema = z.object({
   functions: z.array(z.string()),
 });
 
-export type BudgetRow = z.infer<typeof BudgetRowSchema>;
-export type HealthInfo = z.infer<typeof HealthSchema>;
+type BudgetRow = z.infer<typeof BudgetRowSchema>;
+type HealthInfo = z.infer<typeof HealthSchema>;
 export type EnvVar = z.infer<typeof EnvVarSchema>;
-export type SnapshotInfo = z.infer<typeof SnapshotSchema>;
+type SnapshotInfo = z.infer<typeof SnapshotSchema>;
 
 export type BudgetSummary = {
   start: string;

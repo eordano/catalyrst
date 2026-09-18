@@ -51,7 +51,7 @@ export function catalystBase(override?: string): string {
   return base.replace(/\/$/, "");
 }
 
-export type ServiceName =
+type ServiceName =
   | "places"
   | "events"
   | "communities"
@@ -117,7 +117,7 @@ function resolveBase(opts: RequestOpts): string {
   return catalystBase();
 }
 
-export function buildQuery(query?: QueryParams): string {
+function buildQuery(query?: QueryParams): string {
   if (!query) return "";
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {

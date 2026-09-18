@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe("portables stop pending state", () => {
-  test("Stop goes pending per row until the next portables push reconciles", async () => {
+  test("Stop goes pending per row until the next portables push reconciles, and a survivor gets its Stop back", async () => {
     const { bridge, user } = setup();
     act(() => {
       bridge.push({ kind: "portables", portables: [JETPACK, RADAR] });
@@ -32,30 +32,20 @@ describe("portables stop pending state", () => {
 
     await user.click(row("Jetpack").getByRole("button", { name: "Stop" }));
     expect(bridge.expectSent("KillPortable")).toEqual({ pid: JETPACK.pid });
-
-    const pendingBtn = row("Jetpack").getByRole("button", { name: "Stopping\u{2026}" });
-    expect(pendingBtn).toBeDisabled();
+    expect(row("Jetpack").getByRole("button", { name: "Stopping\u{2026}" })).toBeDisabled();
     expect(row("Radar").getByRole("button", { name: "Stop" })).toBeEnabled();
 
+    act(() => {
+      bridge.push({ kind: "portables", portables: [JETPACK, RADAR] });
+    });
+    expect(row("Jetpack").getByRole("button", { name: "Stop" })).toBeEnabled();
+
+    await user.click(row("Jetpack").getByRole("button", { name: "Stop" }));
+    expect(row("Jetpack").getByRole("button", { name: "Stopping\u{2026}" })).toBeDisabled();
     act(() => {
       bridge.push({ kind: "portables", portables: [RADAR] });
     });
     expect(screen.queryByText("Jetpack")).toBeNull();
     expect(row("Radar").getByRole("button", { name: "Stop" })).toBeEnabled();
-  });
-
-  test("a survivor row gets its Stop button back after the push", async () => {
-    const { bridge, user } = setup();
-    act(() => {
-      bridge.push({ kind: "portables", portables: [JETPACK] });
-    });
-
-    await user.click(row("Jetpack").getByRole("button", { name: "Stop" }));
-    expect(row("Jetpack").getByRole("button", { name: "Stopping\u{2026}" })).toBeDisabled();
-
-    act(() => {
-      bridge.push({ kind: "portables", portables: [JETPACK] });
-    });
-    expect(row("Jetpack").getByRole("button", { name: "Stop" })).toBeEnabled();
   });
 });

@@ -10,7 +10,7 @@ import { useProfileName } from "@data/lib/auth/use-profile-name";
 import { loadPresenceSnapshot } from "@data/lib/catalyst/places/presence.server";
 import { occupancyTotals, sceneJumpUrl, worldHeadcount, worldJumpUrl } from "@data/lib/catalyst/places/presence";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 import { OPERATOR_EVENTS } from "@core/lib/telemetry/operator-events";
 import { loadOperatorMetrics } from "@data/lib/catalyst/admin/operator-metrics.server";
@@ -31,15 +31,15 @@ const DEFAULT_ASSIGNMENT: Assignment = {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    DEFAULT_ASSIGNMENT,
+  const {
+    sid,
+    assignment,
+    wrap,
+    data: [presence, { funnel, admin }],
+  } = await storyLoaderWith(request, STORY, DEFAULT_ASSIGNMENT, () =>
+    Promise.all([loadPresenceSnapshot({ signal: request.signal }), loadOperatorMetrics()]),
   );
-
-  const presence = await loadPresenceSnapshot({ signal: request.signal });
   const totals = occupancyTotals(presence);
-  const { funnel, admin } = await loadOperatorMetrics();
 
   const payload = { sid, assignment, presence, totals, funnel, admin };
   return wrap(payload);

@@ -23,9 +23,6 @@ import type { PitchDetails } from "@data/lib/catalyst/governance/submit-pitch";
 const RESULT: SubmitResult = { proposalId: "sim-pitch-abc", stub: true };
 
 const okSubmit: SubmitFn = async () => RESULT;
-const failSubmit: SubmitFn = async () => {
-  throw new Error("governance api unreachable");
-};
 
 const VALID_DETAILS: PitchDetails = {
   initiative_name: "DAO mobile companion app",
@@ -77,119 +74,83 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
-describe("pitchMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(pitchMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
+describe("pitchMachine \u{2014} URL ?step slug map", () => {
+  it("maps every state to a unique round-tripping slug and falls back to intro", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(pitchMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("spec ?step values are all routable", () => {
-    for (const step of [
-      "intro",
-      "details",
-      "coauthors",
-      "review",
-      "submitting",
-      "success",
-    ]) {
-      expect(EXPECTED_STATES.has(slugToState(step))).toBe(true);
-    }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.intro);
-    expect(slugToState(null)).toBe("intro");
-    expect(slugToState(undefined)).toBe("intro");
-    expect(slugToState("")).toBe("intro");
-    expect(slugToState("nope")).toBe("intro");
-    expect(slugToState("details")).toBe("details");
-    expect(slugToState("coauthors")).toBe("coauthors");
-    expect(slugToState("submitting")).toBe("submitting");
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("intro");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("pitchMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolvePitchSnapshot({
-      step: "intro",
-      trackCtx: inputFor(okSubmit, () => {}).trackCtx,
-      meetsGate: true,
-      votingPower: 12480,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submitting does NOT fire telemetry and does NOT auto-submit", async () => {
+  it("boots intro without a snapshot, hydrates later steps silently, and only real transitions track", async () => {
     const track = vi.fn();
     const submit = vi.fn(okSubmit);
-    const snapshot = resolvePitchSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(submit, track).trackCtx,
-      meetsGate: true,
-      votingPower: 12480,
-      submit,
-      track,
-      draft: validDraft(),
-    });
-    const actor = createActor(pitchMachine, {
-      input: inputFor(submit, track),
-      snapshot,
-    }).start();
+    const trackCtx = inputFor(submit, track).trackCtx;
+    expect(
+      resolvePitchSnapshot({ step: "intro", trackCtx, meetsGate: true, votingPower: 12480 }),
+    ).toBeUndefined();
 
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(actor.getSnapshot().context.draft.initiative_name).toBe(
+    const submitting = createActor(pitchMachine, {
+      input: inputFor(submit, track),
+      snapshot: resolvePitchSnapshot({
+        step: "submitting",
+        trackCtx,
+        meetsGate: true,
+        votingPower: 12480,
+        submit,
+        track,
+        draft: validDraft(),
+      }),
+    }).start();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    expect(submitting.getSnapshot().context.draft.initiative_name).toBe(
       VALID_DETAILS.initiative_name,
     );
-
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(submit).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolvePitchSnapshot({
-      step: "review",
-      trackCtx: inputFor(okSubmit, track).trackCtx,
-      meetsGate: true,
-      votingPower: 12480,
-      track,
-      draft: validDraft(),
-    });
-    const actor = createActor(pitchMachine, {
+    const review = createActor(pitchMachine, {
       input: inputFor(okSubmit, track),
-      snapshot,
+      snapshot: resolvePitchSnapshot({
+        step: "review",
+        trackCtx,
+        meetsGate: true,
+        votingPower: 12480,
+        track,
+        draft: validDraft(),
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("review")).toBe(true);
+    expect(review.getSnapshot().matches("review")).toBe(true);
     expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "CONFIRM" });
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(PITCH_EVENTS.submitting);
+    review.send({ type: "CONFIRM" });
+    expect(review.getSnapshot().matches("submitting")).toBe(true);
+    expect(names(track)).toContain(PITCH_EVENTS.submitting);
   });
 });
 
 describe("pitchMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and submitting needs the full step sequence", () => {
     const paths = getShortestPaths(pitchMachine, {
       input: inputFor(okSubmit, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
@@ -197,138 +158,101 @@ describe("pitchMachine \u{2014} model-based path coverage (@xstate/graph)", () =
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("details")).toBe(true);
-    expect(ends.has("coauthors")).toBe(true);
-    expect(ends.has("review")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
+    for (const s of ["details", "coauthors", "review", "submitting"]) expect(ends.has(s)).toBe(true);
 
-  it("reaching submitting passes through the full step sequence", () => {
-    const paths = getShortestPaths(pitchMachine, {
-      input: inputFor(okSubmit, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const submitting = paths.find((p) => (p.state.value as string) === "submitting");
-    expect(submitting).toBeDefined();
     const events = submitting!.steps.map((s) => s.event.type);
-    expect(events).toContain("PASS_GATE");
-    expect(events).toContain("SUBMIT_DETAILS");
-    expect(events).toContain("SUBMIT_COAUTHORS");
-    expect(events).toContain("CONFIRM");
+    for (const e of ["PASS_GATE", "SUBMIT_DETAILS", "SUBMIT_COAUTHORS", "CONFIRM"]) {
+      expect(events).toContain(e);
+    }
   });
 });
 
 describe("pitchMachine \u{2014} VP submission gate", () => {
-  it("an eligible account passes the gate into details", () => {
-    const track = vi.fn();
-    const actor = createActor(pitchMachine, {
-      input: inputFor(okSubmit, track, { meetsGate: true }),
+  it("only an eligible account passes into details; started carries the gate + vp props", () => {
+    const passTrack = vi.fn();
+    const eligible = createActor(pitchMachine, {
+      input: inputFor(okSubmit, passTrack, { meetsGate: true }),
     }).start();
+    eligible.send({ type: "PASS_GATE" });
+    expect(eligible.getSnapshot().matches("details")).toBe(true);
+    expect(names(passTrack)).toContain(PITCH_EVENTS.gatePassed);
 
-    actor.send({ type: "PASS_GATE" });
-    expect(actor.getSnapshot().matches("details")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(PITCH_EVENTS.gatePassed);
-  });
-
-  it("a below-threshold account stays locked at intro (PASS_GATE no-op)", () => {
-    const track = vi.fn();
-    const actor = createActor(pitchMachine, {
-      input: inputFor(okSubmit, track, { meetsGate: false, votingPower: 12 }),
+    const lockTrack = vi.fn();
+    const locked = createActor(pitchMachine, {
+      input: inputFor(okSubmit, lockTrack, { meetsGate: false, votingPower: 12 }),
     }).start();
-
-    actor.send({ type: "PASS_GATE" });
-    expect(actor.getSnapshot().matches("intro")).toBe(true);
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(PITCH_EVENTS.started);
-    expect(events).not.toContain(PITCH_EVENTS.gatePassed);
-  });
-
-  it("started carries the gate + vp props", () => {
-    const track = vi.fn();
-    createActor(pitchMachine, {
-      input: inputFor(okSubmit, track, { meetsGate: false, votingPower: 12 }),
-    }).start();
-    const started = track.mock.calls.find((c) => c[0] === PITCH_EVENTS.started);
+    locked.send({ type: "PASS_GATE" });
+    expect(locked.getSnapshot().matches("intro")).toBe(true);
+    expect(names(lockTrack)).toContain(PITCH_EVENTS.started);
+    expect(names(lockTrack)).not.toContain(PITCH_EVENTS.gatePassed);
+    const started = lockTrack.mock.calls.find((c) => c[0] === PITCH_EVENTS.started);
     expect(started?.[1]).toMatchObject({ meets_gate: false, vp: 12 });
   });
 });
 
-describe("pitchMachine \u{2014} telemetry events (happy path)", () => {
-  it("full flow fires the complete funnel in order", async () => {
+describe("pitchMachine \u{2014} happy path", () => {
+  it("fires the complete funnel in order with step props, and BACK never re-fires started", async () => {
     const track = vi.fn();
     const actor = createActor(pitchMachine, {
       input: inputFor(okSubmit, track),
     }).start();
+    const co = ["0x" + "a".repeat(40), "0x" + "b".repeat(40)];
 
     actor.send({ type: "PASS_GATE" });
     expect(actor.getSnapshot().matches("details")).toBe(true);
-
     actor.send({ type: "SUBMIT_DETAILS", details: VALID_DETAILS });
     expect(actor.getSnapshot().matches("coauthors")).toBe(true);
-
-    actor.send({ type: "SUBMIT_COAUTHORS", coAuthors: [] });
+    actor.send({ type: "SUBMIT_COAUTHORS", coAuthors: co });
     expect(actor.getSnapshot().matches("review")).toBe(true);
+    expect(actor.getSnapshot().context.draft.coAuthors).toEqual(co);
 
+    actor.send({ type: "BACK" });
+    expect(actor.getSnapshot().matches("coauthors")).toBe(true);
+    actor.send({ type: "BACK" });
+    expect(actor.getSnapshot().matches("details")).toBe(true);
+    expect(names(track).filter((e) => e === PITCH_EVENTS.started)).toHaveLength(1);
+
+    actor.send({ type: "SUBMIT_DETAILS", details: VALID_DETAILS });
+    actor.send({ type: "SUBMIT_COAUTHORS", coAuthors: co });
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("success"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(PITCH_EVENTS.started);
-    expect(events).toContain(PITCH_EVENTS.gatePassed);
-    expect(events).toContain(PITCH_EVENTS.detailsSubmitted);
-    expect(events).toContain(PITCH_EVENTS.coauthorsSet);
-    expect(events).toContain(PITCH_EVENTS.reviewReached);
-    expect(events).toContain(PITCH_EVENTS.submitting);
-    expect(events).toContain(PITCH_EVENTS.submitted);
-
+    const events = names(track);
+    for (const e of [
+      PITCH_EVENTS.started,
+      PITCH_EVENTS.gatePassed,
+      PITCH_EVENTS.detailsSubmitted,
+      PITCH_EVENTS.coauthorsSet,
+      PITCH_EVENTS.reviewReached,
+      PITCH_EVENTS.submitting,
+      PITCH_EVENTS.submitted,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(PITCH_EVENTS.reviewReached)).toBeLessThan(
       events.indexOf(PITCH_EVENTS.submitted),
     );
 
-    const startedCall = track.mock.calls.find((c) => c[0] === PITCH_EVENTS.started);
-    expect(startedCall?.[2]).toMatchObject({
+    const call = (name: string) => track.mock.calls.find((c) => c[0] === name);
+    expect(call(PITCH_EVENTS.started)?.[2]).toMatchObject({
       sid: "sid-abc",
       experimentKey: "gv_pitch_wizard",
       variant: "wizard",
     });
-    expect(actor.getSnapshot().context.result).toEqual(RESULT);
-  });
-
-  it("details_submitted carries name length + total body chars", () => {
-    const track = vi.fn();
-    const actor = createActor(pitchMachine, {
-      input: inputFor(okSubmit, track),
-    }).start();
-
-    actor.send({ type: "PASS_GATE" });
-    actor.send({ type: "SUBMIT_DETAILS", details: VALID_DETAILS });
-
-    const call = track.mock.calls.find((c) => c[0] === PITCH_EVENTS.detailsSubmitted);
-    expect(call?.[1]).toMatchObject({
+    expect(call(PITCH_EVENTS.detailsSubmitted)?.[1]).toMatchObject({
       name_length: VALID_DETAILS.initiative_name.length,
     });
-    expect((call?.[1] as { body_chars: number }).body_chars).toBeGreaterThan(0);
-  });
-
-  it("coauthors_set carries the count", () => {
-    const track = vi.fn();
-    const actor = createActor(pitchMachine, {
-      input: inputFor(okSubmit, track),
-    }).start();
-
-    const co = ["0x" + "a".repeat(40), "0x" + "b".repeat(40)];
-    actor.send({ type: "PASS_GATE" });
-    actor.send({ type: "SUBMIT_DETAILS", details: VALID_DETAILS });
-    actor.send({ type: "SUBMIT_COAUTHORS", coAuthors: co });
-
-    const call = track.mock.calls.find((c) => c[0] === PITCH_EVENTS.coauthorsSet);
-    expect(call?.[1]).toMatchObject({ count: 2 });
-    expect(actor.getSnapshot().context.draft.coAuthors).toEqual(co);
+    expect(
+      (call(PITCH_EVENTS.detailsSubmitted)?.[1] as { body_chars: number }).body_chars,
+    ).toBeGreaterThan(0);
+    expect(call(PITCH_EVENTS.coauthorsSet)?.[1]).toMatchObject({ count: 2 });
+    expect(actor.getSnapshot().context.result).toEqual(RESULT);
   });
 });
 
 describe("pitchMachine \u{2014} invalid details", () => {
-  it("a too-short body stays on details, fires details_invalid, sets errors", () => {
+  it("a too-short body or missing name stays on details with field errors and fires details_invalid", () => {
     const track = vi.fn();
     const actor = createActor(pitchMachine, {
       input: inputFor(okSubmit, track),
@@ -339,65 +263,28 @@ describe("pitchMachine \u{2014} invalid details", () => {
       type: "SUBMIT_DETAILS",
       details: { ...VALID_DETAILS, problem_statement: "too short" },
     });
-
     expect(actor.getSnapshot().matches("details")).toBe(true);
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(PITCH_EVENTS.detailsInvalid);
-    expect(events).not.toContain(PITCH_EVENTS.detailsSubmitted);
+    expect(names(track)).toContain(PITCH_EVENTS.detailsInvalid);
+    expect(names(track)).not.toContain(PITCH_EVENTS.detailsSubmitted);
     expect(actor.getSnapshot().context.errors.problem_statement).toBeTruthy();
-
     const invalid = track.mock.calls.find((c) => c[0] === PITCH_EVENTS.detailsInvalid);
     expect((invalid?.[1] as { fields: string[] }).fields).toContain("problem_statement");
-  });
 
-  it("a missing initiative name is rejected", () => {
-    const track = vi.fn();
-    const actor = createActor(pitchMachine, {
-      input: inputFor(okSubmit, track),
-    }).start();
-
-    actor.send({ type: "PASS_GATE" });
-    actor.send({
-      type: "SUBMIT_DETAILS",
-      details: { ...VALID_DETAILS, initiative_name: "" },
-    });
+    actor.send({ type: "SUBMIT_DETAILS", details: { ...VALID_DETAILS, initiative_name: "" } });
     expect(actor.getSnapshot().matches("details")).toBe(true);
     expect(actor.getSnapshot().context.errors.initiative_name).toBeTruthy();
   });
 });
 
-describe("pitchMachine \u{2014} BACK navigation", () => {
-  it("BACK from coauthors and review does not re-fire started", () => {
-    const track = vi.fn();
-    const actor = createActor(pitchMachine, {
-      input: inputFor(okSubmit, track),
-    }).start();
-
-    actor.send({ type: "PASS_GATE" });
-    actor.send({ type: "SUBMIT_DETAILS", details: VALID_DETAILS });
-    actor.send({ type: "SUBMIT_COAUTHORS", coAuthors: [] });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
-
-    actor.send({ type: "BACK" });
-    expect(actor.getSnapshot().matches("coauthors")).toBe(true);
-    actor.send({ type: "BACK" });
-    expect(actor.getSnapshot().matches("details")).toBe(true);
-
-    const started = track.mock.calls.filter((c) => c[0] === PITCH_EVENTS.started);
-    expect(started.length).toBe(1);
-  });
-});
-
-describe("pitchMachine \u{2014} submit failure + retry", () => {
-  it("submit error -> RETRY recovers to success", async () => {
+describe("pitchMachine \u{2014} submit failure", () => {
+  it("an error offers BACK to review and RETRY, which recovers to success", async () => {
     const track = vi.fn();
     let calls = 0;
     const submit: SubmitFn = async (args) => {
       calls += 1;
-      if (calls === 1) throw new Error("governance api unreachable");
+      if (calls < 3) throw new Error("governance api unreachable");
       return okSubmit(args);
     };
-
     const actor = createActor(pitchMachine, {
       input: inputFor(submit, track),
     }).start();
@@ -408,27 +295,16 @@ describe("pitchMachine \u{2014} submit failure + retry", () => {
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("error"));
     expect(actor.getSnapshot().context.error).toBe("governance api unreachable");
-    expect(track.mock.calls.map((c) => c[0])).toContain(PITCH_EVENTS.error);
-
-    actor.send({ type: "RETRY" });
-    await waitFor(actor, (s) => s.matches("success"));
-    expect(track.mock.calls.map((c) => c[0])).toContain(PITCH_EVENTS.submitted);
-  });
-
-  it("submit error -> BACK returns to review without submitting", async () => {
-    const track = vi.fn();
-    const actor = createActor(pitchMachine, {
-      input: inputFor(failSubmit, track),
-    }).start();
-
-    actor.send({ type: "PASS_GATE" });
-    actor.send({ type: "SUBMIT_DETAILS", details: VALID_DETAILS });
-    actor.send({ type: "SUBMIT_COAUTHORS", coAuthors: [] });
-    actor.send({ type: "CONFIRM" });
-    await waitFor(actor, (s) => s.matches("error"));
+    expect(names(track)).toContain(PITCH_EVENTS.error);
 
     actor.send({ type: "BACK" });
     expect(actor.getSnapshot().matches("review")).toBe(true);
+    actor.send({ type: "CONFIRM" });
+    await waitFor(actor, (s) => s.matches("error"));
+
+    actor.send({ type: "RETRY" });
+    await waitFor(actor, (s) => s.matches("success"));
+    expect(names(track)).toContain(PITCH_EVENTS.submitted);
   });
 });
 

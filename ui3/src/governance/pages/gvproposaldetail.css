@@ -118,7 +118,7 @@
 .gd__pill--ghost {
   background: rgba(255, 255, 255, .14);
   border: 1px solid rgba(255, 255, 255, .55);
-  color: #fff;
+  color: #161518;
 }
 .gd__pill--cat {
   background: var(--tone-bg, var(--gv-wash));

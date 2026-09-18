@@ -15,7 +15,7 @@ const CTA_VARIANT: Record<ActionVariant, string> = {
   ghost: "es__cta es__cta--ghost",
 };
 
-export type EmptyStateAction = {
+type EmptyStateAction = {
   label?: ReactNode;
   onClick?: MouseEventHandler<HTMLElement>;
   href?: string;

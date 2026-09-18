@@ -2,7 +2,7 @@ import { setIdentity } from "./session";
 import type { AuthIdentity, AuthLink } from "./types";
 
 export const RELAY_PATH = "/internal/native-auth-relay";
-export const APPROVE_PATH = "/auth/native";
+const APPROVE_PATH = "/auth/native";
 
 const POLL_INTERVAL_MS = 2_000;
 const POLL_TIMEOUT_MS = 5 * 60_000;
@@ -22,7 +22,7 @@ function requestId(): string {
   return `${crypto.randomUUID()}-${extra}`;
 }
 
-export type ShellSignIn = {
+type ShellSignIn = {
   identity: Promise<AuthIdentity | null>;
   cancel: () => void;
 };

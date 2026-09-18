@@ -16,8 +16,11 @@ import "@ui/atoms/primitives.css";
 
 import SignInModalHost from "@features/components/auth/SignInModalHost";
 import ChromeAuthBridge from "@features/components/chrome/ChromeAuthBridge";
+import ChromeNavBridge from "@features/components/chrome/ChromeNavBridge";
+import EmbedBridge from "@features/components/chrome/EmbedBridge";
 import SyncEngineBridge from "@features/components/creator-hub/SyncEngineBridge";
 import ErrorPage from "@ui/components/ErrorPage";
+import { EMBED_BOOT_SCRIPT } from "@ui/web/frames/embed";
 import type { ShouldRevalidateFunctionArgs } from "react-router";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { isCommitteeMember } from "@data/lib/catalyst/creator-hub/committee-membership.server";
@@ -34,6 +37,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     (typeof process !== "undefined" &&
       (process.env.VITE_TELEMETRY_URL || process.env.TELEMETRY_URL)) ||
     "";
+  const docsBase = (typeof process !== "undefined" && process.env.DOCS_BASE) || "";
   const wallet = readWallet(request);
   const committee = wallet
     ? await isCommitteeMember(wallet, request.signal).catch(() => false)
@@ -41,6 +45,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   return {
     thirdwebClientId,
     telemetryUrl,
+    docsBase,
     wallet,
     committee,
   };
@@ -67,11 +72,12 @@ export function meta(_args: Route.MetaArgs) {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const data = useRouteLoaderData("root") as
-    | { thirdwebClientId?: string; telemetryUrl?: string }
+    | { thirdwebClientId?: string; telemetryUrl?: string; docsBase?: string }
     | undefined;
   const publicEnv = JSON.stringify({
     thirdwebClientId: data?.thirdwebClientId ?? "",
     TELEMETRY_URL: data?.telemetryUrl ?? "",
+    docsBase: data?.docsBase ?? "",
   }).replace(/</g, "\\u003c");
 
   return (
@@ -84,6 +90,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{
             __html: `window.__DCL_PUBLIC__=${publicEnv}`,
           }}
+        />
+        <script
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: EMBED_BOOT_SCRIPT }}
         />
         <link rel="icon" type="image/png" href="/assets/dcl-logo.png" />
         <Meta />
@@ -219,9 +229,12 @@ export default function App() {
   }, []);
   return (
     <ChromeAuthBridge>
-      <Outlet />
-      <SignInModalHost />
-      <SyncEngineBridge />
+      <ChromeNavBridge>
+        <Outlet />
+        <EmbedBridge />
+        <SignInModalHost />
+        <SyncEngineBridge />
+      </ChromeNavBridge>
     </ChromeAuthBridge>
   );
 }

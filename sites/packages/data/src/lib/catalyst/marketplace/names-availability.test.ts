@@ -24,41 +24,41 @@ function ens(over: {
   } as unknown as EnsResult;
 }
 
+function openOrder(over: Partial<NonNullable<EnsResult["order"]>> = {}) {
+  return {
+    id: "o1",
+    status: "open",
+    price: `5${WEI}`,
+    expiresAt: NOW / 1000 + 3600,
+    ...over,
+  } as NonNullable<EnsResult["order"]>;
+}
+
 describe("ensOrderExpired \u{2014} mixed seconds/ms expiries", () => {
-  it("treats small values as seconds", () => {
+  it("treats small values as seconds, large values as milliseconds, and a missing expiry as never expiring", () => {
     expect(ensOrderExpired(NOW / 1000 - 60, NOW)).toBe(true);
     expect(ensOrderExpired(NOW / 1000 + 60, NOW)).toBe(false);
-  });
-
-  it("treats large values as milliseconds", () => {
     expect(ensOrderExpired(NOW - 1, NOW)).toBe(true);
     expect(ensOrderExpired(NOW + 1, NOW)).toBe(false);
-  });
-
-  it("missing expiry never expires", () => {
     expect(ensOrderExpired(null, NOW)).toBe(false);
     expect(ensOrderExpired(0, NOW)).toBe(false);
   });
 });
 
 describe("ensAvailability \u{2014} three honest states", () => {
-  it("no minted NFT \u{2192} claimable", () => {
+  it("no minted NFT \u{2192} claimable; minted with no order \u{2192} taken", () => {
     expect(ensAvailability("fresh", [], "42", NOW)).toEqual({
       kind: "claimable",
       name: "fresh",
     });
+    expect(ensAvailability("automotive", [ens({ order: null })], "1", NOW)).toEqual({
+      kind: "taken",
+      name: "Automotive",
+    });
   });
 
-  it("open order with price and future expiry \u{2192} listed, minted casing preserved", () => {
-    const row = ens({
-      name: "Automotive",
-      order: {
-        id: "o1",
-        status: "open",
-        price: `5${WEI}`,
-        expiresAt: NOW / 1000 + 3600,
-      } as NonNullable<EnsResult["order"]>,
-    });
+  it("open order with price and future expiry \u{2192} listed with minted casing preserved, falling back to the computed tokenId when the NFT omits it", () => {
+    const row = ens({ name: "Automotive", order: openOrder() });
     expect(ensAvailability("automotive", [row], "1", NOW)).toEqual({
       kind: "listed",
       name: "Automotive",
@@ -67,63 +67,32 @@ describe("ensAvailability \u{2014} three honest states", () => {
       priceWei: `5${WEI}`,
       priceMana: "5",
     });
-  });
 
-  it("falls back to the computed tokenId when the NFT omits it", () => {
-    const row = ens({
-      tokenId: null,
-      order: {
-        id: "o1",
-        status: "open",
-        price: `5${WEI}`,
-        expiresAt: NOW / 1000 + 3600,
-      } as NonNullable<EnsResult["order"]>,
-    });
-    const res = ensAvailability("automotive", [row], "9000", NOW);
+    const noToken = ens({ tokenId: null, order: openOrder() });
+    const res = ensAvailability("automotive", [noToken], "9000", NOW);
     expect(res.kind).toBe("listed");
     if (res.kind === "listed") expect(res.tokenId).toBe("9000");
   });
 
-  it("minted with no order \u{2192} taken", () => {
-    expect(ensAvailability("automotive", [ens({ order: null })], "1", NOW)).toEqual({
-      kind: "taken",
-      name: "Automotive",
-    });
-  });
-
-  it("open order with zero price \u{2192} taken, never buyable", () => {
-    const row = ens({
-      order: {
-        id: "o1",
-        status: "open",
-        price: "0",
-        expiresAt: NOW / 1000 + 3600,
-      } as NonNullable<EnsResult["order"]>,
-    });
-    expect(ensAvailability("automotive", [row], "1", NOW).kind).toBe("taken");
-  });
-
-  it("expired open order \u{2192} taken", () => {
-    const row = ens({
-      order: {
-        id: "o1",
-        status: "open",
-        price: `5${WEI}`,
-        expiresAt: NOW / 1000 - 3600,
-      } as NonNullable<EnsResult["order"]>,
-    });
-    expect(ensAvailability("automotive", [row], "1", NOW).kind).toBe("taken");
-  });
-
-  it("cancelled order \u{2192} taken", () => {
-    const row = ens({
-      order: {
-        id: "o1",
-        status: "cancelled",
-        price: `5${WEI}`,
-        expiresAt: NOW / 1000 + 3600,
-      } as NonNullable<EnsResult["order"]>,
-    });
-    expect(ensAvailability("automotive", [row], "1", NOW).kind).toBe("taken");
+  it("an open order at zero price, an expired open order, or a cancelled order \u{2192} taken, never buyable", () => {
+    expect(
+      ensAvailability("automotive", [ens({ order: openOrder({ price: "0" }) })], "1", NOW).kind,
+    ).toBe("taken");
+    expect(
+      ensAvailability(
+        "automotive",
+        [ens({ order: openOrder({ expiresAt: NOW / 1000 - 3600 }) })],
+        "1",
+        NOW,
+      ).kind,
+    ).toBe("taken");
+    expect(
+      ensAvailability(
+        "automotive",
+        [ens({ order: openOrder({ status: "cancelled" }) })],
+        "1",
+        NOW,
+      ).kind,
+    ).toBe("taken");
   });
 });

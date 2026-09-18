@@ -6,12 +6,12 @@ import {
 import { loginWithIdentity } from "./engineLogin";
 import type { AuthIdentity, AuthLink } from "./identity";
 
-export const PAIR_API_PATH = "/internal/pair";
+const PAIR_API_PATH = "/internal/pair";
 const POLL_INTERVAL_MS = 1_500;
 
-export type WalletDeepLink = { name: string; href: string };
+type WalletDeepLink = { name: string; href: string };
 
-export type PhonePairSession = {
+type PhonePairSession = {
   uri: string;
   qrDataUrl: string;
   libreUri: string;

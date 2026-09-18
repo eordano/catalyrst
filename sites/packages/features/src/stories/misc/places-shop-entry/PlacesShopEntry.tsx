@@ -12,9 +12,9 @@ import {
   type TrackFn,
 } from "@core/lib/telemetry/track";
 
-export type ShopOpenTarget = "pill" | "rail_cta" | "rail_item";
+type ShopOpenTarget = "pill" | "rail_cta" | "rail_item";
 
-export type PlacesShopEntryProps = {
+type PlacesShopEntryProps = {
   arm: PlacesShopEntryArm;
   items: CollectibleCard[] | null;
   trackCtx: TrackContext;

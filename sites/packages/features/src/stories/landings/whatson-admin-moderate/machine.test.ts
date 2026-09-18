@@ -25,9 +25,6 @@ const RESULT: SimulatedModeration = {
 };
 
 const okModerate: ModerateFn = async ({ eventId }) => ({ ...RESULT, id: eventId });
-const failModerate: ModerateFn = async () => {
-  throw new Error("catalyst unreachable");
-};
 
 function inputFor(moderate: ModerateFn, track: TrackFn) {
   return {
@@ -62,18 +59,16 @@ const TRAVERSAL_EVENTS = [
   { type: "CONTINUE" as const },
 ];
 
-describe("moderateMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(moderateMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
 
-  it("slugs are the audit-spec step ids, unique, and round-trip", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    expect(slugs).toEqual([
+describe("moderateMachine \u{2014} URL ?step slug map", () => {
+  it("uses the audit-spec step ids, unique and round-tripping, falling back to auth-gate", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(moderateMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
+    expect(Object.values(STATE_TO_SLUG)).toEqual([
       "auth-gate",
       "queue",
       "review-event",
@@ -84,102 +79,76 @@ describe("moderateMachine \u{2014} URL ?step slug map", () => {
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.authGate);
-    expect(slugToState(null)).toBe("authGate");
-    expect(slugToState(undefined)).toBe("authGate");
-    expect(slugToState("")).toBe("authGate");
-    expect(slugToState("nope")).toBe("authGate");
-    expect(slugToState("review-event")).toBe("reviewEvent");
-    expect(slugToState("decision")).toBe("decision");
-    expect(slugToState("submitting")).toBe("submitting");
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("authGate");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("moderateMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveModerateSnapshot({
-      step: "authGate",
-      trackCtx: inputFor(okModerate, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submitting does NOT fire telemetry and does NOT auto-moderate", async () => {
+  it("boots authGate without a snapshot, hydrates submitting/queue silently, and a reject decision carries reasons without auto-moderating", async () => {
     const track = vi.fn();
     const moderate = vi.fn(okModerate);
-    const snapshot = resolveModerateSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(moderate, track).trackCtx,
-      moderate,
-      track,
-      eventId: "evt-7",
-      action: "approve",
-    });
-    const actor = createActor(moderateMachine, {
+    const trackCtx = inputFor(moderate, track).trackCtx;
+    expect(resolveModerateSnapshot({ step: "authGate", trackCtx })).toBeUndefined();
+
+    const submitting = createActor(moderateMachine, {
       input: inputFor(moderate, track),
-      snapshot,
+      snapshot: resolveModerateSnapshot({
+        step: "submitting",
+        trackCtx,
+        moderate,
+        track,
+        eventId: "evt-7",
+        action: "approve",
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(actor.getSnapshot().context.eventId).toBe("evt-7");
-    expect(actor.getSnapshot().context.action).toBe("approve");
-
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    expect(submitting.getSnapshot().context.eventId).toBe("evt-7");
+    expect(submitting.getSnapshot().context.action).toBe("approve");
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(moderate).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("hydrating queue does NOT re-fire the queue_viewed entry action", () => {
-    const track = vi.fn();
-    const snapshot = resolveModerateSnapshot({
-      step: "queue",
-      trackCtx: inputFor(okModerate, track).trackCtx,
-      track,
-    });
-    const actor = createActor(moderateMachine, {
-      input: inputFor(okModerate, track),
-      snapshot,
+    const queue = createActor(moderateMachine, {
+      input: inputFor(moderate, track),
+      snapshot: resolveModerateSnapshot({ step: "queue", trackCtx, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("queue")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveModerateSnapshot({
-      step: "reviewEvent",
-      trackCtx: inputFor(okModerate, track).trackCtx,
-      track,
-      eventId: "evt-3",
-    });
-    const actor = createActor(moderateMachine, {
-      input: inputFor(okModerate, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("reviewEvent")).toBe(true);
+    expect(queue.getSnapshot().matches("queue")).toBe(true);
     expect(track).not.toHaveBeenCalled();
 
-    actor.send({ type: "DECIDE", action: "reject", rejectReasons: ["invalid_image"] });
-    expect(actor.getSnapshot().matches("decision")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(MODERATE_EVENTS.decisionMade);
+    const review = createActor(moderateMachine, {
+      input: inputFor(moderate, track),
+      snapshot: resolveModerateSnapshot({ step: "reviewEvent", trackCtx, track, eventId: "evt-3" }),
+    }).start();
+    expect(review.getSnapshot().matches("reviewEvent")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+    review.send({
+      type: "DECIDE",
+      action: "reject",
+      rejectReasons: ["invalid_image", "invalid_location"],
+      rejectNote: "blurry poster",
+    });
+    expect(review.getSnapshot().matches("decision")).toBe(true);
+    expect(review.getSnapshot().context.action).toBe("reject");
+    expect(review.getSnapshot().context.rejectReasons).toEqual([
+      "invalid_image",
+      "invalid_location",
+    ]);
+    expect(names(track)).toContain(MODERATE_EVENTS.decisionMade);
+    expect(moderate).not.toHaveBeenCalled();
   });
 });
 
 describe("moderateMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and submitting needs SIGN_IN, OPEN, DECIDE, CONFIRM", () => {
     const paths = getShortestPaths(moderateMachine, {
       input: inputFor(okModerate, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
@@ -187,62 +156,48 @@ describe("moderateMachine \u{2014} model-based path coverage (@xstate/graph)", (
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("queue")).toBe(true);
-    expect(ends.has("reviewEvent")).toBe(true);
-    expect(ends.has("decision")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
-
-  it("reaching submitting passes through SIGN_IN, OPEN, DECIDE and CONFIRM", () => {
-    const paths = getShortestPaths(moderateMachine, {
-      input: inputFor(okModerate, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["queue", "reviewEvent", "decision", "submitting"]) {
+      expect(ends.has(s)).toBe(true);
+    }
     const submitting = paths.find((p) => (p.state.value as string) === "submitting");
-    expect(submitting).toBeDefined();
     const events = submitting!.steps.map((s) => s.event.type);
-    expect(events).toContain("SIGN_IN");
-    expect(events).toContain("OPEN");
-    expect(events).toContain("DECIDE");
-    expect(events).toContain("CONFIRM");
+    for (const e of ["SIGN_IN", "OPEN", "DECIDE", "CONFIRM"]) expect(events).toContain(e);
   });
 });
 
 describe("moderateMachine \u{2014} telemetry events (happy path)", () => {
-  it("sign-in -> open -> decide -> confirm -> moderated fires the full funnel", async () => {
+  it("sign-in -> open -> decide -> confirm -> moderated fires the full funnel, then CONTINUE clears the selection", async () => {
     const track = vi.fn();
     const actor = createActor(moderateMachine, {
       input: inputFor(okModerate, track),
     }).start();
-
-    expect(track.mock.calls.map((c) => c[0])).toContain(MODERATE_EVENTS.gateViewed);
+    expect(names(track)).toContain(MODERATE_EVENTS.gateViewed);
 
     actor.send({ type: "SIGN_IN" });
     expect(actor.getSnapshot().matches("queue")).toBe(true);
-
     actor.send({ type: "OPEN", eventId: "evt-9" });
     expect(actor.getSnapshot().matches("reviewEvent")).toBe(true);
     expect(actor.getSnapshot().context.eventId).toBe("evt-9");
-
     actor.send({ type: "DECIDE", action: "approve" });
     expect(actor.getSnapshot().matches("decision")).toBe(true);
-
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("moderated"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(MODERATE_EVENTS.gateViewed);
-    expect(events).toContain(MODERATE_EVENTS.authenticated);
-    expect(events).toContain(MODERATE_EVENTS.queueViewed);
-    expect(events).toContain(MODERATE_EVENTS.eventOpened);
-    expect(events).toContain(MODERATE_EVENTS.decisionMade);
-    expect(events).toContain(MODERATE_EVENTS.confirmed);
-    expect(events).toContain(MODERATE_EVENTS.moderated);
-
+    const events = names(track);
+    for (const e of [
+      MODERATE_EVENTS.gateViewed,
+      MODERATE_EVENTS.authenticated,
+      MODERATE_EVENTS.queueViewed,
+      MODERATE_EVENTS.eventOpened,
+      MODERATE_EVENTS.decisionMade,
+      MODERATE_EVENTS.confirmed,
+      MODERATE_EVENTS.moderated,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(MODERATE_EVENTS.confirmed)).toBeLessThan(
       events.indexOf(MODERATE_EVENTS.moderated),
     );
-
     const decideCall = track.mock.calls.find((c) => c[0] === MODERATE_EVENTS.decisionMade);
     expect(decideCall?.[1]).toMatchObject({ event_id: "evt-9", action: "approve" });
     expect(decideCall?.[2]).toMatchObject({
@@ -251,48 +206,11 @@ describe("moderateMachine \u{2014} telemetry events (happy path)", () => {
       variant: "moderation_wizard",
     });
     expect(actor.getSnapshot().context.result).toMatchObject({ id: "evt-9" });
-  });
-
-  it("CONTINUE returns to the queue and clears the selection", async () => {
-    const track = vi.fn();
-    const actor = createActor(moderateMachine, {
-      input: inputFor(okModerate, track),
-    }).start();
-
-    actor.send({ type: "SIGN_IN" });
-    actor.send({ type: "OPEN", eventId: "evt-2" });
-    actor.send({ type: "DECIDE", action: "feature" });
-    actor.send({ type: "CONFIRM" });
-    await waitFor(actor, (s) => s.matches("moderated"));
 
     actor.send({ type: "CONTINUE" });
     expect(actor.getSnapshot().matches("queue")).toBe(true);
     expect(actor.getSnapshot().context.eventId).toBeUndefined();
     expect(actor.getSnapshot().context.action).toBeUndefined();
-  });
-
-  it("reject path carries reasons and never auto-approves", () => {
-    const track = vi.fn();
-    const moderate = vi.fn(okModerate);
-    const actor = createActor(moderateMachine, {
-      input: inputFor(moderate, track),
-    }).start();
-
-    actor.send({ type: "SIGN_IN" });
-    actor.send({ type: "OPEN", eventId: "evt-5" });
-    actor.send({
-      type: "DECIDE",
-      action: "reject",
-      rejectReasons: ["invalid_image", "invalid_location"],
-      rejectNote: "blurry poster",
-    });
-    expect(actor.getSnapshot().matches("decision")).toBe(true);
-    expect(actor.getSnapshot().context.action).toBe("reject");
-    expect(actor.getSnapshot().context.rejectReasons).toEqual([
-      "invalid_image",
-      "invalid_location",
-    ]);
-    expect(moderate).not.toHaveBeenCalled();
   });
 });
 
@@ -305,7 +223,6 @@ describe("moderateMachine \u{2014} moderate failure + retry", () => {
       if (calls === 1) throw new Error("catalyst unreachable");
       return okModerate(args);
     };
-
     const actor = createActor(moderateMachine, {
       input: inputFor(moderate, track),
     }).start();
@@ -316,17 +233,11 @@ describe("moderateMachine \u{2014} moderate failure + retry", () => {
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("decision") && s.context.error !== undefined);
     expect(actor.getSnapshot().context.error).toBe("catalyst unreachable");
-
-    const failEvents = track.mock.calls.map((c) => c[0]);
-    expect(failEvents).toContain(MODERATE_EVENTS.failed);
+    expect(names(track)).toContain(MODERATE_EVENTS.failed);
 
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("moderated"));
-    expect(track.mock.calls.map((c) => c[0])).toContain(MODERATE_EVENTS.moderated);
-  });
-
-  it("failModerate always rejects (sanity)", async () => {
-    await expect(failModerate({ eventId: "x", action: "approve" })).rejects.toThrow();
+    expect(names(track)).toContain(MODERATE_EVENTS.moderated);
   });
 });
 
@@ -347,13 +258,11 @@ describe("simulateModerateAction", () => {
 });
 
 describe("whatson-admin-moderate \u{2014} the default actor fails closed", () => {
-  it("failClosedModerateAction rejects instead of reporting a fake success", async () => {
+  it("failClosedModerateAction and a machine with no injected moderate both reject, never approve", async () => {
     await expect(
       failClosedModerateAction({ eventId: "evt-1", action: "approve" }),
     ).rejects.toThrow(/not available on this node/i);
-  });
 
-  it("a machine with no injected `moderate` lands in an error state, never approved", async () => {
     const actor = createActor(moderateMachine, {
       input: {
         trackCtx: {
@@ -364,9 +273,7 @@ describe("whatson-admin-moderate \u{2014} the default actor fails closed", () =>
         },
       },
     }).start();
-
     await expect(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (actor.getSnapshot().context.moderate as ModerateFn)({
         eventId: "evt-1",
         action: "approve",

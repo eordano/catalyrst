@@ -50,7 +50,12 @@ pub struct Config {
 
     pub dcl_lists_url: Option<String>,
 
+    pub map_parcel_view_url: String,
+    pub map_estate_view_url: String,
+
     pub admin_token: Option<String>,
+
+    pub personal_worlds: crate::personal_world::PersonalWorldsPolicy,
 
     pub max_in_flight_upload_bytes: u64,
     pub max_concurrent_uploads: u64,
@@ -158,6 +163,9 @@ impl Config {
             )?,
         )?;
         validate_upload_limits(max_in_flight_upload_bytes)?;
+        let personal_worlds = crate::personal_world::PersonalWorldsPolicy::from_env(
+            crate::handlers::deploy::MAX_WORLD_SIZE_BYTES,
+        )?;
 
         let (livekit_api_key, livekit_api_secret, livekit_configured) = resolve_livekit_env(
             env::var("LIVEKIT_API_KEY").unwrap_or_default(),
@@ -226,9 +234,18 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty())
                 .map(|s| s.trim_end_matches('/').to_string()),
+            map_parcel_view_url: env::var("MAP_PARCEL_VIEW_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "http://127.0.0.1:5162/v1/minimap.png".to_string()),
+            map_estate_view_url: env::var("MAP_ESTATE_VIEW_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "http://127.0.0.1:5162/v1/estatemap.png".to_string()),
             admin_token: env::var("CATALYRST_WORLDS_ADMIN_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            personal_worlds,
             max_in_flight_upload_bytes,
             max_concurrent_uploads,
             max_in_flight_upload_files,
@@ -276,6 +293,26 @@ mod tests {
             resolve_livekit_env("APIabc".into(), "supersecret".into(), false).unwrap();
         assert_eq!((k.as_str(), s.as_str()), ("APIabc", "supersecret"));
         assert!(configured);
+    }
+
+    #[test]
+    fn personal_worlds_default_off_and_never_outgrow_a_name_world() {
+        use crate::personal_world::PersonalWorldsPolicy;
+        let cap = crate::handlers::deploy::MAX_WORLD_SIZE_BYTES;
+        let off = PersonalWorldsPolicy::new(
+            0,
+            crate::personal_world::DEFAULT_PERSONAL_WORLD_MAX_SIZE_BYTES as u64,
+            cap,
+        )
+        .unwrap();
+        assert!(!off.enabled());
+        assert!(crate::personal_world::DEFAULT_PERSONAL_WORLD_MAX_SIZE_BYTES < cap);
+        let err = PersonalWorldsPolicy::new(10, cap as u64 + 1, cap).unwrap_err();
+        assert!(
+            err.to_string()
+                .starts_with("WORLDS_PERSONAL_WORLD_MAX_SIZE_BYTES must be between 1 and"),
+            "unexpected message: {err}"
+        );
     }
 
     #[test]

@@ -120,7 +120,7 @@ struct DeploymentRow {
     content: Vec<(String, String)>,
 }
 
-fn parse_content_json(v: &Value) -> Vec<(String, String)> {
+pub(crate) fn parse_content_json(v: &Value) -> Vec<(String, String)> {
     match v.as_array() {
         Some(arr) => arr
             .iter()

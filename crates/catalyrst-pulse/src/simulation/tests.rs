@@ -2,9 +2,10 @@ use super::*;
 use crate::decentraland::common::Vector3;
 use crate::interest::{
     ParcelEncoder, ParcelEncoderOptions, SceneListenerCellMapper, SceneListenerState,
-    SpatialAreaOfInterest, SpatialAreaOfInterestOptions, SpatialGrid, SPATIAL_GRID_CELL_SIZE,
+    SpatialAreaOfInterest, SpatialAreaOfInterestOptions, SPATIAL_GRID_CELL_SIZE,
 };
 use crate::messages::spec;
+use crate::realm_grids::RealmSpatialGrids;
 use crate::snapshot::{EmoteState, PeerSnapshotPublisher};
 
 mod resync_metrics;
@@ -16,7 +17,7 @@ fn v3(x: f32, z: f32) -> Vector3 {
 
 struct World {
     board: SnapshotBoard,
-    grid: SpatialGrid,
+    grid: RealmSpatialGrids,
     encoder: ParcelEncoder,
     aoi: SpatialAreaOfInterest,
     identity: IdentityBoard,
@@ -32,7 +33,7 @@ impl World {
     fn sized(cap: usize) -> Self {
         World {
             board: SnapshotBoard::new(cap, 16),
-            grid: SpatialGrid::new(SPATIAL_GRID_CELL_SIZE),
+            grid: RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, cap),
             encoder: ParcelEncoder::new(ParcelEncoderOptions::default()),
             aoi: SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default()),
             identity: IdentityBoard::new(cap),
@@ -102,7 +103,8 @@ impl World {
 
 fn listener_state(aoi: &[(&str, &[i32])]) -> SceneListenerState {
     let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
-    let mapper = SceneListenerCellMapper::new(&SpatialGrid::new(SPATIAL_GRID_CELL_SIZE), &encoder);
+    let mapper =
+        SceneListenerCellMapper::new(&RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, 1), &encoder);
     SceneListenerState::from_parcels(
         aoi.iter()
             .map(|(realm, parcels)| (realm.to_string(), parcels.iter().copied().collect()))
@@ -856,5 +858,34 @@ fn shared_baseline_encodes_once() {
     assert_eq!(
         recipients as u32, M,
         "all M observers must still receive their own delta for the subject"
+    );
+}
+
+#[test]
+fn a_realm_less_observer_is_not_mirrored_to_itself() {
+    let mut w = World::new();
+    w.connect(0, "0xobserver");
+    w.board.publish(
+        0,
+        crate::snapshot::PeerSnapshot {
+            global_position: v3(8.0, 8.0),
+            ..Default::default()
+        },
+    );
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    sim.self_mirror_enabled = true;
+
+    let out = tick(&mut sim, &mut w, 1);
+    assert!(
+        out.iter().all(|m| m.target != 0),
+        "a peer with no realm is in no grid, so it is not its own subject either"
+    );
+
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-a");
+    let out = tick(&mut sim, &mut w, 2);
+    assert!(
+        out.iter().any(|m| m.target == 0),
+        "once the observer has a realm the mirror is emitted"
     );
 }

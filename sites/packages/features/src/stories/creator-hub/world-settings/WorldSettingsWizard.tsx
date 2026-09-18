@@ -23,7 +23,7 @@ import {
 export type WorldSettingsField = { tab: SettingsTab; field: string; label: string };
 export type { WorldSceneVM };
 
-export type WorldSettingsWizardProps = {
+type WorldSettingsWizardProps = {
   trackCtx: TrackContext;
   worldName: string;
   fields: WorldSettingsField[];

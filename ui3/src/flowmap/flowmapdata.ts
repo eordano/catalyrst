@@ -1,5 +1,5 @@
 
-export type NodeKind =
+type NodeKind =
   | "route"
   | "state"
   | "modal"
@@ -10,7 +10,7 @@ export type NodeKind =
   | "end"
   | "sep";
 
-export type EdgeKind =
+type EdgeKind =
   | "click"
   | "load"
   | "auto"
@@ -37,7 +37,7 @@ export interface FlowEdge {
   chains?: string[];
 }
 
-export type TrackItem = FlowNode | FlowEdge;
+type TrackItem = FlowNode | FlowEdge;
 
 export interface Track {
   chain?: string;
@@ -62,7 +62,6 @@ export interface FlowStats {
   clicks: number;
   loads: number;
 }
-
 
 export const node = (kind: NodeKind, label: string, o: Partial<FlowNode> = {}): FlowNode => ({
   t: "node",
@@ -95,7 +94,6 @@ export const auto = (label: string, o: Partial<FlowEdge> = {}): FlowEdge => ({
   ...o,
 });
 export const step = (): FlowEdge => ({ t: "edge", kind: "step" });
-
 
 export function computeStats(sections: FlowSection[]): FlowStats {
   const routes = new Set<string>();

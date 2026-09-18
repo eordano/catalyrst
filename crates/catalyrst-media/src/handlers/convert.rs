@@ -1,7 +1,8 @@
+use axum::body::Bytes;
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use catalyrst_commons::http::{read_body_capped, resolve_and_pin};
+use catalyrst_commons::http::read_body_capped;
 use serde::Deserialize;
 
 use crate::AppState;
@@ -14,7 +15,7 @@ pub struct ConvertParams {
     pub url: String,
 }
 
-fn build_response(status: StatusCode, content_type: &str, body: Vec<u8>) -> Response {
+fn build_response(status: StatusCode, content_type: &str, body: Bytes) -> Response {
     let mut headers = HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,
@@ -28,10 +29,15 @@ fn build_response(status: StatusCode, content_type: &str, body: Vec<u8>) -> Resp
     (status, headers, body).into_response()
 }
 
+fn cached_response(hit: (u16, String, Bytes)) -> Response {
+    let (status, content_type, body) = hit;
+    let status = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
+    build_response(status, &content_type, body)
+}
+
 pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParams>) -> Response {
-    if let Some((status, content_type, body)) = state.convert_cache_get(&p.url) {
-        let status = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
-        return build_response(status, &content_type, body);
+    if let Some(hit) = state.convert_cache_get(&p.url) {
+        return cached_response(hit);
     }
 
     let mut current = match reqwest::Url::parse(&p.url) {
@@ -39,9 +45,22 @@ pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParam
         _ => return (StatusCode::BAD_REQUEST, "url must be http(s)").into_response(),
     };
 
+    let gate = state.convert_gate(&p.url);
+    let _flight = match gate.gate.try_lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            let guard = gate.gate.lock().await;
+            // A follower serves whatever the flight ahead of it cached.
+            if let Some(hit) = state.convert_cache_get(&p.url) {
+                return cached_response(hit);
+            }
+            guard
+        }
+    };
+
     let mut hops = 0;
     let upstream = loop {
-        let Some(pinned) = resolve_and_pin(&current).await else {
+        let Some(pinned) = state.resolve_pinned(&current).await else {
             return (StatusCode::FORBIDDEN, "url host is not publicly routable").into_response();
         };
         let host = current.host_str().unwrap_or_default().to_string();
@@ -93,7 +112,7 @@ pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParam
         .to_string();
 
     let body = match read_body_capped(upstream, MAX_BODY_BYTES).await {
-        Ok(body) => body,
+        Ok(body) => Bytes::from(body),
         Err(e) => {
             return if e.downcast_ref::<reqwest::Error>().is_some() {
                 (
@@ -108,7 +127,7 @@ pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParam
     };
 
     if status.is_success() {
-        state.convert_cache_put(&p.url, status.as_u16(), &content_type, &body);
+        state.convert_cache_put(&p.url, status.as_u16(), &content_type, body.clone());
     }
     build_response(status, &content_type, body)
 }

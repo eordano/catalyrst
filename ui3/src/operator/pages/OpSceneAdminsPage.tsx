@@ -1,10 +1,9 @@
 import AdControlNotice, { AdBlockedAction } from "../../admin/pages/AdControlNotice";
 import SitesChrome from "../../web/frames/SitesChrome";
 import OpPlacePicker, { type OpPickablePlace } from "../components/OpPlacePicker";
-import "../../web/pages/stwhatsonadminusers.css";
-import "../components/sceneadmins.css";
+import "../../admin/admin.css";
 
-export type OpSceneAdminsPageProps = {
+type OpSceneAdminsPageProps = {
   viewedAddress: string;
   isDemo: boolean;
   places: OpPickablePlace[];
@@ -29,40 +28,46 @@ export default function OpSceneAdminsPage({
 }: OpSceneAdminsPageProps) {
   return (
     <SitesChrome active="create">
-      <main className="sa-route">
-        <div className="sa__head">
-          <h1 className="sa__title">Scene admins</h1>
-          <p className="sa__sub">
-            Viewing places registered to <code>{viewedAddress}</code>
-            {isDemo ? " \u{2014} demo address, not you" : ""}. The place list is public
-            data (<code>GET /places/api/places?owner=</code>); the address is a
-            filter and grants nothing.
-          </p>
-        </div>
+      <main className="adm">
+        <div className="adm__page">
+          <div className="adm__inner adm__inner--mid">
+            <div className="adm__head">
+              <div>
+                <h1 className="adm__title">Scene admins</h1>
+                <p className="adm__sub">
+                  Viewing places registered to <code>{viewedAddress}</code>
+                  {isDemo ? " \u{2014} demo address, not you" : ""}. The place list is public
+                  data (<code>GET /places/api/places?owner=</code>); the address is a
+                  filter and grants nothing.
+                </p>
+              </div>
+            </div>
 
-        {placesUnavailableReason ? (
-          <p className="sa-route__demo" role="alert">
-            The public place list could not be read: {placesUnavailableReason}
-          </p>
-        ) : (
-          <OpPlacePicker
-            places={places}
-            selectedId={selectedPlaceId}
-            onSelect={onSelectPlace}
-            owner={viewedAddress}
-          />
-        )}
+            {placesUnavailableReason ? (
+              <div className="adm-notice" data-tone="warn" role="alert">
+                <p>The public place list could not be read: {placesUnavailableReason}</p>
+              </div>
+            ) : (
+              <OpPlacePicker
+                places={places}
+                selectedId={selectedPlaceId}
+                onSelect={onSelectPlace}
+                owner={viewedAddress}
+              />
+            )}
 
-        <AdControlNotice
-          title="Scene-admin grants"
-          message={grantsMessage}
-          serverCheck={grantsServerCheck}
-          fix={grantsFix}
-        />
+            <AdControlNotice
+              title="Scene-admin grants"
+              message={grantsMessage}
+              serverCheck={grantsServerCheck}
+              fix={grantsFix}
+            />
 
-        <div className="sa__toolbar">
-          <AdBlockedAction label="Add scene admin" reason={grantsMessage} />
-          <AdBlockedAction label="Revoke scene admin" reason={grantsMessage} />
+            <div className="adm-actions adm-actions--start">
+              <AdBlockedAction label="Add scene admin" reason={grantsMessage} />
+              <AdBlockedAction label="Revoke scene admin" reason={grantsMessage} />
+            </div>
+          </div>
         </div>
       </main>
     </SitesChrome>

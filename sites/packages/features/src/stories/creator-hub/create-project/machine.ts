@@ -4,9 +4,9 @@ import { makeStepSlugs } from "@core/lib/stories/step-slugs";
 
 import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/lib/telemetry/track";
 
-export type ScaffoldFile = { name: string; note: string };
+type ScaffoldFile = { name: string; note: string };
 
-export const DEFAULT_TEMPLATE = "empty";
+const DEFAULT_TEMPLATE = "empty";
 
 export type { TrackFn };
 
@@ -25,7 +25,7 @@ export type ScaffoldFn = (args: {
   signal?: AbortSignal;
 }) => Promise<ScaffoldResult>;
 
-export type CreateProjectInput = {
+type CreateProjectInput = {
   trackCtx: TrackContext;
   scaffold?: ScaffoldFn;
   track?: TrackFn;
@@ -34,7 +34,7 @@ export type CreateProjectInput = {
   path?: string;
 };
 
-export type CreateProjectContext = {
+type CreateProjectContext = {
   trackCtx: TrackContext;
   scaffold: ScaffoldFn;
   track: TrackFn;
@@ -48,7 +48,7 @@ export type CreateProjectContext = {
   error?: string;
 };
 
-export type CreateProjectEvent =
+type CreateProjectEvent =
   | { type: "SET_NAME"; name: string; valid?: boolean; error?: string }
   | { type: "SELECT_TEMPLATE"; template: string }
   | { type: "BACK" }
@@ -84,8 +84,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type CreateProjectStateId = keyof typeof STATE_TO_SLUG;
-export type CreateProjectStepSlug = (typeof STATE_TO_SLUG)[CreateProjectStateId];
+type CreateProjectStateId = keyof typeof STATE_TO_SLUG;
+type CreateProjectStepSlug = (typeof STATE_TO_SLUG)[CreateProjectStateId];
 
 export const FIRST_STEP_SLUG: CreateProjectStepSlug = STATE_TO_SLUG.naming;
 
@@ -110,7 +110,7 @@ export const SCAFFOLD_FILES: ScaffoldFile[] = [
   { name: ".gitignore", note: "node_modules, bin, .DS_Store" },
 ];
 
-export const simulateScaffold: ScaffoldFn = async ({ signal }) => {
+const simulateScaffold: ScaffoldFn = async ({ signal }) => {
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, 400);
     signal?.addEventListener("abort", () => {
@@ -356,8 +356,6 @@ export const createProjectMachine = setup({
     },
   },
 });
-
-export type CreateProjectMachine = typeof createProjectMachine;
 
 export function resolveCreateProjectSnapshot(args: {
   step: CreateProjectStateId;

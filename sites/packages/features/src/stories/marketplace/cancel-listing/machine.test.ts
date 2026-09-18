@@ -32,9 +32,6 @@ const RESULT: CancelResult = {
 };
 
 const okCancel: CancelFn = async () => RESULT;
-const failCancel: CancelFn = async () => {
-  throw new Error("catalyst unreachable");
-};
 
 function inputFor(cancel: CancelFn, track: TrackFn, extra: Record<string, unknown> = {}) {
   return {
@@ -61,99 +58,6 @@ const EXPECTED_STATES = new Set([
   "error",
 ]);
 
-describe("cancelMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(cancelMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("the audit-spec step ids are the slugs", () => {
-    expect(STATE_TO_SLUG.reviewing).toBe("review-listing");
-    expect(STATE_TO_SLUG.connecting).toBe("connect-wallet");
-    expect(STATE_TO_SLUG.confirming).toBe("confirm-cancel");
-    expect(STATE_TO_SLUG.submitting).toBe("submit-tx");
-    expect(STATE_TO_SLUG.success).toBe("success");
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.reviewing);
-    expect(slugToState(null)).toBe("reviewing");
-    expect(slugToState(undefined)).toBe("reviewing");
-    expect(slugToState("")).toBe("reviewing");
-    expect(slugToState("nope")).toBe("reviewing");
-    expect(slugToState("confirm-cancel")).toBe("confirming");
-    expect(slugToState("submit-tx")).toBe("submitting");
-    expect(slugToState("not-owner")).toBe("notOwner");
-    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
-});
-
-describe("cancelMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveCancelSnapshot({
-      step: "reviewing",
-      trackCtx: inputFor(okCancel, () => {}).trackCtx,
-      order: ORDER,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submit-tx does NOT fire telemetry and does NOT auto-cancel", async () => {
-    const track = vi.fn();
-    const cancel = vi.fn(okCancel);
-    const snapshot = resolveCancelSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(cancel, track).trackCtx,
-      order: ORDER,
-      cancel,
-      track,
-    });
-    const actor = createActor(cancelMachine, {
-      input: inputFor(cancel, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-
-    await Promise.resolve();
-    expect(track).not.toHaveBeenCalled();
-    expect(cancel).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveCancelSnapshot({
-      step: "confirming",
-      trackCtx: inputFor(okCancel, track).trackCtx,
-      order: ORDER,
-      track,
-    });
-    const actor = createActor(cancelMachine, {
-      input: inputFor(okCancel, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("confirming")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "SUBMIT" });
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(CANCEL_EVENTS.submitted);
-  });
-});
-
 const TRAVERSAL_EVENTS = [
   { type: "CONNECT_WALLET" as const },
   { type: "NOT_OWNER" as const },
@@ -163,13 +67,71 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
+
+describe("cancelMachine \u{2014} URL ?step slug map", () => {
+  it("uses the audit-spec step ids, unique and round-tripping, falling back to review-listing", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(cancelMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
+    expect(STATE_TO_SLUG).toMatchObject({
+      reviewing: "review-listing",
+      connecting: "connect-wallet",
+      confirming: "confirm-cancel",
+      submitting: "submit-tx",
+      success: "success",
+      notOwner: "not-owner",
+    });
+    const slugs = Object.values(STATE_TO_SLUG);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
+    }
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.reviewing);
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("reviewing");
+    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
+  });
+});
+
+describe("cancelMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
+  it("boots reviewing without a snapshot, hydrates submit-tx silently, and only real transitions track", async () => {
+    const track = vi.fn();
+    const cancel = vi.fn(okCancel);
+    const trackCtx = inputFor(cancel, track).trackCtx;
+    expect(resolveCancelSnapshot({ step: "reviewing", trackCtx, order: ORDER })).toBeUndefined();
+
+    const submitting = createActor(cancelMachine, {
+      input: inputFor(cancel, track),
+      snapshot: resolveCancelSnapshot({ step: "submitting", trackCtx, order: ORDER, cancel, track }),
+    }).start();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    await Promise.resolve();
+    expect(track).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+
+    const confirming = createActor(cancelMachine, {
+      input: inputFor(okCancel, track),
+      snapshot: resolveCancelSnapshot({ step: "confirming", trackCtx, order: ORDER, track }),
+    }).start();
+    expect(confirming.getSnapshot().matches("confirming")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+    confirming.send({ type: "SUBMIT" });
+    expect(confirming.getSnapshot().matches("submitting")).toBe(true);
+    expect(names(track)).toContain(CANCEL_EVENTS.submitted);
+  });
+});
+
 describe("cancelMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and confirming needs CONNECT_WALLET + CONFIRM", () => {
     const paths = getShortestPaths(cancelMachine, {
       input: inputFor(okCancel, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
@@ -177,51 +139,39 @@ describe("cancelMachine \u{2014} model-based path coverage (@xstate/graph)", () 
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("notOwner")).toBe(true);
-    expect(ends.has("confirming")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
-
-  it("reaching confirming passes through CONNECT_WALLET and CONFIRM", () => {
-    const paths = getShortestPaths(cancelMachine, {
-      input: inputFor(okCancel, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["notOwner", "confirming", "submitting"]) expect(ends.has(s)).toBe(true);
     const confirming = paths.find((p) => (p.state.value as string) === "confirming");
-    expect(confirming).toBeDefined();
     const events = confirming!.steps.map((s) => s.event.type);
     expect(events).toContain("CONNECT_WALLET");
     expect(events).toContain("CONFIRM");
   });
 });
 
-describe("cancelMachine \u{2014} telemetry events (happy path)", () => {
-  it("review -> connect -> confirm -> submit -> success fires the full funnel", async () => {
+describe("cancelMachine \u{2014} telemetry events", () => {
+  it("review -> connect -> confirm -> submit -> success fires the full funnel; a non-owner never cancels", async () => {
     const track = vi.fn();
-    const actor = createActor(cancelMachine, {
-      input: inputFor(okCancel, track),
-    }).start();
+    const actor = createActor(cancelMachine, { input: inputFor(okCancel, track) }).start();
 
     actor.send({ type: "CONNECT_WALLET" });
     expect(actor.getSnapshot().matches("connecting")).toBe(true);
-
     actor.send({ type: "CONFIRM" });
     expect(actor.getSnapshot().matches("confirming")).toBe(true);
-
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("success"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CANCEL_EVENTS.started);
-    expect(events).toContain(CANCEL_EVENTS.walletConnected);
-    expect(events).toContain(CANCEL_EVENTS.confirmReached);
-    expect(events).toContain(CANCEL_EVENTS.submitted);
-    expect(events).toContain(CANCEL_EVENTS.completed);
-
+    const events = names(track);
+    for (const e of [
+      CANCEL_EVENTS.started,
+      CANCEL_EVENTS.walletConnected,
+      CANCEL_EVENTS.confirmReached,
+      CANCEL_EVENTS.submitted,
+      CANCEL_EVENTS.completed,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(CANCEL_EVENTS.confirmReached)).toBeLessThan(
       events.indexOf(CANCEL_EVENTS.completed),
     );
-
     const startedCall = track.mock.calls.find((c) => c[0] === CANCEL_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
@@ -231,22 +181,17 @@ describe("cancelMachine \u{2014} telemetry events (happy path)", () => {
     const completedCall = track.mock.calls.find((c) => c[0] === CANCEL_EVENTS.completed);
     expect(completedCall?.[1]).toMatchObject({ stub: true, order_signature_hash: ORDER.orderId });
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
-  });
 
-  it("guard path fires mk_cancel_not_owner and never cancels", () => {
-    const track = vi.fn();
+    const guardTrack = vi.fn();
     const cancel = vi.fn(okCancel);
-    const actor = createActor(cancelMachine, {
-      input: inputFor(cancel, track, { ownership: "other" }),
+    const other = createActor(cancelMachine, {
+      input: inputFor(cancel, guardTrack, { ownership: "other" }),
     }).start();
-
-    actor.send({ type: "NOT_OWNER" });
-    expect(actor.getSnapshot().matches("notOwner")).toBe(true);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CANCEL_EVENTS.notOwner);
-    expect(events).not.toContain(CANCEL_EVENTS.started);
-    expect(events).not.toContain(CANCEL_EVENTS.confirmReached);
+    other.send({ type: "NOT_OWNER" });
+    expect(other.getSnapshot().matches("notOwner")).toBe(true);
+    expect(names(guardTrack)).toContain(CANCEL_EVENTS.notOwner);
+    expect(names(guardTrack)).not.toContain(CANCEL_EVENTS.started);
+    expect(names(guardTrack)).not.toContain(CANCEL_EVENTS.confirmReached);
     expect(cancel).not.toHaveBeenCalled();
   });
 });
@@ -260,10 +205,7 @@ describe("cancelMachine \u{2014} cancel failure + retry", () => {
       if (calls === 1) throw new Error("catalyst unreachable");
       return okCancel(args);
     };
-
-    const actor = createActor(cancelMachine, {
-      input: inputFor(cancel, track),
-    }).start();
+    const actor = createActor(cancelMachine, { input: inputFor(cancel, track) }).start();
 
     actor.send({ type: "CONNECT_WALLET" });
     actor.send({ type: "CONFIRM" });
@@ -273,8 +215,7 @@ describe("cancelMachine \u{2014} cancel failure + retry", () => {
 
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("success"));
-
-    const events = track.mock.calls.map((c) => c[0]);
+    const events = names(track);
     expect(events).toContain(CANCEL_EVENTS.failed);
     expect(events).toContain(CANCEL_EVENTS.completed);
     expect(events.indexOf(CANCEL_EVENTS.failed)).toBeLessThan(

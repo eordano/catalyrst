@@ -14,7 +14,7 @@ import {
 } from "@data/lib/catalyst/builder/collections";
 import { loadCollections } from "@data/lib/catalyst/builder/collections.server";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
@@ -40,19 +40,22 @@ export async function loader({ request }: Route.LoaderArgs) {
     readWallet(request) ||
     "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap, data } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    async () => {
+      let collections: CollectionCardVM[] = [];
+      let error = false;
+      if (address) {
+        const res = await loadCollections(address, request.signal);
+        error = res.error;
+        collections = res.collections.map(toCollectionCard);
+      }
+      return { collections, error };
+    },
   );
-
-  let collections: CollectionCardVM[] = [];
-  let error = false;
-  if (address) {
-    const res = await loadCollections(address, request.signal);
-    error = res.error;
-    collections = res.collections.map(toCollectionCard);
-  }
+  const { collections, error } = data;
 
   const payload = { sid, view, address, error, collections };
 

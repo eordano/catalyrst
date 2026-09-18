@@ -10,7 +10,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type GovernanceVoteProps = {
+type GovernanceVoteProps = {
   proposalId: string;
   variant: string;
   flags: Record<string, unknown>;

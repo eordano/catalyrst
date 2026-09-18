@@ -2,20 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createActor, waitFor } from "xstate";
 import { getShortestPaths } from "@xstate/graph";
 
-import {
-  rsvpMachine,
-  RSVP_EVENTS,
-  STATE_TO_SLUG,
-  SLUG_TO_STATE,
-  FIRST_STEP_SLUG,
-  resolveRsvpSnapshot,
-  slugToState,
-  stateToSlug,
-  simulateCommit,
-  type CommitFn,
-  type RsvpResult,
-  type TrackFn,
-} from "./machine";
+import { rsvpMachine, RSVP_EVENTS, STATE_TO_SLUG, SLUG_TO_STATE, FIRST_STEP_SLUG, resolveRsvpSnapshot, slugToState, stateToSlug, simulateCommit, type CommitFn, type TrackFn } from "./machine";
 
 const EVENT_ID = "b8aa88d2-03ff-4453-825a-3f2e7ac00ecc";
 
@@ -222,7 +209,7 @@ describe("rsvpMachine \u{2014} RSVP going (happy path)", () => {
     expect(actor.getSnapshot().context.count).toBe(8);
 
     const goingCall = track.mock.calls.find((c) => c[0] === RSVP_EVENTS.going);
-    expect(goingCall?.[1]).toMatchObject({ event_id: EVENT_ID, stub: true });
+    expect(goingCall?.[1]).toMatchObject({ event_id: EVENT_ID, stub: false });
     expect(goingCall?.[2]).toMatchObject({
       sid: "sid-abc",
       experimentKey: "lp_rsvp_confirm",

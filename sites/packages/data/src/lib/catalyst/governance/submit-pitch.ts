@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import staticConfig from "./submit-pitch.data.json";
-import { validateCoAuthors as sharedValidateCoAuthors, type FieldErrors } from "./co-authors";
+import { type FieldErrors } from "./co-authors";
 
 export const PITCH_SCHEMA = {
   initiative_name: { min: 1, max: 80 },
@@ -65,10 +65,6 @@ export function validateDetails(details: PitchDetails): FieldErrors {
   return errors;
 }
 
-export function validateCoAuthors(coAuthors: string[]): FieldErrors {
-  return sharedValidateCoAuthors(coAuthors, PITCH_SCHEMA.coAuthors.max);
-}
-
 const FieldCopySchema = z.object({
   label: z.string(),
   detail: z.string(),
@@ -102,7 +98,7 @@ const StaticConfigSchema = z.object({
   }),
 });
 
-export type PitchConfig = z.infer<typeof StaticConfigSchema>;
+type PitchConfig = z.infer<typeof StaticConfigSchema>;
 
 const STATIC: PitchConfig = StaticConfigSchema.parse(staticConfig);
 

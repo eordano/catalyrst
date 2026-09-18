@@ -21,9 +21,6 @@ const TENDER_ID = "b78f6e4e-baaa-4256-97c7-e78e90cb55ab";
 const RESULT: SubmitResult = { proposalId: "bid-b78f6e4e-abc", published: false };
 
 const okSubmit: SubmitFn = async () => RESULT;
-const failSubmit: SubmitFn = async () => {
-  throw new Error("governance api unreachable");
-};
 
 function inputFor(submitBid: SubmitFn, track: TrackFn) {
   return {
@@ -59,41 +56,28 @@ const TRAVERSAL_EVENTS = [
 ];
 
 describe("bidMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
+  it("covers every state, round-trips uniquely, routes every spec ?step, and falls back to the first step", () => {
     const machineStates = new Set(Object.keys(bidMachine.states));
     const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
     expect(mappedStates).toEqual(machineStates);
     expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
 
-  it("spec ?step values are all routable", () => {
-    for (const step of [
-      "parents",
-      "funding",
-      "general",
-      "review",
-      "submitting",
-      "success",
-    ]) {
+    for (const step of ["parents", "funding", "general", "review", "submitting", "success"]) {
       expect(EXPECTED_STATES.has(slugToState(step))).toBe(true);
     }
-  });
 
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.parents);
-    expect(slugToState(null)).toBe("parents");
-    expect(slugToState(undefined)).toBe("parents");
-    expect(slugToState("")).toBe("parents");
-    expect(slugToState("nope")).toBe("parents");
+    for (const bad of [null, undefined, "", "nope"]) {
+      expect(slugToState(bad)).toBe("parents");
+    }
     expect(slugToState("funding")).toBe("funding");
     expect(slugToState("submit-error")).toBe("submitError");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
@@ -101,64 +85,39 @@ describe("bidMachine \u{2014} URL ?step slug map", () => {
 });
 
 describe("bidMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveBidSnapshot({
-      step: "parents",
-      trackCtx: inputFor(okSubmit, () => {}).trackCtx,
-      tenderId: TENDER_ID,
-    });
-    expect(snap).toBeUndefined();
-  });
+  it("first step needs no snapshot; submitting hydrates without telemetry or auto-submit; a real transition after hydration fires", async () => {
+    const trackCtx = inputFor(okSubmit, () => {}).trackCtx;
+    expect(resolveBidSnapshot({ step: "parents", trackCtx, tenderId: TENDER_ID })).toBeUndefined();
 
-  it("hydrating submitting does NOT fire telemetry and does NOT auto-submit", async () => {
     const track = vi.fn();
     const submitBid = vi.fn(okSubmit);
-    const snapshot = resolveBidSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(submitBid, track).trackCtx,
-      tenderId: TENDER_ID,
-      submitBid,
-      track,
-    });
-    const actor = createActor(bidMachine, {
+    const submitting = createActor(bidMachine, {
       input: inputFor(submitBid, track),
-      snapshot,
+      snapshot: resolveBidSnapshot({ step: "submitting", trackCtx, tenderId: TENDER_ID, submitBid, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(actor.getSnapshot().context.draft.tenderId).toBe(TENDER_ID);
-    expect(actor.getSnapshot().context.draft.budget).toBe(90000);
-
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    expect(submitting.getSnapshot().context.draft.tenderId).toBe(TENDER_ID);
+    expect(submitting.getSnapshot().context.draft.budget).toBe(90000);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(submitBid).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveBidSnapshot({
-      step: "review",
-      trackCtx: inputFor(okSubmit, track).trackCtx,
-      tenderId: TENDER_ID,
-      track,
-    });
-    const actor = createActor(bidMachine, {
+    const review = createActor(bidMachine, {
       input: inputFor(okSubmit, track),
-      snapshot,
+      snapshot: resolveBidSnapshot({ step: "review", trackCtx, tenderId: TENDER_ID, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("review")).toBe(true);
+    expect(review.getSnapshot().matches("review")).toBe(true);
     expect(track).not.toHaveBeenCalled();
 
-    actor.send({ type: "SUBMIT" });
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
+    review.send({ type: "SUBMIT" });
+    expect(review.getSnapshot().matches("submitting")).toBe(true);
     expect(track.mock.calls.map((c) => c[0])).toContain(BID_EVENTS.submitAttempted);
   });
 });
 
 describe("bidMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and submitting passes through the full step sequence", () => {
     const paths = getShortestPaths(bidMachine, {
       input: inputFor(okSubmit, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -171,29 +130,20 @@ describe("bidMachine \u{2014} model-based path coverage (@xstate/graph)", () => 
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("funding")).toBe(true);
-    expect(ends.has("general")).toBe(true);
-    expect(ends.has("review")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
+    for (const s of ["funding", "general", "review", "submitting"]) {
+      expect(ends.has(s)).toBe(true);
+    }
 
-  it("reaching submitting passes through the full step sequence", () => {
-    const paths = getShortestPaths(bidMachine, {
-      input: inputFor(okSubmit, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const submitting = paths.find((p) => (p.state.value as string) === "submitting");
     expect(submitting).toBeDefined();
-    const events = submitting!.steps.map((s) => s.event.type);
-    expect(events).toContain("CONTINUE");
-    expect(events).toContain("SET_FUNDING");
-    expect(events).toContain("NEXT");
-    expect(events).toContain("SUBMIT");
+    expect(submitting!.steps.map((s) => s.event.type)).toEqual(
+      expect.arrayContaining(["CONTINUE", "SET_FUNDING", "NEXT", "SUBMIT"]),
+    );
   });
 });
 
 describe("bidMachine \u{2014} telemetry events (happy path)", () => {
-  it("full flow fires the complete funnel in order", async () => {
+  it("full flow fires the complete funnel in order with one step-advanced (general->review); BACK steps never re-fire forward telemetry", async () => {
     const track = vi.fn();
     const actor = createActor(bidMachine, {
       input: inputFor(okSubmit, track),
@@ -206,16 +156,23 @@ describe("bidMachine \u{2014} telemetry events (happy path)", () => {
     expect(actor.getSnapshot().matches("general")).toBe(true);
 
     actor.send({ type: "NEXT" });
+    const advanced = track.mock.calls.filter((c) => c[0] === BID_EVENTS.stepAdvanced);
+    expect(advanced.length).toBe(1);
+    expect((advanced[0][1] as { to: string }).to).toBe("review");
+
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("success"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BID_EVENTS.started);
-    expect(events).toContain(BID_EVENTS.fundingSet);
-    expect(events).toContain(BID_EVENTS.stepAdvanced);
-    expect(events).toContain(BID_EVENTS.submitAttempted);
-    expect(events).toContain(BID_EVENTS.submitted);
-
+    expect(events).toEqual(
+      expect.arrayContaining([
+        BID_EVENTS.started,
+        BID_EVENTS.fundingSet,
+        BID_EVENTS.stepAdvanced,
+        BID_EVENTS.submitAttempted,
+        BID_EVENTS.submitted,
+      ]),
+    );
     expect(events.indexOf(BID_EVENTS.submitAttempted)).toBeLessThan(
       events.indexOf(BID_EVENTS.submitted),
     );
@@ -228,53 +185,31 @@ describe("bidMachine \u{2014} telemetry events (happy path)", () => {
       variant: "wizard",
     });
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
-
     const submittedCall = track.mock.calls.find((c) => c[0] === BID_EVENTS.submitted);
     expect(submittedCall?.[1]).toMatchObject({ published: false });
-  });
 
-  it("BACK steps return without re-firing forward telemetry", () => {
-    const track = vi.fn();
-    const actor = createActor(bidMachine, {
-      input: inputFor(okSubmit, track),
+    const backTrack = vi.fn();
+    const back = createActor(bidMachine, {
+      input: inputFor(okSubmit, backTrack),
     }).start();
-
-    actor.send({ type: "CONTINUE" });
-    actor.send({ type: "SET_FUNDING", budget: 1000, duration: 1 });
-    expect(actor.getSnapshot().matches("general")).toBe(true);
-
-    actor.send({ type: "BACK" });
-    expect(actor.getSnapshot().matches("funding")).toBe(true);
-    actor.send({ type: "BACK" });
-    expect(actor.getSnapshot().matches("parents")).toBe(true);
-
-    const started = track.mock.calls.filter((c) => c[0] === BID_EVENTS.started);
-    expect(started.length).toBe(1);
-  });
-
-  it("one step-advanced event fires (general->review)", () => {
-    const track = vi.fn();
-    const actor = createActor(bidMachine, {
-      input: inputFor(okSubmit, track),
-    }).start();
-
-    actor.send({ type: "CONTINUE" });
-    actor.send({ type: "SET_FUNDING", budget: 5000, duration: 3 });
-    actor.send({ type: "NEXT" });
-
-    const advanced = track.mock.calls.filter((c) => c[0] === BID_EVENTS.stepAdvanced);
-    expect(advanced.length).toBe(1);
-    expect((advanced[0][1] as { to: string }).to).toBe("review");
+    back.send({ type: "CONTINUE" });
+    back.send({ type: "SET_FUNDING", budget: 1000, duration: 1 });
+    expect(back.getSnapshot().matches("general")).toBe(true);
+    back.send({ type: "BACK" });
+    expect(back.getSnapshot().matches("funding")).toBe(true);
+    back.send({ type: "BACK" });
+    expect(back.getSnapshot().matches("parents")).toBe(true);
+    expect(backTrack.mock.calls.filter((c) => c[0] === BID_EVENTS.started).length).toBe(1);
   });
 });
 
 describe("bidMachine \u{2014} submit failure + retry", () => {
-  it("submit error -> RETRY recovers to success", async () => {
+  it("submit error -> BACK returns to review without submitting; a second failure -> RETRY recovers to success", async () => {
     const track = vi.fn();
     let calls = 0;
     const submitBid: SubmitFn = async (args) => {
       calls += 1;
-      if (calls === 1) throw new Error("governance api unreachable");
+      if (calls <= 2) throw new Error("governance api unreachable");
       return okSubmit(args);
     };
 
@@ -289,27 +224,17 @@ describe("bidMachine \u{2014} submit failure + retry", () => {
     await waitFor(actor, (s) => s.matches("submitError"));
     expect(actor.getSnapshot().context.error).toBe("governance api unreachable");
 
-    actor.send({ type: "RETRY" });
-    await waitFor(actor, (s) => s.matches("success"));
+    actor.send({ type: "BACK" });
+    expect(actor.getSnapshot().matches("review")).toBe(true);
+    expect(track.mock.calls.map((c) => c[0])).not.toContain(BID_EVENTS.submitted);
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BID_EVENTS.submitted);
-  });
-
-  it("submit error -> BACK returns to review without submitting", async () => {
-    const track = vi.fn();
-    const actor = createActor(bidMachine, {
-      input: inputFor(failSubmit, track),
-    }).start();
-
-    actor.send({ type: "CONTINUE" });
-    actor.send({ type: "SET_FUNDING", budget: 90000, duration: 4 });
-    actor.send({ type: "NEXT" });
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("submitError"));
 
-    actor.send({ type: "BACK" });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
+    actor.send({ type: "RETRY" });
+    await waitFor(actor, (s) => s.matches("success"));
+    expect(track.mock.calls.map((c) => c[0])).toContain(BID_EVENTS.submitted);
+    expect(calls).toBe(3);
   });
 });
 

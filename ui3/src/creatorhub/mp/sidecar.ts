@@ -1,7 +1,7 @@
 import type { MpLaunchRequest } from "./rules";
 import type { MpEventFrame } from "./types";
 
-export const MP_PAIRING_KEY = "dcl-mp-testd";
+const MP_PAIRING_KEY = "dcl-mp-testd";
 
 export type MpPairing = { port: number; token: string };
 
@@ -41,14 +41,7 @@ export function readPairing(win: Window): MpPairing | null {
   return null;
 }
 
-export function clearPairing(win: Window): void {
-  try {
-    win.localStorage.removeItem(MP_PAIRING_KEY);
-  } catch {
-  }
-}
-
-export class MpApiError extends Error {
+class MpApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
     super(message);
@@ -58,7 +51,7 @@ export class MpApiError extends Error {
 
 export type MpConnState = "connecting" | "connected" | "down";
 
-export type MpConnectHandlers = {
+type MpConnectHandlers = {
   onEvent?: (frame: MpEventFrame) => void;
   onState?: (state: MpConnState) => void;
 };

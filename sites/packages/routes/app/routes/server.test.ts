@@ -48,7 +48,7 @@ function callAction(request: Request) {
 }
 
 describe("/server loader", () => {
-  it("answers with every registered service even when nothing is configured", async () => {
+  it("answers with every registered service, marking unenabled ones off and enabling bundle carriers by member", async () => {
     const data = await callLoader(get());
     expect(data.authorized).toBe(true);
     if (!data.authorized) return;
@@ -61,30 +61,31 @@ describe("/server loader", () => {
       }
     }
     expect(data.env.ok).toBe(true);
-  });
 
-  it("renders unenabled services as off, unprobed and without commands", async () => {
     vi.stubEnv("CATALYRST_ENABLED_SERVICES", "content,livekit-signaling");
-    const data = await callLoader(get());
-    if (!data.authorized) throw new Error("expected authorized");
-    const off = data.services.filter((s) => s.state === "off");
+    clearProbeSnapshot();
+    const scoped = await callLoader(get());
+    if (!scoped.authorized) throw new Error("expected authorized");
+    const off = scoped.services.filter((s) => s.state === "off");
     expect(off.length).toBe(SERVICES.length - 2);
     for (const s of off) {
       expect(s.actionables).toEqual([]);
       expect(s.detail).toContain("not enabled");
     }
-    expect(data.services.filter((s) => s.state !== "off").map((s) => s.key).sort()).toEqual([
+    expect(scoped.services.filter((s) => s.state !== "off").map((s) => s.key).sort()).toEqual([
       "content",
       "livekit-signaling",
     ]);
-  });
 
-  it("enables a bundle carrier when any of its member services is enabled", async () => {
     vi.stubEnv("CATALYRST_ENABLED_SERVICES", "content,places,badges");
-    const data = await callLoader(get());
-    if (!data.authorized) throw new Error("expected authorized");
-    const on = data.services.filter((s) => s.state !== "off").map((s) => s.key).sort();
-    expect(on).toEqual(["content", "explore", "social"]);
+    clearProbeSnapshot();
+    const bundled = await callLoader(get());
+    if (!bundled.authorized) throw new Error("expected authorized");
+    expect(bundled.services.filter((s) => s.state !== "off").map((s) => s.key).sort()).toEqual([
+      "content",
+      "explore",
+      "social",
+    ]);
   });
 
   it("scopes a recheck to the named services and serves the rest from the snapshot", async () => {
@@ -94,19 +95,11 @@ describe("/server loader", () => {
     const scoped = await callLoader(get("?recheck=livekit,nats"));
     if (!scoped.authorized) throw new Error("expected authorized");
     expect(scoped.services.length).toBe(SERVICES.length);
-    const untouched = scoped.services.filter(
-      (s) => s.key !== "livekit" && s.key !== "nats",
-    );
+    const untouched = scoped.services.filter((s) => s.key !== "livekit" && s.key !== "nats");
     expect(untouched.some((s) => s.ageMs > 0)).toBe(true);
   });
 
-  it("requires a wallet once ADMIN_WALLETS is set", async () => {
-    vi.stubEnv("ADMIN_WALLETS", "0xabc");
-    const data = await callLoader(get());
-    expect(data.authorized).toBe(false);
-  });
-
-  it("never sends a secret's persisted value to the client", async () => {
+  it("requires a wallet once ADMIN_WALLETS is set and never sends a secret's persisted value", async () => {
     await writeFile(file, "SOME_API_TOKEN=hunter2\nPLAIN_SETTING=visible\n");
     const data = await callLoader(get());
     if (!data.authorized || !data.env.ok) throw new Error("expected authorized env panel");
@@ -116,41 +109,39 @@ describe("/server loader", () => {
     expect(secret?.fileValue).toBe("");
     expect(JSON.stringify(data)).not.toContain("hunter2");
     expect(plain?.fileValue).toBe("visible");
+
+    vi.stubEnv("ADMIN_WALLETS", "0xabc");
+    expect((await callLoader(get())).authorized).toBe(false);
   });
 });
 
 describe("/server action", () => {
-  it("persists env-save and env-delete round trips", async () => {
+  it("persists env-save and env-delete round trips, refusing an empty secret and an unknown intent", async () => {
     const saved = await callAction(post({ intent: "env-save", name: "MY_SETTING", value: "on" }));
     expect(saved.ok).toBe(true);
     expect(await readFile(file, "utf8")).toBe("MY_SETTING=on\n");
     const removed = await callAction(post({ intent: "env-delete", name: "MY_SETTING" }));
     expect(removed.ok).toBe(true);
     expect(await readFile(file, "utf8")).toBe("");
+
+    const empty = await callAction(post({ intent: "env-save", name: "SOME_API_TOKEN", value: "" }));
+    expect(empty.ok).toBe(false);
+    expect(empty.message).toContain("secret");
+
+    const unknown = await callAction(post({ intent: "reboot" }));
+    expect(unknown.ok).toBe(false);
+    expect(unknown.message).toContain("reboot");
   });
 
-  it("refuses an empty replacement for a secret", async () => {
-    const r = await callAction(post({ intent: "env-save", name: "SOME_API_TOKEN", value: "" }));
-    expect(r.ok).toBe(false);
-    expect(r.message).toContain("secret");
-  });
-
-  it("refuses cross-site writes", async () => {
-    const r = await callAction(
+  it("refuses cross-site writes and writes without the wallet auth it requires", async () => {
+    const crossSite = await callAction(
       post({ intent: "env-save", name: "X_Y", value: "1" }, { "sec-fetch-site": "cross-site" }),
     );
-    expect(r.ok).toBe(false);
-  });
+    expect(crossSite.ok).toBe(false);
 
-  it("refuses writes when wallet auth is on and absent", async () => {
     vi.stubEnv("ADMIN_WALLETS", "0xabc");
-    const r = await callAction(post({ intent: "env-save", name: "X_Y", value: "1" }));
-    expect(r.ok).toBe(false);
-  });
-
-  it("names the rejected intent", async () => {
-    const r = await callAction(post({ intent: "reboot" }));
-    expect(r.ok).toBe(false);
-    expect(r.message).toContain("reboot");
+    const unauthenticated = await callAction(post({ intent: "env-save", name: "X_Y", value: "1" }));
+    expect(unauthenticated.ok).toBe(false);
+    expect(await readFile(file, "utf8").catch(() => "")).toBe("");
   });
 });

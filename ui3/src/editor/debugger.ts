@@ -1,21 +1,21 @@
 export type DebugSnapshot = Record<string, Record<string, unknown>>;
 
-export interface LeafChange {
+interface LeafChange {
   path: string;
   before: string;
   after: string;
 }
 
-export type CompChangeKind = "added" | "removed" | "changed";
+type CompChangeKind = "added" | "removed" | "changed";
 
-export interface CompDiff {
+interface CompDiff {
   name: string;
   kind: CompChangeKind;
   changes: LeafChange[];
   value?: string;
 }
 
-export type EntityChangeKind = "new" | "gone" | "changed";
+type EntityChangeKind = "new" | "gone" | "changed";
 
 export interface EntityDiff {
   id: string;
@@ -60,7 +60,7 @@ export function formatValue(v: unknown, depth = 0): string {
   return `{${shown.join(", ")}${extra}}`;
 }
 
-export function deepEqual(a: unknown, b: unknown): boolean {
+function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
   const aArr = Array.isArray(a);
@@ -78,7 +78,7 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   return keys.every((k) => k in bo && deepEqual(ao[k], bo[k]));
 }
 
-export const MAX_LEAF_CHANGES = 12;
+const MAX_LEAF_CHANGES = 12;
 
 export function leafChanges(before: unknown, after: unknown, cap = MAX_LEAF_CHANGES): LeafChange[] {
   const out: LeafChange[] = [];
@@ -166,13 +166,13 @@ export function orderEntityDiffs(diffs: EntityDiff[]): EntityDiff[] {
     .sort((a, b) => rank(a) - rank(b) || Number(a.id) - Number(b.id));
 }
 
-export function snapshotEntityCount(s: DebugSnapshot): number {
+function snapshotEntityCount(s: DebugSnapshot): number {
   return Object.keys(s).length;
 }
 
-export const DEBUG_LOG_PREFIX = "one-dbg ";
+const DEBUG_LOG_PREFIX = "one-dbg ";
 
-export interface DebugSystemRow {
+interface DebugSystemRow {
   name: string;
   ran: boolean;
   runs: number;
@@ -245,7 +245,7 @@ export function parseTickReply(reply: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-export interface SceneStats {
+interface SceneStats {
   tick: number | null;
   frozen: boolean;
   title: string | null;
@@ -265,23 +265,23 @@ export function parseSceneStats(raw: string): SceneStats {
   };
 }
 
-export type ConsoleRun = (cmd: string) => Promise<string>;
+type ConsoleRun = (cmd: string) => Promise<string>;
 
-export interface StepDebuggerOpts {
+interface StepDebuggerOpts {
   run: ConsoleRun;
   sleep?: (ms: number) => Promise<void>;
   pollIntervalMs?: number;
   maxPollMs?: number;
 }
 
-export interface DebugOpenResult {
+interface DebugOpenResult {
   tick: number | null;
   entities: number;
   frozen: boolean;
   systems: DebugSystemsView | null;
 }
 
-export interface DebugStepResult {
+interface DebugStepResult {
   tick: number | null;
   fromTick: number | null;
   count: number;

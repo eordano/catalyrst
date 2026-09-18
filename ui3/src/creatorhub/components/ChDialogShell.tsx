@@ -4,8 +4,8 @@ import Modal from "../../components/Modal";
 import { Close } from "../../atoms/icons";
 import "./chdialogshell.css";
 
-export type ChDialogShellTab = { value: string; label: string };
-export type ChDialogShellVariant = "modal" | "panel";
+type ChDialogShellTab = { value: string; label: string };
+type ChDialogShellVariant = "modal" | "panel";
 
 type ChDialogShellProps = {
   variant?: ChDialogShellVariant;

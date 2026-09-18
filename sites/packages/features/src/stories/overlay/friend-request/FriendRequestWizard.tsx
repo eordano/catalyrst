@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router";
 
 import FriendRequestView from "@ui/overlay/panels/FriendRequestView";
 
-import { track, type TrackContext } from "@core/lib/telemetry/track";
+import { type TrackContext } from "@core/lib/telemetry/track";
 import { sendBridge } from "../../../components/bevy-overlay/bridge";
 import {
   friendMachine,
@@ -17,14 +17,14 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type Candidate = {
+type Candidate = {
   address: string;
   name: string;
   mutualCount?: number;
   friendshipStatus?: string;
 };
 
-export type FriendRequestWizardProps = {
+type FriendRequestWizardProps = {
   trackCtx: TrackContext;
   candidate: Candidate;
   initialAction?: string;
@@ -164,4 +164,3 @@ function stateToActionParam(value: string, action: FriendAction): string | null 
 }
 
 export { FRIEND_EVENTS };
-export { track };

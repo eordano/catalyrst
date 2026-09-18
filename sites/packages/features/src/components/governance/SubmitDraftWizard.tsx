@@ -15,7 +15,7 @@ import {
   type TrackFn,
 } from "../../stories/governance/submit-draft/machine";
 
-export type SubmitDraftWizardProps = {
+type SubmitDraftWizardProps = {
   trackCtx: TrackContext;
   data: DraftSubmitData;
   submitDraft?: SubmitFn;

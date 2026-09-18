@@ -144,11 +144,18 @@ export function resolveCompositeAssets(compositeText: string): string {
   }
 }
 
+export interface PlaceAssetOutcome {
+  name: string;
+  mirrored: boolean;
+  warning: string | null;
+}
+
 export async function placeAssetOnBus(
   busRef: RefObject<EditorBus | null>,
   asset: DeCatalogItem,
   drop?: { x: number; y: number } | null,
-): Promise<void> {
+): Promise<PlaceAssetOutcome> {
+  if (!busRef.current) throw new Error("the scene is not connected yet");
   const glb = asset?.glbUrl || asset?.src;
   let absUrl: string | null = null;
   if (typeof glb === "string" && glb) {
@@ -162,11 +169,16 @@ export async function placeAssetOnBus(
   const contents =
     asset?.contents && typeof asset.contents === "object" ? asset.contents : null;
   let persisted: InitAssetResult | null = null;
+  let warning: string | null = null;
   if (asset?.id && contents && busRef.current && typeof busRef.current.rpc === "function") {
     try {
       persisted = (await busRef.current.rpc("initAsset", [asset.id, contents], 15000)) as InitAssetResult;
-    } catch {
+    } catch (e) {
       persisted = null;
+      const reason = e instanceof Error ? e.message : String(e);
+      warning = absUrl
+        ? `its files could not be copied into the project (${reason}); the model links to the catalog instead`
+        : `its files could not be copied into the project (${reason})`;
     }
   }
 
@@ -191,5 +203,8 @@ export async function placeAssetOnBus(
   }
 
   const components = src ? { GltfContainer: { src } } : null;
-  busRef.current?.addEntity(asset?.name || "Item", 0, components, drop ?? null);
+  if (!components && !warning) warning = "it has no model file, so an empty item was placed";
+  const name = asset?.name || "Item";
+  busRef.current.addEntity(name, 0, components, drop ?? null);
+  return { name, mirrored: persisted !== null, warning };
 }

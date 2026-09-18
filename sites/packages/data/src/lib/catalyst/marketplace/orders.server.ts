@@ -1,13 +1,13 @@
 import { fetchOrders, toCancelListing, type Order, type CancelListing } from "./orders";
 import type { GetOptions } from "../client";
 
-export type LoadCancelArgs = {
+type LoadCancelArgs = {
   owner?: string;
   orderId?: string;
   opts?: GetOptions;
 };
 
-export type LoadCancelResult = {
+type LoadCancelResult = {
   listing: CancelListing | null;
   orders: CancelListing[];
   source: "catalyst" | "empty" | "unavailable";

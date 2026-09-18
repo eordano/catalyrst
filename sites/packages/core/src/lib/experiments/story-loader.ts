@@ -67,13 +67,17 @@ export function sidLoader(request: Request) {
   };
 }
 
-export async function storyLoader(
+type StoryBase = ReturnType<typeof sidLoader>;
+
+type StoryOptions = { skipExposure?: boolean };
+
+async function resolveStory(
   request: Request,
+  base: StoryBase,
   storyDir: string,
   fallback: Assignment,
-  options?: { skipExposure?: boolean },
-) {
-  const base = sidLoader(request);
+  options?: StoryOptions,
+): Promise<Assignment> {
   let assignment = fallback;
   let previewOverride = false;
   try {
@@ -106,5 +110,32 @@ export async function storyLoader(
       experimentKey: assignment.experimentKey,
     });
   }
+  return assignment;
+}
+
+export async function storyLoader(
+  request: Request,
+  storyDir: string,
+  fallback: Assignment,
+  options?: StoryOptions,
+) {
+  const base = sidLoader(request);
+  const assignment = await resolveStory(request, base, storyDir, fallback, options);
   return { ...base, assignment };
+}
+
+// The story resolve (flag reads) and the page's own data load share one await stage.
+export async function storyLoaderWith<T>(
+  request: Request,
+  storyDir: string,
+  fallback: Assignment,
+  load: (base: StoryBase) => Promise<T>,
+  options?: StoryOptions,
+) {
+  const base = sidLoader(request);
+  const [assignment, data] = await Promise.all([
+    resolveStory(request, base, storyDir, fallback, options),
+    load(base),
+  ]);
+  return { ...base, assignment, data };
 }

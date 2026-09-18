@@ -6,7 +6,7 @@ import type { MpReplayOutcome } from "./types";
 
 import "./mpreplaydialog.css";
 
-export type MpReplayDialogProps = {
+type MpReplayDialogProps = {
   runId: string;
   profiles: string[];
   requesting?: boolean;

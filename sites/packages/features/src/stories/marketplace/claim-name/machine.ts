@@ -6,7 +6,7 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type { TrackFn };
 
-export type AvailabilityResult = { available: boolean };
+type AvailabilityResult = { available: boolean };
 
 export type MintResult = { txHash: string; tokenId: string };
 
@@ -20,7 +20,7 @@ export type MintFn = (args: {
   signal?: AbortSignal;
 }) => Promise<MintResult>;
 
-export type ClaimInput = {
+type ClaimInput = {
   trackCtx: TrackContext;
   takenNames?: string[];
   check?: CheckAvailabilityFn;
@@ -28,7 +28,7 @@ export type ClaimInput = {
   track?: TrackFn;
 };
 
-export type ClaimContext = {
+type ClaimContext = {
   trackCtx: TrackContext;
   taken: Set<string>;
   check: CheckAvailabilityFn;
@@ -39,7 +39,7 @@ export type ClaimContext = {
   error?: string;
 };
 
-export type ClaimEvent =
+type ClaimEvent =
   | { type: "SUBMIT_NAME"; name: string }
   | { type: "APPROVE_MANA" }
   | { type: "CONFIRM_MINT" }
@@ -68,8 +68,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type ClaimStateId = keyof typeof STATE_TO_SLUG;
-export type ClaimStepSlug = (typeof STATE_TO_SLUG)[ClaimStateId];
+type ClaimStateId = keyof typeof STATE_TO_SLUG;
+type ClaimStepSlug = (typeof STATE_TO_SLUG)[ClaimStateId];
 
 export const FIRST_STEP_SLUG: ClaimStepSlug = STATE_TO_SLUG.entering;
 
@@ -241,8 +241,6 @@ export const claimNameMachine = setup({
     },
   },
 });
-
-export type ClaimNameMachine = typeof claimNameMachine;
 
 export function resolveClaimSnapshot(args: {
   step: ClaimStateId;

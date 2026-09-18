@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { useSearchParams } from "react-router";
 
 import StSocialCommunityDetail from "@ui/web/pages/StSocialCommunityDetail";
 import "@ui/web/pages/stsocialcommunitydetail.css";
@@ -10,7 +9,7 @@ import {
   type CommunityDetail,
 } from "@data/lib/catalyst/overlay/communities";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import type { Route } from "./+types/landings.community-detail";
@@ -39,27 +38,29 @@ export async function loader({ request }: Route.LoaderArgs) {
   const tab = parseTab(url.searchParams.get("tab"));
   const forcePrivate = url.searchParams.get("gate") === "private";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap, data } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    async () => {
+      if (!id) {
+        const def = await loadDefaultCommunity({ signal: request.signal });
+        id = def?.id ?? "";
+      }
+      let detail: CommunityDetail | null = null;
+      if (id) {
+        try {
+          detail = await loadCommunity(id, { signal: request.signal });
+        } catch {
+          detail = null;
+        }
+      }
+      return { id, detail };
+    },
   );
+  id = data.id;
 
-  if (!id) {
-    const def = await loadDefaultCommunity({ signal: request.signal });
-    id = def?.id ?? "";
-  }
-
-  let detail: CommunityDetail | null = null;
-  if (id) {
-    try {
-      detail = await loadCommunity(id, { signal: request.signal });
-    } catch {
-      detail = null;
-    }
-  }
-
-  const payload = { id, tab, forcePrivate, detail, sid };
+  const payload = { id, tab, forcePrivate, detail: data.detail, sid };
   return wrap(payload);
 }
 
@@ -89,8 +90,7 @@ type LandingProps = {
   sid: string;
 };
 
-function CommunityLanding({ id, tab, forcePrivate, detail, sid }: LandingProps) {
-  const [, setSearchParams] = useSearchParams();
+function CommunityLanding({ tab, forcePrivate, detail, sid }: LandingProps) {
   const { community, members, events, source } = detail;
 
   const isPrivate = community.privacy === "private";
@@ -120,36 +120,6 @@ function CommunityLanding({ id, tab, forcePrivate, detail, sid }: LandingProps) 
       );
     }
   }, [community.id, community.privacy, community.membersCount, source, gated, sid]);
-
-  function onTab(next: Tab) {
-    if (next === tab) return;
-    track(
-      "lp_community_tab_changed",
-      { community_id: community.id, tab: next },
-      { sid, story: STORY },
-    );
-    setSearchParams(
-      (prev) => {
-        const params = new URLSearchParams(prev);
-        params.set("tab", next);
-        return params;
-      },
-      { preventScrollReset: true },
-    );
-  }
-
-  function onJoinIntent() {
-    const intent = isMember
-      ? "joined"
-      : isPrivate
-        ? "request"
-        : "join";
-    track(
-      "lp_community_join_intent",
-      { community_id: community.id, privacy: community.privacy, intent },
-      { sid, story: STORY },
-    );
-  }
 
   const vmCommunity = {
     id: community.id,
@@ -202,41 +172,6 @@ function CommunityLanding({ id, tab, forcePrivate, detail, sid }: LandingProps) 
       />
     </main>
   );
-}
-
-const STEPS_WRAP: React.CSSProperties = {
-  display: "flex",
-  gap: 8,
-  alignItems: "center",
-  justifyContent: "center",
-  flexWrap: "wrap",
-  padding: "16px 24px 4px",
-};
-const CRUMB_WRAP: React.CSSProperties = {
-  textAlign: "center",
-  padding: "4px 24px 32px",
-  color: "#fff",
-  fontSize: 13,
-};
-const CTA_STYLE: React.CSSProperties = {
-  border: "none",
-  borderRadius: 8,
-  padding: "8px 18px",
-  fontWeight: 700,
-  cursor: "pointer",
-  background: "var(--brand-cta)",
-  color: "#fff",
-};
-function tabStyle(active: boolean): React.CSSProperties {
-  return {
-    border: "1px solid rgba(255,255,255,.25)",
-    borderRadius: 8,
-    padding: "8px 16px",
-    fontWeight: 600,
-    cursor: "pointer",
-    background: active ? "rgba(255,255,255,.16)" : "transparent",
-    color: "#fff",
-  };
 }
 
 function useTabScroll(tab: Tab, gated: boolean) {

@@ -38,29 +38,13 @@
   pointer-events: auto;
 }
 
-.ui3-overlay__notifications .nf__bare,
-.ui3-overlay__voice .vc--bare,
-.ui3-overlay__portables .sw,
-.ui3-overlay__friends .fr {
+.ui3-overlay__voice .vc--bare {
   position: absolute;
   left: 56px;
   top: 16px;
-  right: auto;
-  bottom: auto;
   margin: 0;
   pointer-events: auto;
 }
-.ui3-overlay__notifications .nf {
-  position: static;
-  left: auto;
-  top: auto;
-  right: auto;
-}
-.ui3-overlay__portables .sw {
-  width: min(360px, calc(100vw - 72px));
-  max-height: calc(100vh - 32px);
-}
-
 .ui3-overlay__skybox .sky__backdrop {
   position: fixed;
   inset: 0;

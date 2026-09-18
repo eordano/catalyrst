@@ -19,7 +19,6 @@ import {
 } from "./schemas/places";
 
 export { PlaceSchema };
-export type { Place, PlaceCategory } from "./places";
 
 export async function fetchPlaces(
   params: QueryParams = {},

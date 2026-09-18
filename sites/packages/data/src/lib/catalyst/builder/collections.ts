@@ -1,14 +1,6 @@
 import { getJSON } from "../client";
 import type { GetOptions } from "../client";
-import {
-  parseCollections,
-  parseOrphanItems,
-  COLLECTION_SORTS,
-  type BuilderCollection,
-  type CollectionSort,
-  type CollectionType,
-  type OrphanItem,
-} from "./collections-schema";
+import { parseCollections, parseOrphanItems, COLLECTION_SORTS, type BuilderCollection, type CollectionSort, type OrphanItem } from "./collections-schema";
 
 export type {
   BuilderCollection,

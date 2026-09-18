@@ -9,6 +9,7 @@ pub mod fed;
 pub mod handlers;
 pub mod http;
 pub mod livekit;
+pub mod personal_world;
 pub mod ports;
 pub mod settings_policy;
 pub mod upload_limits;

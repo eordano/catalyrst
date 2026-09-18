@@ -88,7 +88,7 @@ pub struct BuilderCollectionOut {
 }
 
 /// Member of the curation committee (`GET /v1/collections/curation`).
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "builder/"))]
 pub struct CommitteeMemberOut {
     pub address: String,
@@ -167,7 +167,10 @@ const MAX_REVIEW_ROWS: i64 = 1000;
 
 pub struct MarketplaceComponent {
     pool: PgPool,
+    committee_memo: std::sync::Mutex<Option<(std::time::Instant, Vec<CommitteeMemberOut>)>>,
 }
+
+const COMMITTEE_MEMO_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
 #[derive(Debug, sqlx::FromRow)]
 struct DbCollection {
@@ -225,10 +228,28 @@ struct DbReviewRow {
 
 impl MarketplaceComponent {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            committee_memo: std::sync::Mutex::new(None),
+        }
     }
 
     pub async fn committee_members(&self) -> Result<Vec<CommitteeMemberOut>, ApiError> {
+        if let Ok(memo) = self.committee_memo.lock() {
+            if let Some((at, members)) = memo.as_ref() {
+                if at.elapsed() < COMMITTEE_MEMO_TTL {
+                    return Ok(members.clone());
+                }
+            }
+        }
+        let members = self.fetch_committee_members().await?;
+        if let Ok(mut memo) = self.committee_memo.lock() {
+            *memo = Some((std::time::Instant::now(), members.clone()));
+        }
+        Ok(members)
+    }
+
+    async fn fetch_committee_members(&self) -> Result<Vec<CommitteeMemberOut>, ApiError> {
         let sql = format!(
             "SELECT DISTINCT split_part(curator_id, '-', 1) AS address \
              FROM {schema}.curation \

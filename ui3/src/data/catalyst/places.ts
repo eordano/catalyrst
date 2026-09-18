@@ -1,4 +1,4 @@
-import { catalystBase, sendSignedJSON, serviceBase } from "./client";
+import { sendSignedJSON, serviceBase } from "./client";
 import { isRecord } from "./rows";
 import type { PlaceWire, PlaceCategoryWire } from "./schemas/places";
 import { hueFor } from "../format";
@@ -54,28 +54,30 @@ export function parseCoords(pos?: string | null): [number, number] {
   return [Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0];
 }
 
-function clampPct(n: number): number {
-  return Math.max(2, Math.min(98, n));
-}
+export const PARCEL_PCT = 100 / GRID_SPAN;
 
-export function coordsToPercent(coords?: string | null): { left: number; top: number } {
+export function parcelRectPercent(
+  coords?: string | null,
+): { left: number; top: number; size: number } {
   const [x, y] = parseCoords(coords);
   return {
-    left: clampPct(((x - GRID_MIN) / GRID_SPAN) * 100),
-    top: clampPct(((GRID_MAX - y) / GRID_SPAN) * 100),
+    left: ((x - GRID_MIN) / GRID_SPAN) * 100,
+    top: ((GRID_MAX - y - 1) / GRID_SPAN) * 100,
+    size: PARCEL_PCT,
   };
 }
 
-const CONTENT_IMAGE_PATH = /^\/content\/contents\//;
+export function coordsToPercent(coords?: string | null): { left: number; top: number } {
+  const cell = parcelRectPercent(coords);
+  return { left: cell.left + cell.size / 2, top: cell.top + cell.size / 2 };
+}
+
 const MAP_IMAGE_PATH = /^\/v2\/map\.png$/;
 
 export function localImageUrl(image?: string | null): string | undefined {
   if (!image) return undefined;
   try {
     const u = new URL(image);
-    if (CONTENT_IMAGE_PATH.test(u.pathname)) {
-      return `${catalystBase()}${u.pathname}${u.search}`;
-    }
     if (MAP_IMAGE_PATH.test(u.pathname)) {
       return `${serviceBase("map")}${u.pathname}${u.search}`;
     }

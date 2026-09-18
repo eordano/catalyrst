@@ -71,40 +71,39 @@ describe("buildDelegateVp \u{2014} the user-wallet setDelegate path", () => {
     expect(methods()).not.toContain("personal_sign");
   });
 
-  it("switches the wallet to the registry chain before sending", async () => {
-    const { provider, calls } = mockProvider({
+  it("switches the wallet to the registry chain before sending, and never sends when the switch is ineffective or rejected", async () => {
+    const switched = mockProvider({
       eth_accounts: () => [WALLET],
       eth_chainId: (_params, nth) => (nth === 0 ? "0x89" : "0x1"),
       wallet_switchEthereumChain: () => null,
       eth_sendTransaction: () => TX_HASH,
       eth_getTransactionReceipt: () => receipt("0x1", "0x10"),
     });
-
-    const delegate = buildDelegateVp({ registry: REGISTRY, provider });
-    await delegate({ space: SPACE, delegate: DELEGATE, vp: null });
-
-    const switchCall = calls.find((c) => c.method === "wallet_switchEthereumChain");
+    await buildDelegateVp({ registry: REGISTRY, provider: switched.provider })({
+      space: SPACE,
+      delegate: DELEGATE,
+      vp: null,
+    });
+    const switchCall = switched.calls.find((c) => c.method === "wallet_switchEthereumChain");
     expect(switchCall?.params?.[0]).toEqual({ chainId: "0x1" });
-  });
 
-  it("never sends when the wallet stays on the wrong chain", async () => {
-    const { provider, methods } = mockProvider({
+    const stuck = mockProvider({
       eth_accounts: () => [WALLET],
       eth_chainId: () => "0x89",
       wallet_switchEthereumChain: () => null,
       eth_sendTransaction: () => TX_HASH,
       eth_getTransactionReceipt: () => null,
     });
+    await expect(
+      buildDelegateVp({ registry: REGISTRY, provider: stuck.provider })({
+        space: SPACE,
+        delegate: DELEGATE,
+        vp: null,
+      }),
+    ).rejects.toThrow(/Wrong network: switch your wallet to chain 1/);
+    expect(stuck.methods()).not.toContain("eth_sendTransaction");
 
-    const delegate = buildDelegateVp({ registry: REGISTRY, provider });
-    await expect(delegate({ space: SPACE, delegate: DELEGATE, vp: null })).rejects.toThrow(
-      /Wrong network: switch your wallet to chain 1/,
-    );
-    expect(methods()).not.toContain("eth_sendTransaction");
-  });
-
-  it("reports a rejected network switch without sending", async () => {
-    const { provider, methods } = mockProvider({
+    const rejected = mockProvider({
       eth_accounts: () => [WALLET],
       eth_chainId: () => "0x89",
       wallet_switchEthereumChain: () => {
@@ -112,15 +111,17 @@ describe("buildDelegateVp \u{2014} the user-wallet setDelegate path", () => {
       },
       eth_sendTransaction: () => TX_HASH,
     });
-
-    const delegate = buildDelegateVp({ registry: REGISTRY, provider });
-    await expect(delegate({ space: SPACE, delegate: DELEGATE, vp: null })).rejects.toThrow(
-      /Network switch rejected/,
-    );
-    expect(methods()).not.toContain("eth_sendTransaction");
+    await expect(
+      buildDelegateVp({ registry: REGISTRY, provider: rejected.provider })({
+        space: SPACE,
+        delegate: DELEGATE,
+        vp: null,
+      }),
+    ).rejects.toThrow(/Network switch rejected/);
+    expect(rejected.methods()).not.toContain("eth_sendTransaction");
   });
 
-  it("fails closed with no registry configured and touches no wallet", async () => {
+  it("fails closed with no registry configured (touching no wallet) and with no wallet in the page", async () => {
     const { provider, calls } = mockProvider({});
 
     const delegate = buildDelegateVp({ registry: null, provider });
@@ -131,13 +132,10 @@ describe("buildDelegateVp \u{2014} the user-wallet setDelegate path", () => {
       /delegate registry contract and chain are not configured/,
     );
     expect(calls).toEqual([]);
-  });
 
-  it("fails closed with no wallet in the page", async () => {
-    const delegate = buildDelegateVp({ registry: REGISTRY });
-    await expect(delegate({ space: SPACE, delegate: DELEGATE, vp: 1 })).rejects.toThrow(
-      /No browser wallet found/,
-    );
+    await expect(
+      buildDelegateVp({ registry: REGISTRY })({ space: SPACE, delegate: DELEGATE, vp: 1 }),
+    ).rejects.toThrow(/No browser wallet found/);
   });
 
   it("refuses self-delegation and a delegation that is already in place", async () => {
@@ -169,45 +167,55 @@ describe("buildDelegateVp \u{2014} the user-wallet setDelegate path", () => {
     expect(repeat.methods()).not.toContain("eth_sendTransaction");
   });
 
-  it("throws on a reverted receipt instead of reporting success", async () => {
-    const { provider } = mockProvider({
+  it("throws on a reverted receipt, reports pending (not confirmed) while the receipt is missing, and rejects a non-hash answer", async () => {
+    const reverted = mockProvider({
       eth_accounts: () => [WALLET],
       eth_chainId: () => "0x1",
       eth_sendTransaction: () => TX_HASH,
       eth_getTransactionReceipt: () => receipt("0x0", "0x10"),
     });
-
     await expect(
-      buildDelegateVp({ registry: REGISTRY, provider })({
+      buildDelegateVp({ registry: REGISTRY, provider: reverted.provider })({
         space: SPACE,
         delegate: DELEGATE,
         vp: 1,
       }),
     ).rejects.toThrow(/reverted on chain/);
-  });
 
-  it("reports pending \u{2014} not confirmed \u{2014} while the receipt is still missing", async () => {
-    const { provider, calls } = mockProvider({
+    const pending = mockProvider({
       eth_accounts: () => [WALLET],
       eth_chainId: () => "0x1",
       eth_sendTransaction: () => TX_HASH,
       eth_getTransactionReceipt: () => null,
     });
-
     const out = await buildDelegateVp({
       registry: REGISTRY,
-      provider,
+      provider: pending.provider,
       pollIntervalMs: 1,
       confirmTimeoutMs: 5,
     })({ space: SPACE, delegate: DELEGATE, vp: 1 });
-
     expect(out.status).toBe("pending");
     expect(out.txHash).toBe(TX_HASH);
     expect(out.blockNumber).toBeNull();
-    expect(calls.filter((c) => c.method === "eth_getTransactionReceipt").length).toBeGreaterThan(0);
+    expect(
+      pending.calls.filter((c) => c.method === "eth_getTransactionReceipt").length,
+    ).toBeGreaterThan(0);
+
+    const junk = mockProvider({
+      eth_accounts: () => [WALLET],
+      eth_chainId: () => "0x1",
+      eth_sendTransaction: () => "ok",
+    });
+    await expect(
+      buildDelegateVp({ registry: REGISTRY, provider: junk.provider })({
+        space: SPACE,
+        delegate: DELEGATE,
+        vp: 1,
+      }),
+    ).rejects.toThrow(/invalid transaction hash/);
   });
 
-  it("prompts for accounts only when the wallet is locked", async () => {
+  it("prompts for accounts only when the wallet is locked and builds calldata without any network access", async () => {
     const { provider, methods } = mockProvider({
       eth_accounts: () => [],
       eth_requestAccounts: () => [WALLET],
@@ -222,33 +230,13 @@ describe("buildDelegateVp \u{2014} the user-wallet setDelegate path", () => {
       vp: null,
     });
     expect(methods()).toContain("eth_requestAccounts");
-  });
 
-  it("rejects a wallet that answers with something other than a tx hash", async () => {
-    const { provider } = mockProvider({
-      eth_accounts: () => [WALLET],
-      eth_chainId: () => "0x1",
-      eth_sendTransaction: () => "ok",
-    });
-
-    await expect(
-      buildDelegateVp({ registry: REGISTRY, provider })({
-        space: SPACE,
-        delegate: DELEGATE,
-        vp: 1,
-      }),
-    ).rejects.toThrow(/invalid transaction hash/);
-  });
-});
-
-describe("no broadcast happens without an explicit provider call", () => {
-  it("builds calldata without any network access", () => {
     const spy = vi.fn();
     const original = globalThis.fetch;
     globalThis.fetch = spy as unknown as typeof fetch;
     try {
-      const { provider } = mockProvider({});
-      expect(buildDelegateVp({ registry: REGISTRY, provider })).toBeTypeOf("function");
+      const idle = mockProvider({});
+      expect(buildDelegateVp({ registry: REGISTRY, provider: idle.provider })).toBeTypeOf("function");
     } finally {
       globalThis.fetch = original;
     }

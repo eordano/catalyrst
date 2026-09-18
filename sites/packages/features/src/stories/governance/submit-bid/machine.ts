@@ -18,13 +18,13 @@ export type SubmitFn = (args: {
 
 export type { TrackFn };
 
-export type BidDraft = {
+type BidDraft = {
   tenderId: string;
   budget: number;
   duration: number;
 };
 
-export type BidInput = {
+type BidInput = {
   trackCtx: TrackContext;
   tenderId: string;
   submitBid?: SubmitFn;
@@ -32,7 +32,7 @@ export type BidInput = {
   draft?: Partial<BidDraft>;
 };
 
-export type BidContext = {
+type BidContext = {
   trackCtx: TrackContext;
   submitBid: SubmitFn;
   track: TrackFn;
@@ -41,7 +41,7 @@ export type BidContext = {
   error?: string;
 };
 
-export type BidEvent =
+type BidEvent =
   | { type: "CONTINUE" }
   | { type: "SET_FUNDING"; budget: number; duration: number }
   | { type: "NEXT" }
@@ -67,8 +67,8 @@ export const STATE_TO_SLUG = {
   success: "success",
 } as const;
 
-export type BidStateId = keyof typeof STATE_TO_SLUG;
-export type BidStepSlug = (typeof STATE_TO_SLUG)[BidStateId];
+type BidStateId = keyof typeof STATE_TO_SLUG;
+type BidStepSlug = (typeof STATE_TO_SLUG)[BidStateId];
 
 export const FIRST_STEP_SLUG: BidStepSlug = STATE_TO_SLUG.parents;
 
@@ -224,8 +224,6 @@ export const bidMachine = setup({
     },
   },
 });
-
-export type BidMachine = typeof bidMachine;
 
 export function resolveBidSnapshot(args: {
   step: BidStateId;

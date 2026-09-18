@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use tokio::sync::{broadcast, Semaphore};
 
 use crate::cache::{ImageCache, ImageKind};
@@ -9,15 +11,51 @@ use crate::resolver::{ProfileResolver, ResolveResult};
 
 #[derive(Clone, Debug)]
 pub enum RenderOutcome {
-    Rendered,
+    Rendered { body: Bytes, face: Bytes },
 
     NotFound,
 
     Failed(String),
 }
 
+const NOT_FOUND_TTL: Duration = Duration::from_secs(300);
+const NOT_FOUND_MAX: usize = 65536;
+
+/// Bounded negative memo for profiles the resolver reported missing.
+struct MissMemo {
+    map: Mutex<HashMap<String, Instant>>,
+}
+
+impl MissMemo {
+    fn new() -> Self {
+        Self {
+            map: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn hit(&self, entity: &str) -> bool {
+        self.map
+            .lock()
+            .ok()
+            .and_then(|m| m.get(entity).copied())
+            .is_some_and(|at| at.elapsed() < NOT_FOUND_TTL)
+    }
+
+    fn record(&self, entity: &str) {
+        if let Ok(mut m) = self.map.lock() {
+            if m.len() >= NOT_FOUND_MAX {
+                m.retain(|_, at| at.elapsed() < NOT_FOUND_TTL);
+            }
+            if m.len() < NOT_FOUND_MAX {
+                m.insert(entity.to_string(), Instant::now());
+            }
+        }
+    }
+}
+
 struct Inner {
     inflight: Mutex<HashMap<String, broadcast::Sender<RenderOutcome>>>,
+    not_found: MissMemo,
     limiter: Semaphore,
     cache: ImageCache,
     resolver: ProfileResolver,
@@ -41,6 +79,7 @@ impl RenderQueue {
         Self {
             inner: Arc::new(Inner {
                 inflight: Mutex::new(HashMap::new()),
+                not_found: MissMemo::new(),
                 limiter: Semaphore::new(max_concurrent.max(1)),
                 cache,
                 resolver,
@@ -51,8 +90,11 @@ impl RenderQueue {
     }
 
     pub async fn render_once(&self, entity: &str) -> RenderOutcome {
-        if self.both_cached(entity).await {
-            return RenderOutcome::Rendered;
+        if self.inner.not_found.hit(entity) {
+            return RenderOutcome::NotFound;
+        }
+        if let Some(cached) = self.cached(entity).await {
+            return cached;
         }
 
         let (leader, mut rx, tx) = {
@@ -85,18 +127,15 @@ impl RenderQueue {
         outcome
     }
 
-    async fn both_cached(&self, entity: &str) -> bool {
-        self.inner
-            .cache
-            .get(entity, ImageKind::Body)
-            .await
-            .is_some()
-            && self
-                .inner
-                .cache
-                .get(entity, ImageKind::Face)
-                .await
-                .is_some()
+    async fn cached(&self, entity: &str) -> Option<RenderOutcome> {
+        let (body, face) = tokio::join!(
+            self.inner.cache.get(entity, ImageKind::Body),
+            self.inner.cache.get(entity, ImageKind::Face)
+        );
+        Some(RenderOutcome::Rendered {
+            body: body?,
+            face: face?,
+        })
     }
 
     async fn do_render(&self, entity: &str) -> RenderOutcome {
@@ -105,13 +144,12 @@ impl RenderQueue {
             Err(_) => return RenderOutcome::Failed("render semaphore closed".into()),
         };
 
-        if self.both_cached(entity).await {
-            return RenderOutcome::Rendered;
-        }
-
         let avatar = match self.inner.resolver.resolve(entity).await {
             ResolveResult::Avatar(v) => v,
-            ResolveResult::NotFound => return RenderOutcome::NotFound,
+            ResolveResult::NotFound => {
+                self.inner.not_found.record(entity);
+                return RenderOutcome::NotFound;
+            }
             ResolveResult::Error(e) => {
                 tracing::error!(entity = %entity, error = %e, "profile resolve failed");
                 return RenderOutcome::Failed(format!("resolve: {e}"));
@@ -136,16 +174,20 @@ impl RenderQueue {
 
         let outcome = match result {
             Ok(out) => {
-                let body = tokio::fs::read(&out.body_path).await;
-                let face = tokio::fs::read(&out.face_path).await;
+                let (body, face) = tokio::join!(
+                    tokio::fs::read(&out.body_path),
+                    tokio::fs::read(&out.face_path)
+                );
                 match (body, face) {
                     (Ok(b), Ok(f)) => {
-                        let b = bytes::Bytes::from(b);
-                        let f = bytes::Bytes::from(f);
-                        let w1 = self.inner.cache.put(entity, ImageKind::Body, &b).await;
-                        let w2 = self.inner.cache.put(entity, ImageKind::Face, &f).await;
+                        let body = Bytes::from(b);
+                        let face = Bytes::from(f);
+                        let (w1, w2) = tokio::join!(
+                            self.inner.cache.put(entity, ImageKind::Body, &body),
+                            self.inner.cache.put(entity, ImageKind::Face, &face)
+                        );
                         match (w1, w2) {
-                            (Ok(()), Ok(())) => RenderOutcome::Rendered,
+                            (Ok(()), Ok(())) => RenderOutcome::Rendered { body, face },
                             _ => RenderOutcome::Failed("cache write failed".into()),
                         }
                     }
@@ -189,5 +231,24 @@ impl Drop for InflightGuard {
             .take()
             .unwrap_or_else(|| RenderOutcome::Failed("render task aborted".into()));
         let _ = self.tx.send(outcome);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn miss_memo_remembers_recent_misses_only() {
+        let memo = MissMemo::new();
+        assert!(!memo.hit("a"));
+        memo.record("a");
+        assert!(memo.hit("a"));
+        assert!(!memo.hit("b"));
+        memo.map
+            .lock()
+            .unwrap()
+            .insert("old".into(), Instant::now() - NOT_FOUND_TTL * 2);
+        assert!(!memo.hit("old"));
     }
 }

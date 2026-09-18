@@ -338,6 +338,10 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("content schema migrations failed")?;
 
+    let deployment_schema = catalyrst_server::schema_migrations::DeploymentSchema::detect(&pool)
+        .await
+        .context("deployment schema capability detection failed")?;
+
     tracing::info!("Pre-warming prepared statement cache");
     let _ = sqlx::query!(
         "SELECT 1 AS x FROM deployments WHERE entity_type = $1 LIMIT 0",
@@ -434,6 +438,7 @@ async fn main() -> anyhow::Result<()> {
             entity_cache.clone(),
             profile_lru.clone(),
             prefix_ids_cache.clone(),
+            deployment_schema.local_entities,
         ));
     } else {
         tracing::info!("Sync mode \u{2014} skipping entity cache load and NOTIFY listener");
@@ -770,6 +775,14 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    let database = Arc::new(LiveDatabase {
+        pool: pool.clone(),
+        deployment_schema,
+        entity_cache: entity_cache.clone(),
+        profile_lru: profile_lru.clone(),
+        prefix_ids_cache: prefix_ids_cache.clone(),
+    });
+
     let enable_deployments = env_or("ENABLE_DEPLOYMENTS", "false") == "true";
     let deployer: Arc<dyn Deployer> = if enable_deployments {
         let ignore_blockchain_access = env_or("IGNORE_BLOCKCHAIN_ACCESS_CHECKS", "false") == "true";
@@ -792,18 +805,22 @@ async fn main() -> anyhow::Result<()> {
                 );
                 let land_resolver =
                     catalyrst_server::land_operators::resolver_for(&sp, &eth_network).await;
-                Arc::new(catalyrst_server::write_deployer::WriteDeployer::new(
-                    pool.clone(),
-                    content_storage.clone(),
-                    sp,
-                    eth_rpc_url,
-                    ignore_blockchain_access,
-                    additional_dcl_address,
-                    tpr_subgraph_url,
-                    blocks_l2_subgraph_url,
-                    third_party_root_via_squid,
-                    Some(land_resolver),
-                )) as Arc<dyn Deployer>
+                Arc::new(
+                    catalyrst_server::write_deployer::WriteDeployer::new(
+                        pool.clone(),
+                        content_storage.clone(),
+                        sp,
+                        eth_rpc_url,
+                        ignore_blockchain_access,
+                        additional_dcl_address,
+                        tpr_subgraph_url,
+                        blocks_l2_subgraph_url,
+                        third_party_root_via_squid,
+                        Some(land_resolver),
+                    )
+                    .with_schema(deployment_schema)
+                    .with_database(database.clone()),
+                ) as Arc<dyn Deployer>
             }
             None => {
                 tracing::error!(
@@ -821,12 +838,7 @@ async fn main() -> anyhow::Result<()> {
         storage: Arc::new(LiveContentStorage {
             inner: content_storage.clone(),
         }),
-        database: Arc::new(LiveDatabase {
-            pool: pool.clone(),
-            entity_cache: entity_cache.clone(),
-            profile_lru: profile_lru.clone(),
-            prefix_ids_cache: prefix_ids_cache.clone(),
-        }),
+        database,
         deployer,
         denylist: Arc::new(MemoryDenylist::new()),
         challenge_supervisor: Arc::new(UuidChallengeSupervisor),

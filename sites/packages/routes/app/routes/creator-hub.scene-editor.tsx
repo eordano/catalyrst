@@ -517,6 +517,7 @@ export default function CreatorHubSceneEditor({ loaderData }: Route.ComponentPro
         draftAssets={draftAssets}
         catalog={catalog}
         failedToLoadLocal={failedToLoadLocal}
+        from={from}
         onExit={handleExit}
         onPublish={handlePublish}
       />

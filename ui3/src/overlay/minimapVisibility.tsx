@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 
-export type MinimapVisibility = {
+type MinimapVisibility = {
   minimapHidden: boolean;
   userHidden: boolean;
   requestHide: () => () => void;

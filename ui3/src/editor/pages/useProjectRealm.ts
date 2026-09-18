@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PROJECT_CACHE, setProjectPlayState } from "../project-cache";
 
-export type ProjectRealmStatus = "pending" | "ready" | "error";
+type ProjectRealmStatus = "pending" | "ready" | "error";
 
 export function useProjectRealm(
   viewportSrc: string | null | undefined,

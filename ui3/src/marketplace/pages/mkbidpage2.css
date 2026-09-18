@@ -194,16 +194,6 @@
   border-top-color: #fff;
   animation: u-spin 0.7s linear infinite;
 }
-.mkbidpage2__scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-dialog);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--scrim);
-  padding: 24px;
-}
 .mkbidpage2__dialog {
   width: 100%;
   max-width: 420px;

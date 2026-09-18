@@ -8,14 +8,19 @@ use super::sql::{
     build_limit_offset, build_metadata_joins, build_min_item_created_at_cte,
     build_nfts_with_orders_cte_v1, build_nfts_with_orders_cte_v2, build_order_by,
     build_owners_join, build_seen_join, build_top_n_items_cte, build_trades_cte, build_trades_join,
-    push_nfts_with_orders_v1_body, Builder,
+    push_nfts_with_orders_v1_body, push_nfts_with_orders_v1_body_for_page, Builder,
 };
 use super::types::{CatalogFilters, CatalogSortBy};
 use super::MAX_NUMERIC_NUMBER;
 
 pub fn build_collections_items_catalog_query(f: &CatalogFilters) -> (String, PgArguments) {
     let mut b = Builder::new();
-    if two_pass_v1(f) {
+    if page_first_v1(f) {
+        build_ranked_cte_page_first_v1(&mut b, f);
+        b.push_sql(", nfts_with_orders AS ( ");
+        push_nfts_with_orders_v1_body_for_page(&mut b, f, "ranked");
+        b.push_sql(" ) ");
+    } else if two_pass_v1(f) {
         b.push_sql(" WITH nfts_with_orders AS MATERIALIZED ( ");
         push_nfts_with_orders_v1_body(&mut b, f);
         b.push_sql(" ) ");
@@ -97,6 +102,36 @@ pub fn build_collections_items_catalog_query(f: &CatalogFilters) -> (String, PgA
 
 fn two_pass_v1(f: &CatalogFilters) -> bool {
     f.first.is_some() || f.skip.is_some()
+}
+
+/// Neither the predicates nor the sort key read the open-order aggregate, so the page can be
+/// ranked first and the aggregate computed for those items only.
+fn page_first_v1(f: &CatalogFilters) -> bool {
+    two_pass_v1(f)
+        && matches!(
+            f.sort_by.unwrap_or(CatalogSortBy::Newest),
+            CatalogSortBy::Newest | CatalogSortBy::RecentlySold | CatalogSortBy::Suggested
+        )
+        && f.is_on_sale.is_none()
+        && f.min_price.is_none()
+        && f.max_price.is_none()
+        && !f.only_listing
+        && !f.only_minting
+}
+
+fn build_ranked_cte_page_first_v1(b: &mut Builder, f: &CatalogFilters) {
+    b.push_sql(&format!(
+        " WITH ranked AS ( SELECT items.id AS ranked_id FROM {schema}.item AS items ",
+        schema = MARKETPLACE_SQUID_SCHEMA
+    ));
+    if ranked_needs_metadata(f) {
+        build_metadata_joins(b);
+    }
+    build_seen_join(b, f);
+    build_collections_where(b, f, false);
+    build_order_by(b, f, false);
+    build_limit_offset(b, f);
+    b.push_sql(" ) ");
 }
 
 fn ranked_needs_metadata(f: &CatalogFilters) -> bool {

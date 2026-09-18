@@ -53,7 +53,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("loadProjectUpdateContext", () => {
-  it("reads the nested updates from /projects/{id} \u{2014} this node serves no /updates route", async () => {
+  it("reads the nested updates from /projects/{id} (this node serves no /updates route) and reports unavailable on 404 or an unreachable endpoint instead of the fixture project", async () => {
     const fetchImpl = vi.fn(async (_url: string) => jsonResponse(DETAIL));
     const ctx = await loadProjectUpdateContext(ID, {
       base: BASE,
@@ -64,35 +64,31 @@ describe("loadProjectUpdateContext", () => {
     expect(ctx.source).toBe("live");
     expect(ctx.project.id).toBe(ID);
     expect(ctx.priorUpdates.map((u) => u.id)).toEqual(["u-2", "u-1"]);
-  });
 
-  it("reports an unavailable state on 404 instead of serving the fixture project", async () => {
-    const fetchImpl = vi.fn(async (_url: string) => jsonResponse({ error: "Not Found" }, 404));
-    const ctx = await loadProjectUpdateContext(ID, {
+    const notFound = vi.fn(async (_url: string) => jsonResponse({ error: "Not Found" }, 404));
+    const missing = await loadProjectUpdateContext(ID, {
       base: BASE,
-      fetchImpl: fetchImpl as never,
+      fetchImpl: notFound as never,
     });
-    expect(ctx.source).toBe("unavailable");
-    expect(ctx.reason).toMatch(/no project with that id/);
-    expect(ctx.project.title).toBe("");
-    expect(ctx.priorUpdates).toEqual([]);
-  });
+    expect(missing.source).toBe("unavailable");
+    expect(missing.reason).toMatch(/no project with that id/);
+    expect(missing.project.title).toBe("");
+    expect(missing.priorUpdates).toEqual([]);
 
-  it("reports an unavailable state when the endpoint is unreachable", async () => {
-    const fetchImpl = vi.fn(async (_url: string) => {
+    const unreachable = vi.fn(async (_url: string) => {
       throw new Error("ECONNREFUSED");
     });
-    const ctx = await loadProjectUpdateContext(ID, {
+    const down = await loadProjectUpdateContext(ID, {
       base: BASE,
-      fetchImpl: fetchImpl as never,
+      fetchImpl: unreachable as never,
     });
-    expect(ctx.source).toBe("unavailable");
-    expect(ctx.reason).toMatch(/ECONNREFUSED/);
+    expect(down.source).toBe("unavailable");
+    expect(down.reason).toMatch(/ECONNREFUSED/);
   });
 });
 
 describe("loadEditUpdate", () => {
-  it("edits the newest nested update from /projects/{id}", async () => {
+  it("edits the newest nested update from /projects/{id} and reports unavailable rather than opening an editor onto fixture text", async () => {
     const fetchImpl = vi.fn(async (_url: string) => jsonResponse(DETAIL));
     const data = await loadEditUpdate(ID, {
       base: BASE,
@@ -103,16 +99,14 @@ describe("loadEditUpdate", () => {
     expect(data.source).toBe("live");
     expect(data.update.id).toBe("u-2");
     expect(data.project.title).toBe("A project");
-  });
 
-  it("reports an unavailable state rather than opening an editor onto fixture text", async () => {
-    const fetchImpl = vi.fn(async (_url: string) => jsonResponse({ ...DETAIL, updates: [] }));
-    const data = await loadEditUpdate(ID, {
+    const noUpdates = vi.fn(async (_url: string) => jsonResponse({ ...DETAIL, updates: [] }));
+    const empty = await loadEditUpdate(ID, {
       base: BASE,
-      fetchImpl: fetchImpl as never,
+      fetchImpl: noUpdates as never,
     });
-    expect(data.source).toBe("unavailable");
-    expect(data.reason).toMatch(/no published update/);
-    expect(data.update.introduction).toBe("");
+    expect(empty.source).toBe("unavailable");
+    expect(empty.reason).toMatch(/no published update/);
+    expect(empty.update.introduction).toBe("");
   });
 });

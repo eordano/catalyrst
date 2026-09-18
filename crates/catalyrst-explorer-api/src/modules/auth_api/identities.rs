@@ -134,7 +134,9 @@ pub(super) async fn create_identity(
     let signer = owner.to_lowercase();
     let identity_id = Uuid::new_v4().to_string();
     let now = Utc::now();
-    sweep_expired_identities(&state, now);
+    if state.auth_api.identities.len() >= MAX_PENDING_IDENTITIES {
+        sweep_expired_identities(&state, now);
+    }
     if state.auth_api.identities.len() >= MAX_PENDING_IDENTITIES {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -209,7 +211,7 @@ async fn verify_identity_post(headers: &HeaderMap) -> Result<Signer, Response> {
     })
 }
 
-fn sweep_expired_identities(state: &AppState, now: DateTime<Utc>) {
+pub fn sweep_expired_identities(state: &AppState, now: DateTime<Utc>) {
     state
         .auth_api
         .identities

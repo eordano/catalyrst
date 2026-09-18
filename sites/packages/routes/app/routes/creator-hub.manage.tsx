@@ -60,7 +60,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const search = url.searchParams.get("search")?.trim() ?? "";
   const address = url.searchParams.get("address")?.trim() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,

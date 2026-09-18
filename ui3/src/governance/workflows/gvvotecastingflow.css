@@ -158,64 +158,6 @@
   white-space: nowrap;
 }
 
-.gvvc__survey { display: flex; flex-direction: column; }
-.gvvc__surveyheader {
-  display: flex;
-  justify-content: space-between;
-  font-weight: 400;
-  font-size: 13px;
-  line-height: 24px;
-  text-transform: uppercase;
-  color: var(--gv-muted);
-  padding: 0 20px;
-  margin-bottom: 12px;
-}
-
-.gvvc__surveyrow {
-  position: relative;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  min-height: 51px;
-  padding: 0 20px;
-  border-top: 1px solid var(--gv-line-faint);
-  border-radius: 6px;
-  overflow: hidden;
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.3s ease, background 0.15s ease;
-}
-.gvvc__surveyrow:hover {
-  background: var(--gv-surface);
-  box-shadow: 0 0 15px rgba(22, 20, 26, 0.12);
-}
-.gvvc__surveytopic {
-  font-size: 15px;
-  line-height: 24px;
-  color: var(--gv-ink);
-}
-
-.gvvc__addreaction {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  position: absolute;
-  right: 10px;
-  color: var(--gv-muted);
-  transition: right 0.2s ease;
-}
-.gvvc__surveyrow:hover .gvvc__addreaction { right: 20px; }
-.gvvc__addglyph { display: inline-flex; color: var(--gv-faint); }
-.gvvc__addlabel {
-  font-weight: 600;
-  font-size: 13px;
-  line-height: 18px;
-  text-transform: uppercase;
-  color: var(--gv-muted);
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-.gvvc__surveyrow:hover .gvvc__addlabel { opacity: 1; }
-
 .gvvc__reactions {
   display: flex;
   align-items: center;
@@ -223,21 +165,6 @@
   font-size: 23px;
   line-height: 24px;
 }
-.gvvc__reaction,
-.gvvc__reactionx,
-.gvvc__pickedreaction {
-  border: 0;
-  background: none;
-  cursor: pointer;
-  padding: 0;
-  line-height: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-}
-.gvvc__reaction { font-size: 23px; }
-.gvvc__reactionx { color: var(--gv-muted); }
-.gvvc__pickedreaction { font-size: 23px; padding-right: 0; }
 
 .gvvc__actions {
   width: 100%;
@@ -382,19 +309,6 @@
   flex-direction: column;
 }
 .gvvc__confirmactions button:not(:last-child) { margin-bottom: 15px; }
-
-.gvvc__states {
-  position: fixed;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 6px;
-  padding: 6px;
-  border-radius: var(--r-pill);
-  background: rgba(22, 20, 26, 0.86);
-  z-index: calc(var(--z-modal) + 10);
-}
 .gvvc__statebtn {
   border: 0;
   background: transparent;

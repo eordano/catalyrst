@@ -3,7 +3,6 @@ import { z } from "zod";
 import { getJSON, postJSON } from "../client";
 import { manaToWei } from "./money";
 import type { GetOptions } from "../client";
-import type { ProfileWearable as RsProfileWearable } from "@ui/generated/catalyst/market/ProfileWearable";
 import { requireAssetsEnvelope, thumbnailFromUrn } from "./account";
 import {
   assertListable,
@@ -21,10 +20,11 @@ import {
 import type { Eip1193Provider } from "../../auth/wallet";
 import type { AuthIdentity } from "../../auth/types";
 import { warnInvalid } from "../warn";
+import type { ProfileWearable as RsProfileWearable } from "@ui/generated/catalyst/market/ProfileWearable";
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-export const OwnedAssetSchema = z.object({
+const OwnedAssetSchema = z.object({
   id: z.string(),
   contractAddress: z.string(),
   tokenId: z.string(),
@@ -49,14 +49,14 @@ export const OwnedAssetSchema = z.object({
 
 export type OwnedAsset = z.infer<typeof OwnedAssetSchema>;
 
-export function parseOwnedAsset(raw: unknown): OwnedAsset | null {
+function parseOwnedAsset(raw: unknown): OwnedAsset | null {
   const r = OwnedAssetSchema.safeParse(raw);
   if (r.success) return r.data;
   warnInvalid("OwnedAsset", r.error.issues);
   return null;
 }
 
-export function parseOwnedAssets(raw: unknown[]): OwnedAsset[] {
+function parseOwnedAssets(raw: unknown[]): OwnedAsset[] {
   const out: OwnedAsset[] = [];
   for (const row of raw ?? []) {
     const asset = parseOwnedAsset(row);
@@ -85,7 +85,7 @@ export async function fetchOwnedWearables(
   return parseOwnedAssets(page.elements);
 }
 
-export type ListingStatus = "open" | "sold" | "cancelled";
+type ListingStatus = "open" | "sold" | "cancelled";
 
 export type SellOrder = {
   id: string;
@@ -104,7 +104,7 @@ export type SellOrder = {
   issuedId: string;
 };
 
-export type BuildSellOrderInput = {
+type BuildSellOrderInput = {
   asset: Pick<
     OwnedAsset,
     "contractAddress" | "tokenId" | "issuedId" | "owner" | "network" | "chainId"
@@ -150,7 +150,7 @@ export const failClosedCreate: CreateOrderFn = async () => {
   throw new Error("listing unavailable: order relayer not configured");
 };
 
-export type SignTradeFn = (
+type SignTradeFn = (
   typedData: TradeTypedData,
   address: string,
 ) => Promise<string>;
@@ -171,7 +171,7 @@ const CreatedTradeSchema = z.object({
 
 const SIGNATURE_HEX_LENGTH = 132;
 
-export const TRADE_AUTH_METADATA = {
+const TRADE_AUTH_METADATA = {
   signer: "dcl:marketplace",
   intent: "dcl:create-trade",
 } as const;
@@ -300,7 +300,7 @@ function safeRarity(r: string | null | undefined): string {
   return r && RARITIES.has(r) ? r : "common";
 }
 
-export type SellNft = {
+type SellNft = {
   name: string;
   category: string;
   rarity: string;
@@ -317,14 +317,18 @@ export function toSellNft(asset: OwnedAsset): SellNft {
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 type SellSharedKeys = Extract<
   keyof RsProfileWearable,
   keyof z.input<typeof OwnedAssetSchema>
 >;
+
 export type _DriftSellOwnedAsset = Assert<
   AssignableTo<
     Pick<RsProfileWearable, SellSharedKeys>,
     Pick<z.input<typeof OwnedAssetSchema>, SellSharedKeys>
   >
 >;
+

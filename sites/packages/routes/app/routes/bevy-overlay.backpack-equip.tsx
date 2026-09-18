@@ -9,7 +9,7 @@ import {
   type Equipped,
 } from "@data/lib/catalyst/overlay/backpack";
 import { readVerifiedWallet, type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import ClientStage from "@ui/overlay/panels/ClientStage";
 import BackpackEquip from "@features/stories/overlay/backpack-equip/BackpackEquip";
@@ -45,31 +45,28 @@ const FIXTURE_EQUIPPED: Equipped = {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
   const rawAddr = url.searchParams.get("address");
   const address =
     rawAddr && isEthAddress(rawAddr) ? normalizeAddress(rawAddr) : null;
 
-  let backpack: BackpackData;
-  try {
-    backpack = await loadBackpack(address, request.signal);
-  } catch (err) {
-    const reason = (err as Error)?.message ?? "network error";
-    backpack = {
-      address: address ?? "",
-      owned: [],
-      catalog: [],
-      categories: [],
-      equipped: null,
-      inventory: { status: "unavailable", reason },
-      catalogState: { status: "unavailable", reason },
-    };
-  }
+  const { sid, assignment, wrap, data: backpack } = await storyLoaderWith(
+    request,
+    STORY,
+    FALLBACK,
+    () =>
+      loadBackpack(address, request.signal).catch((err: unknown): BackpackData => {
+        const reason = (err as Error)?.message ?? "network error";
+        return {
+          address: address ?? "",
+          owned: [],
+          catalog: [],
+          categories: [],
+          equipped: null,
+          inventory: { status: "unavailable", reason },
+          catalogState: { status: "unavailable", reason },
+        };
+      }),
+  );
 
   const payload = {
     sid,

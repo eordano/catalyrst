@@ -1,5 +1,5 @@
 use catalyrst_archipelago::config::{
-    AuthConfig, ClusterConfig, Config, GossipConfig, LivekitConfig, ServerConfig,
+    AuthConfig, ClusterConfig, Config, LivekitConfig, NatsConfig, ServerConfig,
 };
 use catalyrst_archipelago::{api_router, build_state, AppState};
 use serde_json::Value;
@@ -15,9 +15,10 @@ fn test_config() -> Config {
             challenge_ttl_secs: 120,
             signature_max_age_secs: 300,
             deny_list_url: None,
+            ..AuthConfig::default()
         },
         livekit: LivekitConfig::default(),
-        gossip: GossipConfig::default(),
+        nats: NatsConfig::default(),
         content_database_url: None,
         content_base_url: String::new(),
         commit_hash: "deadbeef".into(),
@@ -62,7 +63,7 @@ fn assert_peer_shape(peer: &Value, address: &str) {
 #[tokio::test]
 async fn peers_shape_and_comms_alias_match() {
     let (port, state) = start_server().await;
-    state.cluster.upsert_peer(
+    state.peers.upsert_peer(
         "0xaaaa".into(),
         [16.0, 0.0, 32.0],
         [1, 2],
@@ -90,10 +91,10 @@ async fn peers_shape_and_comms_alias_match() {
 async fn peers_id_filter_is_case_insensitive() {
     let (port, state) = start_server().await;
     state
-        .cluster
+        .peers
         .upsert_peer("0xaaaa".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
     state
-        .cluster
+        .peers
         .upsert_peer("0xbbbb".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
 
     let (status, body) = get_json(port, "/peers?id=0xAAAA").await;
@@ -107,7 +108,7 @@ async fn peers_id_filter_is_case_insensitive() {
 async fn peer_by_id_found_and_not_found() {
     let (port, state) = start_server().await;
     state
-        .cluster
+        .peers
         .upsert_peer("0xaaaa".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
 
     for path in ["/peers/0xaaaa", "/comms/peers/0xAAAA"] {
@@ -127,7 +128,7 @@ async fn peer_by_id_found_and_not_found() {
 async fn hot_scenes_is_json_array() {
     let (port, state) = start_server().await;
     state
-        .cluster
+        .peers
         .upsert_peer("0xaaaa".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
 
     let (status, body) = get_json(port, "/hot-scenes").await;

@@ -39,28 +39,22 @@ impl OverridesComponent {
         note: Option<&str>,
         admin: &str,
     ) -> Result<PriceOverride, sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
-            "INSERT INTO price_overrides (token_id, vs_currency, value, note, updated_by, updated_at) \
-             VALUES ($1, $2, $3::numeric, $4, $5, NOW()) \
-             ON CONFLICT (token_id, vs_currency) DO UPDATE \
-               SET value = EXCLUDED.value, \
-                   note = EXCLUDED.note, \
-                   updated_by = EXCLUDED.updated_by, \
-                   updated_at = NOW() \
-             RETURNING token_id, vs_currency, value::text AS value, note, updated_by, updated_at",
-        )
-        .bind(token_id)
-        .bind(vs_currency)
-        .bind(value)
-        .bind(note)
-        .bind(admin)
-        .fetch_one(&mut *tx)
-        .await?;
-        sqlx::query(
-            "INSERT INTO price_override_audit \
-                 (action, token_id, vs_currency, value, note, admin, detail) \
-             VALUES ('override.set', $1, $2, $3::numeric, $4, $5, $6)",
+            "WITH o AS ( \
+               INSERT INTO price_overrides (token_id, vs_currency, value, note, updated_by, updated_at) \
+               VALUES ($1, $2, $3::numeric, $4, $5, NOW()) \
+               ON CONFLICT (token_id, vs_currency) DO UPDATE \
+                 SET value = EXCLUDED.value, \
+                     note = EXCLUDED.note, \
+                     updated_by = EXCLUDED.updated_by, \
+                     updated_at = NOW() \
+               RETURNING token_id, vs_currency, value::text AS value, note, updated_by, updated_at \
+             ), a AS ( \
+               INSERT INTO price_override_audit \
+                   (action, token_id, vs_currency, value, note, admin, detail) \
+               VALUES ('override.set', $1, $2, $3::numeric, $4, $5, $6) \
+             ) \
+             SELECT token_id, vs_currency, value, note, updated_by, updated_at FROM o",
         )
         .bind(token_id)
         .bind(vs_currency)
@@ -73,9 +67,8 @@ impl OverridesComponent {
             "value": value,
             "note": note,
         }))
-        .execute(&mut *tx)
+        .fetch_one(&self.pool)
         .await?;
-        tx.commit().await?;
         Ok(row_to_override(row))
     }
 
@@ -85,32 +78,26 @@ impl OverridesComponent {
         vs_currency: &str,
         admin: &str,
     ) -> Result<bool, sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-        let res =
-            sqlx::query("DELETE FROM price_overrides WHERE token_id = $1 AND vs_currency = $2")
-                .bind(token_id)
-                .bind(vs_currency)
-                .execute(&mut *tx)
-                .await?;
-        let removed = res.rows_affected() > 0;
-        if removed {
-            sqlx::query(
-                "INSERT INTO price_override_audit \
-                     (action, token_id, vs_currency, value, note, admin, detail) \
-                 VALUES ('override.clear', $1, $2, NULL, NULL, $3, $4)",
-            )
-            .bind(token_id)
-            .bind(vs_currency)
-            .bind(admin)
-            .bind(serde_json::json!({
-                "token_id": token_id,
-                "vs_currency": vs_currency,
-            }))
-            .execute(&mut *tx)
-            .await?;
-        }
-        tx.commit().await?;
-        Ok(removed)
+        sqlx::query_scalar(
+            "WITH d AS ( \
+               DELETE FROM price_overrides WHERE token_id = $1 AND vs_currency = $2 \
+               RETURNING token_id \
+             ), a AS ( \
+               INSERT INTO price_override_audit \
+                   (action, token_id, vs_currency, value, note, admin, detail) \
+               SELECT 'override.clear', $1, $2, NULL, NULL, $3, $4 FROM d \
+             ) \
+             SELECT EXISTS (SELECT 1 FROM d)",
+        )
+        .bind(token_id)
+        .bind(vs_currency)
+        .bind(admin)
+        .bind(serde_json::json!({
+            "token_id": token_id,
+            "vs_currency": vs_currency,
+        }))
+        .fetch_one(&self.pool)
+        .await
     }
 }
 

@@ -24,7 +24,7 @@ function subscribePanelJump(cb: () => void): () => void {
   };
 }
 
-export function isPanelJumpActive(): boolean {
+function isPanelJumpActive(): boolean {
   return panelJumpActive;
 }
 

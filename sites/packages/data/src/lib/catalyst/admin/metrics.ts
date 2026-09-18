@@ -5,13 +5,8 @@ import type { GetOptions } from "../client";
 import type { Envelope } from "../schema";
 import { unavailable, type Unavailable } from "./availability";
 
-import fixtureJson from "../../../fixtures/admin-metrics.json";
-
-export const SURFACES = ["places", "communities", "events"] as const;
+const SURFACES = ["places", "communities", "events"] as const;
 export type SurfaceKey = (typeof SURFACES)[number];
-
-export const RANGES = ["7d", "30d"] as const;
-export type Range = (typeof RANGES)[number];
 
 const QueueSchema = z.record(z.string(), z.number());
 
@@ -44,7 +39,7 @@ const FunnelStageSchema = z.object({
   resolvedOrActioned: z.number(),
 });
 
-export const AdminMetricsFixtureSchema = z.object({
+z.object({
   generatedAt: z.string(),
   surfaces: z.array(SurfaceSchema),
   decisions: z.object({ "7d": WindowSchema, "30d": WindowSchema }),
@@ -61,24 +56,17 @@ export const AdminMetricsFixtureSchema = z.object({
   }),
 });
 
-export type AdminMetricsFixture = z.infer<typeof AdminMetricsFixtureSchema>;
-export type Surface = z.infer<typeof SurfaceSchema>;
-export type DecisionStat = z.infer<typeof DecisionStatSchema>;
-
-export const FIXTURE: AdminMetricsFixture =
-  AdminMetricsFixtureSchema.parse(fixtureJson);
-
 const LiveEventRowSchema = z.object({
   approved: z.boolean(),
   rejected: z.boolean(),
   highlighted: z.boolean(),
 });
 
-export type LiveEventCounts = { approved: number; featured: number };
+type LiveEventCounts = { approved: number; featured: number };
 
 const EVENTS_PAGE_SIZE = 500;
 
-export async function fetchLiveEventCounts(
+async function fetchLiveEventCounts(
   opts: GetOptions = {},
 ): Promise<LiveEventCounts | null> {
   try {
@@ -112,7 +100,7 @@ const NO_SOURCE = "No metrics source is wired on this node.";
 const EVENTS_PUBLIC_CHECK =
   "catalyrst-events/src/handlers/events.rs:345-362 (optional_user, public)";
 
-export type MetricTile =
+type MetricTile =
   | {
       key: string;
       label: string;
@@ -122,7 +110,7 @@ export type MetricTile =
     }
   | { key: string; label: string; kind: "unavailable"; reason: string };
 
-export type AdminMetricsView = {
+type AdminMetricsView = {
   generatedAt: string;
   tiles: MetricTile[];
   kpis: Unavailable;
@@ -197,18 +185,3 @@ export async function loadAdminMetrics(
   };
 }
 
-export type SampleAdminMetrics = {
-  synthetic: true;
-  banner: string;
-  data: AdminMetricsFixture;
-};
-
-export function loadSampleAdminMetrics(): SampleAdminMetrics {
-  return {
-    synthetic: true,
-    banner:
-      "SAMPLE DATA \u{2014} every number on this page is synthetic, from " +
-      "src/fixtures/admin-metrics.json. It is not telemetry.",
-    data: AdminMetricsFixtureSchema.parse(fixtureJson),
-  };
-}

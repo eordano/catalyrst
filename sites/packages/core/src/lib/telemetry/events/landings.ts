@@ -125,11 +125,6 @@ export type LandingsEvents = {
     stub: true;
   };
   lp_community_gate_viewed: Record<string, never>;
-  lp_community_join_intent: {
-    community_id: string;
-    intent: string;
-    privacy: "private" | "public";
-  };
   lp_community_private_gated: {
     community_id: string;
   };
@@ -139,20 +134,12 @@ export type LandingsEvents = {
     visibility: "all" | "unlisted";
   };
   lp_community_started: Record<string, never>;
-  lp_community_step_completed: {
-    from: "basics" | "created" | "places" | "privacy" | "review" | "signinGate" | "submitting" | "thumbnail";
-    to: "basics" | "created" | "places" | "privacy" | "review" | "signinGate" | "submitting" | "thumbnail";
-  };
   lp_community_submit_attempted: {
     privacy: "private" | "public";
     visibility: "all" | "unlisted";
   };
   lp_community_submit_failed: {
     error?: string;
-  };
-  lp_community_tab_changed: {
-    community_id: string;
-    tab: "events" | "members";
   };
   lp_community_viewed: {
     community_id: string;
@@ -253,7 +240,7 @@ export type LandingsEvents = {
   lp_rsvp_cancelled: {
     count: number;
     event_id: string;
-    stub: true;
+    stub: boolean;
   };
   lp_rsvp_cancelling: {
     event_id: string;
@@ -268,11 +255,11 @@ export type LandingsEvents = {
   lp_rsvp_going: {
     count: number;
     event_id: string;
-    stub: true;
+    stub: boolean;
   };
   lp_rsvp_signin: {
     event_id: string;
-    simulated: true;
+    simulated: boolean;
   };
   lp_rsvp_started: {
     event_id: string;

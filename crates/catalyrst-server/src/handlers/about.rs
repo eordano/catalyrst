@@ -197,7 +197,7 @@ struct CommsProbe {
     user_count: u64,
 }
 
-const COMMS_PROBE_TTL: Duration = Duration::from_secs(5);
+const COMMS_PROBE_TTL: Duration = Duration::from_secs(15);
 
 const COMMS_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -311,9 +311,8 @@ async fn run_probe() -> CommsProbe {
     }
 }
 
-fn build_comms_config(probe: CommsProbe) -> AboutComms {
-    let env = about_env();
-    let adapter = match crate::handlers::comms_health::comms_health().is_alive() {
+fn build_comms_config(probe: CommsProbe, env: &AboutEnvConfig, online: bool) -> AboutComms {
+    let adapter = match online {
         true => env.comms_fixed_adapter.clone(),
         false => OFFLINE_ADAPTER.to_string(),
     };
@@ -326,7 +325,7 @@ fn build_comms_config(probe: CommsProbe) -> AboutComms {
         adapter: if adapter.is_empty() {
             None
         } else {
-            Some(adapter.clone())
+            Some(format!("fixed-adapter:{adapter}"))
         },
         fixed_adapter: if adapter.is_empty() {
             None
@@ -349,7 +348,11 @@ pub async fn get_about(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
     let comms = if about_env().configured {
         let comms_probe = probe_comms().await;
-        let comms = build_comms_config(comms_probe);
+        let comms = build_comms_config(
+            comms_probe,
+            about_env(),
+            crate::handlers::comms_health::comms_health().is_alive(),
+        );
         healthy = healthy && comms.healthy;
         let under_capacity = match about_env().max_users {
             Some(max) => comms_probe.user_count < max,
@@ -446,6 +449,54 @@ pub async fn get_about(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn advertised_adapter_preserves_the_transport_after_unwrapping() {
+        let mut env = AboutEnvConfig {
+            configured: true,
+            ws_connector_status_url: String::new(),
+            stats_core_status_url: String::new(),
+            comms_protocol: "v3".into(),
+            comms_fixed_adapter: String::new(),
+            comms_version: None,
+            comms_commit_hash: None,
+            max_users: None,
+        };
+        for (configured, online, expected) in [
+            (
+                "archipelago:wss://realm.example/ws",
+                true,
+                Some("archipelago:wss://realm.example/ws"),
+            ),
+            (
+                "livekit:wss://realm.example?token=test",
+                true,
+                Some("livekit:wss://realm.example?token=test"),
+            ),
+            (
+                "archipelago:wss://realm.example/ws",
+                false,
+                Some("offline:offline"),
+            ),
+            ("", true, None),
+        ] {
+            env.comms_fixed_adapter = configured.into();
+            let response = build_comms_config(
+                CommsProbe {
+                    healthy: true,
+                    user_count: 0,
+                },
+                &env,
+                online,
+            );
+            let selected = response
+                .adapter
+                .as_deref()
+                .and_then(|adapter| adapter.split_once(':').map(|(_, transport)| transport));
+            assert_eq!(selected, expected);
+            assert_eq!(response.fixed_adapter.as_deref(), expected);
+        }
+    }
 
     #[test]
     fn only_syncing_is_healthy() {

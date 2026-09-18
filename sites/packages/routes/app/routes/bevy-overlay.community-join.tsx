@@ -8,9 +8,8 @@ import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoader } from "@core/lib/experiments/story-loader";
 
 import CommunityJoinWizard from "@features/stories/overlay/community-join/CommunityJoinWizard";
-import type { CommitFn } from "@data/lib/catalyst/overlay/community-join";
-import { commitCommunityJoin } from "@data/lib/catalyst/overlay/community-commit";
-import { useAuth } from "@data/lib/auth/index";
+import { buildCommunityJoinCommit } from "@data/lib/catalyst/overlay/community-commit";
+import { getIdentity } from "@data/lib/auth/session";
 
 import type { Route } from "./+types/bevy-overlay.community-join";
 import type { StoryId } from "@core/lib/telemetry/story-id";
@@ -61,11 +60,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function CommunityJoinRoute({ loaderData }: Route.ComponentProps) {
   const d = loaderData;
-  const { identity } = useAuth();
-  const commit: CommitFn | undefined = identity
-    ? ({ communityId, action, signal }) =>
-        commitCommunityJoin({ communityId, action }, { identity, signal })
-    : undefined;
+  const commit = buildCommunityJoinCommit(getIdentity);
   return (
     <main className="community-join-route">
       <CommunityJoinWizard

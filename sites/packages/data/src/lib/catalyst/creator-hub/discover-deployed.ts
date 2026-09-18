@@ -12,7 +12,7 @@ export type DiscoveredScene = {
   openHref: string;
 };
 
-export type RawContentEntry = { file?: string; key?: string; hash?: string };
+type RawContentEntry = { file?: string; key?: string; hash?: string };
 
 export type RawDeployment = {
   entityId?: string;

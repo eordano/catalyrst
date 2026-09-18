@@ -36,9 +36,9 @@ const DETAILS_SECTIONS = DRAFT_SECTIONS.filter(
   (f) => f.name === "title" || (BODY_NAMES as readonly string[]).includes(f.name),
 );
 
-export type GvDraftCoAuthor = { addr: string };
+type GvDraftCoAuthor = { addr: string };
 
-export type GvDraftForm = {
+type GvDraftForm = {
   pollId?: string;
   title: string;
   bodies: Record<string, string>;

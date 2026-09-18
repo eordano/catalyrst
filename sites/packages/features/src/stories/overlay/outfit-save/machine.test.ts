@@ -12,10 +12,8 @@ import {
   slugToState,
   stateToSlug,
   valueToSlug,
-  simulateSave,
   type OutfitSaveSeed,
   type SaveFn,
-  type SaveResult,
   type TrackFn,
 } from "./machine";
 
@@ -43,7 +41,6 @@ const SEED_WITH_NAME: OutfitSaveSeed = {
   namesForExtraSlots: ["cattie"],
 };
 
-const RESULT: SaveResult = { slot: 0, name: "Beach Day", simulated: true };
 const okSave: SaveFn = async ({ slot, name }) => ({ slot, name, simulated: true });
 
 function inputFor(seed: OutfitSaveSeed, save: SaveFn, track: TrackFn) {
@@ -59,103 +56,6 @@ function inputFor(seed: OutfitSaveSeed, save: SaveFn, track: TrackFn) {
     track,
   };
 }
-
-describe("outfitSaveMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers every deep-linkable state (persisting is internal)", () => {
-    const machineStates = new Set(Object.keys(outfitSaveMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(machineStates).toContain("persisting");
-    expect(mappedStates.has("persisting")).toBe(false);
-    const expectedMapped = new Set([...machineStates].filter((s) => s !== "persisting"));
-    expect(mappedStates).toEqual(expectedMapped);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.browsing);
-    expect(slugToState(null)).toBe("browsing");
-    expect(slugToState(undefined)).toBe("browsing");
-    expect(slugToState("")).toBe("browsing");
-    expect(slugToState("nope")).toBe("browsing");
-    expect(slugToState("name")).toBe("naming");
-    expect(slugToState("capture")).toBe("capturing");
-    expect(slugToState("save")).toBe("saving");
-    expect(slugToState("done")).toBe("done");
-    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
-
-  it("the transient `persisting` value presents as the save step", () => {
-    expect(valueToSlug("persisting")).toBe(STATE_TO_SLUG.saving);
-    expect(valueToSlug("naming")).toBe(STATE_TO_SLUG.naming);
-  });
-});
-
-describe("outfitSaveMachine \u{2014} deep-link hydration", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveOutfitSnapshot({
-      step: "browsing",
-      trackCtx: inputFor(SEED_NO_NAME, okSave, () => {}).trackCtx,
-      seed: SEED_NO_NAME,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating `capturing` fires no telemetry and does not save", async () => {
-    const track = vi.fn();
-    const save = vi.fn(okSave);
-    const snapshot = resolveOutfitSnapshot({
-      step: "capturing",
-      trackCtx: inputFor(SEED_NO_NAME, save, track).trackCtx,
-      seed: SEED_NO_NAME,
-      save,
-      track,
-      slot: 1,
-      name: "Beach Day",
-    });
-    const actor = createActor(outfitSaveMachine, {
-      input: inputFor(SEED_NO_NAME, save, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("capturing")).toBe(true);
-    expect(actor.getSnapshot().context.slot).toBe(1);
-    expect(actor.getSnapshot().context.name).toBe("Beach Day");
-
-    await Promise.resolve();
-    expect(track).not.toHaveBeenCalled();
-    expect(save).not.toHaveBeenCalled();
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveOutfitSnapshot({
-      step: "naming",
-      trackCtx: inputFor(SEED_NO_NAME, okSave, track).trackCtx,
-      seed: SEED_NO_NAME,
-      track,
-      slot: 0,
-    });
-    const actor = createActor(outfitSaveMachine, {
-      input: inputFor(SEED_NO_NAME, okSave, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("naming")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "NEXT" });
-    expect(actor.getSnapshot().matches("capturing")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(OUTFIT_EVENTS.named);
-  });
-});
 
 const EXPECTED_STATES = new Set([
   "browsing",
@@ -176,8 +76,84 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
+describe("outfitSaveMachine \u{2014} URL ?step slug map", () => {
+  it("covers every deep-linkable state (persisting presents as saving), round-trips and falls back to the first step", () => {
+    const machineStates = new Set(Object.keys(outfitSaveMachine.states));
+    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
+    expect(machineStates).toContain("persisting");
+    expect(mappedStates.has("persisting")).toBe(false);
+    expect(mappedStates).toEqual(new Set([...machineStates].filter((s) => s !== "persisting")));
+    expect(valueToSlug("persisting")).toBe(STATE_TO_SLUG.saving);
+    expect(valueToSlug("naming")).toBe(STATE_TO_SLUG.naming);
+
+    const slugs = Object.values(STATE_TO_SLUG);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+    }
+
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.browsing);
+    for (const missing of [null, undefined, "", "nope"]) expect(slugToState(missing)).toBe("browsing");
+    expect(slugToState("name")).toBe("naming");
+    expect(slugToState("capture")).toBe("capturing");
+    expect(slugToState("save")).toBe("saving");
+    expect(slugToState("done")).toBe("done");
+    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
+  });
+});
+
+describe("outfitSaveMachine \u{2014} deep-link hydration", () => {
+  it("pins the step and seeds slot/name without telemetry or a save, and real transitions afterwards still track", async () => {
+    const track = vi.fn();
+    const save = vi.fn(okSave);
+    expect(
+      resolveOutfitSnapshot({
+        step: "browsing",
+        trackCtx: inputFor(SEED_NO_NAME, save, track).trackCtx,
+        seed: SEED_NO_NAME,
+      }),
+    ).toBeUndefined();
+
+    const capturing = createActor(outfitSaveMachine, {
+      input: inputFor(SEED_NO_NAME, save, track),
+      snapshot: resolveOutfitSnapshot({
+        step: "capturing",
+        trackCtx: inputFor(SEED_NO_NAME, save, track).trackCtx,
+        seed: SEED_NO_NAME,
+        save,
+        track,
+        slot: 1,
+        name: "Beach Day",
+      }),
+    }).start();
+    expect(capturing.getSnapshot().matches("capturing")).toBe(true);
+    expect(capturing.getSnapshot().context.slot).toBe(1);
+    expect(capturing.getSnapshot().context.name).toBe("Beach Day");
+    await Promise.resolve();
+    expect(track).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+
+    const naming = createActor(outfitSaveMachine, {
+      input: inputFor(SEED_NO_NAME, save, track),
+      snapshot: resolveOutfitSnapshot({
+        step: "naming",
+        trackCtx: inputFor(SEED_NO_NAME, save, track).trackCtx,
+        seed: SEED_NO_NAME,
+        track,
+        slot: 0,
+      }),
+    }).start();
+    expect(naming.getSnapshot().matches("naming")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+    naming.send({ type: "NEXT" });
+    expect(naming.getSnapshot().matches("capturing")).toBe(true);
+    expect(track.mock.calls.map((c) => c[0])).toContain(OUTFIT_EVENTS.named);
+  });
+});
+
 describe("outfitSaveMachine \u{2014} model-based path coverage", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and capturing is reached through OPEN_SLOT and NEXT", () => {
     const paths = getShortestPaths(outfitSaveMachine, {
       input: inputFor(SEED_WITH_NAME, okSave, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -191,13 +167,7 @@ describe("outfitSaveMachine \u{2014} model-based path coverage", () => {
     }
     expect(ends.has("naming")).toBe(true);
     expect(ends.has("capturing")).toBe(true);
-  });
 
-  it("reaching capturing passes through OPEN_SLOT and NEXT", () => {
-    const paths = getShortestPaths(outfitSaveMachine, {
-      input: inputFor(SEED_WITH_NAME, okSave, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const capturing = paths.find((p) => (p.state.value as string) === "capturing");
     expect(capturing).toBeDefined();
     const events = capturing!.steps.map((s) => s.event.type);
@@ -207,7 +177,7 @@ describe("outfitSaveMachine \u{2014} model-based path coverage", () => {
 });
 
 describe("outfitSaveMachine \u{2014} happy path (free slot, simulated save)", () => {
-  it("open -> name -> capture -> save fires the full funnel and lands in done", async () => {
+  it("open -> name -> capture -> save fires the full funnel and lands in done, with or without a name", async () => {
     const track = vi.fn();
     const actor = createActor(outfitSaveMachine, {
       input: inputFor(SEED_NO_NAME, okSave, track),
@@ -223,35 +193,32 @@ describe("outfitSaveMachine \u{2014} happy path (free slot, simulated save)", ()
     await waitFor(actor, (s) => s.matches("done"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(OUTFIT_EVENTS.started);
-    expect(events).toContain(OUTFIT_EVENTS.named);
-    expect(events).toContain(OUTFIT_EVENTS.captured);
-    expect(events).toContain(OUTFIT_EVENTS.saved);
-    expect(events).toContain(OUTFIT_EVENTS.completed);
+    for (const event of [
+      OUTFIT_EVENTS.started,
+      OUTFIT_EVENTS.named,
+      OUTFIT_EVENTS.captured,
+      OUTFIT_EVENTS.saved,
+      OUTFIT_EVENTS.completed,
+    ]) {
+      expect(events, event).toContain(event);
+    }
     expect(events).not.toContain(OUTFIT_EVENTS.gated);
+    expect(events.indexOf(OUTFIT_EVENTS.started)).toBeLessThan(events.indexOf(OUTFIT_EVENTS.saved));
 
-    expect(events.indexOf(OUTFIT_EVENTS.started)).toBeLessThan(
-      events.indexOf(OUTFIT_EVENTS.saved),
-    );
-
-    expect(actor.getSnapshot().context.captured?.wearables).toEqual(
-      EQUIPPED.wearables,
-    );
+    expect(actor.getSnapshot().context.captured?.wearables).toEqual(EQUIPPED.wearables);
     const savedCall = track.mock.calls.find((c) => c[0] === OUTFIT_EVENTS.saved);
     expect(savedCall?.[1]).toMatchObject({ slot: 0, name: "Beach Day", simulated: true });
     expect(savedCall?.[2]).toMatchObject({ experimentKey: "cl_outfit_save_wizard" });
-  });
 
-  it("a free slot saves even WITHOUT a name", async () => {
-    const track = vi.fn();
-    const actor = createActor(outfitSaveMachine, {
-      input: inputFor(SEED_NO_NAME, okSave, track),
+    const unnamed = vi.fn();
+    const nameless = createActor(outfitSaveMachine, {
+      input: inputFor(SEED_NO_NAME, okSave, unnamed),
     }).start();
-    actor.send({ type: "OPEN_SLOT", slot: 2 });
-    actor.send({ type: "NEXT" });
-    actor.send({ type: "CAPTURE" });
-    await waitFor(actor, (s) => s.matches("done"));
-    expect(track.mock.calls.map((c) => c[0])).toContain(OUTFIT_EVENTS.saved);
+    nameless.send({ type: "OPEN_SLOT", slot: 2 });
+    nameless.send({ type: "NEXT" });
+    nameless.send({ type: "CAPTURE" });
+    await waitFor(nameless, (s) => s.matches("done"));
+    expect(unnamed.mock.calls.map((c) => c[0])).toContain(OUTFIT_EVENTS.saved);
   });
 });
 
@@ -275,7 +242,7 @@ describe("outfitSaveMachine \u{2014} NAME-gate (real)", () => {
     expect(actor.getSnapshot().context.gateReason).toBe("no-name-unlock");
   });
 
-  it("extra slot, NAME owned but outfit unnamed -> gated (needs-name)", async () => {
+  it("extra slot with a NAME owned is gated until the outfit is named, then saves", async () => {
     const track = vi.fn();
     const actor = createActor(outfitSaveMachine, {
       input: inputFor(SEED_WITH_NAME, okSave, track),
@@ -285,36 +252,16 @@ describe("outfitSaveMachine \u{2014} NAME-gate (real)", () => {
     actor.send({ type: "CAPTURE" });
     await waitFor(actor, (s) => s.matches("gated"));
     expect(actor.getSnapshot().context.gateReason).toBe("needs-name");
+    expect(track.mock.calls.map((c) => c[0])).not.toContain(OUTFIT_EVENTS.saved);
 
-    const actor2 = createActor(outfitSaveMachine, {
+    const named = createActor(outfitSaveMachine, {
       input: inputFor(SEED_WITH_NAME, okSave, track),
     }).start();
-    actor2.send({ type: "OPEN_SLOT", slot: 6 });
-    actor2.send({ type: "SET_NAME", name: "Gala" });
-    actor2.send({ type: "NEXT" });
-    actor2.send({ type: "CAPTURE" });
-    await waitFor(actor2, (s) => s.matches("done"));
+    named.send({ type: "OPEN_SLOT", slot: 6 });
+    named.send({ type: "SET_NAME", name: "Gala" });
+    named.send({ type: "NEXT" });
+    named.send({ type: "CAPTURE" });
+    await waitFor(named, (s) => s.matches("done"));
     expect(track.mock.calls.map((c) => c[0])).toContain(OUTFIT_EVENTS.saved);
-  });
-
-  it("extra slot, NAME owned + outfit named -> saves", async () => {
-    const track = vi.fn();
-    const actor = createActor(outfitSaveMachine, {
-      input: inputFor(SEED_WITH_NAME, okSave, track),
-    }).start();
-    actor.send({ type: "OPEN_SLOT", slot: 5 });
-    actor.send({ type: "SET_NAME", name: "Cattie Look" });
-    actor.send({ type: "NEXT" });
-    actor.send({ type: "CAPTURE" });
-    await waitFor(actor, (s) => s.matches("done"));
-    expect(track.mock.calls.map((c) => c[0])).toContain(OUTFIT_EVENTS.saved);
-  });
-});
-
-describe("simulateSave", () => {
-  it("resolves a simulated receipt (no network)", async () => {
-    const r = await simulateSave({ slot: 3, name: "x", outfit: EQUIPPED });
-    expect(r).toMatchObject({ slot: 3, name: "x", simulated: true });
-    expect(RESULT.simulated).toBe(true);
   });
 });

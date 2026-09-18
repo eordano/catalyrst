@@ -25,7 +25,7 @@ export type SimFn = (args: {
   signal?: AbortSignal;
 }) => Promise<TradeResult>;
 
-export type BuyInput = {
+type BuyInput = {
   listing: BuyListing;
   trackCtx: TrackContext;
   connect?: SimFn;
@@ -34,7 +34,7 @@ export type BuyInput = {
   track?: TrackFn;
 };
 
-export type BuyContext = {
+type BuyContext = {
   listing: BuyListing;
   trackCtx: TrackContext;
   connect: SimFn;
@@ -45,7 +45,7 @@ export type BuyContext = {
   error?: string;
 };
 
-export type BuyEvent =
+type BuyEvent =
   | { type: "START" }
   | { type: "CONFIRM" }
   | { type: "CANCEL" }
@@ -70,8 +70,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type BuyStateId = keyof typeof STATE_TO_SLUG;
-export type BuyStepSlug = (typeof STATE_TO_SLUG)[BuyStateId];
+type BuyStateId = keyof typeof STATE_TO_SLUG;
+type BuyStepSlug = (typeof STATE_TO_SLUG)[BuyStateId];
 
 export const FIRST_STEP_SLUG: BuyStepSlug = STATE_TO_SLUG.review;
 
@@ -83,12 +83,12 @@ export const stateToSlug: (value: string) => BuyStepSlug = stepSlugs.toSlug;
 
 export const slugToState: (slug: string | null | undefined) => BuyStateId = stepSlugs.toState;
 
-export const simulateConnect: SimFn = async ({ signal }) => {
+const simulateConnect: SimFn = async ({ signal }) => {
   await delay(300, signal);
   return { txHash: "" };
 };
 
-export const simulateApprove: SimFn = async ({ signal }) => {
+const simulateApprove: SimFn = async ({ signal }) => {
   await delay(300, signal);
   return { txHash: "" };
 };
@@ -235,8 +235,6 @@ export const buyMachine = setup({
     },
   },
 });
-
-export type BuyMachine = typeof buyMachine;
 
 export function resolveBuySnapshot(args: {
   step: BuyStateId;

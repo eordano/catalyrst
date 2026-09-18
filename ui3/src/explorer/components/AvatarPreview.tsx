@@ -6,7 +6,7 @@ import "./avatarpreview.css";
 export const SKIN = ["#f5d6c0", "#e8b48c", "#c98c63", "#8d5a3c", "#5c3824"];
 export const HAIRC = ["#1a1a1a", "#5c3824", "#b06a2c", "#d9a441", "#9b2d2d", "#3a6ea5"];
 
-export type AvatarStageProps = Pick<
+type AvatarStageProps = Pick<
   AvatarSceneOptions,
   "profile" | "urns" | "body" | "outfit" | "emote" | "emotes"
 > & { className?: string; label?: string; pauseOffscreen?: boolean };
@@ -64,10 +64,3 @@ export function AvatarStage({
   );
 }
 
-export function Swatches({ colors }: { colors: readonly string[] }) {
-  return (
-    <div className="bp__swatches">
-      {colors.map((c) => <span key={c} className="bp__sw" style={{ background: c }} />)}
-    </div>
-  );
-}

@@ -1,9 +1,11 @@
 pub mod auth_chain;
 pub mod catalog_build;
+pub mod catalog_store;
 pub mod config;
 pub mod handlers;
 pub mod http;
 pub mod ports;
+pub mod pull_cache;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,6 +15,7 @@ use axum::routing::{get, patch, post};
 use axum::Router;
 use reqwest::Client;
 
+use crate::catalog_store::{CatalogStore, PullThrough};
 use crate::config::Config;
 use crate::ports::items::{ItemsComponent, NewsletterComponent};
 use crate::ports::marketplace::MarketplaceComponent;
@@ -25,6 +28,7 @@ pub struct AppStateInner {
 
     pub marketplace: Option<MarketplaceComponent>,
     pub content_bucket_url: String,
+    pub catalog: Option<Arc<CatalogStore>>,
     pub admin_addresses: Vec<String>,
     pub newsletter_service_url: Option<String>,
     pub newsletter_publication_id: Option<String>,
@@ -68,20 +72,57 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         }
     };
 
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .context("failed to build http client")?;
+    let catalog = match &cfg.catalog_dir {
+        Some(dir) => {
+            let pull = if cfg.catalog_pull_cache_bytes > 0 {
+                tracing::info!(
+                    budget_bytes = cfg.catalog_pull_cache_bytes,
+                    bucket = %cfg.content_bucket_url,
+                    "builder content pull-through enabled"
+                );
+                Some(PullThrough {
+                    bucket: cfg.content_bucket_url.clone(),
+                    budget: cfg.catalog_pull_cache_bytes,
+                    http: reqwest::Client::builder()
+                        .timeout(Duration::from_secs(120))
+                        .build()
+                        .context("failed to build content http client")?,
+                })
+            } else {
+                tracing::info!(
+                    "BUILDER_CATALOG_PULL_CACHE_BYTES unset; /contents/{{hash}} serves only the local store"
+                );
+                None
+            };
+            Some(Arc::new(
+                CatalogStore::new(dir.clone(), pull)
+                    .with_context(|| format!("open builder catalog store {}", dir.display()))?,
+            ))
+        }
+        None => {
+            tracing::warn!(
+                "BUILDER_CATALOG_DIR unset; /v1/assetPacks and /contents/{{hash}} return 503"
+            );
+            None
+        }
+    };
+
     Ok(Arc::new(AppStateInner {
         items: ItemsComponent::new(pool.clone()),
         newsletter: NewsletterComponent::new(pool.clone()),
         marketplace,
         content_bucket_url: cfg.content_bucket_url.clone(),
+        catalog,
         admin_addresses: cfg.admin_addresses.clone(),
         newsletter_service_url: cfg.newsletter_service_url.clone(),
         newsletter_publication_id: cfg.newsletter_publication_id.clone(),
         newsletter_api_key: cfg.newsletter_api_key.clone(),
         admin_token: cfg.admin_token.clone(),
-        http: reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .context("failed to build http client")?,
+        http,
     }))
 }
 
@@ -116,6 +157,8 @@ pub fn api_router() -> Router<AppState> {
             "/v1/storage/contents/{hash}/exists",
             get(handlers::storage::head_storage_content_exists),
         )
+        .route("/v1/assetPacks", get(handlers::catalog::get_asset_packs))
+        .route("/contents/{hash}", get(handlers::catalog::get_content))
         .route(
             "/v1/newsletter",
             post(handlers::newsletter::post_newsletter),

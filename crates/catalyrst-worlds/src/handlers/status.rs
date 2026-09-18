@@ -48,9 +48,20 @@ pub struct CommsStatus {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
 #[serde(rename_all = "camelCase")]
+pub struct PersonalWorldsStatus {
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub max_worlds: u64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub max_size_bytes: i64,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
+#[serde(rename_all = "camelCase")]
 pub struct StatusResponse {
     pub content: ContentStatus,
     pub comms: CommsStatus,
+    pub personal_worlds: Option<PersonalWorldsStatus>,
 }
 
 /// Only a plain `ws://` signaling URL maps to `http://`; every other scheme,
@@ -101,6 +112,11 @@ fn url_host(scheme: &str, authority: &str) -> String {
 pub async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse>, ApiError> {
     let worlds_count = state.worlds.get_deployed_world_count().await?;
     let comms = state.presence.comms_stats();
+    let policy = &state.cfg.personal_worlds;
+    let personal_worlds = policy.enabled().then_some(PersonalWorldsStatus {
+        max_worlds: policy.max_worlds,
+        max_size_bytes: policy.max_size_bytes,
+    });
 
     Ok(Json(StatusResponse {
         content: ContentStatus {
@@ -117,14 +133,30 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<StatusResponse
             users: comms.users,
             timestamp: Utc::now().timestamp_millis(),
         },
+        personal_worlds,
     }))
 }
 
-pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
-    let db_ok = sqlx::query_scalar::<_, i32>("SELECT 1")
-        .fetch_one(state.worlds.pool())
+const DB_PROBE_TTL: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// `SELECT 1` liveness shared by `/health` and `/about`, remembered for one second.
+pub(crate) async fn db_ok(pool: &sqlx::PgPool) -> bool {
+    static LAST: std::sync::Mutex<Option<(std::time::Instant, bool)>> = std::sync::Mutex::new(None);
+    if let Some((at, ok)) = *LAST.lock().unwrap_or_else(|e| e.into_inner()) {
+        if at.elapsed() < DB_PROBE_TTL {
+            return ok;
+        }
+    }
+    let ok = sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(pool)
         .await
         .is_ok();
+    *LAST.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), ok));
+    ok
+}
+
+pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
+    let db_ok = db_ok(state.worlds.pool()).await;
 
     let body = json!({
         "ok": db_ok,

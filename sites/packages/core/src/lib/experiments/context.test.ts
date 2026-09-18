@@ -34,27 +34,20 @@ decision:
 `;
 
 describe("parseStoryContent", () => {
-  it("parses + validates a well-formed story.md", () => {
+  it("parses + validates a well-formed story.md and defaults omitted variant.flags to {}", () => {
     const meta = parseStoryContent(VALID, "valid.md");
     expect(meta.id).toBe("places-hero");
     expect(meta.experiment.key).toBe("places-hero-size");
     expect(meta.experiment.variants).toHaveLength(2);
     expect(meta.experiment.variants[0].flags).toEqual({ heroSize: "small" });
     expect(meta.metric.guardrails).toEqual(["bounce_rate"]);
-  });
-
-  it("defaults variant.flags to {} when omitted", () => {
     const noFlags = VALID.replace("      flags: { heroSize: small }\n", "");
-    const meta = parseStoryContent(noFlags, "noflags.md");
-    expect(meta.experiment.variants[0].flags).toEqual({});
+    expect(parseStoryContent(noFlags, "noflags.md").experiment.variants[0].flags).toEqual({});
   });
 
-  it("throws StoryParseError when required fields are missing", () => {
+  it("throws StoryParseError on a missing required field or zero variants", () => {
     const broken = VALID.replace("  key: places-hero-size\n", "");
     expect(() => parseStoryContent(broken, "broken.md")).toThrow(StoryParseError);
-  });
-
-  it("throws when there are zero variants", () => {
     const noVariants = `---
 id: x
 status: draft
@@ -68,8 +61,6 @@ experiment:
 decision: { rule: r }
 ---
 `;
-    expect(() => parseStoryContent(noVariants, "novar.md")).toThrow(
-      StoryParseError,
-    );
+    expect(() => parseStoryContent(noVariants, "novar.md")).toThrow(StoryParseError);
   });
 });

@@ -3,8 +3,8 @@ import { SEEDED_ASSET_SRC_RE } from "../../fs/save-scene";
 import type { DeployContentFile } from "./deploy-scene";
 
 export const SEEDED_ASSET_DIR = "assets/imported/template-assets";
-export const GAME_RUNTIME_URL = "/template-bundles/games.js";
-export const DEFAULT_SCENE_MAIN = "bin/index.js";
+const GAME_RUNTIME_URL = "/template-bundles/games.js";
+const DEFAULT_SCENE_MAIN = "bin/index.js";
 
 export const RUNTIME_NOTE =
   "This publish includes your src/ code files, but the deployed world runs the " +
@@ -20,7 +20,7 @@ const IMPORTED_ITEM_SRC_RE =
 
 const ASSET_PACKS_URL = "/builder-api/v1/assetPacks";
 
-export function extractGltfSrcHolders(
+function extractGltfSrcHolders(
   composite: unknown,
 ): { obj: Record<string, unknown>; src: string }[] {
   const out: { obj: Record<string, unknown>; src: string }[] = [];
@@ -50,14 +50,14 @@ export function extractGltfSrcHolders(
   return out;
 }
 
-export function relativeAssetPresent(fileKeys: readonly string[], src: string): boolean {
+function relativeAssetPresent(fileKeys: readonly string[], src: string): boolean {
   const norm = src.replace(/^\.?\//, "");
   if (!norm) return false;
   const suffix = `/${norm}`;
   return fileKeys.some((k) => k === norm || k.endsWith(suffix));
 }
 
-export function countEmptyGltfSrcs(composite: unknown): number {
+function countEmptyGltfSrcs(composite: unknown): number {
   const components =
     composite && typeof composite === "object"
       ? (composite as { components?: unknown }).components
@@ -89,7 +89,7 @@ export const EMPTY_SRC_ERROR = (count: number): string =>
   `saved while the 3D engine was unavailable. Re-open the scene in the editor, ` +
   `wait for the viewport to load, and Save again before publishing.`;
 
-export type PackagedAssets = {
+type PackagedAssets = {
   compositeText: string;
   changed: boolean;
   extra: DeployContentFile[];
@@ -253,7 +253,7 @@ export function sceneMainOf(metadata: unknown): string {
   return typeof main === "string" && main.trim() ? main.trim() : DEFAULT_SCENE_MAIN;
 }
 
-export type DraftProjectMeta = {
+type DraftProjectMeta = {
   title: string;
   base?: string;
   template?: string;

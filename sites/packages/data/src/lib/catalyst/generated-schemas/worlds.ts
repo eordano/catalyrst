@@ -31,6 +31,7 @@ import type { LiveDataResponse } from "@ui/generated/catalyst/worlds/LiveDataRes
 import type { MinimapConfig } from "@ui/generated/catalyst/worlds/MinimapConfig";
 import type { PermissionsResponse } from "@ui/generated/catalyst/worlds/PermissionsResponse";
 import type { PermissionSummaryEntry } from "@ui/generated/catalyst/worlds/PermissionSummaryEntry";
+import type { PersonalWorldsStatus } from "@ui/generated/catalyst/worlds/PersonalWorldsStatus";
 import type { RemoteWorldView } from "@ui/generated/catalyst/worlds/RemoteWorldView";
 import type { SceneListResponse } from "@ui/generated/catalyst/worlds/SceneListResponse";
 import type { ServerAboutConfigurations } from "@ui/generated/catalyst/worlds/ServerAboutConfigurations";
@@ -280,6 +281,11 @@ export const PermissionsResponseSchema = z.object({
   summary: z.record(z.string(), z.array(PermissionSummaryEntrySchema)),
 });
 
+export const PersonalWorldsStatusSchema = z.object({
+  maxWorlds: z.number(),
+  maxSizeBytes: z.number(),
+});
+
 export const WorldSceneEntrySchema = z.object({
   worldName: z.string(),
   deployer: z.string(),
@@ -328,6 +334,7 @@ export const SetMirrorHiddenResponseSchema = z.object({
 export const StatusResponseSchema = z.object({
   content: ContentStatusSchema,
   comms: CommsStatusSchema,
+  personalWorlds: PersonalWorldsStatusSchema.nullable(),
 });
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
@@ -364,6 +371,7 @@ export type _AssertLiveDataResponse = Assert<Mutual<LiveDataResponse, z.infer<ty
 export type _AssertMinimapConfig = Assert<Mutual<MinimapConfig, z.infer<typeof MinimapConfigSchema>>>;
 export type _AssertPermissionsResponse = Assert<Mutual<PermissionsResponse, z.infer<typeof PermissionsResponseSchema>>>;
 export type _AssertPermissionSummaryEntry = Assert<Mutual<PermissionSummaryEntry, z.infer<typeof PermissionSummaryEntrySchema>>>;
+export type _AssertPersonalWorldsStatus = Assert<Mutual<PersonalWorldsStatus, z.infer<typeof PersonalWorldsStatusSchema>>>;
 export type _AssertRemoteWorldView = Assert<Mutual<RemoteWorldView, z.infer<typeof RemoteWorldViewSchema>>>;
 export type _AssertSceneListResponse = Assert<Mutual<SceneListResponse, z.infer<typeof SceneListResponseSchema>>>;
 export type _AssertServerAboutConfigurations = Assert<Mutual<ServerAboutConfigurations, z.infer<typeof ServerAboutConfigurationsSchema>>>;

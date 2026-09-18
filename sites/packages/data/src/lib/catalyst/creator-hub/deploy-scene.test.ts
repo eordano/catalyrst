@@ -18,13 +18,12 @@ import { hashV1Raw, utf8 } from "../hashing";
 const META = { main: "bin/index.js", scene: { base: "0,0", parcels: ["0,0"] } };
 
 describe("buildSceneEntity", () => {
-  it("hashes each content file (CIDv1) and the entity, building content[]", async () => {
+  it("hashes each content file and the entity (CIDv1), and references pre-uploaded hashes without re-uploading bytes", async () => {
     const files = [
       { file: "scene.json", content: utf8(JSON.stringify(META)) },
       { file: "main.composite", content: utf8('{"version":1,"components":[]}') },
     ];
     const prepared = await buildSceneEntity({ pointers: ["0,0"], files, metadata: META });
-
     for (const f of files) {
       const entry = prepared.content.find((c) => c.file === f.file)!;
       expect(entry.hash).toBe(await hashV1Raw(f.content));
@@ -34,9 +33,20 @@ describe("buildSceneEntity", () => {
     expect(prepared.entity.version).toBe("v3");
     expect(prepared.entity.type).toBe("scene");
     expect(JSON.parse(new TextDecoder().decode(prepared.entityFile)).id).toBeUndefined();
+
+    const referenced = await buildSceneEntity({
+      pointers: ["0,0"],
+      files: [{ file: "scene.json", content: utf8("{}") }],
+      metadata: META,
+      referencedHashes: [
+        { file: "model.glb", hash: "bafybeibigmodelhashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+      ],
+    });
+    expect(referenced.content.find((c) => c.file === "model.glb")?.hash).toMatch(/^bafy/);
+    expect(referenced.files.some((f) => f.file === "model.glb")).toBe(false);
   });
 
-  it("rejects duplicate (case-insensitive) file names", async () => {
+  it("rejects duplicate (case-insensitive) file names and requires at least one pointer", async () => {
     await expect(
       buildSceneEntity({
         pointers: ["0,0"],
@@ -47,55 +57,33 @@ describe("buildSceneEntity", () => {
         metadata: META,
       }),
     ).rejects.toThrow(/duplicate/i);
-  });
-
-  it("requires at least one pointer", async () => {
-    await expect(
-      buildSceneEntity({ pointers: [], files: [], metadata: META }),
-    ).rejects.toThrow(/pointer/i);
-  });
-
-  it("references pre-uploaded hashes without re-uploading bytes", async () => {
-    const prepared = await buildSceneEntity({
-      pointers: ["0,0"],
-      files: [{ file: "scene.json", content: utf8("{}") }],
-      metadata: META,
-      referencedHashes: [
-        { file: "model.glb", hash: "bafybeibigmodelhashxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
-      ],
-    });
-    expect(prepared.content.find((c) => c.file === "model.glb")?.hash).toMatch(/^bafy/);
-    expect(prepared.files.some((f) => f.file === "model.glb")).toBe(false);
+    await expect(buildSceneEntity({ pointers: [], files: [], metadata: META })).rejects.toThrow(
+      /pointer/i,
+    );
   });
 });
 
 describe("deployment auth chains", () => {
-  it("appends an ECDSA_SIGNED_ENTITY link that recovers to the EPHEMERAL key", async () => {
-    const pk = generatePrivateKey();
-    const identity = await createIdentityFromPrivateKey(pk);
+  it("the identity chain appends an ECDSA_SIGNED_ENTITY link from the ephemeral key; the simple chain signs directly with the wallet key", async () => {
+    const identity = await createIdentityFromPrivateKey(generatePrivateKey());
     const entityId = "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku";
-
     const chain = await buildDeployAuthChain(identity, entityId);
     expect(chain).toHaveLength(3);
     const last = chain[2];
     expect(last.type).toBe("ECDSA_SIGNED_ENTITY");
     expect(last.payload).toBe(entityId);
-
     const recovered = await recoverMessageAddress({ message: entityId, signature: last.signature as `0x${string}` });
     expect(recovered.toLowerCase()).toBe(identity.ephemeral.address.toLowerCase());
-  });
 
-  it("simple chain: SIGNER + ECDSA_SIGNED_ENTITY signed directly by the wallet key", async () => {
     const pk = generatePrivateKey();
     const addr = privateKeyToAccount(pk).address.toLowerCase();
-    const entityId = "bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq";
-
-    const chain = await buildSimpleDeployAuthChain(pk, entityId);
-    expect(chain.map((l) => l.type)).toEqual(["SIGNER", "ECDSA_SIGNED_ENTITY"]);
-    expect(chain[0].payload).toBe(addr);
-    expect(chain[0].signature).toBe("");
-    const recovered = await recoverMessageAddress({ message: entityId, signature: chain[1].signature as `0x${string}` });
-    expect(recovered.toLowerCase()).toBe(addr);
+    const simpleId = "bafkreibm6jg3ux5qumhcn2b3flc3tyu6dmlb4xa7u5bf44yegnrjhc4yeq";
+    const simple = await buildSimpleDeployAuthChain(pk, simpleId);
+    expect(simple.map((l) => l.type)).toEqual(["SIGNER", "ECDSA_SIGNED_ENTITY"]);
+    expect(simple[0].payload).toBe(addr);
+    expect(simple[0].signature).toBe("");
+    const simpleRecovered = await recoverMessageAddress({ message: simpleId, signature: simple[1].signature as `0x${string}` });
+    expect(simpleRecovered.toLowerCase()).toBe(addr);
   });
 });
 
@@ -127,7 +115,7 @@ describe("deployScene (HTTP contract, mocked transport)", () => {
       metadata: META,
     });
 
-  it("reports a successful deploy (200 + creationTimestamp)", async () => {
+  it("reports a successful deploy (200 + creationTimestamp) and postDeployment targets a custom path", async () => {
     const prepared = await prep();
     const identity = await createIdentityFromPrivateKey(generatePrivateKey());
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
@@ -136,52 +124,42 @@ describe("deployScene (HTTP contract, mocked transport)", () => {
       expect(init.body).toBeInstanceOf(FormData);
       return new Response(JSON.stringify({ creationTimestamp: 1782570659920 }), { status: 200 });
     }) as unknown as typeof fetch;
-
     const res = await deployScene(identity, prepared, { base: "http://cat", fetchImpl });
     expect(res).toEqual({ ok: true, status: 200, creationTimestamp: 1782570659920 });
+
+    const chain = await buildSimpleDeployAuthChain(generatePrivateKey(), prepared.entityId);
+    const worlds = vi.fn(async (url: string) => {
+      expect(String(url)).toBe("http://worlds/entities");
+      return new Response(JSON.stringify({ creationTimestamp: 1 }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const custom = await postDeployment(prepared, chain, {
+      base: "http://worlds",
+      path: "/entities",
+      fetchImpl: worlds,
+    });
+    expect(custom.ok).toBe(true);
   });
 
-  it("reports rejection (e.g. ownership) without throwing", async () => {
+  it("reports a rejection (e.g. ownership) and a network failure as non-throwing error results", async () => {
     const prepared = await prep();
     const chain = await buildSimpleDeployAuthChain(generatePrivateKey(), prepared.entityId);
-    const fetchImpl = vi.fn(async () =>
+    const rejecting = vi.fn(async () =>
       new Response(
         JSON.stringify({ errors: ["The provided Eth Address does not have access to the following parcel: (0,0)"] }),
         { status: 400 },
       ),
     ) as unknown as typeof fetch;
-
-    const res = await postDeployment(prepared, chain, { base: "http://cat", fetchImpl });
+    const res = await postDeployment(prepared, chain, { base: "http://cat", fetchImpl: rejecting });
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.status).toBe(400);
       expect(res.errors[0]).toMatch(/does not have access/);
     }
-  });
-
-  it("reports a network failure as a non-throwing error result", async () => {
-    const prepared = await prep();
-    const chain = await buildSimpleDeployAuthChain(generatePrivateKey(), prepared.entityId);
-    const fetchImpl = vi.fn(async () => {
+    const failing = vi.fn(async () => {
       throw new Error("connection refused");
     }) as unknown as typeof fetch;
-    const res = await postDeployment(prepared, chain, { base: "http://cat", fetchImpl });
-    expect(res).toEqual({ ok: false, status: 0, errors: ["connection refused"] });
-  });
-
-  it("postDeployment targets a custom path (worlds /entities, no /content prefix)", async () => {
-    const prepared = await prep();
-    const chain = await buildSimpleDeployAuthChain(generatePrivateKey(), prepared.entityId);
-    const fetchImpl = vi.fn(async (url: string) => {
-      expect(String(url)).toBe("http://worlds/entities");
-      return new Response(JSON.stringify({ creationTimestamp: 1 }), { status: 200 });
-    }) as unknown as typeof fetch;
-    const res = await postDeployment(prepared, chain, {
-      base: "http://worlds",
-      path: "/entities",
-      fetchImpl,
-    });
-    expect(res.ok).toBe(true);
+    const down = await postDeployment(prepared, chain, { base: "http://cat", fetchImpl: failing });
+    expect(down).toEqual({ ok: false, status: 0, errors: ["connection refused"] });
   });
 });
 
@@ -218,7 +196,7 @@ describe("deployWorldScene (worlds-content-server contract)", () => {
     expect(meta.worldConfiguration?.name).toBe("my-name.dcl.eth");
   });
 
-  it("fails closed when the world name is missing/blank (never signs/POSTs)", async () => {
+  it("fails closed without a world name or without scene parcels, never signing or POSTing", async () => {
     const identity = await createIdentityFromPrivateKey(generatePrivateKey());
     const fetchImpl = vi.fn() as unknown as typeof fetch;
     await expect(
@@ -228,12 +206,6 @@ describe("deployWorldScene (worlds-content-server contract)", () => {
         { base: "http://worlds", fetchImpl },
       ),
     ).rejects.toThrow(/world name/i);
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it("fails closed when there are no scene parcels to point at", async () => {
-    const identity = await createIdentityFromPrivateKey(generatePrivateKey());
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
     await expect(
       deployWorldScene(
         identity,
@@ -252,7 +224,7 @@ describe("deployLandScene (catalyst content contract)", () => {
     worldConfiguration: { name: "stale-world.dcl.eth" },
   };
 
-  it("POSTs to <catalyst>/content/entities with parcel pointers and NO worldConfiguration", async () => {
+  it("POSTs to <catalyst>/content/entities with parcel pointers and no worldConfiguration, and fails closed without parcels", async () => {
     const identity = await createIdentityFromPrivateKey(generatePrivateKey());
     let capturedEntity: Record<string, unknown> | null = null;
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
@@ -272,25 +244,21 @@ describe("deployLandScene (catalyst content contract)", () => {
       },
       { base: "http://cat", fetchImpl },
     );
-
     expect(res).toEqual({ ok: true, status: 200, creationTimestamp: 7 });
     const entity = capturedEntity as unknown as Record<string, unknown>;
     expect(entity.pointers).toEqual(["52,-52", "53,-52"]);
     const meta = entity.metadata as Record<string, unknown>;
     expect(meta.worldConfiguration).toBeUndefined();
     expect(meta.scene).toEqual(LAND_META.scene);
-  });
 
-  it("fails closed when there are no scene parcels to point at", async () => {
-    const identity = await createIdentityFromPrivateKey(generatePrivateKey());
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const untouched = vi.fn() as unknown as typeof fetch;
     await expect(
       deployLandScene(
         identity,
         { files: [], metadata: { scene: { parcels: [] } } },
-        { base: "http://cat", fetchImpl },
+        { base: "http://cat", fetchImpl: untouched },
       ),
     ).rejects.toThrow(/parcels/i);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(untouched).not.toHaveBeenCalled();
   });
 });

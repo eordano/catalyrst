@@ -228,6 +228,7 @@ lib.mkIf cfg.enable {
           BUNDLE_HTTP_PORT = "5144";
           API_URL = d.publicUrl;
           BUILDER_CONTENT_BUCKET_URL = "${d.publicUrl}/content";
+          BUILDER_CATALOG_DIR = "${cfg.stateDir}/builder-catalog";
         };
       };
     }

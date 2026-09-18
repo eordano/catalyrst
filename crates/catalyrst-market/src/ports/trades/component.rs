@@ -49,7 +49,7 @@ impl TradesComponent {
             r#"
 SELECT id::text AS id, chain_id::int4 AS chain_id, checks, created_at,
        effective_since, expires_at, network, signature, signer,
-       type::text AS type, contract
+       type::text AS type, contract, COUNT(*) OVER()::int8 AS total
 FROM marketplace.trades
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
@@ -66,16 +66,23 @@ LIMIT $1 OFFSET $2
                 Err(e)
             }
         })?;
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM marketplace.trades")
-            .fetch_one(&self.pool)
-            .await
-            .or_else(|e| {
-                if is_missing_trades_table(&e) {
-                    Ok(0)
-                } else {
-                    Err(e)
-                }
-            })?;
+        let total: i64 = match rows.first() {
+            Some(row) => row.try_get("total").unwrap_or(0),
+            // An empty page past the end (or a zero-row page) says nothing about the total.
+            None if offset > 0 || limit == 0 => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM marketplace.trades")
+                    .fetch_one(&self.pool)
+                    .await
+                    .or_else(|e| {
+                        if is_missing_trades_table(&e) {
+                            Ok(0)
+                        } else {
+                            Err(e)
+                        }
+                    })?
+            }
+            None => 0,
+        };
         let data = rows.iter().map(row_to_db_trade_list_row).collect();
         Ok((data, total))
     }
@@ -105,9 +112,19 @@ FROM marketplace.trades
     }
 
     pub async fn get_trade(&self, id: &str) -> Result<Trade, ApiError> {
-        let view = self.get_trade_view(id).await?;
-        let mut trade = Trade::from_view(&view);
-        trade.status = self.mv_status_for_trade(id).await?;
+        let (head, (sent, received), status) = tokio::try_join!(
+            self.trade_head("WHERE id = $1::uuid", id),
+            self.assets_for_trade("ta.trade_id = $1::uuid", id),
+            self.mv_status_for_trade(id),
+        )?;
+        let head =
+            head.ok_or_else(|| ApiError::not_found(format!("Trade with id {} not found", id)))?;
+        let mut trade = Trade::from_view(&TradeView {
+            trade: head_to_db_trade(&head),
+            sent,
+            received,
+        });
+        trade.status = status;
         Ok(trade)
     }
 
@@ -128,17 +145,18 @@ FROM marketplace.trades
         Ok(status)
     }
 
-    async fn get_trade_view(&self, id: &str) -> Result<TradeView, ApiError> {
-        let head_row = sqlx::query(
-            r#"
-SELECT id::text AS trade_id, chain_id::int4 AS chain_id, checks, created_at,
-       effective_since, expires_at, network, signature, signer,
-       type::text AS trade_type, contract
-FROM marketplace.trades
-WHERE id = $1::uuid
-"#,
-        )
-        .bind(id)
+    async fn trade_head(
+        &self,
+        where_sql: &str,
+        bind: &str,
+    ) -> Result<Option<sqlx::postgres::PgRow>, ApiError> {
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT id::text AS trade_id, chain_id::int4 AS chain_id, checks, created_at, \
+                    effective_since, expires_at, network, signature, signer, \
+                    type::text AS trade_type, contract \
+             FROM marketplace.trades {where_sql}"
+        )))
+        .bind(bind)
         .fetch_optional(&self.pool)
         .await
         .or_else(|e| {
@@ -148,23 +166,15 @@ WHERE id = $1::uuid
                 Err(e)
             }
         })?;
-
-        let head = head_row
-            .ok_or_else(|| ApiError::not_found(format!("Trade with id {} not found", id)))?;
-        let trade = head_to_db_trade(&head);
-        let (sent, received) = self.assets_for_trade(&trade.id).await?;
-        Ok(TradeView {
-            trade,
-            sent,
-            received,
-        })
+        Ok(row)
     }
 
     async fn assets_for_trade(
         &self,
-        trade_id: &str,
+        trade_where: &str,
+        bind: &str,
     ) -> Result<(Vec<TradeAsset>, Vec<TradeAsset>), ApiError> {
-        let asset_rows = sqlx::query(
+        let asset_rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             r#"
 SELECT ta.asset_type::int4 AS asset_type, ta.contract_address AS asset_contract_address,
        ta.beneficiary AS asset_beneficiary, ta.direction::text AS asset_direction,
@@ -174,11 +184,11 @@ FROM marketplace.trade_assets AS ta
 LEFT JOIN marketplace.trade_assets_erc721 AS erc721 ON ta.id = erc721.asset_id
 LEFT JOIN marketplace.trade_assets_erc20  AS erc20  ON ta.id = erc20.asset_id
 LEFT JOIN marketplace.trade_assets_item   AS item   ON ta.id = item.asset_id
-WHERE ta.trade_id = $1::uuid
+WHERE {trade_where}
 ORDER BY ta.direction ASC
-"#,
-        )
-        .bind(trade_id)
+"#
+        )))
+        .bind(bind)
         .fetch_all(&self.pool)
         .await
         .or_else(|e| {
@@ -220,37 +230,21 @@ ORDER BY ta.direction ASC
         timestamp: i64,
         caller: &str,
     ) -> Result<serde_json::Value, ApiError> {
-        let head_row = sqlx::query(
-            r#"
-SELECT id::text AS trade_id, chain_id::int4 AS chain_id, checks, created_at,
-       effective_since, expires_at, network, signature, signer,
-       type::text AS trade_type, contract
-FROM marketplace.trades
-WHERE hashed_signature = $1
-LIMIT 1
-"#,
-        )
-        .bind(hashed_signature)
-        .fetch_optional(&self.pool)
-        .await
-        .or_else(|e| {
-            if is_missing_trades_table(&e) {
-                Ok(None)
-            } else {
-                Err(e)
-            }
-        })?;
-
-        let head = head_row.ok_or_else(|| {
+        let (head, (sent, received)) = tokio::try_join!(
+            self.trade_head("WHERE hashed_signature = $1 LIMIT 1", hashed_signature),
+            self.assets_for_trade(
+                "ta.trade_id = (SELECT id FROM marketplace.trades WHERE hashed_signature = $1 LIMIT 1)",
+                hashed_signature,
+            ),
+        )?;
+        let head = head.ok_or_else(|| {
             ApiError::not_found(format!(
                 "Trade with hashed signature {} not found",
                 hashed_signature
             ))
         })?;
-        let trade_db = head_to_db_trade(&head);
-        let (sent, received) = self.assets_for_trade(&trade_db.id).await?;
         let trade = Trade::from_view(&TradeView {
-            trade: trade_db,
+            trade: head_to_db_trade(&head),
             sent,
             received,
         });
@@ -271,10 +265,7 @@ LIMIT 1
         trade: &Trade,
         caller: &str,
     ) -> Result<Option<serde_json::Value>, ApiError> {
-        let mut assets: Vec<Option<AssetMeta>> = Vec::new();
-        for a in trade.sent.iter().chain(trade.received.iter()) {
-            assets.push(self.resolve_asset_meta(a, &trade.network).await?);
-        }
+        let assets = self.resolve_assets_meta(trade).await?;
         let resolved: Vec<&AssetMeta> = assets.iter().filter_map(|a| a.as_ref()).collect();
 
         Ok(match trade.trade_type.as_str() {
@@ -285,46 +276,76 @@ LIMIT 1
         })
     }
 
-    async fn resolve_asset_meta(
-        &self,
-        asset: &PublicTradeAsset,
-        network: &str,
-    ) -> Result<Option<AssetMeta>, ApiError> {
-        match asset.asset_type {
-            ASSET_TYPE_ERC721 => {
-                let Some(token_id) = asset.token_id.as_deref() else {
-                    return Ok(None);
-                };
-                self.resolve_nft_meta(&asset.contract_address, token_id, network)
-                    .await
+    /// All erc721 assets in one nft query and all collection items in one item query, run
+    /// together; the result keeps the sent-then-received asset order.
+    async fn resolve_assets_meta(&self, trade: &Trade) -> Result<Vec<Option<AssetMeta>>, ApiError> {
+        let all: Vec<&PublicTradeAsset> = trade.sent.iter().chain(trade.received.iter()).collect();
+        let mut nft_slots: Vec<usize> = Vec::new();
+        let mut nft_contracts: Vec<String> = Vec::new();
+        let mut nft_tokens: Vec<String> = Vec::new();
+        let mut item_slots: Vec<usize> = Vec::new();
+        let mut item_contracts: Vec<String> = Vec::new();
+        let mut item_ids: Vec<String> = Vec::new();
+        for (slot, asset) in all.iter().enumerate() {
+            match asset.asset_type {
+                ASSET_TYPE_ERC721 => {
+                    if let Some(token_id) = asset.token_id.as_deref() {
+                        nft_slots.push(slot);
+                        nft_contracts.push(asset.contract_address.clone());
+                        nft_tokens.push(token_id.to_string());
+                    }
+                }
+                ASSET_TYPE_COLLECTION_ITEM => {
+                    if let Some(item_id) = asset.item_id.as_deref() {
+                        item_slots.push(slot);
+                        item_contracts.push(asset.contract_address.clone());
+                        item_ids.push(item_id.to_string());
+                    }
+                }
+                _ => {}
             }
-            ASSET_TYPE_COLLECTION_ITEM => {
-                let Some(item_id) = asset.item_id.as_deref() else {
-                    return Ok(None);
-                };
-                self.resolve_item_meta(&asset.contract_address, item_id)
-                    .await
-            }
-            _ => Ok(None),
         }
+        let (nfts, items) = tokio::try_join!(
+            self.resolve_nft_metas(&nft_contracts, &nft_tokens, &trade.network),
+            self.resolve_item_metas(&item_contracts, &item_ids),
+        )?;
+        let mut out: Vec<Option<AssetMeta>> = (0..all.len()).map(|_| None).collect();
+        for (idx, meta) in nfts {
+            if let Some(slot) = nft_slots.get(idx) {
+                out[*slot] = Some(meta);
+            }
+        }
+        for (idx, meta) in items {
+            if let Some(slot) = item_slots.get(idx) {
+                out[*slot] = Some(meta);
+            }
+        }
+        Ok(out)
     }
 
-    async fn resolve_nft_meta(
+    async fn resolve_nft_metas(
         &self,
-        contract_address: &str,
-        token_id: &str,
+        contracts: &[String],
+        token_ids: &[String],
         network: &str,
-    ) -> Result<Option<AssetMeta>, ApiError> {
+    ) -> Result<Vec<(usize, AssetMeta)>, ApiError> {
+        if contracts.is_empty() {
+            return Ok(Vec::new());
+        }
         let networks = crate::ports::nfts::get_db_networks_for(network);
-        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             r#"
-SELECT
+SELECT DISTINCT ON (want.ord)
+  want.ord::int8  AS ord,
   account.address AS owner,
   nft.image       AS image,
   nft.category    AS category,
   COALESCE(wearable.rarity, emote.rarity) AS rarity,
   COALESCE(wearable.name, emote.name, land_data."name", ens.subdomain) AS name
-FROM {schema}.nft nft
+FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS want(contract, token_id, ord)
+JOIN {schema}.nft nft
+  ON LOWER(nft.contract_address) = LOWER(want.contract)
+ AND nft.token_id = want.token_id::numeric
 LEFT JOIN {schema}.metadata metadata ON nft.metadata_id = metadata.id
 LEFT JOIN {schema}.wearable wearable ON metadata.wearable_id = wearable.id
 LEFT JOIN {schema}.emote    emote    ON metadata.emote_id    = emote.id
@@ -333,97 +354,112 @@ LEFT JOIN {schema}.estate   estate   ON nft.estate_id = estate.id
 LEFT JOIN {schema}.data     land_data ON (estate.data_id = land_data.id OR parcel.data_id = land_data.id)
 LEFT JOIN {schema}.ens      ens      ON ens.id = nft.ens_id
 LEFT JOIN {schema}.account  account  ON nft.owner_id = account.id
-WHERE LOWER(nft.contract_address) = LOWER($1)
-  AND nft.token_id = $2::numeric
-  AND nft.network = ANY($3)
-LIMIT 1
+WHERE nft.network = ANY($3)
+ORDER BY want.ord
 "#,
             schema = crate::MARKETPLACE_SQUID_SCHEMA,
         )))
-        .bind(contract_address)
-        .bind(token_id)
+        .bind(contracts.to_vec())
+        .bind(token_ids.to_vec())
         .bind(&networks)
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await
-        .or_else(|e| if is_missing_squid(&e) { Ok(None) } else { Err(e) })?;
+        .or_else(|e| if is_missing_squid(&e) { Ok(Vec::new()) } else { Err(e) })?;
 
-        Ok(row.map(|r| AssetMeta {
-            image: r
-                .try_get::<Option<String>, _>("image")
-                .unwrap_or(None)
-                .unwrap_or_default(),
+        Ok(rows
+            .iter()
+            .filter_map(|r| {
+                let idx = (r.try_get::<i64, _>("ord").ok()? as usize).checked_sub(1)?;
+                let meta = AssetMeta {
+                    image: r
+                        .try_get::<Option<String>, _>("image")
+                        .unwrap_or(None)
+                        .unwrap_or_default(),
 
-            seller: r
-                .try_get::<Option<String>, _>("owner")
-                .unwrap_or(None)
-                .unwrap_or_default(),
-            category: r
-                .try_get::<Option<String>, _>("category")
-                .unwrap_or(None)
-                .unwrap_or_default(),
-            rarity: r.try_get::<Option<String>, _>("rarity").unwrap_or(None),
-            name: r.try_get::<Option<String>, _>("name").unwrap_or(None),
-            contract_address: contract_address.to_string(),
-            token_id: Some(token_id.to_string()),
-            item_id: None,
-        }))
+                    seller: r
+                        .try_get::<Option<String>, _>("owner")
+                        .unwrap_or(None)
+                        .unwrap_or_default(),
+                    category: r
+                        .try_get::<Option<String>, _>("category")
+                        .unwrap_or(None)
+                        .unwrap_or_default(),
+                    rarity: r.try_get::<Option<String>, _>("rarity").unwrap_or(None),
+                    name: r.try_get::<Option<String>, _>("name").unwrap_or(None),
+                    contract_address: contracts.get(idx)?.clone(),
+                    token_id: Some(token_ids.get(idx)?.clone()),
+                    item_id: None,
+                };
+                Some((idx, meta))
+            })
+            .collect())
     }
 
-    async fn resolve_item_meta(
+    async fn resolve_item_metas(
         &self,
-        contract_address: &str,
-        item_id: &str,
-    ) -> Result<Option<AssetMeta>, ApiError> {
-        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        contracts: &[String],
+        item_ids: &[String],
+    ) -> Result<Vec<(usize, AssetMeta)>, ApiError> {
+        if contracts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
             r#"
-SELECT
+SELECT DISTINCT ON (want.ord)
+  want.ord::int8 AS ord,
   item.image     AS image,
   item.creator   AS creator,
   item.rarity    AS rarity,
   COALESCE(wearable.name, emote.name) AS name,
   item.item_type AS item_type
-FROM {schema}.item item
+FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS want(contract, item_id, ord)
+JOIN {schema}.item item
+  ON LOWER(item.collection_id) = LOWER(want.contract)
+ AND item.blockchain_id = want.item_id::numeric
 LEFT JOIN {schema}.metadata metadata ON item.metadata_id = metadata.id
 LEFT JOIN {schema}.wearable wearable ON metadata.wearable_id = wearable.id
 LEFT JOIN {schema}.emote    emote    ON metadata.emote_id    = emote.id
-WHERE LOWER(item.collection_id) = LOWER($1)
-  AND item.blockchain_id = $2::numeric
-LIMIT 1
+ORDER BY want.ord
 "#,
             schema = crate::MARKETPLACE_SQUID_SCHEMA,
         )))
-        .bind(contract_address)
-        .bind(item_id)
-        .fetch_optional(&self.pool)
+        .bind(contracts.to_vec())
+        .bind(item_ids.to_vec())
+        .fetch_all(&self.pool)
         .await
         .or_else(|e| {
             if is_missing_squid(&e) {
-                Ok(None)
+                Ok(Vec::new())
             } else {
                 Err(e)
             }
         })?;
 
-        Ok(row.map(|r| {
-            let item_type: Option<String> = r.try_get("item_type").unwrap_or(None);
-            AssetMeta {
-                image: r
-                    .try_get::<Option<String>, _>("image")
-                    .unwrap_or(None)
-                    .unwrap_or_default(),
+        Ok(rows
+            .iter()
+            .filter_map(|r| {
+                let idx = (r.try_get::<i64, _>("ord").ok()? as usize).checked_sub(1)?;
+                let item_type: Option<String> = r.try_get("item_type").unwrap_or(None);
+                let meta = AssetMeta {
+                    image: r
+                        .try_get::<Option<String>, _>("image")
+                        .unwrap_or(None)
+                        .unwrap_or_default(),
 
-                seller: r
-                    .try_get::<Option<String>, _>("creator")
-                    .unwrap_or(None)
-                    .unwrap_or_default(),
-                category: category_from_item_type(item_type.as_deref()),
-                rarity: r.try_get::<Option<String>, _>("rarity").unwrap_or(None),
-                name: r.try_get::<Option<String>, _>("name").unwrap_or(None),
-                contract_address: contract_address.to_string(),
-                token_id: None,
-                item_id: Some(item_id.to_string()),
-            }
-        }))
+                    seller: r
+                        .try_get::<Option<String>, _>("creator")
+                        .unwrap_or(None)
+                        .unwrap_or_default(),
+                    category: category_from_item_type(item_type.as_deref()),
+                    rarity: r.try_get::<Option<String>, _>("rarity").unwrap_or(None),
+                    name: r.try_get::<Option<String>, _>("name").unwrap_or(None),
+                    contract_address: contracts.get(idx)?.clone(),
+                    token_id: None,
+                    item_id: Some(item_ids.get(idx)?.clone()),
+                };
+                Some((idx, meta))
+            })
+            .collect())
     }
 
     pub async fn get_trades_by_address(

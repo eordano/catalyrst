@@ -26,7 +26,7 @@ export type VoiceSession = {
   pushToTalkKey: string;
 };
 
-export type VoiceJoinProps = {
+type VoiceJoinProps = {
   trackCtx: TrackContext;
   session: VoiceSession;
   initialStep?: string;

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -18,12 +19,34 @@ const SYNTHETIC_PREFIXES: [&str; 4] = [
     "pm_smoke",
 ];
 
+/// How long one `GET /experiments` aggregate is served from memory. The route
+/// is polled every ~30 s (5,992 calls in 50 h), each a scan of every segment
+/// event; a 60 s memo caps that at one scan per minute per process, however
+/// many pollers there are.
+pub const LIST_TTL: Duration = Duration::from_secs(60);
+
+/// Predicate and grouped expressions match `migrations/0010_experiments_index.sql`
+/// verbatim so the partial index serves the scan.
+pub const LIST_SQL: &str = "SELECT e.body->'properties'->>'exp_key' AS exp_key, \
+            e.body->'properties'->>'variant' AS variant, \
+            e.body->>'event' AS event, \
+            count(*) AS n \
+     FROM telemetry.telemetry_events e \
+     WHERE e.source = 'segment' \
+       AND e.body->'properties'->>'exp_key' IS NOT NULL \
+     GROUP BY 1, 2, 3";
+
+type ListRow = (String, Option<String>, Option<String>, i64);
+
 #[derive(Deserialize)]
 pub struct ListQuery {
     key: Option<String>,
 
     #[serde(default)]
     user: Option<String>,
+
+    #[serde(default)]
+    fresh: Option<String>,
 }
 
 #[derive(Default)]
@@ -47,20 +70,31 @@ pub async fn list(
         )
         .await;
     }
-    let rows = sqlx::query_as::<_, (String, Option<String>, Option<String>, i64)>(
-        "SELECT e.body->'properties'->>'exp_key' AS exp_key, \
-                e.body->'properties'->>'variant' AS variant, \
-                e.body->>'event' AS event, \
-                count(*) AS n \
-         FROM telemetry.telemetry_events e \
-         WHERE e.source = 'segment' \
-           AND e.body->'properties'->>'exp_key' IS NOT NULL \
-         GROUP BY 1, 2, 3",
-    )
-    .fetch_all(&st.pool)
-    .await
-    .map_err(|e| db_err("telemetry experiments", e))?;
+    let pool = &st.pool;
+    let body = st
+        .experiments_cache
+        .get_or_refresh(cache_ttl(q.fresh.as_deref()), move || async move {
+            sqlx::query_as::<_, ListRow>(LIST_SQL)
+                .fetch_all(pool)
+                .await
+                .map(aggregate)
+        })
+        .await
+        .map_err(|e| db_err("telemetry experiments", e))?;
+    Ok(Json(body))
+}
 
+/// `fresh=1` (or `true`) turns the memo off for that call: a zero TTL makes the
+/// cell reload unconditionally, still single-flight, and the reload refreshes
+/// the slot for everyone else.
+fn cache_ttl(fresh: Option<&str>) -> Duration {
+    match fresh {
+        Some("1" | "true") => Duration::ZERO,
+        _ => LIST_TTL,
+    }
+}
+
+fn aggregate(rows: Vec<ListRow>) -> Value {
     let mut agg: BTreeMap<String, ExpAgg> = BTreeMap::new();
     for (exp_key, variant, event, n) in rows {
         let a = agg.entry(exp_key).or_default();
@@ -115,9 +149,7 @@ pub async fn list(
             }
         }
     }
-    Ok(Json(
-        json!({ "experiments": experiments, "unreadable": unreadable }),
-    ))
+    json!({ "experiments": experiments, "unreadable": unreadable })
 }
 
 #[derive(Deserialize)]
@@ -127,10 +159,16 @@ pub struct ReadoutQuery {
     control: String,
     alpha: Option<f64>,
     min_sample: Option<f64>,
+
+    #[serde(default)]
+    fresh: Option<String>,
 }
 
-#[derive(sqlx::FromRow, Serialize)]
-struct ReadoutRow {
+/// `(exp_key, metric, control, alpha bits, min_sample bits)`.
+pub type ReadoutKey = (String, String, String, Option<u64>, Option<u64>);
+
+#[derive(sqlx::FromRow, Serialize, Clone)]
+pub struct ReadoutRow {
     variant: String,
     n_exposures: i64,
     successes: i64,
@@ -231,13 +269,29 @@ pub async fn readout(
     State(st): State<AppState>,
     Query(p): Query<ReadoutQuery>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let rows = sqlx::query_as::<_, ReadoutRow>(READOUT_SQL)
-        .bind(&p.exp_key)
-        .bind(&p.metric)
-        .bind(&p.control)
-        .bind(p.alpha)
-        .bind(p.min_sample)
-        .fetch_all(&st.pool)
+    let key: ReadoutKey = (
+        p.exp_key.clone(),
+        p.metric.clone(),
+        p.control.clone(),
+        p.alpha.map(f64::to_bits),
+        p.min_sample.map(f64::to_bits),
+    );
+    if cache_ttl(p.fresh.as_deref()).is_zero() {
+        st.readout_cache.invalidate(&key);
+    }
+    let pool = &st.pool;
+    let rows = st
+        .readout_cache
+        .get_or_fetch(key, || async {
+            sqlx::query_as::<_, ReadoutRow>(READOUT_SQL)
+                .bind(&p.exp_key)
+                .bind(&p.metric)
+                .bind(&p.control)
+                .bind(p.alpha)
+                .bind(p.min_sample)
+                .fetch_all(pool)
+                .await
+        })
         .await
         .map_err(|e| db_err("telemetry experiments", e))?;
     Ok(Json(json!({
@@ -254,65 +308,36 @@ pub async fn readout(
 pub struct SeriesQuery {
     exp_key: String,
     metric: String,
+
+    #[serde(default)]
+    fresh: Option<String>,
 }
 
-#[derive(sqlx::FromRow, Serialize)]
-struct TimeseriesRow {
+#[derive(Deserialize, Serialize, Clone)]
+pub struct TimeseriesRow {
     day: String,
     variant: String,
     exposures: i64,
     conversions: i64,
 }
 
-const TIMESERIES_SQL: &str = r#"
-WITH cfg AS (
-  SELECT
-    $1::text AS exp_key,
-    CASE WHEN $2::text LIKE '%\_rate'
-         THEN left($2::text, length($2::text) - 5)
-         ELSE $2::text END AS num_event
-)
-SELECT
-  to_char(e.received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')             AS day,
-  e.body->'properties'->>'variant'                                    AS variant,
-  count(DISTINCT (COALESCE(e.body->'user'->>'id', e.body->'user'->>'username',
-                 e.body->>'userId', e.body->>'anonymousId')))
-    FILTER (WHERE e.body->>'event' = 'experiment_exposed')            AS exposures,
-  count(DISTINCT (COALESCE(e.body->'user'->>'id', e.body->'user'->>'username',
-                 e.body->>'userId', e.body->>'anonymousId')))
-    FILTER (WHERE e.body->>'event' = (SELECT num_event FROM cfg))     AS conversions
-FROM telemetry.telemetry_events e, cfg
-WHERE e.source = 'segment'
-  AND e.body->'properties'->>'exp_key' = cfg.exp_key
-  AND e.body->'properties'->>'variant' IS NOT NULL
-GROUP BY 1, 2
-ORDER BY 1, 2
-"#;
-
-pub async fn timeseries(
-    State(st): State<AppState>,
-    Query(p): Query<SeriesQuery>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    let rows = sqlx::query_as::<_, TimeseriesRow>(TIMESERIES_SQL)
-        .bind(&p.exp_key)
-        .bind(&p.metric)
-        .fetch_all(&st.pool)
-        .await
-        .map_err(|e| db_err("telemetry experiments", e))?;
-    Ok(Json(
-        json!({ "exp_key": p.exp_key, "metric": p.metric, "rows": rows }),
-    ))
-}
-
-#[derive(sqlx::FromRow, Serialize)]
-struct RateRow {
+#[derive(Deserialize, Serialize, Clone)]
+pub struct RateRow {
     variant: String,
     exposures: i64,
     successes: i64,
     rate: f64,
 }
 
-const RATES_SQL: &str = r#"
+/// `/timeseries` and `/rates` read the same scoped scan, so one statement computes both and
+/// the memo serves whichever the dashboard asks for second.
+#[derive(Clone)]
+pub struct SeriesBundle {
+    pub timeseries: Vec<TimeseriesRow>,
+    pub rates: Vec<RateRow>,
+}
+
+const SERIES_SQL: &str = r#"
 WITH cfg AS (
   SELECT
     $1::text AS exp_key,
@@ -322,6 +347,7 @@ WITH cfg AS (
 ),
 scoped AS (
   SELECT
+    e.received_at,
     e.body->'properties'->>'variant' AS variant,
     e.body->>'event'                 AS event,
     COALESCE(e.body->'user'->>'id', e.body->'user'->>'username',
@@ -332,29 +358,230 @@ scoped AS (
     AND e.body->'properties'->>'variant' IS NOT NULL
 )
 SELECT
-  s.variant,
-  count(DISTINCT s.user_key) FILTER (WHERE s.event = 'experiment_exposed') AS exposures,
-  count(DISTINCT s.user_key) FILTER (WHERE s.event = (SELECT num_event FROM cfg)) AS successes,
-  CASE WHEN count(DISTINCT s.user_key) FILTER (WHERE s.event = 'experiment_exposed') > 0
-       THEN count(DISTINCT s.user_key) FILTER (WHERE s.event = (SELECT num_event FROM cfg))::double precision
-            / count(DISTINCT s.user_key) FILTER (WHERE s.event = 'experiment_exposed')
-       ELSE 0 END AS rate
-FROM scoped s
-GROUP BY s.variant
-ORDER BY s.variant
+  (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'day', t.day, 'variant', t.variant, 'exposures', t.exposures, 'conversions', t.conversions)
+      ORDER BY t.day, t.variant), '[]'::jsonb)
+   FROM (
+     SELECT
+       to_char(s.received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+       s.variant,
+       count(DISTINCT s.user_key) FILTER (WHERE s.event = 'experiment_exposed') AS exposures,
+       count(DISTINCT s.user_key) FILTER (WHERE s.event = (SELECT num_event FROM cfg)) AS conversions
+     FROM scoped s
+     GROUP BY 1, 2
+   ) t) AS timeseries,
+  (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'variant', r.variant, 'exposures', r.exposures, 'successes', r.successes,
+      'rate', CASE WHEN r.exposures > 0 THEN r.successes::double precision / r.exposures ELSE 0 END)
+      ORDER BY r.variant), '[]'::jsonb)
+   FROM (
+     SELECT
+       s.variant,
+       count(DISTINCT s.user_key) FILTER (WHERE s.event = 'experiment_exposed') AS exposures,
+       count(DISTINCT s.user_key) FILTER (WHERE s.event = (SELECT num_event FROM cfg)) AS successes
+     FROM scoped s
+     GROUP BY s.variant
+   ) r) AS rates
 "#;
+
+async fn series(st: &AppState, p: &SeriesQuery) -> Result<SeriesBundle, (StatusCode, String)> {
+    let key = (p.exp_key.clone(), p.metric.clone());
+    if cache_ttl(p.fresh.as_deref()).is_zero() {
+        st.series_cache.invalidate(&key);
+    }
+    let pool = &st.pool;
+    st.series_cache
+        .get_or_fetch(key, || async {
+            let (timeseries, rates): (Value, Value) = sqlx::query_as(SERIES_SQL)
+                .bind(&p.exp_key)
+                .bind(&p.metric)
+                .fetch_one(pool)
+                .await?;
+            Ok(SeriesBundle {
+                timeseries: serde_json::from_value(timeseries).map_err(sqlx::Error::decode)?,
+                rates: serde_json::from_value(rates).map_err(sqlx::Error::decode)?,
+            })
+        })
+        .await
+        .map_err(|e| db_err("telemetry experiments", e))
+}
+
+pub async fn timeseries(
+    State(st): State<AppState>,
+    Query(p): Query<SeriesQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let rows = series(&st, &p).await?.timeseries;
+    Ok(Json(
+        json!({ "exp_key": p.exp_key, "metric": p.metric, "rows": rows }),
+    ))
+}
 
 pub async fn rates(
     State(st): State<AppState>,
     Query(p): Query<SeriesQuery>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let rows = sqlx::query_as::<_, RateRow>(RATES_SQL)
-        .bind(&p.exp_key)
-        .bind(&p.metric)
-        .fetch_all(&st.pool)
-        .await
-        .map_err(|e| db_err("telemetry experiments", e))?;
+    let rows = series(&st, &p).await?.rates;
     Ok(Json(
         json!({ "exp_key": p.exp_key, "metric": p.metric, "rows": rows }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    use std::sync::Arc;
+
+    use catalyrst_commons::cache::TtlCell;
+
+    use super::*;
+
+    fn row(key: &str, variant: Option<&str>, event: Option<&str>, n: i64) -> ListRow {
+        (
+            key.to_string(),
+            variant.map(str::to_string),
+            event.map(str::to_string),
+            n,
+        )
+    }
+
+    fn counting(
+        loads: &AtomicUsize,
+    ) -> impl Fn() -> std::future::Ready<Result<Value, String>> + '_ {
+        move || std::future::ready(Ok(json!(loads.fetch_add(1, SeqCst) + 1)))
+    }
+
+    #[test]
+    fn aggregate_keeps_the_response_shape() {
+        let out = aggregate(vec![
+            row("hud_cta", Some("control"), Some("experiment_exposed"), 40),
+            row("hud_cta", Some("blue"), Some("experiment_exposed"), 42),
+            row("hud_cta", Some("blue"), Some("cta_clicked"), 7),
+            row("hud_cta", Some("control"), Some("cta_clicked"), 5),
+            row("hud_cta", None, None, 1),
+            row("no_control", Some("b"), Some("experiment_exposed"), 3),
+            row("no_control", Some("a"), Some("experiment_exposed"), 3),
+            row(
+                "readout_probe_x",
+                Some("control"),
+                Some("experiment_exposed"),
+                9,
+            ),
+            row("single", Some("control"), Some("experiment_exposed"), 9),
+            row("unexposed", Some("a"), Some("clicked"), 9),
+            row("unexposed", Some("b"), Some("clicked"), 9),
+        ]);
+        assert_eq!(
+            out,
+            json!({
+                "experiments": [
+                    {"exp_key": "hud_cta", "exposures": 82, "variants": ["blue", "control"],
+                     "metrics": [{"event": "cta_clicked", "count": 12}], "control": "control"},
+                    {"exp_key": "no_control", "exposures": 6, "variants": ["a", "b"],
+                     "metrics": [], "control": "a"},
+                ],
+                "unreadable": [
+                    {"exp_key": "readout_probe_x", "exposures": 9, "variants": ["control"],
+                     "metrics": [], "reason": "synthetic key (matches exclusion pattern)"},
+                    {"exp_key": "single", "exposures": 9, "variants": ["control"],
+                     "metrics": [], "reason": "fewer than 2 variants"},
+                    {"exp_key": "unexposed", "exposures": 0, "variants": ["a", "b"],
+                     "metrics": [{"event": "clicked", "count": 18}],
+                     "reason": "no experiment_exposed events"},
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn list_sql_matches_the_partial_index_definition() {
+        const MIGRATION: &str = include_str!("../../migrations/0010_experiments_index.sql");
+        for needle in [
+            "source = 'segment'",
+            "body->'properties'->>'exp_key' IS NOT NULL",
+            "body->'properties'->>'exp_key'",
+            "body->'properties'->>'variant'",
+            "body->>'event'",
+        ] {
+            assert!(LIST_SQL.contains(needle), "query lacks {needle}");
+            assert!(MIGRATION.contains(needle), "index lacks {needle}");
+        }
+    }
+
+    #[test]
+    fn fresh_param_zeroes_the_ttl() {
+        assert_eq!(cache_ttl(None), LIST_TTL);
+        assert_eq!(cache_ttl(Some("0")), LIST_TTL);
+        assert_eq!(cache_ttl(Some("1")), Duration::ZERO);
+        assert_eq!(cache_ttl(Some("true")), Duration::ZERO);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn polls_within_the_ttl_share_one_aggregate() {
+        let cell = TtlCell::<Value>::new("t");
+        let loads = AtomicUsize::new(0);
+        let load = counting(&loads);
+
+        let a = cell.get_or_refresh(cache_ttl(None), &load).await.unwrap();
+        let b = cell.get_or_refresh(cache_ttl(None), &load).await.unwrap();
+        assert_eq!((a, b), (json!(1), json!(1)));
+
+        tokio::time::advance(LIST_TTL - Duration::from_secs(1)).await;
+        assert_eq!(
+            cell.get_or_refresh(cache_ttl(None), &load).await.unwrap(),
+            json!(1)
+        );
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert_eq!(
+            cell.get_or_refresh(cache_ttl(None), &load).await.unwrap(),
+            json!(2)
+        );
+        assert_eq!(loads.load(SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fresh_reloads_and_refreshes_the_memo() {
+        let cell = TtlCell::<Value>::new("t");
+        let loads = AtomicUsize::new(0);
+        let load = counting(&loads);
+
+        assert_eq!(
+            cell.get_or_refresh(cache_ttl(None), &load).await.unwrap(),
+            json!(1)
+        );
+        assert_eq!(
+            cell.get_or_refresh(cache_ttl(Some("1")), &load)
+                .await
+                .unwrap(),
+            json!(2)
+        );
+        assert_eq!(
+            cell.get_or_refresh(cache_ttl(None), &load).await.unwrap(),
+            json!(2)
+        );
+        assert_eq!(loads.load(SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn concurrent_polls_do_not_stampede() {
+        let cell = Arc::new(TtlCell::<Value>::new("t"));
+        let loads = Arc::new(AtomicUsize::new(0));
+        let tasks: Vec<_> = (0..8)
+            .map(|_| {
+                let cell = cell.clone();
+                let loads = loads.clone();
+                tokio::spawn(async move {
+                    cell.get_or_refresh(cache_ttl(None), move || async move {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        Ok::<_, String>(json!(loads.fetch_add(1, SeqCst) + 1))
+                    })
+                    .await
+                    .unwrap()
+                })
+            })
+            .collect();
+        for t in tasks {
+            assert_eq!(t.await.unwrap(), json!(1));
+        }
+        assert_eq!(loads.load(SeqCst), 1);
+    }
 }

@@ -1,5 +1,5 @@
 
-export type UnavailableReason =
+type UnavailableReason =
   | "not-configured"
   | "not-wired"
   | "unreachable"
@@ -17,7 +17,7 @@ export type Unavailable = {
   fix?: string;
 };
 
-export type Available<T> = { ok: true; data: T };
+type Available<T> = { ok: true; data: T };
 
 export type ControlResult<T> = Available<T> | Unavailable;
 

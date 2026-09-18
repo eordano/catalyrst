@@ -187,6 +187,12 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
     } else {
         String::new()
     };
+    // The inner LIMIT hides rows from an outer window, so the total is taken before it.
+    let (inner_count, count_expr) = if inner_limit_offset.is_empty() {
+        ("", "COUNT(*) OVER()")
+    } else {
+        (", COUNT(*) OVER() AS matched_count", "nft.matched_count")
+    };
 
     let mut estate_wheres: Vec<String> = Vec::new();
     if let Some(mn) = filters.min_estate_size {
@@ -354,10 +360,10 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
             {parcel_where}
          ),
          filtered_nft AS (
-            SELECT * FROM {schema}.nft {inner_where} {inner_sort} {inner_limit_offset}
+            SELECT *{inner_count} FROM {schema}.nft {inner_where} {inner_sort} {inner_limit_offset}
          )
          SELECT
-            COUNT(*) OVER() AS count,
+            {count_expr} AS count,
             nft.id,
             nft.contract_address,
             nft.token_id::text as token_id,
@@ -424,6 +430,8 @@ pub fn build_nfts_query(filters: &NftFilters, for_count: bool) -> (String, Vec<B
         inner_where = inner_where,
         inner_sort = inner_sort,
         inner_limit_offset = inner_limit_offset,
+        inner_count = inner_count,
+        count_expr = count_expr,
         broken_estate_exclusion = broken_estate_exclusion,
         outer_where = outer_where,
         main_sort = main_sort,

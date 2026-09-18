@@ -1,5 +1,10 @@
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+
 use axum::extract::{Query, State};
-use axum::Json;
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use chrono::SecondsFormat;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,6 +14,29 @@ use crate::ports::worlds::WorldScene;
 use crate::AppState;
 
 const MAX_INDEX_LIMIT: i64 = 10_000;
+/// The whole index is one wide scan; pages are served from a short memo with an ETag.
+const INDEX_MEMO_TTL: Duration = Duration::from_secs(30);
+
+struct IndexPage {
+    body: bytes::Bytes,
+    etag: HeaderValue,
+}
+
+fn index_memo() -> &'static moka::future::Cache<(i64, i64), Arc<IndexPage>> {
+    static MEMO: OnceLock<moka::future::Cache<(i64, i64), Arc<IndexPage>>> = OnceLock::new();
+    MEMO.get_or_init(|| {
+        moka::future::Cache::builder()
+            .time_to_live(INDEX_MEMO_TTL)
+            .max_capacity(256)
+            .build()
+    })
+}
+
+fn etag_for(body: &[u8]) -> HeaderValue {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    body.hash(&mut h);
+    HeaderValue::from_str(&format!("\"{:016x}\"", h.finish())).expect("hex etag")
+}
 
 #[derive(Debug, Deserialize)]
 pub struct IndexQuery {
@@ -55,17 +83,55 @@ pub struct IndexResponse {
     tag = "worlds",
     responses(
         (status = 200, body = IndexResponse),
+        (status = 304),
         (status = 500, body = catalyrst_types::ApiErrorBody)
     )
 )]
 pub async fn get_index(
     State(state): State<AppState>,
     Query(q): Query<IndexQuery>,
-) -> Result<Json<IndexResponse>, ApiError> {
-    let base_url = &state.cfg.http_base_url;
-
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let (limit, offset) = bound_index_params(q.limit, q.offset);
+    let page = match index_memo().get(&(limit, offset)).await {
+        Some(hit) => hit,
+        None => {
+            let index = build_index(&state, limit, offset).await?;
+            let body = serde_json::to_vec(&index)
+                .map_err(|e| ApiError::internal(format!("serialize index: {e}")))?;
+            let page = Arc::new(IndexPage {
+                etag: etag_for(&body),
+                body: body.into(),
+            });
+            index_memo().insert((limit, offset), page.clone()).await;
+            page
+        }
+    };
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .is_some_and(|v| v == page.etag)
+    {
+        return Ok((
+            StatusCode::NOT_MODIFIED,
+            [(header::ETAG, page.etag.clone())],
+        )
+            .into_response());
+    }
+    Ok((
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
+            (header::ETAG, page.etag.clone()),
+        ],
+        page.body.clone(),
+    )
+        .into_response())
+}
 
+async fn build_index(state: &AppState, limit: i64, offset: i64) -> Result<IndexResponse, ApiError> {
+    let base_url = &state.cfg.http_base_url;
     let scenes = state.worlds.list_index_scenes(limit, offset).await?;
 
     let mut data: Vec<WorldIndexEntry> = Vec::new();
@@ -90,10 +156,10 @@ pub async fn get_index(
         });
     }
 
-    Ok(Json(IndexResponse {
+    Ok(IndexResponse {
         data,
         last_updated: chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
-    }))
+    })
 }
 
 fn bound_index_params(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {

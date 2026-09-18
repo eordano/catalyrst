@@ -7,7 +7,7 @@ use crate::world_storage::handlers::common::{
     validate_key, RawJson, UpsertBody, ValidatedJson,
 };
 use crate::world_storage::http::errors::ApiError;
-use crate::world_storage::{authorize, resolve_scene_context, signed_path, AppState, AuthPolicy};
+use crate::world_storage::{resolve_authorized, signed_path, AppState, AuthPolicy};
 use axum::extract::{FromRequest, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
@@ -20,8 +20,7 @@ pub async fn get(
 ) -> Result<RawJson, ApiError> {
     let player = normalize_player(&player)?;
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &headers, "get", &path, AuthPolicy::DEFAULT).await?;
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
     }
@@ -42,8 +41,7 @@ pub async fn upsert(
     let player = normalize_player(&player)?;
     let (parts, body) = req.into_parts();
     let path = signed_path(&parts.uri);
-    let ctx = resolve_scene_context(&state, &parts.headers, "put", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &parts.headers, "put", &path, AuthPolicy::DEFAULT).await?;
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
     }
@@ -79,8 +77,7 @@ pub async fn delete(
 ) -> Result<StatusCode, ApiError> {
     let player = normalize_player(&player)?;
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &headers, "delete", &path, AuthPolicy::DEFAULT).await?;
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
     }
@@ -102,16 +99,15 @@ pub async fn list(
 ) -> Result<RawJson, ApiError> {
     let player = normalize_player(&player)?;
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &headers, "get", &path, AuthPolicy::DEFAULT).await?;
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
     }
 
     let p = parse_pagination(&params)?;
-    let entries = state
+    let (entries, total) = state
         .storage
-        .player_list(
+        .player_list_page(
             &ctx.world_name,
             &ctx.place_id,
             &player,
@@ -119,10 +115,6 @@ pub async fn list(
             p.offset,
             p.prefix.as_deref(),
         )
-        .await?;
-    let total = state
-        .storage
-        .player_count(&ctx.world_name, &ctx.place_id, &player, p.prefix.as_deref())
         .await?;
 
     Ok(raw_paginated_response(&entries, p.limit, p.offset, total))
@@ -136,8 +128,14 @@ pub async fn clear(
 ) -> Result<StatusCode, ApiError> {
     let player = normalize_player(&player)?;
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
+    let ctx = resolve_authorized(
+        &state,
+        &headers,
+        "delete",
+        &path,
+        AuthPolicy::OWNERS_DEPLOYERS_ONLY,
+    )
+    .await?;
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
     }
@@ -158,17 +156,12 @@ pub async fn list_players(
     uri: axum::http::Uri,
 ) -> Result<Json<KeyListResponse>, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &headers, "get", &path, AuthPolicy::DEFAULT).await?;
 
     let p = parse_pagination(&params)?;
-    let players = state
+    let (players, total) = state
         .storage
-        .player_list_players(&ctx.world_name, &ctx.place_id, p.limit, p.offset)
-        .await?;
-    let total = state
-        .storage
-        .player_count_players(&ctx.world_name, &ctx.place_id)
+        .player_list_players_page(&ctx.world_name, &ctx.place_id, p.limit, p.offset)
         .await?;
 
     Ok(Json(KeyListResponse {
@@ -187,8 +180,14 @@ pub async fn clear_all_players(
     uri: axum::http::Uri,
 ) -> Result<StatusCode, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "delete", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
+    let ctx = resolve_authorized(
+        &state,
+        &headers,
+        "delete",
+        &path,
+        AuthPolicy::OWNERS_DEPLOYERS_ONLY,
+    )
+    .await?;
 
     require_confirm_delete_all(&headers)?;
 

@@ -7,11 +7,15 @@ const ENV_DOCS: &[(&str, &str)] = &[
     ("HTTP_SERVER_PORT", "listen port (default 5139)"),
     (
         "ARCHIPELAGO_CONFIG_PATH",
-        "optional TOML config file with cluster/server/auth/livekit/gossip sections",
+        "optional TOML config file with cluster/server/auth/livekit/nats sections",
     ),
     (
         "ARCHIPELAGO_REQUIRE_AUTH",
         "default 1 \u{2014} a signed challenge is required; 0/false/no accepts unsigned POST /heartbeat presence writes for any address (development only, overrides config file)",
+    ),
+    (
+        "HANDSHAKE_TIMEOUT",
+        "milliseconds a websocket may sit in one handshake stage before it is closed (default 60000; restarted after each stage; 0 keeps the default)",
     ),
     (
         "LIVEKIT_API_KEY",
@@ -30,12 +34,14 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "DENY_LIST_URL",
         "denylist JSON URL (unset/empty disables the denylist; no default)",
     ),
-    ("ARCHIPELAGO_NODE_ID", "gossip node id"),
     (
-        "ARCHIPELAGO_GOSSIP_PEERS",
-        "comma-separated gossip peer URLs",
+        "NATS_URL",
+        "broker carrying the island assignments this connector forwards and the session announcements it publishes (unset/empty leaves the feed off, and no client is given a room)",
     ),
-    ("ARCHIPELAGO_GOSSIP_HMAC_KEY", "gossip HMAC signing key"),
+    (
+        "ISLAND_CHANGED_DEDUP_MS",
+        "window in which the same island delivered twice to one socket is suppressed (default 10000; 0 disables)",
+    ),
     (
         "CONTENT_PG_CONNECTION_STRING",
         "optional \u{2014} catalyst content DB connection string",

@@ -40,27 +40,17 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const mode = url.searchParams.get("mode") === "edit" ? "edit" : "create";
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
   const editId = url.searchParams.get("id");
 
-  let schedules: Schedule[] = [];
-  let source: ScheduleSource;
-  try {
-    const { data: live } = await fetchSchedules({ signal: request.signal });
-    schedules = live;
-    source = live.length > 0 ? "live" : "empty";
-  } catch {
-    schedules = [];
-    source = "error";
-  }
-
-  const now = new Date();
-  const [liveEvents, activeEvents] = await Promise.all([
+  const [{ sid, assignment, wrap }, { schedules, source }, liveEvents, activeEvents] =
+    await Promise.all([
+      storyLoader(request, STORY, FALLBACK),
+      fetchSchedules({ signal: request.signal })
+        .then(({ data: live }) => ({
+          schedules: live,
+          source: (live.length > 0 ? "live" : "empty") as ScheduleSource,
+        }))
+        .catch(() => ({ schedules: [] as Schedule[], source: "error" as ScheduleSource })),
     fetchEvents({ list: "live", limit: 8 }, { signal: request.signal })
       .then((r) => r.data)
       .catch(() => [] as Event[]),
@@ -68,6 +58,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       .then((r) => r.data)
       .catch(() => [] as Event[]),
   ]);
+  const now = new Date();
   const sortedActive = [...activeEvents].sort(
     (a, b) =>
       new Date(effectiveStartAt(a, now) ?? 8.64e15).getTime() -

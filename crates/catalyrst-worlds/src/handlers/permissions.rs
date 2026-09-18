@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -10,11 +12,24 @@ use crate::access::AccessSetting;
 use crate::auth_chain::{require_verified, AuthChainError, PERMISSIONS_METADATA_KEYS};
 use crate::fed::names::LocalWorldName;
 use crate::http::ApiError;
+use crate::ports::worlds::{AllowListEdit, AllowListEditOutcome, WorldProbe};
 use crate::AppState;
 
 const MAX_WALLETS: usize = 1000;
 const MAX_COMMUNITIES: usize = 50;
 const DCL_ETH_SUFFIX: &str = ".dcl.eth";
+/// Squid ENS ownership is memoized for the public GET only; owner-gated writes stay fresh.
+const SQUID_OWNER_MEMO_TTL: Duration = Duration::from_secs(300);
+
+fn squid_owner_memo() -> &'static moka::future::Cache<String, Option<String>> {
+    static MEMO: OnceLock<moka::future::Cache<String, Option<String>>> = OnceLock::new();
+    MEMO.get_or_init(|| {
+        moka::future::Cache::builder()
+            .time_to_live(SQUID_OWNER_MEMO_TTL)
+            .max_capacity(50_000)
+            .build()
+    })
+}
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
@@ -66,20 +81,19 @@ pub async fn get_permissions(
     State(state): State<AppState>,
     Path(world_name): Path<String>,
 ) -> Result<Json<PermissionsResponse>, ApiError> {
-    let world = state.worlds.get_world(&world_name).await?;
+    let (world, records) = state
+        .worlds
+        .get_world_with_permission_records(&world_name)
+        .await?;
     let access = world.as_ref().map(|w| w.access.clone()).unwrap_or_default();
 
-    let owner = resolve_world_owner(
+    let owner = resolve_world_owner_with(
         &state,
         &LocalWorldName::from_request_path(&world_name),
         world.as_ref().and_then(|w| w.owner.clone()),
+        true,
     )
     .await;
-
-    let records = state
-        .worlds
-        .get_world_permission_records_full(&world_name)
-        .await?;
 
     let mut deployment_wallets: Vec<String> = Vec::new();
     let mut streaming_wallets: Vec<String> = Vec::new();
@@ -122,29 +136,46 @@ pub async fn get_permissions(
     }))
 }
 
-/// Resolve who owns a world: the stored column first, then the live squid ENS answer.
-///
-/// **The one chokepoint for ownership in this crate**, which is why it takes a
-/// [`LocalWorldName`] rather than a `&str`: a peer-reported name is a
-/// [`crate::fed::names::RemoteWorldName`], no conversion exists in either direction, and
-/// the grep gate in `fed::wire` fails the build on any line that launders one.
-///
-/// `stored_owner` first is why the mirror path writes no column of `worlds`: a row
-/// written there would outrank the chain permanently.
+/// Owner lookup order: personal-worlds config, the stored column, then squid ENS; takes a
+/// [`LocalWorldName`] so a peer-reported [`crate::fed::names::RemoteWorldName`] can never reach it.
 pub(crate) async fn resolve_world_owner(
     state: &AppState,
     world_name: &LocalWorldName,
     stored_owner: Option<String>,
 ) -> Option<String> {
+    resolve_world_owner_with(state, world_name, stored_owner, false).await
+}
+
+async fn resolve_world_owner_with(
+    state: &AppState,
+    world_name: &LocalWorldName,
+    stored_owner: Option<String>,
+    memo: bool,
+) -> Option<String> {
+    if let Some(owner) = state.cfg.personal_worlds.owner_of(world_name.as_str()) {
+        return Some(owner);
+    }
     if let Some(owner) = stored_owner {
         return Some(owner);
     }
     let pool = state.squid_pool.as_ref()?;
     let lowered = world_name.as_str();
     let label = lowered.strip_suffix(DCL_ETH_SUFFIX).unwrap_or(lowered);
+    if memo {
+        if let Some(hit) = squid_owner_memo().get(label).await {
+            return hit;
+        }
+    }
     match resolve_name_owner_id(pool, label).await {
-        Ok(Some(owner_id)) => owner_id.split('-').next().map(|a| a.to_lowercase()),
-        Ok(None) => None,
+        Ok(found) => {
+            let owner = found.and_then(|id| id.split('-').next().map(|a| a.to_lowercase()));
+            if memo {
+                squid_owner_memo()
+                    .insert(label.to_string(), owner.clone())
+                    .await;
+            }
+            owner
+        }
         Err(e) => {
             tracing::warn!(error = %e, world = %world_name, "failed to resolve owner via squid nameOwnership");
             None
@@ -166,23 +197,42 @@ async fn resolve_name_owner_id(
     .await
 }
 
+struct OwnerCheck {
+    signer: String,
+    /// Whether the `worlds` row already exists, so writers can skip creating it.
+    world_found: bool,
+    /// Only evaluated when asked for (`probe_scenes`).
+    has_scenes: bool,
+}
+
 async fn verify_owner(
     state: &AppState,
     headers: &HeaderMap,
     path: &str,
     method: &str,
     world_name: &str,
-) -> Result<String, ApiError> {
+    probe_scenes: bool,
+) -> Result<OwnerCheck, ApiError> {
     let auth = require_verified(headers, method, path, &[])
         .await
         .map_err(map_auth_error)?;
     let signer = auth.signer.as_str().to_string();
 
-    let world = state.worlds.get_world(world_name).await?;
+    let lookup = state
+        .worlds
+        .lookup_world(
+            world_name,
+            WorldProbe {
+                has_scenes: probe_scenes,
+                ..WorldProbe::default()
+            },
+        )
+        .await?;
+    let world_found = lookup.world.is_some();
     let owner = resolve_world_owner(
         state,
         &LocalWorldName::from_request_path(world_name),
-        world.and_then(|w| w.owner),
+        lookup.world.and_then(|w| w.owner),
     )
     .await;
     let is_owner = owner
@@ -194,7 +244,11 @@ async fn verify_owner(
             "Your wallet does not own \"{world_name}\", you can not set access control lists for it."
         )));
     }
-    Ok(signer)
+    Ok(OwnerCheck {
+        signer,
+        world_found,
+        has_scenes: lookup.has_scenes,
+    })
 }
 
 pub(crate) fn map_auth_error(e: AuthChainError) -> ApiError {
@@ -316,43 +370,8 @@ async fn set_allow_list_permission(
 ) -> Result<(), ApiError> {
     state
         .worlds
-        .create_basic_world_if_not_exists(world_name, owner)
-        .await?;
-
-    let records = state
-        .worlds
-        .get_world_permission_records_full(world_name)
-        .await?;
-    let current: Vec<String> = records
-        .iter()
-        .filter(|r| r.permission_type == permission)
-        .map(|r| r.address.to_lowercase())
-        .collect();
-    let new: Vec<String> = wallets.iter().map(|w| w.to_lowercase()).collect();
-
-    let to_remove: Vec<String> = current
-        .iter()
-        .filter(|a| !new.contains(a))
-        .cloned()
-        .collect();
-    if !to_remove.is_empty() {
-        state
-            .worlds
-            .remove_addresses_permission(world_name, permission, &to_remove)
-            .await?;
-    }
-    let to_add: Vec<String> = new
-        .iter()
-        .filter(|a| !current.contains(a))
-        .cloned()
-        .collect();
-    if !to_add.is_empty() {
-        state
-            .worlds
-            .grant_addresses_world_wide_permission(world_name, permission, &to_add)
-            .await?;
-    }
-    Ok(())
+        .replace_world_wide_permission(world_name, owner, permission, wallets)
+        .await
 }
 
 async fn set_access_from_metadata(
@@ -429,10 +448,8 @@ async fn set_access_from_metadata(
 
     state
         .worlds
-        .create_basic_world_if_not_exists(world_name, owner)
-        .await?;
-    state.worlds.store_access(world_name, &access).await?;
-    Ok(())
+        .store_access_for_owner(world_name, owner, &access)
+        .await
 }
 
 #[utoipa::path(
@@ -465,26 +482,26 @@ pub async fn put_permissions_address(
             "Invalid permission name: {permission_name}."
         )));
     }
-    let signer = verify_owner(&state, &headers, uri.path(), "put", &world_name).await?;
+    let owner = verify_owner(&state, &headers, uri.path(), "put", &world_name, false).await?;
+    let ensure_owner = (!owner.world_found).then_some(owner.signer.as_str());
 
     if is_allow_list_permission(&permission_name) {
-        state
-            .worlds
-            .create_basic_world_if_not_exists(&world_name, &signer)
-            .await?;
         state
             .worlds
             .grant_addresses_world_wide_permission(
                 &world_name,
                 &permission_name,
                 &[address.to_lowercase()],
+                ensure_owner,
             )
             .await?;
     } else {
-        state
-            .worlds
-            .create_basic_world_if_not_exists(&world_name, &signer)
-            .await?;
+        if let Some(signer) = ensure_owner {
+            state
+                .worlds
+                .create_basic_world_if_not_exists(&world_name, signer)
+                .await?;
+        }
         add_wallet_to_access(&state, &world_name, &address).await?;
     }
     Ok(StatusCode::NO_CONTENT)
@@ -520,9 +537,8 @@ pub async fn delete_permissions_address(
             "Permission '{permission_name}' does not support allow-list. Only 'deployment', 'streaming', and 'access' do."
         )));
     }
-    verify_owner(&state, &headers, uri.path(), "delete", &world_name).await?;
-
-    if !state.worlds.is_world_valid(&world_name).await? {
+    let owner = verify_owner(&state, &headers, uri.path(), "delete", &world_name, true).await?;
+    if !owner.has_scenes {
         return Err(ApiError::not_found(format!(
             "World \"{world_name}\" not found."
         )));
@@ -568,7 +584,7 @@ pub async fn post_permission_parcels(
     Json(input): Json<ParcelsInput>,
 ) -> Result<StatusCode, ApiError> {
     validate_address_and_allow_list(&address, &permission_name)?;
-    verify_owner(&state, &headers, uri.path(), "post", &world_name).await?;
+    verify_owner(&state, &headers, uri.path(), "post", &world_name, false).await?;
     state
         .worlds
         .add_parcels_to_permission(&world_name, &permission_name, &address, &input.parcels)
@@ -599,21 +615,22 @@ pub async fn delete_permission_parcels(
     Json(input): Json<ParcelsInput>,
 ) -> Result<StatusCode, ApiError> {
     validate_address_and_allow_list(&address, &permission_name)?;
-    verify_owner(&state, &headers, uri.path(), "delete", &world_name).await?;
+    verify_owner(&state, &headers, uri.path(), "delete", &world_name, false).await?;
 
-    let existing = state
+    let found = state
         .worlds
-        .get_address_permission_id(&world_name, &permission_name, &address)
-        .await?
-        .ok_or_else(|| {
-            ApiError::bad_request(format!(
-                "Permission not found. Address {address} does not have {permission_name} permission for world {world_name}."
-            ))
-        })?;
-    state
-        .worlds
-        .remove_parcels_from_permission(existing, &input.parcels)
+        .remove_parcels_from_permission_by_address(
+            &world_name,
+            &permission_name,
+            &address,
+            &input.parcels,
+        )
         .await?;
+    if !found {
+        return Err(ApiError::bad_request(format!(
+            "Permission not found. Address {address} does not have {permission_name} permission for world {world_name}."
+        )));
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -662,20 +679,22 @@ pub async fn get_allowed_parcels_for_permission(
     };
     let (limit, offset) = clamp_pagination(q.limit, q.offset);
 
-    let permission_id = state
+    let (total, parcels) = state
         .worlds
-        .get_address_permission_id(&world_name, &permission_name, &address)
+        .get_parcels_for_permission_by_address(
+            &world_name,
+            &permission_name,
+            &address,
+            limit,
+            offset,
+            bbox,
+        )
         .await?
         .ok_or_else(|| {
             ApiError::not_found(format!(
                 "Permission '{permission_name}' not found for address {address} in world {world_name}."
             ))
         })?;
-
-    let (total, parcels) = state
-        .worlds
-        .get_parcels_for_permission(permission_id, limit, offset, bbox)
-        .await?;
     Ok(Json(json!({ "total": total, "parcels": parcels })))
 }
 
@@ -761,7 +780,7 @@ pub async fn put_permissions_access_community(
     if community_id.trim().is_empty() {
         return Err(ApiError::bad_request("Invalid community id."));
     }
-    verify_owner(&state, &headers, uri.path(), "put", &world_name).await?;
+    verify_owner(&state, &headers, uri.path(), "put", &world_name, false).await?;
     add_community_to_access(&state, &world_name, &community_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -789,7 +808,7 @@ pub async fn delete_permissions_access_community(
     if community_id.trim().is_empty() {
         return Err(ApiError::bad_request("Invalid community id."));
     }
-    verify_owner(&state, &headers, uri.path(), "delete", &world_name).await?;
+    verify_owner(&state, &headers, uri.path(), "delete", &world_name, false).await?;
     remove_community_from_access(&state, &world_name, &community_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -800,32 +819,35 @@ fn not_allow_list(world_name: &str) -> ApiError {
     ))
 }
 
+async fn apply_allow_list_edit(
+    state: &AppState,
+    world_name: &str,
+    edit: AllowListEdit<'_>,
+    cap_error: impl FnOnce() -> ApiError,
+) -> Result<(), ApiError> {
+    match state
+        .worlds
+        .modify_allow_list_access(world_name, edit)
+        .await?
+    {
+        AllowListEditOutcome::Applied => Ok(()),
+        AllowListEditOutcome::NotAllowList => Err(not_allow_list(world_name)),
+        AllowListEditOutcome::CapExceeded => Err(cap_error()),
+    }
+}
+
 async fn add_wallet_to_access(
     state: &AppState,
     world_name: &str,
     wallet: &str,
 ) -> Result<(), ApiError> {
-    let world = world_name.to_string();
     let lower = wallet.to_lowercase();
-    state
-        .worlds
-        .modify_access_atomically(world_name, move |access| match access {
-            AccessSetting::AllowList { mut wallets, communities } => {
-                if wallets.iter().any(|w| w.eq_ignore_ascii_case(&lower)) {
-                    return Ok(AccessSetting::AllowList { wallets, communities });
-                }
-                wallets.push(lower);
-                if wallets.len() > MAX_WALLETS {
-                    return Err(ApiError::bad_request(format!(
-                        "Cannot add wallet: allow-list would exceed the maximum of {MAX_WALLETS} wallets."
-                    )));
-                }
-                Ok(AccessSetting::AllowList { wallets, communities })
-            }
-            _ => Err(not_allow_list(&world)),
-        })
-        .await?;
-    Ok(())
+    apply_allow_list_edit(state, world_name, AllowListEdit::AddWallet(&lower), || {
+        ApiError::bad_request(format!(
+            "Cannot add wallet: allow-list would exceed the maximum of {MAX_WALLETS} wallets."
+        ))
+    })
+    .await
 }
 
 async fn remove_wallet_from_access(
@@ -833,25 +855,14 @@ async fn remove_wallet_from_access(
     world_name: &str,
     wallet: &str,
 ) -> Result<(), ApiError> {
-    let world = world_name.to_string();
     let lower = wallet.to_lowercase();
-    state
-        .worlds
-        .modify_access_atomically(world_name, move |access| match access {
-            AccessSetting::AllowList {
-                wallets,
-                communities,
-            } => Ok(AccessSetting::AllowList {
-                wallets: wallets
-                    .into_iter()
-                    .filter(|w| !w.eq_ignore_ascii_case(&lower))
-                    .collect(),
-                communities,
-            }),
-            _ => Err(not_allow_list(&world)),
-        })
-        .await?;
-    Ok(())
+    apply_allow_list_edit(
+        state,
+        world_name,
+        AllowListEdit::RemoveWallet(&lower),
+        || ApiError::internal("unreachable: removals have no cap"),
+    )
+    .await
 }
 
 async fn add_community_to_access(
@@ -859,27 +870,17 @@ async fn add_community_to_access(
     world_name: &str,
     community_id: &str,
 ) -> Result<(), ApiError> {
-    let world = world_name.to_string();
-    let cid = community_id.to_string();
-    state
-        .worlds
-        .modify_access_atomically(world_name, move |access| match access {
-            AccessSetting::AllowList { wallets, mut communities } => {
-                if communities.iter().any(|c| c == &cid) {
-                    return Ok(AccessSetting::AllowList { wallets, communities });
-                }
-                if communities.len() >= MAX_COMMUNITIES {
-                    return Err(ApiError::bad_request(format!(
-                        "Too many communities. Maximum allowed is {MAX_COMMUNITIES}, cannot add more."
-                    )));
-                }
-                communities.push(cid);
-                Ok(AccessSetting::AllowList { wallets, communities })
-            }
-            _ => Err(not_allow_list(&world)),
-        })
-        .await?;
-    Ok(())
+    apply_allow_list_edit(
+        state,
+        world_name,
+        AllowListEdit::AddCommunity(community_id),
+        || {
+            ApiError::bad_request(format!(
+                "Too many communities. Maximum allowed is {MAX_COMMUNITIES}, cannot add more."
+            ))
+        },
+    )
+    .await
 }
 
 async fn remove_community_from_access(
@@ -887,20 +888,11 @@ async fn remove_community_from_access(
     world_name: &str,
     community_id: &str,
 ) -> Result<(), ApiError> {
-    let world = world_name.to_string();
-    let cid = community_id.to_string();
-    state
-        .worlds
-        .modify_access_atomically(world_name, move |access| match access {
-            AccessSetting::AllowList {
-                wallets,
-                communities,
-            } => Ok(AccessSetting::AllowList {
-                wallets,
-                communities: communities.into_iter().filter(|c| c != &cid).collect(),
-            }),
-            _ => Err(not_allow_list(&world)),
-        })
-        .await?;
-    Ok(())
+    apply_allow_list_edit(
+        state,
+        world_name,
+        AllowListEdit::RemoveCommunity(community_id),
+        || ApiError::internal("unreachable: removals have no cap"),
+    )
+    .await
 }

@@ -30,8 +30,12 @@ function stubFetch(
   return fn;
 }
 
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status });
+}
+
 function lastCall(fn: FetchMock): { url: string; init: RequestInit } {
-  const call = fn.mock.calls[0];
+  const call = fn.mock.calls[fn.mock.calls.length - 1];
   expect(call).toBeDefined();
   const [url, init] = call as [string, RequestInit];
   return { url, init };
@@ -40,6 +44,14 @@ function lastCall(fn: FetchMock): { url: string; init: RequestInit } {
 function headerOf(init: RequestInit, name: string): string | undefined {
   return (init.headers as Record<string, string>)[name];
 }
+
+const AUTH_RESULT = {
+  isNewUser: false,
+  token: "jwt-123",
+  userId: "u1",
+  walletAddress: "0xAbC0000000000000000000000000000000000001",
+  type: "email",
+};
 
 beforeEach(() => {
   process.env.THIRDWEB_CLIENT_ID = CLIENT_ID;
@@ -50,186 +62,80 @@ afterEach(() => {
   delete process.env.THIRDWEB_CLIENT_ID;
 });
 
-describe("vendored thirdweb client \u{2014} request contract", () => {
-  it("initiateEmailLogin POSTs {method,email} with x-client-id", async () => {
-    const f = stubFetch(async () => new Response("", { status: 200 }));
+describe("vendored thirdweb client request contract", () => {
+  it("initiateEmailLogin POSTs {method,email} with x-client-id and completeEmailLogin returns {token,walletAddress}", async () => {
+    const f = stubFetch(async (url) =>
+      url.endsWith("/initiate") ? new Response("", { status: 200 }) : json({ ...AUTH_RESULT, isNewUser: true }),
+    );
     await initiateEmailLogin("a@b.com");
     const { url, init } = lastCall(f);
     expect(url).toBe("https://api.thirdweb.com/v1/auth/initiate");
     expect(init.method).toBe("POST");
     expect(headerOf(init, "x-client-id")).toBe(CLIENT_ID);
     expect(headerOf(init, "authorization")).toBeUndefined();
-    expect(JSON.parse(init.body as string)).toEqual({
-      method: "email",
-      email: "a@b.com",
-    });
-  });
+    expect(JSON.parse(init.body as string)).toEqual({ method: "email", email: "a@b.com" });
 
-  it("completeEmailLogin returns {token,walletAddress}", async () => {
-    stubFetch(
-      async () =>
-        new Response(
-          JSON.stringify({
-            isNewUser: true,
-            token: "jwt-123",
-            userId: "u1",
-            walletAddress: "0xAbC0000000000000000000000000000000000001",
-            type: "email",
-          }),
-          { status: 200 },
-        ),
-    );
     const res = await completeEmailLogin("a@b.com", "654321");
     expect(res.token).toBe("jwt-123");
-    expect(res.walletAddress).toBe(
-      "0xAbC0000000000000000000000000000000000001",
-    );
+    expect(res.walletAddress).toBe("0xAbC0000000000000000000000000000000000001");
   });
 
-  it("signMessageEnclave sends bearer + {from,chainId,message}, returns signature", async () => {
-    const f = stubFetch(
-      async () =>
-        new Response(JSON.stringify({ result: { signature: "0xdead" } }), {
-          status: 200,
-        }),
+  it("enclave signing sends bearer + client id with {from,chainId,...payload} and returns the signature", async () => {
+    const f = stubFetch(async (url) =>
+      json({ result: { signature: url.endsWith("sign-message") ? "0xdead" : "0xbeef" } }),
     );
-    const sig = await signMessageEnclave("jwt-123", "0xabc", "hello", 1);
-    const { url, init } = lastCall(f);
-    expect(url).toBe("https://api.thirdweb.com/v1/wallets/sign-message");
-    expect(headerOf(init, "authorization")).toBe("Bearer jwt-123");
-    expect(headerOf(init, "x-client-id")).toBe(CLIENT_ID);
-    expect(JSON.parse(init.body as string)).toEqual({
-      from: "0xabc",
-      chainId: 1,
-      message: "hello",
-    });
-    expect(sig).toBe("0xdead");
-  });
+    expect(await signMessageEnclave("jwt-123", "0xabc", "hello", 1)).toBe("0xdead");
+    const msg = lastCall(f);
+    expect(msg.url).toBe("https://api.thirdweb.com/v1/wallets/sign-message");
+    expect(headerOf(msg.init, "authorization")).toBe("Bearer jwt-123");
+    expect(headerOf(msg.init, "x-client-id")).toBe(CLIENT_ID);
+    expect(JSON.parse(msg.init.body as string)).toEqual({ from: "0xabc", chainId: 1, message: "hello" });
 
-  it("signTypedDataEnclave forwards the EIP-712 payload with bearer auth", async () => {
-    const f = stubFetch(
-      async () =>
-        new Response(JSON.stringify({ result: { signature: "0xbeef" } }), {
-          status: 200,
-        }),
-    );
     const typed = {
       domain: { name: "Market", chainId: "137" },
       types: { Order: [{ name: "id", type: "uint256" }] },
       primaryType: "Order",
       message: { id: "7" },
     };
-    const sig = await signTypedDataEnclave("jwt-123", "0xabc", typed, 137);
-    const { url, init } = lastCall(f);
-    expect(url).toBe("https://api.thirdweb.com/v1/wallets/sign-typed-data");
-    expect(headerOf(init, "authorization")).toBe("Bearer jwt-123");
-    const body = JSON.parse(init.body as string);
-    expect(body).toEqual({ from: "0xabc", chainId: 137, ...typed });
-    expect(sig).toBe("0xbeef");
+    expect(await signTypedDataEnclave("jwt-123", "0xabc", typed, 137)).toBe("0xbeef");
+    const td = lastCall(f);
+    expect(td.url).toBe("https://api.thirdweb.com/v1/wallets/sign-typed-data");
+    expect(headerOf(td.init, "authorization")).toBe("Bearer jwt-123");
+    expect(JSON.parse(td.init.body as string)).toEqual({ from: "0xabc", chainId: 137, ...typed });
   });
 
-  it("throws when no client id is configured", async () => {
+  it("throws without a configured client id and surfaces the thirdweb error message on failure", async () => {
     delete process.env.THIRDWEB_CLIENT_ID;
     stubFetch(async () => new Response("", { status: 200 }));
-    await expect(initiateEmailLogin("a@b.com")).rejects.toThrow(
-      /client id/i,
-    );
-  });
-
-  it("surfaces the thirdweb error message + status on failure", async () => {
-    stubFetch(
-      async () =>
-        new Response(
-          JSON.stringify({
-            message: "The API key was not found.",
-            correlationId: "abc",
-          }),
-          { status: 401 },
-        ),
-    );
-    await expect(completeEmailLogin("a@b.com", "1")).rejects.toThrow(
-      "The API key was not found.",
-    );
+    await expect(initiateEmailLogin("a@b.com")).rejects.toThrow(/client id/i);
+    process.env.THIRDWEB_CLIENT_ID = CLIENT_ID;
+    stubFetch(async () => json({ message: "The API key was not found.", correlationId: "abc" }, 401));
+    await expect(completeEmailLogin("a@b.com", "1")).rejects.toThrow("The API key was not found.");
   });
 });
 
 describe("upstream drift at the thirdweb boundaries", () => {
-  const oldTwFetchGuard = (_v: unknown) => true;
-
-  const oldWalletRead = (body: unknown): string | null => {
-    try {
-      const out = body as { result?: { address?: string }; address?: string };
-      const addr = out.result?.address ?? out.address ?? null;
-      return addr ? addr.toLowerCase() : null;
-    } catch {
-      return null;
-    }
-  };
-
-  const authResult = {
-    isNewUser: false,
-    token: "jwt-123",
-    userId: "u1",
-    walletAddress: "0xAbC0000000000000000000000000000000000001",
-    type: "email",
-  };
-
-  it("auth-complete: a token that became a wrapper object", () => {
-    const drift = { ...authResult, token: { jwt: "jwt-123" } };
-    expect(ThirdwebAuthResultSchema.safeParse(drift).success).toBe(false);
-    expect(oldTwFetchGuard(drift)).toBe(true);
+  it("the schemas reject every known drift shape and still accept added fields", () => {
+    const rejected: [string, boolean][] = [
+      [
+        "auth-complete token wrapper",
+        ThirdwebAuthResultSchema.safeParse({ ...AUTH_RESULT, token: { jwt: "jwt-123" } }).success,
+      ],
+      ["enclave-sign null signature", EnclaveSignatureSchema.safeParse({ result: { signature: null } }).success],
+      ["enclave-sign flattened envelope", EnclaveSignatureSchema.safeParse({ signature: "0xdead" }).success],
+      ["wallets-me address object", WalletsMeSchema.safeParse({ result: { address: { value: "0xabc" } } }).success],
+    ];
+    expect(rejected.filter(([, ok]) => ok).map(([label]) => label)).toEqual([]);
+    expect(ThirdwebAuthResultSchema.safeParse({ ...AUTH_RESULT, profiles: [] }).success).toBe(true);
   });
 
-  it("auth-complete: a field thirdweb added is still accepted", () => {
-    expect(
-      ThirdwebAuthResultSchema.safeParse({ ...authResult, profiles: [] }).success,
-    ).toBe(true);
-  });
-
-  const oldEnclaveRead = (body: unknown): string =>
-    (body as { result: { signature: string } }).result.signature;
-
-  it("enclave-sign: a null signature inside a 200", () => {
-    const drift = { result: { signature: null } };
-    expect(EnclaveSignatureSchema.safeParse(drift).success).toBe(false);
-    expect(oldEnclaveRead(drift)).toBeNull();
-  });
-
-  it("enclave-sign: the result envelope flattened away", () => {
-    const drift = { signature: "0xdead" };
-    expect(EnclaveSignatureSchema.safeParse(drift).success).toBe(false);
-    expect(() => oldEnclaveRead(drift)).toThrow(TypeError);
-  });
-
-  it("wallets-me: an address that arrived as an object", () => {
-    const drift = { result: { address: { value: "0xabc" } } };
-    expect(WalletsMeSchema.safeParse(drift).success).toBe(false);
-    expect(oldWalletRead(drift)).toBeNull();
-  });
-
-  it("signMessageEnclave reports the boundary rather than signing with null", async () => {
-    stubFetch(
-      async () =>
-        new Response(JSON.stringify({ result: { signature: null } }), { status: 200 }),
-    );
+  it("the client reports the drifted boundary instead of signing with null or blaming the session, and still answers null on a network failure", async () => {
+    stubFetch(async () => json({ result: { signature: null } }));
     await expect(signMessageEnclave("jwt-123", "0xabc", "hello", 1)).rejects.toThrow(
       /external-http\/thirdweb\/enclave-sign/,
     );
-  });
-
-  it("getWalletForToken reports the boundary instead of blaming the session", async () => {
-    stubFetch(
-      async () =>
-        new Response(JSON.stringify({ result: { address: { value: "0xabc" } } }), {
-          status: 200,
-        }),
-    );
-    await expect(getWalletForToken("jwt-123")).rejects.toThrow(
-      /external-http\/thirdweb\/wallets-me/,
-    );
-  });
-
-  it("getWalletForToken still answers null when the request itself fails", async () => {
+    stubFetch(async () => json({ result: { address: { value: "0xabc" } } }));
+    await expect(getWalletForToken("jwt-123")).rejects.toThrow(/external-http\/thirdweb\/wallets-me/);
     stubFetch(async () => {
       throw new Error("network down");
     });
@@ -237,12 +143,7 @@ describe("upstream drift at the thirdweb boundaries", () => {
   });
 
   it("a 503 from the sign proxy stays a ThirdwebError", async () => {
-    stubFetch(
-      async () =>
-        new Response(JSON.stringify({ error: "THIRDWEB_SECRET_KEY unset" }), {
-          status: 503,
-        }),
-    );
+    stubFetch(async () => json({ error: "THIRDWEB_SECRET_KEY unset" }, 503));
     const signer = makeInAppSigner({ token: "t", walletAddress: "0xabc" });
     let err: unknown;
     try {
@@ -255,17 +156,14 @@ describe("upstream drift at the thirdweb boundaries", () => {
   });
 });
 
-describe("ADR-44 bridge \u{2014} enclave login produces a catalyrst-valid chain", () => {
+describe("ADR-44 bridge: enclave login produces a catalyrst-valid chain", () => {
   it("ECDSA_EPHEMERAL signature recovers to the enclave wallet address", async () => {
     const walletAccount = privateKeyToAccount(generatePrivateKey());
     const walletAddress = walletAccount.address;
-
     stubFetch(async (_url, init) => {
       const body = JSON.parse(init.body as string) as { message: string };
-      const signature = await walletAccount.signMessage({
-        message: body.message,
-      });
-      return new Response(JSON.stringify({ signature }), { status: 200 });
+      const signature = await walletAccount.signMessage({ message: body.message });
+      return json({ signature });
     });
 
     const signer = makeInAppSigner({ token: "jwt-123", walletAddress });
@@ -277,13 +175,11 @@ describe("ADR-44 bridge \u{2014} enclave login produces a catalyrst-valid chain"
     expect(signerLink?.payload.toLowerCase()).toBe(walletAddress.toLowerCase());
     expect(ephLink?.type).toBe("ECDSA_EPHEMERAL");
     if (!ephLink) throw new Error("missing ephemeral link");
-
     const recovered = await recoverMessageAddress({
       message: ephLink.payload,
       signature: ephLink.signature as `0x${string}`,
     });
     expect(recovered.toLowerCase()).toBe(walletAddress.toLowerCase());
-
     expect(identity.signer).toBe(walletAddress.toLowerCase());
     expect(identity.ephemeral.address).not.toBe(walletAddress.toLowerCase());
   });

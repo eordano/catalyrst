@@ -2,13 +2,18 @@
 
 pub mod access_gate;
 pub mod auth_chain;
+pub mod cluster_gateway;
+pub mod cluster_subscriber;
 pub mod config;
 pub mod extract;
 pub mod handlers;
 pub mod http;
 pub mod livekit;
+pub mod metrics;
 pub mod mls;
 pub mod moderator;
+pub mod nats;
+pub mod peer_state;
 pub mod ports;
 pub mod room_metadata_sync;
 pub mod scene_perms;

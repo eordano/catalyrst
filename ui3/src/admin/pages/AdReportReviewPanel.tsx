@@ -1,12 +1,24 @@
+import type { ReactNode } from "react";
+
+import Button from "../../atoms/Button";
 import { Close } from "../../atoms/icons";
 import type { Option, ReportCard } from "./AdReportTypes";
-import { reasonLabel, statusLabel } from "./AdReportTypes";
+import { placeArt, reasonLabel, statusLabel, statusTone } from "./AdReportTypes";
 
-export type ReportReviewPanelProps = {
+type ReportReviewPanelProps = {
   card: ReportCard;
   reasons: Option[];
   onClose: () => void;
 };
+
+function Fact({ label, mono = false, children }: { label: string; mono?: boolean; children: ReactNode }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd className={mono ? "adm-mono" : undefined}>{children}</dd>
+    </div>
+  );
+}
 
 export default function AdReportReviewPanel({
   card,
@@ -18,76 +30,46 @@ export default function AdReportReviewPanel({
     : undefined;
 
   return (
-    <div className="rrp" role="region" aria-label={`Review report ${card.id}`}>
-      <div className="rrp__head">
-        <h2 className="rrp__title">Report #{card.id}</h2>
-        <span className={`aq-chip aq-chip--status rrp__chip rrp__chip--${card.status}`}>
+    <div className="adm-stack" role="region" aria-label={`Review report ${card.id}`}>
+      <div className="adm-card__head">
+        <h2 className="adm-card__title">Report #{card.id}</h2>
+        <span className="adm-status" data-tone={statusTone(card.status)}>
           {statusLabel(card.status)}
         </span>
-        <button type="button" className="rrp__close" onClick={onClose} aria-label="Back to queue">
+        <Button variant="ghost" size="sm" onClick={onClose} aria-label="Back to queue">
           <Close size={16} />
-        </button>
+        </Button>
       </div>
 
-      <div className="rrp__grid">
-        <div
-          className="rrp__thumb"
-          style={
-            card.placeImage
-              ? { backgroundImage: `url(${card.placeImage})` }
-              : { background: `hsl(${card.hue} 60% 38%)` }
-          }
-          role="img"
-          aria-label={card.placeTitle}
-        />
+      <div className="adm-media">
+        <div className="adm-thumb" style={placeArt(card)} role="img" aria-label={card.placeTitle} />
 
-        <dl className="rrp__facts">
-          <div className="rrp__fact">
-            <dt>Reported place</dt>
-            <dd>
-              {entityUrl ? (
-                <a href={entityUrl} target="_blank" rel="noreferrer">
-                  {card.placeTitle}
-                </a>
-              ) : (
-                card.placeTitle
-              )}
-            </dd>
-          </div>
-          <div className="rrp__fact">
-            <dt>Coordinates</dt>
-            <dd>{card.placeCoords ?? "\u{2014}"}</dd>
-          </div>
-          <div className="rrp__fact">
-            <dt>Entity id</dt>
-            <dd className="rrp__mono">{card.entityId ?? "\u{2014}"}</dd>
-          </div>
-          <div className="rrp__fact">
-            <dt>Place creator</dt>
-            <dd>{card.placeCreator ?? "\u{2014}"}</dd>
-          </div>
-          <div className="rrp__fact">
-            <dt>Reason</dt>
-            <dd>{reasonLabel(reasons, card.reason)}</dd>
-          </div>
-          <div className="rrp__fact">
-            <dt>Reporter</dt>
-            <dd className="rrp__mono">{card.reporter}</dd>
-          </div>
-          <div className="rrp__fact">
-            <dt>Reported at</dt>
-            <dd>{card.createdLabel}</dd>
-          </div>
+        <dl className="adm-stats adm-stats--grid">
+          <Fact label="Reported place">
+            {entityUrl ? (
+              <a className="adm-link" href={entityUrl} target="_blank" rel="noreferrer">
+                {card.placeTitle}
+              </a>
+            ) : (
+              card.placeTitle
+            )}
+          </Fact>
+          <Fact label="Coordinates">{card.placeCoords ?? "\u{2014}"}</Fact>
+          <Fact label="Entity id" mono>{card.entityId ?? "\u{2014}"}</Fact>
+          <Fact label="Place creator">{card.placeCreator ?? "\u{2014}"}</Fact>
+          <Fact label="Reason">{reasonLabel(reasons, card.reason)}</Fact>
+          <Fact label="Reporter" mono>{card.reporter}</Fact>
+          <Fact label="Reported at">{card.createdLabel}</Fact>
         </dl>
       </div>
 
       {card.notes && (
-        <p className="rrp__notes">
+        <p className="adm-card__text">
           <strong>Report notes:</strong> {card.notes}
         </p>
       )}
       {card.status !== "open" && card.resolution && (
-        <p className="rrp__notes rrp__notes--prior">
+        <p className="adm-card__text adm-dim">
           <strong>Prior resolution:</strong> {card.resolution}
           {card.resolvedBy ? ` (by ${card.resolvedBy})` : ""}
         </p>

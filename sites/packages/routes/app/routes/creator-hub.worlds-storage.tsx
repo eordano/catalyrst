@@ -5,6 +5,7 @@ import { href } from "@core/lib/router/routes";
 import Button from "@ui/atoms/Button";
 import EmptyState from "@ui/components/EmptyState";
 import StStorageSelect from "@ui/web/pages/StStorageSelect";
+import { docsUrl } from "@ui/data/docs";
 import StStorageScene from "@ui/web/pages/StStorageScene";
 import StStorageEnvironment from "@ui/web/pages/StStorageEnvironment";
 import StStoragePlayers from "@ui/web/pages/StStoragePlayers";
@@ -47,6 +48,8 @@ export const meta = () => creatorHubMeta("Worlds storage");
 
 const STORY: StoryId = "creator-hub/worlds-storage";
 
+const WORLDS_DOCS_HREF = docsUrl("creator/sdk7/publishing/publishing-options#decentraland-worlds");
+
 const NAMESPACES = ["scene", "env", "players"] as const;
 type Namespace = (typeof NAMESPACES)[number];
 
@@ -72,7 +75,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const key = url.searchParams.get("key")?.trim() ?? "";
   const quotaOpen = url.searchParams.get("quota") === "1";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,
@@ -255,7 +258,7 @@ function WorldsStorageView({ data: d }: { data: LoaderData }) {
       manaHref="https://account.decentraland.org/"
       landHref="https://decentraland.org/marketplace/lands"
       nameHref="/creator-hub/claim-name"
-      learnMoreHref="https://docs.decentraland.org/creator/worlds/about/"
+      learnMoreHref={WORLDS_DOCS_HREF}
       onClose={() => setParams({ quota: "" })}
     />
   ) : (
@@ -282,7 +285,7 @@ function WorldsStorageView({ data: d }: { data: LoaderData }) {
         published scenes are not affected. Storage grows with the MANA, LAND,
         and NAMEs you own &#x2014;{" "}
         <a
-          href="https://docs.decentraland.org/creator/worlds/about/"
+          href={WORLDS_DOCS_HREF}
           target="_blank"
           rel="noreferrer"
           style={{ color: "inherit", textDecoration: "underline" }}

@@ -76,15 +76,22 @@ pub async fn claim(
              ORDER BY id DESC LIMIT 1 \
          ) \
          AND consumed_at IS NULL \
-         RETURNING answer_x::float8 AS answer_x",
+         RETURNING answer_x::float8 AS answer_x, \
+                   (SELECT is_blocked_for_claiming FROM user_credits WHERE address = $1) \
+                       AS blocked",
     )
     .bind(signer.as_str())
     .bind(now)
     .fetch_optional(&state.credits.pool)
     .await?;
 
-    let answer = row
-        .map(|r| r.get::<f64, _>("answer_x"))
+    let (answer, blocked) = row
+        .map(|r| {
+            (
+                r.get::<f64, _>("answer_x"),
+                r.get::<Option<bool>, _>("blocked").unwrap_or(false),
+            )
+        })
         .ok_or_else(|| ApiError::bad_request("no active captcha challenge"))?;
 
     if !slider_solved(answer, claim.x) {
@@ -100,12 +107,10 @@ pub async fn claim(
         }
     }
 
-    let outcome = state.credits.claim_credits(signer.as_str()).await?;
-
     Ok(Json(ClaimCreditsResponse {
-        ok: outcome.ok,
-        credits_granted: outcome.credits_granted,
-        is_blocked_for_claiming: outcome.is_blocked_for_claiming,
+        ok: !blocked,
+        credits_granted: 0.0,
+        is_blocked_for_claiming: blocked,
     })
     .into_response())
 }

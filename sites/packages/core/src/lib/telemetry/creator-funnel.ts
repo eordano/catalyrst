@@ -3,7 +3,7 @@ import type { TelemetryEvents } from "./events";
 
 export const CREATOR_FUNNEL_STORY = "creator-hub/metrics";
 
-export const CREATOR_FUNNEL_EVENTS = [
+const CREATOR_FUNNEL_EVENTS = [
   "creator_collection_viewed",
   "creator_item_edited",
   "creator_publish_started",
@@ -14,11 +14,11 @@ export const CREATOR_FUNNEL_EVENTS = [
   "creator_sale_completed",
 ] as const;
 
-export type CreatorFunnelEvent = (typeof CREATOR_FUNNEL_EVENTS)[number];
+type CreatorFunnelEvent = (typeof CREATOR_FUNNEL_EVENTS)[number];
 
 export const CREATOR_DASHBOARD_VIEWED = "creator_dashboard_viewed";
 
-export function funnelStep(event: CreatorFunnelEvent): number {
+function funnelStep(event: CreatorFunnelEvent): number {
   return CREATOR_FUNNEL_EVENTS.indexOf(event);
 }
 
@@ -32,8 +32,6 @@ const SCREEN_TO_FUNNEL: Record<string, CreatorFunnelEvent> = {
   mk_sell_completed: "creator_item_listed",
   mk_buy_completed: "creator_sale_completed",
 };
-
-export type { TrackFn };
 
 export function withCreatorFunnel(
   base: TrackFn = defaultTrack,

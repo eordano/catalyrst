@@ -1,5 +1,5 @@
 
-export type CompositeEnvelope = { json: unknown };
+type CompositeEnvelope = { json: unknown };
 
 export type CompositeComponentBlock = {
   name: string;
@@ -14,19 +14,19 @@ export type SceneComposite = {
 export const TRANSFORM = "core::Transform";
 export const NAME = "core-schema::Name";
 
-export const ROOT_ENTITY = 0;
-export const FIRST_AUTHORED_ENTITY = 512;
+const ROOT_ENTITY = 0;
+const FIRST_AUTHORED_ENTITY = 512;
 
-export type Vec3 = { x: number; y: number; z: number };
-export type Quat = { x: number; y: number; z: number; w: number };
-export type TransformValue = {
+type Vec3 = { x: number; y: number; z: number };
+type Quat = { x: number; y: number; z: number; w: number };
+type TransformValue = {
   position: Vec3;
   scale: Vec3;
   rotation: Quat;
   parent?: number;
 };
 
-export function identityTransform(parent = ROOT_ENTITY): TransformValue {
+function identityTransform(parent = ROOT_ENTITY): TransformValue {
   return {
     position: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 },
@@ -84,7 +84,7 @@ export function serializeSceneComposite(c: SceneComposite): string {
   return JSON.stringify(out);
 }
 
-export function getComponentBlock(
+function getComponentBlock(
   c: SceneComposite,
   name: string,
 ): CompositeComponentBlock | undefined {
@@ -172,7 +172,7 @@ export function removeComponentValue(
   return next;
 }
 
-export type AddEntityInput = {
+type AddEntityInput = {
   id?: number;
   name?: string;
   parent?: number;

@@ -48,14 +48,11 @@ const SAMPLE = {
 };
 
 describe("parse / serialize round-trip", () => {
-  it("round-trips the wire composite (parse(serialize(x)) preserves it)", () => {
+  it("round-trips the wire composite and serializes to the exact { json }-enveloped wire JSON", () => {
     const parsed = parseComposite(SAMPLE);
     const reparsed = parseComposite(JSON.parse(serializeSceneComposite(parsed)));
     expect(reparsed).toEqual(parsed);
-  });
 
-  it("serializes to the exact { json }-enveloped wire JSON", () => {
-    const parsed = parseComposite(SAMPLE);
     const wire = JSON.parse(serializeSceneComposite(parsed)) as {
       version: number;
       components: { name: string; data: Record<string, { json: unknown }> }[];
@@ -78,28 +75,25 @@ describe("parse / serialize round-trip", () => {
 
 describe("read accessors", () => {
   const c = parseComposite(SAMPLE);
-  it("lists the union of entity ids", () => {
+  it("lists entity ids, reads parent + children from Transform, names with fallback, and allocates the next authored id", () => {
     expect(listEntities(c)).toEqual([512, 513]);
-  });
-  it("reads parent + children from Transform", () => {
+
     expect(parentOf(c, 513)).toBe(512);
     expect(parentOf(c, 512)).toBe(0);
     expect(childrenOf(c, 512)).toEqual([513]);
     expect(childrenOf(c, 0)).toEqual([512]);
-  });
-  it("reads names with fallback", () => {
+
     expect(entityName(c, 512)).toBe("Parent");
     expect(entityName(c, 999)).toBe("Entity 999");
     expect(entityName(c, 0)).toBe("Scene");
-  });
-  it("allocates the next authored id above the max (>=512)", () => {
+
     expect(nextEntityId(c)).toBe(514);
     expect(nextEntityId(emptyComposite())).toBe(512);
   });
 });
 
 describe("edit operations are pure + produce updated composites", () => {
-  it("addEntity attaches a Transform (+Name) and returns a fresh id", () => {
+  it("addEntity, renameEntity and reparentEntity update the copy and leave the source untouched", () => {
     const c = parseComposite(SAMPLE);
     const { composite, entity } = addEntity(c, { name: "New", parent: 512 });
     expect(entity).toBe(514);
@@ -107,41 +101,32 @@ describe("edit operations are pure + produce updated composites", () => {
     expect(entityName(composite, 514)).toBe("New");
     expect(listEntities(c)).toEqual([512, 513]);
     expect(listEntities(composite)).toEqual([512, 513, 514]);
-  });
 
-  it("renameEntity sets core-schema::Name", () => {
-    const c = parseComposite(SAMPLE);
-    const next = renameEntity(c, 513, "Renamed");
-    expect(entityName(next, 513)).toBe("Renamed");
+    const renamed = renameEntity(c, 513, "Renamed");
+    expect(entityName(renamed, 513)).toBe("Renamed");
     expect(entityName(c, 513)).toBe("Child");
-  });
 
-  it("reparentEntity changes the parent but preserves the rest of Transform", () => {
-    const c = parseComposite(SAMPLE);
-    const next = reparentEntity(c, 513, 0);
-    expect(parentOf(next, 513)).toBe(0);
-    expect(getComponentValue(next, 513, TRANSFORM)).toMatchObject({
+    const reparented = reparentEntity(c, 513, 0);
+    expect(parentOf(reparented, 513)).toBe(0);
+    expect(getComponentValue(reparented, 513, TRANSFORM)).toMatchObject({
       position: { x: 0, y: 0, z: 0 },
       parent: 0,
     });
     expect(parentOf(c, 513)).toBe(512);
   });
 
-  it("setComponentValue upserts a value (and creates the block if needed)", () => {
+  it("setComponentValue upserts (creating the block) and removeComponentValue drops it (emptying dead blocks)", () => {
     const c = parseComposite(SAMPLE);
-    const next = setComponentValue(c, 512, "core::VisibilityComponent", { visible: false });
-    expect(getComponentValue(next, 512, "core::VisibilityComponent")).toEqual({ visible: false });
+    const set = setComponentValue(c, 512, "core::VisibilityComponent", { visible: false });
+    expect(getComponentValue(set, 512, "core::VisibilityComponent")).toEqual({ visible: false });
     expect(getComponentValue(c, 512, "core::VisibilityComponent")).toBeUndefined();
+
+    const removed = removeComponentValue(c, 513, "core::MeshRenderer");
+    expect(getComponentValue(removed, 513, "core::MeshRenderer")).toBeUndefined();
+    expect(removed.components.some((b) => b.name === "core::MeshRenderer")).toBe(false);
   });
 
-  it("removeComponentValue drops a component (and empties dead blocks)", () => {
-    const c = parseComposite(SAMPLE);
-    const next = removeComponentValue(c, 513, "core::MeshRenderer");
-    expect(getComponentValue(next, 513, "core::MeshRenderer")).toBeUndefined();
-    expect(next.components.some((b) => b.name === "core::MeshRenderer")).toBe(false);
-  });
-
-  it("deleteEntity removes the entity + descendants from EVERY block", () => {
+  it("deleteEntity removes the entity + descendants from EVERY block and never removes the scene root", () => {
     const c = parseComposite(SAMPLE);
     expect(descendantsOf(c, 512)).toEqual(expect.arrayContaining([512, 513]));
     const next = deleteEntity(c, 512);
@@ -149,10 +134,6 @@ describe("edit operations are pure + produce updated composites", () => {
     const onlyParent = deleteEntity(c, 512, { recursive: false });
     expect(listEntities(onlyParent)).toEqual([513]);
     expect(getComponentValue(onlyParent, 512, NAME)).toBeUndefined();
-  });
-
-  it("deleteEntity never removes the scene root", () => {
-    const c = parseComposite(SAMPLE);
     expect(deleteEntity(c, 0)).toEqual(c);
   });
 });

@@ -223,18 +223,6 @@
 }
 .xc--hud .xc__body { background: transparent; }
 
-.xc__body > .ep__placeholder {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 6px;
-}
-.xc__body .ep__phtitle { font-size: var(--fs-title); font-weight: 700; color: rgba(255, 255, 255, 0.85); }
-.xc__body .ep__phnote { font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.55); }
-
 @media (max-width: 760px) {
   .xc__nav { flex-wrap: wrap; height: auto; padding: 10px 12px; gap: 8px; }
   .xc__brand span { display: none; }

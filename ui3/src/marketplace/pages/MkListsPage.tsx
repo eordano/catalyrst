@@ -7,12 +7,12 @@ import "./listslayout.css";
 
 type AnchorClick = (e: MouseEvent<HTMLAnchorElement>) => void;
 
-export type MkListPreview = {
+type MkListPreview = {
   image?: string;
   rarity: string;
 };
 
-export type MkListCard = {
+type MkListCard = {
   id: string;
   name: string;
   description?: string | null;
@@ -22,7 +22,7 @@ export type MkListCard = {
   previews: MkListPreview[];
 };
 
-export type MkListItemCard = {
+type MkListItemCard = {
   id: string;
   name: string;
   collection?: string;
@@ -33,7 +33,7 @@ export type MkListItemCard = {
   image?: string;
 };
 
-export type MkOpenList = {
+type MkOpenList = {
   id: string;
   name: string;
   description?: string | null;

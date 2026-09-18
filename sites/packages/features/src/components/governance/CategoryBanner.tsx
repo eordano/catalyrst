@@ -2,7 +2,7 @@ import { Link } from "react-router";
 
 import { SUBMIT_CATEGORY_ICONS } from "@ui/governance/components/SubmitCategoryIcons";
 
-export type CategoryBannerProps = {
+type CategoryBannerProps = {
   type: string;
   title: string;
   description: string;

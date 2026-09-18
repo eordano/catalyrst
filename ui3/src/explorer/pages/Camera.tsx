@@ -3,21 +3,7 @@ import "./camera.css";
 import { sendBridge, subscribeBridge, useBridgeState } from "../../overlay/bridge";
 import { serviceBase, signedFetch } from "../../data/catalyst/client";
 import Lightbox from "../components/Lightbox";
-
-type Shortcut = { action: string; keys: string[] };
-
-const SHORTCUTS: Shortcut[] = [
-  { action: "Take a photo", keys: ["Space"] },
-  { action: "Move camera", keys: ["W", "A", "S", "D"] },
-  { action: "Up / Down", keys: ["Q", "/", "E"] },
-  { action: "Rotate", keys: ["Right Mouse"] },
-  { action: "Zoom", keys: ["Scroll"] },
-  { action: "Adjust speed", keys: ["Shift"] },
-  { action: "Roll camera", keys: [",", "/", "."] },
-  { action: "Reset roll", keys: ["R"] },
-  { action: "Toggle UI", keys: ["H"] },
-  { action: "Exit camera", keys: ["Esc"] },
-];
+import { CAMERA_MODE_SHORTCUTS } from "./shortcuts";
 
 const STATUS_LABEL: Record<string, string> = {
   capturing: "Capturing\u{2026}",
@@ -215,7 +201,7 @@ export default function Camera({ onClose }: CameraProps) {
             <button className="cam__shortclose" onClick={() => setShowShortcuts(false)} aria-label="Close">&#xD7;</button>
           </div>
           <div className="cam__shortlist">
-            {SHORTCUTS.map((s) => (
+            {CAMERA_MODE_SHORTCUTS.map((s) => (
               <div className="cam__shortrow" key={s.action}>
                 <span className="cam__shortaction">{s.action}</span>
                 <Keys keys={s.keys} />

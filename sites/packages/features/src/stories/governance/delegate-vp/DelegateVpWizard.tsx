@@ -21,7 +21,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type DelegateVpWizardProps = {
+type DelegateVpWizardProps = {
   data: DelegateData;
   trackCtx: TrackContext;
   initialStep?: string;

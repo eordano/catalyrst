@@ -11,8 +11,9 @@ import type {
 
 const AttendeeListEnvelope = okDataTotalOf(z.array(z.unknown()));
 
-export function buildRsvpCommit(identity: AuthIdentity | null): CommitFn {
+export function buildRsvpCommit(identitySource: AuthIdentity | null | (() => AuthIdentity | null)): CommitFn {
   return async ({ eventId, direction, count, signal }): Promise<RsvpResult> => {
+    const identity = typeof identitySource === "function" ? identitySource() : identitySource;
     if (!identity) throw new Error("Sign in to RSVP.");
     if (!eventId) throw new Error("This event is no longer available.");
 

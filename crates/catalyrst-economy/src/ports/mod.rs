@@ -1,6 +1,7 @@
 pub mod abi;
 pub mod broker;
 pub mod chain;
+pub mod claims;
 pub mod contracts;
 pub mod contracts_addrs;
 pub mod escrow;
@@ -11,4 +12,5 @@ pub mod relayer;
 pub mod signer;
 pub mod trade;
 pub mod transaction;
+pub mod transfer_shortfall;
 pub mod upstream;

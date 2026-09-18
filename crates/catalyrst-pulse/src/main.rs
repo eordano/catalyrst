@@ -1,3 +1,8 @@
+use catalyrst_pulse::cluster::feed::{ClusterFeedPublisher, NoopClusterFeedPublisher};
+use catalyrst_pulse::cluster::{
+    ClusterOptions, ClusterTracker, DEFAULT_CLUSTERS_ENABLED, DEFAULT_DWELL_PASSES,
+    DEFAULT_ID_PREFIX, DEFAULT_PASS_INTERVAL_MS, DEFAULT_SESSION_RETENTION_PASSES,
+};
 use catalyrst_pulse::hardening::{
     DisconnectReason, GameplayRateLimiter, DEFAULT_DISCRETE_BURST, DEFAULT_DISCRETE_RATE_PER_SEC,
     DEFAULT_INPUT_BURST, DEFAULT_INPUT_MAX_HZ,
@@ -10,10 +15,12 @@ use catalyrst_pulse::transport::webtransport::config::{
 use catalyrst_pulse::transport::webtransport::WtConfig;
 use catalyrst_pulse::PulseServer;
 use std::env::VarError;
+use std::sync::Arc;
 
 const DEFAULT_BIND: &str = "0.0.0.0:9000";
 const DEFAULT_WT_BIND: &str = "0.0.0.0:7743";
 const DEFAULT_LOG_FILTER: &str = "catalyrst_pulse=info";
+
 const BOOL_TRUE: &[&str] = &["1", "true", "yes", "on"];
 const BOOL_FALSE: &[&str] = &["0", "false", "no", "off"];
 
@@ -89,6 +96,50 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "PULSE_WT_MAX_MESSAGE_BYTES",
         "max WebTransport message size in bytes (default 4096)",
     ),
+    (
+        "PULSE_CLUSTERS_ENABLED",
+        "derive peer clusters every pass: 1/true/yes/on or 0/false/no/off, case-insensitive, blank or unset keeps the default, anything else fails startup (default true)",
+    ),
+    (
+        "PULSE_CLUSTERS_PASS_INTERVAL_MS",
+        "milliseconds between clustering passes; also the upper bound on how stale a published assignment can be (default 1000)",
+    ),
+    (
+        "PULSE_CLUSTERS_DWELL_PASSES",
+        "consecutive passes that must agree on a new assignment before it is published; 1 disables the debounce (default 3)",
+    ),
+    (
+        "PULSE_CLUSTERS_ID_PREFIX",
+        "prefix of every minted cluster id, so two Pulse instances on one broker never mint the same one (default C)",
+    ),
+    (
+        "PULSE_CLUSTERS_SESSION_RETENTION_PASSES",
+        "passes a departed wallet's last published assignment is retained so a new session can name it as displaced; 0 disables the annotation (default 300)",
+    ),
+    (
+        "PULSE_NATS_URL",
+        "broker URL for the cluster feed; blank or unset leaves the tracker in stats-only mode, deriving clusters and reporting metrics while publishing nothing (default unset)",
+    ),
+    (
+        "NATS_URL",
+        "fallback broker URL, read only when PULSE_NATS_URL is blank or unset (default unset)",
+    ),
+    (
+        "PULSE_NATS_SERVER_NAME",
+        "name this server announces on the engine.discovery heartbeat, and the connection name the broker shows on /connz (default pulse)",
+    ),
+    (
+        "COMMIT_HASH",
+        "commit of the deployed build, announced on the engine.discovery heartbeat so consumers can tell two deployments of one version apart (default unknown)",
+    ),
+    (
+        "PULSE_NATS_DISCOVERY_INTERVAL_MS",
+        "milliseconds between engine.discovery heartbeats (default 10000)",
+    ),
+    (
+        "PULSE_NATS_CHANNEL_CAPACITY",
+        "distinct peers that may hold an undelivered assignment at once; past it the longest-admitted is evicted and counted on pulse_nats_dropped_total (default 1024)",
+    ),
     ("RUST_LOG", "tracing filter (default catalyrst_pulse=info)"),
 ];
 
@@ -120,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
         env_or("PULSE_DISCRETE_BURST", DEFAULT_DISCRETE_BURST)?,
     );
     server.aoi = SpatialAreaOfInterest::new(aoi);
+    server.clusters = clusters_from_env()?;
     server.run_with_webtransport(bind, 50, wt).await
 }
 
@@ -168,19 +220,141 @@ fn webtransport_config_from_env() -> anyhow::Result<Option<WtConfig>> {
     }))
 }
 
+/// The cluster tracker, or `None` when clustering is off entirely -- which leaves every cluster
+/// path out of the server loop rather than running a tracker that publishes nothing. Publishing
+/// nothing is the separate, and far more common, stats-only mode: clustering on with no broker URL.
+fn clusters_from_env() -> anyhow::Result<Option<ClusterTracker>> {
+    if !env_bool_or("PULSE_CLUSTERS_ENABLED", DEFAULT_CLUSTERS_ENABLED)? {
+        tracing::info!("peer clustering disabled");
+        return Ok(None);
+    }
+    let pass_interval_ms = env_or("PULSE_CLUSTERS_PASS_INTERVAL_MS", DEFAULT_PASS_INTERVAL_MS)?;
+    if pass_interval_ms == 0 {
+        tracing::info!("peer clustering disabled: PULSE_CLUSTERS_PASS_INTERVAL_MS is not positive");
+        return Ok(None);
+    }
+    let options = ClusterOptions {
+        enabled: true,
+        pass_interval_ms,
+        dwell_passes: env_or("PULSE_CLUSTERS_DWELL_PASSES", DEFAULT_DWELL_PASSES)?,
+        id_prefix: env_or("PULSE_CLUSTERS_ID_PREFIX", DEFAULT_ID_PREFIX.to_string())?,
+        session_retention_passes: env_or(
+            "PULSE_CLUSTERS_SESSION_RETENTION_PASSES",
+            DEFAULT_SESSION_RETENTION_PASSES,
+        )?,
+    };
+    tracing::info!(
+        pass_interval_ms = options.pass_interval_ms,
+        dwell_passes = options.dwell_passes,
+        id_prefix = %options.id_prefix,
+        "peer clustering enabled"
+    );
+    Ok(Some(ClusterTracker::new(
+        options,
+        ENET_CAPACITY + WT_CAPACITY,
+        cluster_feed_from_env()?,
+    )))
+}
+
+/// The deployed build's commit, which is what a discovery consumer tells deployments apart by.
+/// Unset or blank advertises `unknown`, which is upstream's fallback -- the crate version is
+/// deliberately not used, because every build of one version shares it.
+#[cfg(feature = "nats")]
+fn commit_hash_from_env() -> String {
+    use catalyrst_pulse::cluster::nats::DEFAULT_COMMIT_HASH;
+
+    match std::env::var("COMMIT_HASH") {
+        Ok(hash) if !hash.trim().is_empty() => hash.trim().to_string(),
+        _ => DEFAULT_COMMIT_HASH.to_string(),
+    }
+}
+
+/// The broker URL, `PULSE_NATS_URL` first and the shared `NATS_URL` after it, so a host that
+/// already exports one broker for its services needs no Pulse-specific copy of it.
+fn nats_url_from_env() -> anyhow::Result<Option<String>> {
+    for key in ["PULSE_NATS_URL", "NATS_URL"] {
+        let value = env_value(key, std::env::var(key))?;
+        match value.as_deref().map(str::trim) {
+            Some(url) if !url.is_empty() => return Ok(Some(url.to_string())),
+            _ => continue,
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(feature = "nats")]
+fn cluster_feed_from_env() -> anyhow::Result<Arc<dyn ClusterFeedPublisher>> {
+    use catalyrst_pulse::cluster::nats::{
+        NatsClusterFeed, NatsFeedOptions, DEFAULT_CHANNEL_CAPACITY, DEFAULT_DISCOVERY_INTERVAL_MS,
+        DEFAULT_SERVER_NAME,
+    };
+
+    let Some(url) = nats_url_from_env()? else {
+        tracing::info!("cluster feed in stats-only mode: no broker URL set");
+        return Ok(Arc::new(NoopClusterFeedPublisher));
+    };
+    let options = NatsFeedOptions {
+        url,
+        server_name: env_or("PULSE_NATS_SERVER_NAME", DEFAULT_SERVER_NAME.to_string())?,
+        commit_hash: commit_hash_from_env(),
+        discovery_interval_ms: env_or(
+            "PULSE_NATS_DISCOVERY_INTERVAL_MS",
+            DEFAULT_DISCOVERY_INTERVAL_MS,
+        )?,
+        capacity: env_or("PULSE_NATS_CHANNEL_CAPACITY", DEFAULT_CHANNEL_CAPACITY)?,
+    };
+    if options.capacity == 0 {
+        tracing::warn!(
+            "PULSE_NATS_CHANNEL_CAPACITY is not positive: each assignment evicts the previous one, \
+             so almost everything is lost -- watch pulse_nats_dropped_total"
+        );
+    }
+    if options.discovery_interval_ms == 0 {
+        tracing::warn!(
+            "PULSE_NATS_DISCOVERY_INTERVAL_MS is not positive: assignments and topology still \
+             publish, the service is not advertised on engine.discovery"
+        );
+    }
+    tracing::info!(url = %options.url, server_name = %options.server_name, "cluster feed publishing");
+    Ok(Arc::new(NatsClusterFeed::spawn(options)))
+}
+
+/// Built without a broker client: a URL that cannot be honoured fails startup rather than being
+/// ignored, so a deployment never silently runs blind while its operator believes it publishes.
+#[cfg(not(feature = "nats"))]
+fn cluster_feed_from_env() -> anyhow::Result<Arc<dyn ClusterFeedPublisher>> {
+    if let Some(url) = nats_url_from_env()? {
+        anyhow::bail!("a broker URL is set (`{url}`) but this build has no `nats` feature");
+    }
+    Ok(Arc::new(NoopClusterFeedPublisher))
+}
+
 fn env_bool(key: &str) -> anyhow::Result<bool> {
     parse_bool(key, env_value(key, std::env::var(key))?)
+}
+
+fn env_bool_or(key: &str, default: bool) -> anyhow::Result<bool> {
+    parse_bool_or(key, env_value(key, std::env::var(key))?, default)
 }
 
 /// Unset and blank mean off; the documented spellings match trimmed and case-insensitively;
 /// anything else is a startup error, because reading a typo as "off" would close the browser
 /// front door silently.
 fn parse_bool(key: &str, raw: Option<String>) -> anyhow::Result<bool> {
+    parse_bool_or(key, raw, false)
+}
+
+/// As `parse_bool`, for a setting whose unset state is on: unset and blank both take `default`,
+/// which keeps a blanked-out env template reading as the shipped behaviour rather than silently
+/// turning a feature off.
+fn parse_bool_or(key: &str, raw: Option<String>, default: bool) -> anyhow::Result<bool> {
     let Some(raw) = raw else {
-        return Ok(false);
+        return Ok(default);
     };
     let value = raw.trim().to_ascii_lowercase();
-    if value.is_empty() || BOOL_FALSE.contains(&value.as_str()) {
+    if value.is_empty() {
+        Ok(default)
+    } else if BOOL_FALSE.contains(&value.as_str()) {
         Ok(false)
     } else if BOOL_TRUE.contains(&value.as_str()) {
         Ok(true)
@@ -268,7 +442,7 @@ mod tests {
 
     #[test]
     fn env_docs_defaults_track_the_constants() {
-        let pinned: [(&str, String); 13] = [
+        let pinned: [(&str, String); 20] = [
             ("PULSE_BIND", DEFAULT_BIND.to_string()),
             ("PULSE_METRICS_BIND", DEFAULT_METRICS_BIND.to_string()),
             ("PULSE_INPUT_MAX_HZ", DEFAULT_INPUT_MAX_HZ.to_string()),
@@ -293,6 +467,25 @@ mod tests {
             ("PULSE_AOI_MAX_RADIUS", DEFAULT_AOI_MAX_RADIUS.to_string()),
             ("PULSE_WT_BIND", DEFAULT_WT_BIND.to_string()),
             (
+                "PULSE_CLUSTERS_ENABLED",
+                DEFAULT_CLUSTERS_ENABLED.to_string(),
+            ),
+            (
+                "PULSE_CLUSTERS_PASS_INTERVAL_MS",
+                DEFAULT_PASS_INTERVAL_MS.to_string(),
+            ),
+            (
+                "PULSE_CLUSTERS_DWELL_PASSES",
+                DEFAULT_DWELL_PASSES.to_string(),
+            ),
+            ("PULSE_CLUSTERS_ID_PREFIX", DEFAULT_ID_PREFIX.to_string()),
+            (
+                "PULSE_CLUSTERS_SESSION_RETENTION_PASSES",
+                DEFAULT_SESSION_RETENTION_PASSES.to_string(),
+            ),
+            ("PULSE_NATS_URL", "unset".to_string()),
+            ("NATS_URL", "unset".to_string()),
+            (
                 "PULSE_WT_MAX_DATAGRAM_BYTES",
                 DEFAULT_MAX_DATAGRAM_BYTES.to_string(),
             ),
@@ -308,6 +501,7 @@ mod tests {
         }
         assert!(doc_for("PULSE_WT_MAX_MESSAGE_BYTES")
             .ends_with(&format!("(default {DEFAULT_MAX_MESSAGE_BYTES})")));
+        assert_nats_feed_defaults_are_documented();
         assert!(
             doc_for("PULSE_SCENE_LISTENER_MAX_PARCELS").contains(&format!(
                 "plus {SCENE_LISTENER_REALM_BUDGET_COST} per realm"
@@ -323,6 +517,47 @@ mod tests {
             wt.contains(&BOOL_TRUE.join("/")) && wt.contains(&BOOL_FALSE.join("/")),
             "the accepted boolean spellings are documented: `{wt}`"
         );
+    }
+
+    #[cfg(feature = "nats")]
+    fn assert_nats_feed_defaults_are_documented() {
+        use catalyrst_pulse::cluster::nats::{
+            DEFAULT_CHANNEL_CAPACITY, DEFAULT_COMMIT_HASH, DEFAULT_DISCOVERY_INTERVAL_MS,
+            DEFAULT_SERVER_NAME,
+        };
+        for (key, default) in [
+            ("COMMIT_HASH", DEFAULT_COMMIT_HASH.to_string()),
+            ("PULSE_NATS_SERVER_NAME", DEFAULT_SERVER_NAME.to_string()),
+            (
+                "PULSE_NATS_DISCOVERY_INTERVAL_MS",
+                DEFAULT_DISCOVERY_INTERVAL_MS.to_string(),
+            ),
+            (
+                "PULSE_NATS_CHANNEL_CAPACITY",
+                DEFAULT_CHANNEL_CAPACITY.to_string(),
+            ),
+        ] {
+            let doc = doc_for(key);
+            let suffix = format!("(default {default})");
+            assert!(
+                doc.ends_with(&suffix),
+                "{key}: `{doc}` must end with `{suffix}`"
+            );
+        }
+    }
+
+    /// The keys stay documented without the feature, because the same env template feeds a build
+    /// with it and one without.
+    #[cfg(not(feature = "nats"))]
+    fn assert_nats_feed_defaults_are_documented() {
+        for key in [
+            "COMMIT_HASH",
+            "PULSE_NATS_SERVER_NAME",
+            "PULSE_NATS_DISCOVERY_INTERVAL_MS",
+            "PULSE_NATS_CHANNEL_CAPACITY",
+        ] {
+            let _ = doc_for(key);
+        }
     }
 
     #[test]

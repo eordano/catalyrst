@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use catalyrst_commons::cache::TtlMap;
+use catalyrst_commons::cache::{TtlCell, TtlMap};
 use serde::Deserialize;
 use sqlx::Row;
 
@@ -22,6 +22,8 @@ pub const LAND_OPERATORS_UNAVAILABLE_MSG: &str =
 
 const WORLD_PERMISSIONS_TTL: Duration = Duration::from_secs(300);
 const WORLD_PERMISSIONS_MAX_ENTRIES: usize = 5000;
+const WORLD_ABOUT_TTL: Duration = Duration::from_secs(60);
+const LEASE_AUTHORIZATIONS_TTL: Duration = Duration::from_secs(300);
 
 pub struct PlaceInfo {
     pub world: bool,
@@ -86,6 +88,10 @@ struct AllowListSetting {
 #[derive(Clone)]
 pub struct WorldPermissionsCache {
     entries: Arc<TtlMap<String, WorldPermissions>>,
+    /// World `/about` scene ids keyed on the request URL; a failed or empty
+    /// resolution is never stored.
+    pub(crate) about_scene_ids: Arc<TtlMap<String, String>>,
+    lease_holders: Arc<TtlCell<Arc<Vec<LeaseAuthorization>>>>,
 }
 
 impl Default for WorldPermissionsCache {
@@ -96,6 +102,12 @@ impl Default for WorldPermissionsCache {
                 WORLD_PERMISSIONS_TTL,
                 WORLD_PERMISSIONS_MAX_ENTRIES,
             )),
+            about_scene_ids: Arc::new(TtlMap::bounded(
+                "comms-world-about",
+                WORLD_ABOUT_TTL,
+                WORLD_PERMISSIONS_MAX_ENTRIES,
+            )),
+            lease_holders: Arc::new(TtlCell::new("comms-lease-authorizations")),
         }
     }
 }
@@ -136,20 +148,21 @@ pub async fn try_load_place_info(
     let Some(pool) = state.places_pool.as_ref() else {
         return Ok(None);
     };
-    let Some(row) = sqlx::query(
-        "SELECT COALESCE((raw->>'world')::bool, false) AS world, \
-                raw->>'world_name' AS world_name, \
-                raw->'positions' AS positions, \
-                base_position \
-         FROM place WHERE id = $1",
-    )
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {PLACE_INFO_FIELDS} FROM place WHERE id = $1"
+    )))
     .bind(place_id)
     .fetch_optional(pool)
-    .await?
-    else {
-        return Ok(None);
-    };
+    .await?;
+    Ok(row.as_ref().map(place_info_from_row))
+}
 
+pub(crate) const PLACE_INFO_FIELDS: &str = "COALESCE((raw->>'world')::bool, false) AS world, \
+     raw->>'world_name' AS world_name, \
+     raw->'positions' AS positions, \
+     base_position";
+
+pub(crate) fn place_info_from_row(row: &sqlx::postgres::PgRow) -> PlaceInfo {
     let world: bool = row.try_get("world").unwrap_or(false);
     let world_name: Option<String> = row.try_get("world_name").ok().flatten();
     let base_position: Option<String> = row.try_get("base_position").ok();
@@ -168,12 +181,56 @@ pub async fn try_load_place_info(
         }
     }
 
-    Ok(Some(PlaceInfo {
+    PlaceInfo {
         world,
         world_name,
         positions,
         base_position,
-    }))
+    }
+}
+
+/// One place row shared by every step of a request (authz, target protection,
+/// room binding); read lazily so a step that never needed it costs nothing.
+pub struct PlaceLookup<'a> {
+    state: &'a AppState,
+    place_id: String,
+    cell: tokio::sync::OnceCell<Result<Option<PlaceInfo>, String>>,
+}
+
+impl<'a> PlaceLookup<'a> {
+    pub fn new(state: &'a AppState, place_id: &str) -> Self {
+        Self {
+            state,
+            place_id: place_id.to_string(),
+            cell: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    pub fn resolved(state: &'a AppState, place_id: &str, place: Option<PlaceInfo>) -> Self {
+        Self {
+            state,
+            place_id: place_id.to_string(),
+            cell: tokio::sync::OnceCell::new_with(Some(Ok(place))),
+        }
+    }
+
+    pub fn place_id(&self) -> &str {
+        &self.place_id
+    }
+
+    /// `Err` carries the places-DB error text; callers map it to their own status.
+    pub async fn get(&self) -> Result<Option<&PlaceInfo>, &str> {
+        self.cell
+            .get_or_init(|| async {
+                try_load_place_info(self.state, &self.place_id)
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .as_ref()
+            .map(Option::as_ref)
+            .map_err(String::as_str)
+    }
 }
 
 async fn fetch_world_permissions(state: &AppState, world_name: &str) -> Option<WorldPermissions> {
@@ -323,21 +380,22 @@ pub async fn try_get_extra_addresses(
             return Ok(extra);
         };
 
-        let deployment = fetch_world_parcel_permission_addresses(
-            state,
-            world_name,
-            "deployment",
-            &place.positions,
-        )
-        .await;
-        let streaming = fetch_world_parcel_permission_addresses(
-            state,
-            world_name,
-            "streaming",
-            &place.positions,
-        )
-        .await;
-        let Some(perms) = fetch_world_permissions(state, world_name).await else {
+        let (deployment, streaming, perms) = tokio::join!(
+            fetch_world_parcel_permission_addresses(
+                state,
+                world_name,
+                "deployment",
+                &place.positions
+            ),
+            fetch_world_parcel_permission_addresses(
+                state,
+                world_name,
+                "streaming",
+                &place.positions
+            ),
+            fetch_world_permissions(state, world_name),
+        );
+        let Some(perms) = perms else {
             return Err(crate::http::service_unavailable(
                 WORLD_PERMISSIONS_UNAVAILABLE_MSG,
             ));
@@ -413,23 +471,37 @@ pub async fn get_lease_holders_for_parcels(
         return holders;
     }
 
-    let resp = match state.http.get(LEASE_AUTHORIZATIONS_URL).send().await {
-        Ok(r) if r.status().is_success() => r,
-        _ => return holders,
-    };
-    let auths = match resp.json::<Vec<LeaseAuthorization>>().await {
-        Ok(a) => a,
-        Err(_) => return holders,
+    let Some(auths) = state
+        .world_permissions
+        .lease_holders
+        .get_or_refresh_backoff(LEASE_AUTHORIZATIONS_TTL, || async {
+            let resp = state
+                .http
+                .get(LEASE_AUTHORIZATIONS_URL)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            if !resp.status().is_success() {
+                return Err(format!("lease authorizations returned {}", resp.status()));
+            }
+            resp.json::<Vec<LeaseAuthorization>>()
+                .await
+                .map(Arc::new)
+                .map_err(|e| e.to_string())
+        })
+        .await
+    else {
+        return holders;
     };
 
     let parcel_set: BTreeSet<&str> = parcels.iter().map(String::as_str).collect();
-    for auth in auths {
+    for auth in auths.iter() {
         let overlaps = auth
             .plots
             .iter()
             .any(|plot| parcel_set.contains(plot.as_str()));
         if overlaps {
-            for addr in auth.addresses {
+            for addr in &auth.addresses {
                 holders.insert(addr.to_lowercase());
             }
         }

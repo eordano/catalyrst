@@ -1,9 +1,10 @@
-use crate::cluster::ClusterEvent;
+use crate::feed::{connect_subject, disconnect_subject};
 use crate::proto::archipelago::{
     client_packet, server_packet, ChallengeResponseMessage, ClientPacket, IslandChangedMessage,
     KickedMessage, KickedReason, ServerPacket, WelcomeMessage,
 };
-use crate::proto::Position;
+use crate::registry::{PeerLink, SocketEvent};
+use crate::session::{is_address, is_session_key, session_key_of};
 use crate::state::AppState;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
@@ -13,7 +14,8 @@ use axum::Router;
 use catalyrst_types::AuthChain;
 use prost::Message as _;
 use rand::RngExt;
-use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/ws", get(ws_upgrade))
@@ -53,51 +55,53 @@ fn kicked_packet() -> server_packet::Message {
     })
 }
 
-fn conn_str(grant: Option<&crate::livekit::LivekitGrant>, fallback_ws_url: &str) -> String {
-    match grant {
-        Some(g) => match &g.token {
-            Some(tok) => format!("livekit:{}?access_token={}", g.url, tok),
-            None => format!("livekit:{}", g.url),
-        },
-        None => format!("livekit:{}", fallback_ws_url),
-    }
-}
-
 fn heartbeat_position(hb: &crate::proto::archipelago::Heartbeat) -> Option<[f32; 3]> {
     hb.position.as_ref().map(|p| [p.x, p.y, p.z])
 }
 
-fn position_map(state: &AppState, peers: &[String]) -> HashMap<String, Position> {
-    let lookup = state.cluster.peers_by_address();
-    peers
-        .iter()
-        .map(|p| {
-            let pos = lookup
-                .get(p)
-                .map(|ps| Position {
-                    x: ps.position[0],
-                    y: ps.position[1],
-                    z: ps.position[2],
-                })
-                .unwrap_or(Position {
-                    x: 0.0,
-                    y: 0.0,
-                    z: 0.0,
-                });
-            (p.clone(), pos)
-        })
-        .collect()
+/// The same room delivered to the same socket inside the window is the client's own assignment
+/// arriving again through the re-announce path, and it already holds a token for that room.
+fn is_repeat(
+    last: Option<&(String, Instant)>,
+    island_id: &str,
+    now: Instant,
+    dedup_ms: u64,
+) -> bool {
+    match last {
+        Some((seen, at)) => {
+            dedup_ms > 0
+                && seen == island_id
+                && now.duration_since(*at).as_millis() < dedup_ms as u128
+        }
+        None => false,
+    }
+}
+
+/// Never resolves before the handshake completes, which keeps a socket with no registration out of
+/// the select without a second copy of the loop.
+async fn next_event(rx: Option<&mut UnboundedReceiver<SocketEvent>>) -> Option<SocketEvent> {
+    match rx {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+struct Registration {
+    address: String,
+    session: String,
+    link: PeerLink,
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
-    let mut rx = state.cluster.subscribe();
     let mut stage = Stage::HandshakeStart;
     let mut challenge_to_sign = String::new();
-    let mut address: Option<String> = None;
-    let mut conn_gen: Option<u64> = None;
-    let mut initial_island_sent = false;
-
-    let mut last_island_sent: Option<String> = None;
+    let mut claimed: Option<String> = None;
+    let mut registration: Option<Registration> = None;
+    let mut events: Option<UnboundedReceiver<SocketEvent>> = None;
+    let mut last_island: Option<(String, Instant)> = None;
+    let dedup_ms = state.cfg.nats.island_changed_dedup_ms;
+    let handshake_timeout = Duration::from_millis(state.cfg.auth.handshake_timeout_ms);
+    let mut handshake_deadline = tokio::time::Instant::now() + handshake_timeout;
 
     loop {
         tokio::select! {
@@ -124,19 +128,25 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 let Some(client_packet::Message::ChallengeRequest(req)) = packet.message else {
                                     break;
                                 };
-                                if req.address.is_empty() {
+                                let addr = req.address.to_ascii_lowercase();
+                                if !is_address(&addr) {
+                                    tracing::debug!("rejecting: challengeRequest carries no valid address");
                                     break;
                                 }
-                                let addr = req.address.to_ascii_lowercase();
+                                if state.deny_list.is_denied(&addr).await {
+                                    tracing::warn!(addr = %addr, "archipelago ws rejected: deny-listed wallet");
+                                    break;
+                                }
                                 challenge_to_sign = format!("dcl-{}", rand::rng().random::<u64>());
 
                                 state.challenges.put(&addr, &challenge_to_sign);
-                                address = Some(addr);
+                                let already_connected = state.registry.has_peer(&addr);
+                                claimed = Some(addr);
                                 if !send_packet(
                                     &mut socket,
                                     server_packet::Message::ChallengeResponse(ChallengeResponseMessage {
                                         challenge_to_sign: challenge_to_sign.clone(),
-                                        already_connected: false,
+                                        already_connected,
                                     }),
                                 )
                                 .await
@@ -144,6 +154,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     break;
                                 }
                                 stage = Stage::ChallengeSent;
+                                handshake_deadline = tokio::time::Instant::now() + handshake_timeout;
                             }
                             Stage::ChallengeSent => {
                                 let Some(client_packet::Message::SignedChallenge(signed)) = packet.message else {
@@ -153,37 +164,62 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     Ok(c) => c,
                                     Err(_) => break,
                                 };
-                                let claimed = address.clone().unwrap_or_default();
+                                let addr = claimed.clone().unwrap_or_default();
                                 match state
                                     .challenges
-                                    .redeem_and_verify(&claimed, &challenge_to_sign, &chain)
+                                    .redeem_and_verify(&addr, &challenge_to_sign, &chain)
                                 {
                                     Ok(()) => {
                                         let signer = chain
                                             .first()
                                             .map(|l| l.payload.to_ascii_lowercase())
-                                            .unwrap_or(claimed);
+                                            .unwrap_or(addr);
                                         if state.deny_list.is_denied(&signer).await {
                                             tracing::warn!(addr = %signer, "archipelago ws rejected: deny-listed wallet (post-auth)");
                                             break;
                                         }
-                                        address = Some(signer.clone());
-                                        conn_gen = Some(state.cluster.register_conn(&signer));
-                                        tracing::info!(addr = %signer, "archipelago ws handshake complete (welcome)");
+                                        if state.ban_checker.is_banned(&signer).await {
+                                            tracing::warn!(addr = %signer, "archipelago ws rejected: platform-banned wallet");
+                                            let _ = send_packet(&mut socket, kicked_packet()).await;
+                                            break;
+                                        }
+                                        let session = session_key_of(&chain, &signer);
+                                        if !is_session_key(&session) {
+                                            tracing::warn!(addr = %signer, "rejecting: auth chain yields no usable session key");
+                                            break;
+                                        }
+                                        let (link, rx, previous) =
+                                            state.registry.on_peer_connected(&signer, &session);
+                                        if let Some(previous) = previous {
+                                            if !previous.is_closed() {
+                                                tracing::debug!(addr = %signer, "replacing this device's previous socket");
+                                                previous.send(SocketEvent::Kicked);
+                                            }
+                                            previous.close();
+                                        }
+                                        events = Some(rx);
+                                        registration = Some(Registration {
+                                            address: signer.clone(),
+                                            session: session.clone(),
+                                            link,
+                                        });
+                                        tracing::info!(addr = %signer, session = %session, "archipelago ws handshake complete (welcome)");
                                         if !send_packet(
                                             &mut socket,
                                             server_packet::Message::Welcome(WelcomeMessage {
-                                                peer_id: signer,
+                                                peer_id: signer.clone(),
                                             }),
                                         )
                                         .await
                                         {
                                             break;
                                         }
+                                        announce_connect(&state, &signer, &session);
                                         stage = Stage::Completed;
+                                        handshake_deadline = tokio::time::Instant::now() + handshake_timeout;
                                     }
                                     Err(e) => {
-                                        tracing::warn!(addr = %claimed, err = %e, "archipelago signed-challenge rejected");
+                                        tracing::warn!(addr = %claimed.clone().unwrap_or_default(), err = %e, "archipelago signed-challenge rejected");
                                         break;
                                     }
                                 }
@@ -192,54 +228,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 let Some(client_packet::Message::Heartbeat(hb)) = packet.message else {
                                     continue;
                                 };
-                                let Some(addr) = address.clone() else { continue };
-                                if state.cluster.is_kicked(&addr) {
-                                    let _ = send_packet(&mut socket, kicked_packet()).await;
-                                    break;
-                                }
+                                let Some(current) = registration.as_ref() else { continue };
                                 let Some(position) = heartbeat_position(&hb) else { continue };
-                                let parcel = crate::cluster::to_parcel(position[0], position[2]);
+                                let parcel = crate::peers::to_parcel(position[0], position[2]);
                                 let realm = hb.desired_room.unwrap_or_else(|| "catalyrst".into());
-                                state.cluster.upsert_peer(addr.clone(), position, parcel, realm);
-
-                                if !initial_island_sent {
-                                    initial_island_sent = true;
-                                    if state.cluster.island_of(&addr).is_none() {
-                                        state.cluster.kick_recluster().await;
-                                    }
-                                    if let Some((island_id, peers)) = state.cluster.island_of(&addr) {
-                                        if last_island_sent.as_deref() != Some(island_id.as_str()) {
-                                            if state.ban_checker.is_banned(&addr).await {
-                                                tracing::info!(addr = %addr, island = %island_id, "peer banned; kicking and closing socket, no livekit token minted");
-                                                state.cluster.remove_peer(&addr);
-                                                let _ = send_packet(&mut socket, kicked_packet()).await;
-                                                break;
-                                            } else {
-                                                let grant = state
-                                                    .cluster
-                                                    .livekit()
-                                                    .is_armed()
-                                                    .then(|| state.cluster.livekit().mint(&addr, &island_id));
-                                                let conn_str = conn_str(grant.as_ref(), state.livekit.ws_url());
-                                                let peer_map = position_map(&state, &peers);
-                                                last_island_sent = Some(island_id.clone());
-                                                if !send_packet(
-                                                    &mut socket,
-                                                    server_packet::Message::IslandChanged(IslandChangedMessage {
-                                                        island_id,
-                                                        conn_str,
-                                                        from_island_id: None,
-                                                        peers: peer_map,
-                                                    }),
-                                                )
-                                                .await
-                                                {
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                state.peers.upsert_peer(current.address.clone(), position, parcel, realm);
                             }
                         }
                     }
@@ -249,61 +242,80 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     _ => {}
                 }
             }
-            evt = rx.recv() => {
-                let Some(addr) = address.as_deref() else { continue };
-                match evt {
-                    Ok(ClusterEvent::IslandChanged { address: ev_addr, island_id, from_island_id, peers, livekit }) if ev_addr == addr => {
-                        if last_island_sent.as_deref() == Some(island_id.as_str()) {
+            _ = tokio::time::sleep_until(handshake_deadline), if stage != Stage::Completed => {
+                tracing::debug!("closing socket: the handshake stalled past its timeout");
+                break;
+            }
+            event = next_event(events.as_mut()) => {
+                let Some(event) = event else { continue };
+                match event {
+                    SocketEvent::IslandChanged(payload) => {
+                        let Ok(island_changed) = IslandChangedMessage::decode(payload.as_slice()) else {
+                            continue;
+                        };
+                        let now = Instant::now();
+                        if is_repeat(last_island.as_ref(), &island_changed.island_id, now, dedup_ms) {
+                            state.feed.on_deduplicated();
                             continue;
                         }
-                        last_island_sent = Some(island_id.clone());
-                        let conn_str = conn_str(livekit.as_ref(), state.livekit.ws_url());
-                        let peer_map = position_map(&state, &peers);
+                        last_island = Some((island_changed.island_id.clone(), now));
                         if !send_packet(
                             &mut socket,
-                            server_packet::Message::IslandChanged(IslandChangedMessage {
-                                island_id,
-                                conn_str,
-                                from_island_id,
-                                peers: peer_map,
-                            }),
+                            server_packet::Message::IslandChanged(island_changed),
                         )
                         .await
                         {
                             break;
                         }
                     }
-                    Ok(ClusterEvent::Kicked { address: ev_addr, .. }) if ev_addr == addr => {
-                        tracing::info!(addr = %addr, "kicked by cluster; closing socket");
+                    SocketEvent::Kicked => {
+                        let addr = registration.as_ref().map(|r| r.address.clone()).unwrap_or_default();
+                        tracing::info!(addr = %addr, "session superseded or kicked; closing socket");
                         let _ = send_packet(&mut socket, kicked_packet()).await;
                         break;
                     }
-                    Ok(_) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        if state.ban_checker.is_banned(addr).await {
-                            tracing::info!(addr = %addr, "ban recheck after broadcast lag; closing socket");
-                            state.cluster.kick_peer(addr, "banned");
-                            let _ = send_packet(&mut socket, kicked_packet()).await;
-                            break;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {}
                 }
             }
         }
     }
 
-    if let (Some(addr), Some(gen)) = (address, conn_gen) {
-        tracing::info!(addr = %addr, gen, "archipelago ws closed");
-        state.cluster.remove_peer_if_conn(&addr, gen);
+    if let Some(current) = registration {
+        current.link.close();
+        state
+            .registry
+            .on_peer_disconnected(&current.address, &current.session, current.link.id);
+        if !state.registry.has_peer(&current.address) {
+            state.peers.remove_peer(&current.address);
+        }
+        state
+            .publisher
+            .publish(disconnect_subject(&current.address), Vec::new());
+        tracing::info!(addr = %current.address, session = %current.session, "archipelago ws closed");
+    }
+}
+
+/// Tells the cluster feed's consumer that this session now holds a live socket. The feed is
+/// edge-triggered and says nothing while a peer's cluster is unchanged, so a client that
+/// reconnects standing still is only ever given a room because of this announcement.
+fn announce_connect(state: &AppState, address: &str, session: &str) {
+    if !state
+        .publisher
+        .publish(connect_subject(address), session.as_bytes().to_vec())
+    {
+        tracing::warn!(
+            addr = %address,
+            "connect announcement dropped: no broker link, so this session is given no room \
+             until its cluster changes"
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::heartbeat_position;
+    use super::*;
     use crate::proto::archipelago::Heartbeat;
     use crate::proto::Position;
+    use std::time::Duration;
 
     #[test]
     fn positionless_heartbeat_is_ignored() {
@@ -325,5 +337,27 @@ mod tests {
             desired_room: None,
         };
         assert_eq!(heartbeat_position(&hb), Some([1.5, 2.0, -3.25]));
+    }
+
+    #[test]
+    fn the_same_room_inside_the_window_is_a_repeat_and_a_different_one_is_not() {
+        let now = Instant::now();
+        let last = ("island-C1".to_string(), now);
+        assert!(is_repeat(Some(&last), "island-C1", now, 10_000));
+        assert!(!is_repeat(Some(&last), "island-C2", now, 10_000));
+        assert!(!is_repeat(None, "island-C1", now, 10_000));
+    }
+
+    #[test]
+    fn a_zero_window_repeats_nothing_and_an_elapsed_one_lets_the_room_through() {
+        let now = Instant::now();
+        let last = ("island-C1".to_string(), now);
+        assert!(!is_repeat(Some(&last), "island-C1", now, 0));
+        assert!(!is_repeat(
+            Some(&last),
+            "island-C1",
+            now + Duration::from_millis(10),
+            10
+        ));
     }
 }

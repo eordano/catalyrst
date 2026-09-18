@@ -19,7 +19,7 @@ import {
 } from "@data/lib/catalyst/marketplace/index";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import type { Route } from "./+types/marketplace.manage";
@@ -58,13 +58,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const owner =
     url.searchParams.get("owner")?.trim() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: asset } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () => resolveAsset(id, owner, request.signal),
   );
-
-  const asset = await resolveAsset(id, owner, request.signal);
 
   track(
     "mk_manage_asset_viewed",

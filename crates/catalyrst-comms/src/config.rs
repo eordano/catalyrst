@@ -42,6 +42,115 @@ pub struct Config {
     /// `build_state`), never to a shared literal that collides across
     /// instances.
     pub fed_peer_id: Option<String>,
+
+    pub cluster: ClusterConfig,
+}
+
+/// The Pulse cluster feed's settings. Env names are bare and upstream-matching like the rest of
+/// this crate's, and `NATS_URL` is deliberately the same flat name catalyrst-pulse and the
+/// archipelago services read, so one broker URL serves the whole platform unmodified.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClusterConfig {
+    /// `None` leaves the whole feed inert: nothing connects and nothing subscribes.
+    pub nats_url: Option<String>,
+    /// Off unless `CLUSTER_SUBSCRIBER_ENABLED` is exactly `true`. Off subscribes to nothing and
+    /// is indistinguishable from the subscriber not existing.
+    pub enabled: bool,
+    /// Shared by the minting and connect subscriptions, so exactly one replica answers each
+    /// event. Without it every replica would mint, and one client would be handed N different
+    /// tokens for the same move.
+    pub queue_group: String,
+    /// Base delay between displaced-session removal attempts. A configured 0 is a real value: a
+    /// retry with no sleep before it, not an unset variable.
+    pub takeover_retry_delay_ms: u64,
+    pub island_token_ttl_seconds: u64,
+    /// How long the ban gate's decision for one wallet may be reused. The feed can see many events
+    /// per wallet within seconds, and a ban also removes the participant from every live room.
+    /// Ceiling on the shutdown drain. A configured 0 is a real value here too: do not wait at all.
+    pub drain_timeout_ms: u64,
+    pub peer_state_max: usize,
+    pub peer_state_ttl_ms: u64,
+    pub assignment_mirror_max: usize,
+    pub assignment_mirror_ttl_ms: u64,
+}
+
+pub const DEFAULT_CLUSTER_QUEUE_GROUP: &str = "catalyrst-comms-cluster";
+/// Short on purpose: the client uses the string within a second of receiving it, and a displaced
+/// token the eviction could not reach stays usable only this long.
+pub const DEFAULT_ISLAND_TOKEN_TTL_SECONDS: u64 = 60;
+pub const DEFAULT_TAKEOVER_RETRY_DELAY_MS: u64 = 100;
+/// Long enough for a mint and its publish to finish, short enough that one request with no timeout
+/// of its own cannot hold shutdown open until the orchestrator kills the process.
+pub const DEFAULT_DRAIN_TIMEOUT_MS: u64 = 5_000;
+
+impl Default for ClusterConfig {
+    fn default() -> Self {
+        Self {
+            nats_url: None,
+            enabled: false,
+            queue_group: DEFAULT_CLUSTER_QUEUE_GROUP.to_string(),
+            takeover_retry_delay_ms: DEFAULT_TAKEOVER_RETRY_DELAY_MS,
+            island_token_ttl_seconds: DEFAULT_ISLAND_TOKEN_TTL_SECONDS,
+            drain_timeout_ms: DEFAULT_DRAIN_TIMEOUT_MS,
+            peer_state_max: crate::peer_state::DEFAULT_PEER_STATE_MAX,
+            peer_state_ttl_ms: crate::peer_state::DEFAULT_PEER_STATE_TTL_MS,
+            assignment_mirror_max: crate::peer_state::DEFAULT_ASSIGNMENT_MIRROR_MAX,
+            assignment_mirror_ttl_ms: crate::peer_state::DEFAULT_ASSIGNMENT_MIRROR_TTL_MS,
+        }
+    }
+}
+
+/// A set, parsable, strictly positive value; anything else is the default. Guards every sizing
+/// knob whose zero would silently disable the thing it sizes.
+fn positive_or<T>(name: &str, default: T) -> T
+where
+    T: std::str::FromStr + PartialOrd + Default + Copy,
+{
+    env::var(name)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<T>().ok())
+        .filter(|v| *v > T::default())
+        .unwrap_or(default)
+}
+
+impl ClusterConfig {
+    pub fn from_env() -> Self {
+        let defaults = Self::default();
+        Self {
+            nats_url: env::var("NATS_URL")
+                .ok()
+                .map(|u| u.trim().to_string())
+                .filter(|u| !u.is_empty()),
+            enabled: env::var("CLUSTER_SUBSCRIBER_ENABLED").as_deref() == Ok("true"),
+            queue_group: env::var("NATS_QUEUE_GROUP")
+                .ok()
+                .map(|g| g.trim().to_string())
+                .filter(|g| !g.is_empty())
+                .unwrap_or(defaults.queue_group),
+            takeover_retry_delay_ms: env::var("CLUSTER_TAKEOVER_RETRY_DELAY_MS")
+                .ok()
+                .and_then(|raw| raw.trim().parse().ok())
+                .unwrap_or(defaults.takeover_retry_delay_ms),
+            drain_timeout_ms: env::var("CLUSTER_DRAIN_TIMEOUT_MS")
+                .ok()
+                .and_then(|raw| raw.trim().parse().ok())
+                .unwrap_or(defaults.drain_timeout_ms),
+            island_token_ttl_seconds: positive_or(
+                "CLUSTER_ISLAND_TOKEN_TTL_SECONDS",
+                defaults.island_token_ttl_seconds,
+            ),
+            peer_state_max: positive_or("CLUSTER_PEER_STATE_MAX", defaults.peer_state_max),
+            peer_state_ttl_ms: positive_or("CLUSTER_PEER_STATE_TTL_MS", defaults.peer_state_ttl_ms),
+            assignment_mirror_max: positive_or(
+                "CLUSTER_ASSIGNMENT_MIRROR_MAX",
+                defaults.assignment_mirror_max,
+            ),
+            assignment_mirror_ttl_ms: positive_or(
+                "CLUSTER_ASSIGNMENT_MIRROR_TTL_MS",
+                defaults.assignment_mirror_ttl_ms,
+            ),
+        }
+    }
 }
 
 fn parse_moderator_addresses(raw: &str) -> Vec<String> {
@@ -147,6 +256,7 @@ impl Config {
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
+            cluster: ClusterConfig::from_env(),
         })
     }
 

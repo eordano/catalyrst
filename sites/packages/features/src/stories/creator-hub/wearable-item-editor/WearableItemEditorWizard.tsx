@@ -25,7 +25,7 @@ export type CollectionOption = {
   status?: string;
 };
 
-export type WearableItemEditorWizardProps = {
+type WearableItemEditorWizardProps = {
   trackCtx: TrackContext;
   draft: WearableDraft;
   collections: CollectionOption[];

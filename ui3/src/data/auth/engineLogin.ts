@@ -9,7 +9,7 @@ export { IDENTITY_STORAGE_KEY, toStoredIdentity } from "./identity";
 export type { StoredAuthIdentity } from "./identity";
 import { IDENTITY_STORAGE_KEY, toStoredIdentity, type StoredAuthIdentity } from "./identity";
 
-export type EngineAuthStatus = "none" | "pending" | "signedIn";
+type EngineAuthStatus = "none" | "pending" | "signedIn";
 export type EngineAuthState = { status: EngineAuthStatus; address: string | null };
 
 function isStoredIdentity(v: unknown): v is StoredAuthIdentity {
@@ -92,7 +92,7 @@ type IdentityPush = {
   signerAddress?: string | null;
 };
 
-export type EngineAuthDeps = {
+type EngineAuthDeps = {
   bridge?: () => ReturnType<typeof getBridge>;
   send?: typeof sendBridge;
   storage?: () => StorageLike | null;

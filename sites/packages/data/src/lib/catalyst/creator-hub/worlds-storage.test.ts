@@ -13,7 +13,6 @@ import {
 import { createIdentityFromPrivateKey } from "../../auth/identity";
 import type { AuthIdentity } from "../../auth/types";
 
-
 const BASE = "https://worlds.example.test";
 const SCOPE = { realm: "my-world.dcl.eth", parcel: "1,2" } as const;
 
@@ -36,6 +35,7 @@ describe("worlds-storage signed writes", () => {
   function captured() {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    fetchMock.mockClear();
     return { url, init, headers: init.headers as Headers };
   }
 
@@ -70,77 +70,62 @@ describe("worlds-storage signed writes", () => {
     expect(entity.payload).toBe(`${method}:${path}:${ts}:${meta}`.toLowerCase());
   }
 
-  it("saveValue: PUT /world-storage/values/{key} with {value} body", async () => {
+  it("saveValue: PUT /world-storage/values/{key} with the value verbatim as the {value} JSON body", async () => {
     await saveValue("highScore", 42, opts);
+    const first = captured();
+    expect(first.url).toBe(`${BASE}/world-storage/values/highScore`);
+    expect(first.init.method).toBe("PUT");
+    expect(first.headers.get("content-type")).toBe("application/json");
+    expect(first.init.body).toBe(JSON.stringify({ value: 42 }));
+    expectSignedAs(first.headers, "PUT", "/world-storage/values/highScore");
 
-    const { url, init, headers } = captured();
-    expect(url).toBe(`${BASE}/world-storage/values/highScore`);
-    expect(init.method).toBe("PUT");
-    expect(headers.get("content-type")).toBe("application/json");
-    expect(init.body).toBe(JSON.stringify({ value: 42 }));
-    expectSignedAs(headers, "PUT", "/world-storage/values/highScore");
-  });
-
-  it("saveValue: sends the value verbatim as JSON (objects preserved)", async () => {
     await saveValue("puzzle.state", { level: 4, done: false }, opts);
-    const { init } = captured();
-    expect(init.body).toBe(JSON.stringify({ value: { level: 4, done: false } }));
+    expect(captured().init.body).toBe(JSON.stringify({ value: { level: 4, done: false } }));
   });
 
-  it("saveEnvKey: PUT /world-storage/env/{key} with a string value", async () => {
+  it("env keys: PUT /world-storage/env/{key} with a string value, DELETE without a body, and clear with the confirm header", async () => {
     await saveEnvKey("API_URL", "https://api.example", opts);
+    const put = captured();
+    expect(put.url).toBe(`${BASE}/world-storage/env/API_URL`);
+    expect(put.init.method).toBe("PUT");
+    expect(put.init.body).toBe(JSON.stringify({ value: "https://api.example" }));
+    expectSignedAs(put.headers, "PUT", "/world-storage/env/API_URL");
 
-    const { url, init, headers } = captured();
-    expect(url).toBe(`${BASE}/world-storage/env/API_URL`);
-    expect(init.method).toBe("PUT");
-    expect(init.body).toBe(JSON.stringify({ value: "https://api.example" }));
-    expectSignedAs(headers, "PUT", "/world-storage/env/API_URL");
-  });
-
-  it("deleteValue: DELETE /world-storage/values/{key}, no body", async () => {
-    await deleteValue("highScore", opts);
-
-    const { url, init, headers } = captured();
-    expect(url).toBe(`${BASE}/world-storage/values/highScore`);
-    expect(init.method).toBe("DELETE");
-    expect(init.body).toBeUndefined();
-    expect(headers.get("content-type")).toBeNull();
-    expect(headers.get("x-confirm-delete-all")).toBeNull();
-    expectSignedAs(headers, "DELETE", "/world-storage/values/highScore");
-  });
-
-  it("deleteEnvKey: DELETE /world-storage/env/{key}, no body", async () => {
     await deleteEnvKey("API_URL", opts);
+    const del = captured();
+    expect(del.url).toBe(`${BASE}/world-storage/env/API_URL`);
+    expect(del.init.method).toBe("DELETE");
+    expect(del.init.body).toBeUndefined();
+    expectSignedAs(del.headers, "DELETE", "/world-storage/env/API_URL");
 
-    const { url, init, headers } = captured();
-    expect(url).toBe(`${BASE}/world-storage/env/API_URL`);
-    expect(init.method).toBe("DELETE");
-    expect(init.body).toBeUndefined();
-    expectSignedAs(headers, "DELETE", "/world-storage/env/API_URL");
-  });
-
-  it("clearValues: DELETE /world-storage/values with the confirm header", async () => {
-    await clearValues(opts);
-
-    const { url, init, headers } = captured();
-    expect(url).toBe(`${BASE}/world-storage/values`);
-    expect(init.method).toBe("DELETE");
-    expect(init.body).toBeUndefined();
-    expect(headers.get("x-confirm-delete-all")).toBe("true");
-    expectSignedAs(headers, "DELETE", "/world-storage/values");
-  });
-
-  it("clearEnvKeys: DELETE /world-storage/env with the confirm header", async () => {
     await clearEnvKeys(opts);
-
-    const { url, init, headers } = captured();
-    expect(url).toBe(`${BASE}/world-storage/env`);
-    expect(init.method).toBe("DELETE");
-    expect(headers.get("x-confirm-delete-all")).toBe("true");
-    expectSignedAs(headers, "DELETE", "/world-storage/env");
+    const clear = captured();
+    expect(clear.url).toBe(`${BASE}/world-storage/env`);
+    expect(clear.init.method).toBe("DELETE");
+    expect(clear.headers.get("x-confirm-delete-all")).toBe("true");
+    expectSignedAs(clear.headers, "DELETE", "/world-storage/env");
   });
 
-  it("folds the world realm + parcel into the signed metadata", async () => {
+  it("values: DELETE /world-storage/values/{key} without a body or confirm header, and clear only with the confirm header", async () => {
+    await deleteValue("highScore", opts);
+    const del = captured();
+    expect(del.url).toBe(`${BASE}/world-storage/values/highScore`);
+    expect(del.init.method).toBe("DELETE");
+    expect(del.init.body).toBeUndefined();
+    expect(del.headers.get("content-type")).toBeNull();
+    expect(del.headers.get("x-confirm-delete-all")).toBeNull();
+    expectSignedAs(del.headers, "DELETE", "/world-storage/values/highScore");
+
+    await clearValues(opts);
+    const clear = captured();
+    expect(clear.url).toBe(`${BASE}/world-storage/values`);
+    expect(clear.init.method).toBe("DELETE");
+    expect(clear.init.body).toBeUndefined();
+    expect(clear.headers.get("x-confirm-delete-all")).toBe("true");
+    expectSignedAs(clear.headers, "DELETE", "/world-storage/values");
+  });
+
+  it("folds the realm + parcel into the signed metadata, URL-encodes keys and signs the encoded path, and forwards the abort signal", async () => {
     await deleteValue("k", opts);
     const meta = JSON.parse(captured().headers.get("x-identity-metadata") as string);
     expect(meta).toEqual({
@@ -148,29 +133,23 @@ describe("worlds-storage signed writes", () => {
       realm: { serverName: "my-world.dcl.eth" },
       realmName: "my-world.dcl.eth",
     });
-  });
 
-  it("URL-encodes keys and signs the encoded path", async () => {
     await saveValue("a/b c", 1, opts);
-    const { url, headers } = captured();
-    expect(url).toBe(`${BASE}/world-storage/values/a%2Fb%20c`);
-    expectSignedAs(headers, "PUT", "/world-storage/values/a%2Fb%20c");
-  });
+    const encoded = captured();
+    expect(encoded.url).toBe(`${BASE}/world-storage/values/a%2Fb%20c`);
+    expectSignedAs(encoded.headers, "PUT", "/world-storage/values/a%2Fb%20c");
 
-  it("forwards the abort signal", async () => {
     const controller = new AbortController();
     await saveValue("k", 1, { ...opts, signal: controller.signal });
     expect(captured().init.signal).toBe(controller.signal);
   });
 
-  it("throws (never resolves) when the server rejects the write", async () => {
+  it("throws (never resolves) when the server rejects the write or the network fetch fails", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(null, { status: 403, statusText: "Forbidden" }),
     );
     await expect(deleteValue("k", opts)).rejects.toThrow(/403/);
-  });
 
-  it("throws when the network fetch fails", async () => {
     fetchMock.mockRejectedValueOnce(new Error("boom"));
     await expect(saveValue("k", 1, opts)).rejects.toThrow(/boom|failed/i);
   });

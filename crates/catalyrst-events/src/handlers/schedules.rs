@@ -114,6 +114,7 @@ async fn apply_upsert(
     authority::require_moderator(&state.pool, &signer).await?;
     let (applied, schedule) =
         fed_apply::apply_schedule(&state.pool, &signed, &signer, None).await?;
+    state.schedules.invalidate();
     if applied.fresh {
         emit_gossip(state, &signed, &applied.signature_hash, &signer).await;
     }

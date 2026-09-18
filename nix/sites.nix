@@ -11,7 +11,7 @@ buildNpmPackage {
   src = ../sites;
   nodejs = nodejs_26;
 
-  npmDepsHash = "sha256-H8wYV4cIG3tcPST7jnrM0ynKkn5frlpt7gJFmDxIdAw=";
+  npmDepsHash = "sha256-H4/8z6g3UErr1ORCeOnA1YBVlHJYg6IRpgWIgsSUPC0=";
 
   nativeBuildInputs = [ makeWrapper ];
 
@@ -42,6 +42,7 @@ buildNpmPackage {
     mkdir -p $out/bin
     makeWrapper ${nodejs_26}/bin/node $out/bin/sites-server \
       --add-flags "$out/node_modules/.bin/react-router-serve $out/build/server/index.js" \
+      --run 'export SITES_STATE_DIR="''${SITES_STATE_DIR:-$PWD/data}"' \
       --chdir "$out"
 
     runHook postInstall

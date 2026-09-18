@@ -2,7 +2,7 @@ import { PendingTopupStoreSchema } from "../../persisted-schemas";
 
 import { createPendingStore } from "./pending-store";
 
-export const PENDING_TOPUP_KEY = "dcl:mk:pending-mana-topup:v1";
+const PENDING_TOPUP_KEY = "dcl:mk:pending-mana-topup:v1";
 
 const PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 

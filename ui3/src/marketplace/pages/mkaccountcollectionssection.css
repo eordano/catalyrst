@@ -91,7 +91,7 @@
   padding: 6px 2px;
   cursor: pointer;
 }
-.cl__sortbtn .cl__caret, .cl__sortbtn svg { color: var(--cl-secondary-text); }
+.cl__sortbtn svg { color: var(--cl-secondary-text); }
 .cl__sortmenu {
   position: absolute;
   right: 0;

@@ -71,13 +71,15 @@ beforeEach(() => {
 });
 
 describe("buildSubmitReport \u{2014} real comms player-report write", () => {
-  it("presigns, uploads the bytes, then creates the report", async () => {
+  it("presigns, uploads the bytes, then creates the report under the server's id, never a locally minted one", async () => {
     happyPath();
 
     const out = await buildSubmitReport(IDENTITY)({ draft: draft() });
 
     expect(out).toEqual({ reportId: REPORT_ID, evidenceKeys: [KEY] });
     expect(Object.keys(out).sort()).toEqual(["evidenceKeys", "reportId"]);
+    expect(out.reportId).toBe(REPORT_ID);
+    expect(out.reportId).not.toMatch(/^sim-report-/);
 
     const [presignPath, presignBody, presignOpts] = mPostJSON.mock.calls[0];
     expect(presignPath).toBe("/comms/reports/players/presign");
@@ -126,39 +128,26 @@ describe("buildSubmitReport \u{2014} real comms player-report write", () => {
     expect(JSON.stringify(createBody)).not.toContain("0bad");
   });
 
-  it("returns the server's report id, never a locally minted one", async () => {
-    happyPath();
-
-    const out = await buildSubmitReport(IDENTITY)({ draft: draft() });
-
-    expect(out.reportId).toBe(REPORT_ID);
-    expect(out.reportId).not.toMatch(/^sim-report-/);
-  });
-
-  it("fails closed without an identity \u{2014} no presign, no upload", async () => {
+  it("fails closed before any upload: no identity, evidence without bytes, an unconfirmed draft, or a presign plan that skips a file", async () => {
     await expect(
       buildSubmitReport(null)({ draft: draft() }),
     ).rejects.toThrow(/connect your wallet/i);
-    expect(mPostJSON).not.toHaveBeenCalled();
-    expect(mSignedFetch).not.toHaveBeenCalled();
-  });
-
-  it("refuses to submit evidence it cannot upload", async () => {
-    const noBytes = draft({
-      evidence: [{ id: "e1", name: "clip.png", size: 4 }],
-    });
-
     await expect(
-      buildSubmitReport(IDENTITY)({ draft: noBytes }),
+      buildSubmitReport(IDENTITY)({
+        draft: draft({ evidence: [{ id: "e1", name: "clip.png", size: 4 }] }),
+      }),
     ).rejects.toThrow(/re-attach your evidence/i);
-    expect(mPostJSON).not.toHaveBeenCalled();
-  });
-
-  it("rejects an incomplete draft before touching the network", async () => {
     await expect(
       buildSubmitReport(IDENTITY)({ draft: draft({ confirmAccuracy: false }) }),
     ).rejects.toThrow(/confirm/i);
     expect(mPostJSON).not.toHaveBeenCalled();
+
+    mPostJSON.mockResolvedValueOnce({ reportId: REPORT_ID, files: [] });
+    await expect(
+      buildSubmitReport(IDENTITY)({ draft: draft() }),
+    ).rejects.toThrow(/unexpected upload plan/i);
+    expect(mPostJSON).toHaveBeenCalledTimes(1);
+    expect(mSignedFetch).not.toHaveBeenCalled();
   });
 
   it("propagates a failed upload instead of reporting success", async () => {
@@ -169,14 +158,5 @@ describe("buildSubmitReport \u{2014} real comms player-report write", () => {
       buildSubmitReport(IDENTITY)({ draft: draft() }),
     ).rejects.toThrow(/403/);
     expect(mPostJSON).toHaveBeenCalledTimes(1);
-  });
-
-  it("rejects an upload plan that does not cover every file", async () => {
-    mPostJSON.mockResolvedValueOnce({ reportId: REPORT_ID, files: [] });
-
-    await expect(
-      buildSubmitReport(IDENTITY)({ draft: draft() }),
-    ).rejects.toThrow(/unexpected upload plan/i);
-    expect(mSignedFetch).not.toHaveBeenCalled();
   });
 });

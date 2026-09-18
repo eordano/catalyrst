@@ -24,7 +24,7 @@ import { track } from "@core/lib/telemetry/track";
 import type { TrackContext } from "@core/lib/telemetry/track";
 import { openSignIn } from "../auth/signin-store";
 
-export type AssetDetailViewProps = {
+type AssetDetailViewProps = {
   itemId: string;
   nft: AssetDetail;
   listings: AssetListing[];

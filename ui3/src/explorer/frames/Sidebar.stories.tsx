@@ -8,6 +8,7 @@ import Notifications from "../components/Notifications";
 import VoiceChat from "../components/VoiceChat";
 import SkyboxHUD from "../components/SkyboxHUD";
 import ProfileWidget from "../components/ProfileWidget";
+import { MinimapVisibilityProvider } from "../../overlay/minimapVisibility";
 import "../../overlay/overlay.css";
 
 const meta = {
@@ -102,4 +103,29 @@ function SidebarReview() {
 
 export const Review: Story = {
   render: () => <SidebarReview />,
+};
+
+function SidebarMinimapHidden() {
+  useState(() => {
+    try {
+      localStorage.removeItem("dcl.minimap.userHidden");
+    } catch {
+    }
+    return true;
+  });
+  return (
+    <div style={STAGE}>
+      <MinimapVisibilityProvider>
+        <div className="ui3-overlay" data-live="true">
+          <div className="ui3-overlay__widget ui3-overlay__sidebar">
+            <Sidebar />
+          </div>
+        </div>
+      </MinimapVisibilityProvider>
+    </div>
+  );
+}
+
+export const MinimapHidden: Story = {
+  render: () => <SidebarMinimapHidden />,
 };

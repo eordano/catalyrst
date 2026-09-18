@@ -73,30 +73,24 @@ function renderEvents() {
 }
 
 describe("events jump in", () => {
-  test("world event confirms then changes realm instead of teleporting", async () => {
+  test("a world event asks first: cancelling sends nothing, continuing changes realm instead of teleporting", async () => {
     const { bridge, user } = renderEvents();
     await user.click(screen.getByRole("button", { name: "Jump in to World Bash" }));
-
     bridge.expectNotSent("Teleport");
     bridge.expectNotSent("ChangeRealm");
-    const modal = screen.getByRole("dialog", { name: "Visit world" });
+    let modal = screen.getByRole("dialog", { name: "Visit world" });
     expect(within(modal).getByText("kickoff.dcl.eth")).toBeInTheDocument();
-
-    await user.click(within(modal).getByRole("button", { name: "CONTINUE" }));
-    bridge.expectSent("ChangeRealm", { realm: "kickoff.dcl.eth" });
-    bridge.expectNotSent("Teleport");
-    expect(screen.getByRole("status")).toHaveTextContent("Teleporting to World Bash");
-  });
-
-  test("cancelling the world confirm sends nothing", async () => {
-    const { bridge, user } = renderEvents();
-    await user.click(screen.getByRole("button", { name: "Jump in to World Bash" }));
-
-    const modal = screen.getByRole("dialog", { name: "Visit world" });
     await user.click(within(modal).getByRole("button", { name: "CANCEL" }));
     expect(screen.queryByRole("dialog", { name: "Visit world" })).toBeNull();
     bridge.expectNotSent("ChangeRealm");
     bridge.expectNotSent("Teleport");
+
+    await user.click(screen.getByRole("button", { name: "Jump in to World Bash" }));
+    modal = screen.getByRole("dialog", { name: "Visit world" });
+    await user.click(within(modal).getByRole("button", { name: "CONTINUE" }));
+    bridge.expectSent("ChangeRealm", { realm: "kickoff.dcl.eth" });
+    bridge.expectNotSent("Teleport");
+    expect(screen.getByRole("status")).toHaveTextContent("Teleporting to World Bash");
   });
 
   test("parcel event teleports on the current realm", async () => {

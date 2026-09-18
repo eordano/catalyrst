@@ -345,18 +345,21 @@ impl RemoteWorldsComponent {
         .execute(&mut *tx)
         .await?;
 
-        for peer in &revoked {
+        if !revoked.is_empty() {
+            let ids: Vec<&str> = revoked.iter().map(|p| p.peer_id.as_str()).collect();
+            let deleted: Vec<i64> = revoked.iter().map(|p| p.worlds_deleted).collect();
             sqlx::query(
                 "INSERT INTO remote_peer_status \
                      (peer_id, deadmitted_at, deadmitted_worlds_deleted) \
-                 VALUES ($1, now(), $2) \
+                 SELECT peer_id, now(), deleted \
+                 FROM unnest($1::text[], $2::bigint[]) AS t(peer_id, deleted) \
                  ON CONFLICT (peer_id) DO UPDATE SET \
                      deadmitted_at = COALESCE(remote_peer_status.deadmitted_at, now()), \
                      deadmitted_worlds_deleted = remote_peer_status.deadmitted_worlds_deleted \
                                                + EXCLUDED.deadmitted_worlds_deleted",
             )
-            .bind(&peer.peer_id)
-            .bind(peer.worlds_deleted)
+            .bind(&ids)
+            .bind(&deleted)
             .execute(&mut *tx)
             .await?;
         }
@@ -447,19 +450,10 @@ impl RemoteWorldsComponent {
         let admitted = admitted_ids(admitted);
         let peer = peer.map(|p| p.as_str().to_string());
 
-        let total: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM remote_worlds \
-             WHERE hidden_since IS NULL AND peer_id = ANY($1) \
-               AND ($2::text IS NULL OR peer_id = $2)",
-        )
-        .bind(&admitted)
-        .bind(peer.as_deref())
-        .fetch_one(&self.pool)
-        .await?;
-
         let rows = sqlx::query(
             "SELECT peer_id, world_name, title, description, content_rating, categories, \
-                    thumbnail_hash, deployed_scenes, last_deployed_at, observed_at, hidden_since \
+                    thumbnail_hash, deployed_scenes, last_deployed_at, observed_at, hidden_since, \
+                    count(*) OVER () AS total \
              FROM remote_worlds \
              WHERE hidden_since IS NULL AND peer_id = ANY($1) \
                AND ($2::text IS NULL OR peer_id = $2) \
@@ -472,6 +466,21 @@ impl RemoteWorldsComponent {
         .bind(offset)
         .fetch_all(&self.pool)
         .await?;
+        let total: i64 = match rows.first() {
+            Some(row) => row.try_get("total")?,
+            None if offset > 0 => {
+                sqlx::query_scalar(
+                    "SELECT count(*) FROM remote_worlds \
+                     WHERE hidden_since IS NULL AND peer_id = ANY($1) \
+                       AND ($2::text IS NULL OR peer_id = $2)",
+                )
+                .bind(&admitted)
+                .bind(peer.as_deref())
+                .fetch_one(&self.pool)
+                .await?
+            }
+            None => 0,
+        };
 
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {

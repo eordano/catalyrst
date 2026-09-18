@@ -5,7 +5,7 @@ import "./mpreportview.css";
 
 export type MpPerfSeries = { client: string; fps: number[] };
 
-export type MpReportViewProps = {
+type MpReportViewProps = {
   runId: string;
   lane: MpLane;
   report: MpReportData | null;

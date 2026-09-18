@@ -1,17 +1,9 @@
-import {
-  NO_VALUE,
-  datumModifier,
-  disagree,
-  formatDatum,
-  isStale,
-  showable,
-  type Datum,
-} from "../lib/datum";
+import { datumModifier, disagree, formatDatum, isStale, showable, type Datum } from "../lib/datum";
 import DatumBadge from "./DatumBadge";
 import DatumNote from "./DatumNote";
 import "./datumtile.css";
 
-export type DatumTileProps = {
+type DatumTileProps = {
   label: string;
   datum: Datum<number | string>;
   format?: (v: number | string) => string;
@@ -85,4 +77,3 @@ export default function DatumTile({
   );
 }
 
-export { NO_VALUE };

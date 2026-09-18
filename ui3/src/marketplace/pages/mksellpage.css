@@ -70,11 +70,6 @@
   color: var(--undefined-ink-3);
 }
 .mksellpage__subtitle b { color: var(--undefined-ink); font-weight: 700; }
-
-.mksellpage__fields {
-  max-width: 420px;
-  margin-bottom: 20px;
-}
 .mksellpage__field { margin-bottom: 18px; }
 .mksellpage__field:last-child { margin-bottom: 0; }
 .mksellpage__label {
@@ -143,48 +138,6 @@
   color: var(--undefined-ink-2);
 }
 .mksellpage__cancel:not(:disabled):hover { background: var(--mksell-cancel-bg-hover); }
-
-.mksellpage__cancelorder {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  width: 500px;
-  max-width: 100%;
-}
-.mksellpage__cancelorder .btn {
-  height: 44px;
-  padding: 0 26px;
-  font-size: 15px;
-  border-radius: 6px;
-  align-self: flex-start;
-}
-.mksellpage__banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 14px 16px;
-  border-radius: var(--r-control);
-  background: var(--undefined-warn-bg);
-  border: 1px solid var(--undefined-warn-line);
-  color: var(--undefined-warn-ink);
-  font-size: 14px;
-  line-height: 1.45;
-  font-weight: 600;
-}
-.mksellpage__banner svg { flex: 0 0 auto; margin-top: 1px; }
-
-.mksellpage__confirm { color: var(--undefined-ink); }
-.mksellpage__confirmhead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: -4px 0 16px;
-}
-.mksellpage__confirmtitle {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-}
 .mksellpage__close {
   border: 0;
   background: none;
@@ -195,40 +148,6 @@
   border-radius: 8px;
 }
 .mksellpage__close:hover { background: var(--panel-2); color: var(--undefined-ink); }
-.mksellpage__confirmbody {
-  font-size: 15px;
-  line-height: 1.55;
-  color: var(--undefined-ink-2);
-  margin-bottom: 18px;
-}
-.mksellpage__confirmbody b { color: var(--undefined-ink); }
-.mksellpage__confirmbody .mksellpage__amount {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-weight: 700;
-  color: var(--undefined-ink);
-}
-.mksellpage__confirmbody .mksellpage__amount svg { color: var(--brand); }
-.mksellpage__warn { color: var(--undefined-danger); font-weight: 700; margin: 10px 0; }
-.mksellpage__confirmlabel {
-  display: block;
-  margin: 4px 0 7px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--undefined-ink-2);
-}
-.mksellpage__errmsg {
-  margin: 14px 0 0;
-  padding: 10px 12px;
-  border-radius: var(--r-control);
-  background: color-mix(in srgb, var(--error) 16%, transparent);
-  border: 1px solid var(--error);
-  color: var(--undefined-danger);
-  font-size: 13px;
-  font-weight: 600;
-}
-.mksellpage__errmsg strong { display: block; margin-bottom: 2px; }
 .mksellpage__confirmactions {
   display: flex;
   justify-content: flex-end;
@@ -237,19 +156,10 @@
 }
 .mksellpage__confirmactions .btn { border-radius: 6px; }
 
-.mksellpage__modalcard {
-  background: var(--undefined-surface);
-  border: 1px solid var(--undefined-line);
-  color: var(--undefined-ink);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
-}
-
 @media (max-width: 768px) {
   .mksellpage__page { padding: 24px 18px 36px; }
   .mksellpage__row { flex-direction: column; align-items: stretch; gap: 28px; }
   .mksellpage__left { justify-content: center; margin-right: 0; }
-  .mksellpage__fields { max-width: 100%; }
   .mksellpage__buttons { flex-direction: column-reverse; }
-  .mksellpage__cancelorder { width: 100%; }
   .mksellpage__back { margin: 12px 0 28px; }
 }

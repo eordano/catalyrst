@@ -22,7 +22,7 @@ export function fallbackDisplayLine(l: CartLine): DisplayLine {
   };
 }
 
-export async function resolveDisplayLine(
+async function resolveDisplayLine(
   l: CartLine,
   signal?: AbortSignal,
 ): Promise<DisplayLine> {

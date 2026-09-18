@@ -262,6 +262,19 @@ pub struct PlaceListFilters {
 
     pub place_user_counts: Vec<(String, i32)>,
     pub world_user_counts: Vec<(String, i32)>,
+
+    /// Lowercased signer whose favorites/likes ride along in the page query.
+    pub viewer: Option<String>,
+    /// Restrict the page to `viewer`'s favorites inside the query (EXISTS).
+    pub viewer_favorites_only: bool,
+}
+
+/// Viewer interaction columns; `idx` is the placeholder bound to the lowercased address.
+pub(super) fn viewer_columns(idx: usize) -> String {
+    format!(
+        r#", EXISTS (SELECT 1 FROM user_favorites uf WHERE uf.entity_id = place_indexed.id AND lower(uf."user") = ${idx}) AS viewer_favorite,
+    (SELECT ul."like" FROM user_likes ul WHERE ul.entity_id = place_indexed.id AND lower(ul."user") = ${idx} LIMIT 1) AS viewer_like"#
+    )
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -400,6 +413,22 @@ pub(super) fn row_to_place(
     r: sqlx::postgres::PgRow,
     content_origin: Option<&ContentOrigin>,
 ) -> PlaceRow {
+    let viewer_favorite = r.try_get::<bool, _>("viewer_favorite").ok();
+    let viewer_like = r.try_get::<Option<bool>, _>("viewer_like").ok().flatten();
+    let (user_favorite, user_like, user_dislike) =
+        if viewer_favorite == Some(true) || viewer_like.is_some() {
+            (
+                viewer_favorite.unwrap_or(false),
+                viewer_like == Some(true),
+                viewer_like == Some(false),
+            )
+        } else {
+            (
+                r.try_get::<bool, _>("user_favorite").unwrap_or(false),
+                r.try_get::<bool, _>("user_like").unwrap_or(false),
+                r.try_get::<bool, _>("user_dislike").unwrap_or(false),
+            )
+        };
     PlaceRow {
         id: r.get::<String, _>("id"),
         title: r.try_get::<Option<String>, _>("title").unwrap_or(None),
@@ -470,9 +499,9 @@ pub(super) fn row_to_place(
         show_in_places: r.try_get::<bool, _>("show_in_places").unwrap_or(true),
         single_player: r.try_get::<bool, _>("single_player").unwrap_or(false),
         skybox_time: r.try_get::<Option<f64>, _>("skybox_time").unwrap_or(None),
-        user_favorite: r.try_get::<bool, _>("user_favorite").unwrap_or(false),
-        user_like: r.try_get::<bool, _>("user_like").unwrap_or(false),
-        user_dislike: r.try_get::<bool, _>("user_dislike").unwrap_or(false),
+        user_favorite,
+        user_like,
+        user_dislike,
         user_count: r.try_get::<Option<i32>, _>("user_count").unwrap_or(None),
         user_visits: r.try_get::<i32, _>("user_visits").unwrap_or(0),
         like_rate: r.try_get::<Option<f64>, _>("like_rate").unwrap_or(None),

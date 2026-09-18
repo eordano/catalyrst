@@ -81,11 +81,10 @@ pub async fn get_quests(
             total: 0,
         }));
     };
-    let stored = db
-        .get_active_quests(p.offset.unwrap_or(0), p.limit.unwrap_or(50))
+    let (stored, total) = db
+        .get_active_quests_page(p.offset.unwrap_or(0), p.limit.unwrap_or(50))
         .await
         .map_err(internal)?;
-    let total = db.count_active_quests().await.map_err(internal)?;
     let mut quests = Vec::with_capacity(stored.len());
     for sq in &stored {
         quests.push(to_quest(sq, false)?);
@@ -136,41 +135,28 @@ pub async fn get_quest_reward(
         return Err(StatusCode::NOT_FOUND);
     };
 
-    let mut with_hook = q.with_hook.unwrap_or(false);
-    if with_hook {
-        let signer = optional_signer(&headers, "get", &format!("/api/quests/{id}/reward")).await;
-        let is_creator = match &signer {
-            Some(addr) => db
-                .is_quest_creator(&id, addr.as_str())
-                .await
-                .map_err(internal)?,
-            None => false,
-        };
-        if !is_creator {
-            with_hook = false;
-        }
-    }
-
-    if with_hook {
-        let items = db.get_quest_reward_items(&id).await.map_err(internal)?;
-        if items.is_empty() {
-            return Err(StatusCode::NOT_FOUND);
-        }
-        let hook = db
-            .get_quest_reward_hook(&id)
-            .await
-            .map_err(not_found_or_internal)?;
-        Ok(Json(GetQuestRewardResponse {
-            items,
-            hook: Some(hook),
-        }))
+    let with_hook = q.with_hook.unwrap_or(false);
+    let signer = if with_hook {
+        optional_signer(&headers, "get", &format!("/api/quests/{id}/reward")).await
     } else {
-        let items = db.get_quest_reward_items(&id).await.map_err(internal)?;
-        if items.is_empty() {
-            return Err(StatusCode::NOT_FOUND);
-        }
-        Ok(Json(GetQuestRewardResponse { items, hook: None }))
+        None
+    };
+    let reward = db
+        .get_quest_reward(&id, signer.as_ref().map(|a| a.as_str()))
+        .await
+        .map_err(internal)?;
+    if reward.items.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
     }
+    let hook = if with_hook && reward.is_creator {
+        Some(reward.hook.ok_or(StatusCode::NOT_FOUND)?)
+    } else {
+        None
+    };
+    Ok(Json(GetQuestRewardResponse {
+        items: reward.items,
+        hook,
+    }))
 }
 
 pub async fn get_quests_by_creator(
@@ -192,12 +178,8 @@ pub async fn get_quests_by_creator(
         .map(|a| a.as_str().eq_ignore_ascii_case(&creator))
         .unwrap_or(false);
 
-    let stored = db
-        .get_quests_by_creator(&creator_lc, p.offset.unwrap_or(0), p.limit.unwrap_or(50))
-        .await
-        .map_err(internal)?;
-    let total = db
-        .count_quests_by_creator(&creator_lc)
+    let (stored, total) = db
+        .get_quests_by_creator_page(&creator_lc, p.offset.unwrap_or(0), p.limit.unwrap_or(50))
         .await
         .map_err(internal)?;
     let mut quests = Vec::with_capacity(stored.len());
@@ -243,16 +225,12 @@ pub async fn get_quest_instances(
     .await?;
     let _ = signer;
 
-    let instances = db
-        .get_active_quest_instances_by_quest_id(
+    let (instances, total) = db
+        .get_active_quest_instances_by_quest_id_page(
             &quest_id,
             p.offset.unwrap_or(0),
             p.limit.unwrap_or(50),
         )
-        .await
-        .map_err(internal)?;
-    let total = db
-        .count_active_quest_instances_by_quest_id(&quest_id)
         .await
         .map_err(internal)?;
     Ok(Json(GetQuestInstancesResponse {
@@ -286,24 +264,24 @@ pub async fn get_instance_state(
     let Some(db) = s.db.as_deref() else {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     };
-    let instance = db
-        .get_quest_instance(&instance_id)
-        .await
-        .map_err(not_found_or_internal)?;
-    require_creator(
-        db,
-        &instance.quest_id,
+    let (with_quest, stored_events) = tokio::join!(
+        db.get_quest_instance_with_quest(&instance_id),
+        db.get_events(&instance_id)
+    );
+    let (instance, stored) = with_quest.map_err(not_found_or_internal)?;
+    let signer = optional_signer(
         &headers,
         "get",
         &format!("/api/instances/{instance_id}/state"),
     )
-    .await?;
-
-    let quest = db
-        .get_quest_with_decoded_definition(&instance.quest_id)
-        .await
-        .map_err(not_found_or_internal)?;
-    let stored_events = db.get_events(&instance.id).await.map_err(internal)?;
+    .await
+    .ok_or(StatusCode::UNAUTHORIZED)?;
+    if stored.creator_address != signer.as_str() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let quest = to_quest(&stored, true)?;
+    let stored_events = stored_events.map_err(internal)?;
+    let _ = instance;
     let decoded = {
         use crate::proto::ProtocolMessage;
         stored_events

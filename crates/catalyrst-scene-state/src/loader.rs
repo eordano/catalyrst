@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::delegation::{self, DelegationSlot};
+use crate::delegation::{self, DelegationSlot, StorageDelegation};
 use crate::jsruntime::{parse_origin, StorageCtx};
 use crate::runtime::{JsRuntime, RelayRuntime, RuntimeLimits, SceneRuntime, ServerTransportConfig};
 use crate::scene::Scene;
@@ -18,28 +18,36 @@ pub async fn load_or_reload(state: &AppState, name: &str) -> Result<()> {
         drop(prev);
     }
 
-    let (hash, source, static_crdt, base_parcel) = if name == LOCAL_SCENE_NAME {
+    let (hash, source, static_crdt, base_parcel, minted) = if name == LOCAL_SCENE_NAME {
         let path = state
             .cfg
             .local_scene_path
             .clone()
             .ok_or_else(|| anyhow::anyhow!("LOCAL_SCENE_PATH not set"))?;
         let src = scene_fetcher::from_local(&path).await?;
-        (LOCAL_SCENE_NAME.to_string(), src, Vec::new(), None)
+        (LOCAL_SCENE_NAME.to_string(), src, Vec::new(), None, None)
     } else {
         let world_url = state
             .cfg
             .world_server_url
             .clone()
             .ok_or_else(|| anyhow::anyhow!("WORLD_SERVER_URL not set"))?;
-        let ws = scene_fetcher::from_world(
-            &state.http,
-            &world_url,
-            name,
-            state.cfg.fetch_max_body_bytes,
+        let max = state.cfg.fetch_max_body_bytes;
+        let resolved =
+            scene_fetcher::resolve_world_scene(&state.http, &world_url, name, max).await?;
+        // The files and the initial delegation mint only need the resolved scene.
+        let (files, minted) = tokio::join!(
+            scene_fetcher::fetch_scene_files(&state.http, &resolved, max),
+            initial_delegation(state, name, &resolved.scene_hash, &resolved.base_parcel),
+        );
+        let (code, static_crdt) = files?;
+        (
+            resolved.scene_hash,
+            code,
+            static_crdt,
+            Some(resolved.base_parcel),
+            minted,
         )
-        .await?;
-        (ws.scene_hash, ws.code, ws.static_crdt, Some(ws.base_parcel))
     };
 
     let mut renewal: Option<tokio::task::JoinHandle<()>> = None;
@@ -70,13 +78,14 @@ pub async fn load_or_reload(state: &AppState, name: &str) -> Result<()> {
             fetch_max_in_flight: state.cfg.signed_fetch_max_in_flight,
             fetch_timeout_ms: state.cfg.signed_fetch_timeout_ms,
         };
-        let storage = match build_storage_ctx(state, name, &hash, base_parcel.as_deref()).await {
-            Some((ctx, task)) => {
-                renewal = task;
-                Some(ctx)
-            }
-            None => None,
-        };
+        let storage =
+            match build_storage_ctx(state, name, &hash, base_parcel.as_deref(), minted).await {
+                Some((ctx, task)) => {
+                    renewal = task;
+                    Some(ctx)
+                }
+                None => None,
+            };
         Arc::new(JsRuntime::new(
             hash.clone(),
             source,
@@ -92,11 +101,40 @@ pub async fn load_or_reload(state: &AppState, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Mints the first storage delegation when the runtime will need one, so the loader can
+/// overlap it with the file fetch; `None` means `build_storage_ctx` decides on its own.
+async fn initial_delegation(
+    state: &AppState,
+    world: &str,
+    scene_hash: &str,
+    base_parcel: &str,
+) -> Option<Result<StorageDelegation>> {
+    if state.cfg.disable_js_runtime
+        || state.cfg.storage_url.is_none()
+        || state.cfg.storage_delegation.is_some()
+    {
+        return None;
+    }
+    let minter = state.cfg.delegation_minter_url.as_deref()?;
+    Some(
+        delegation::mint_from_minter(
+            &state.http,
+            minter,
+            state.cfg.delegation_minter_token.as_deref(),
+            world,
+            scene_hash,
+            base_parcel,
+        )
+        .await,
+    )
+}
+
 async fn build_storage_ctx(
     state: &AppState,
     world: &str,
     scene_hash: &str,
     base_parcel: Option<&str>,
+    minted: Option<Result<StorageDelegation>>,
 ) -> Option<(StorageCtx, Option<tokio::task::JoinHandle<()>>)> {
     let raw = state.cfg.storage_url.as_deref()?;
     let origin = match parse_origin(raw, state.cfg.storage_allow_http) {
@@ -120,16 +158,21 @@ async fn build_storage_ctx(
         }
     } else if let (Some(minter), Some(parcel)) = (&state.cfg.delegation_minter_url, base_parcel) {
         let token = state.cfg.delegation_minter_token.clone();
-        match delegation::mint_from_minter(
-            &state.http,
-            minter,
-            token.as_deref(),
-            world,
-            scene_hash,
-            parcel,
-        )
-        .await
-        {
+        let first = match minted {
+            Some(result) => result,
+            None => {
+                delegation::mint_from_minter(
+                    &state.http,
+                    minter,
+                    token.as_deref(),
+                    world,
+                    scene_hash,
+                    parcel,
+                )
+                .await
+            }
+        };
+        match first {
             Ok(d) => *slot.lock() = Some(d),
             Err(_) => tracing::warn!(
                 world,

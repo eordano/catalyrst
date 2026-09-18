@@ -1,6 +1,6 @@
 import "./ldrunserverpage.css";
 
-export type LdRunServerPageProps = {
+type LdRunServerPageProps = {
   setupHref: string;
   serverHref: string;
 };

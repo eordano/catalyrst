@@ -4,16 +4,14 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { renderHud } from "./harness";
 
 const sidebar = () => screen.getByRole("navigation", { name: "Main menu" });
+const chatInput = () => screen.getByLabelText("Send a message to Nearby chat");
 
 describe("HUD mount contract", () => {
-  test("mounting the world HUD requests the avatar preview and stops emotes", () => {
-    const { bridge } = renderHud();
+  test("mounting requests the avatar preview and stops emotes, and so does returning from a panel", async () => {
+    const { user, bridge } = renderHud();
     bridge.expectSent("RequestAvatarPreview");
     bridge.expectSent("StopEmote");
-  });
 
-  test("returning to the world from a panel stops any playing emote", async () => {
-    const { user, bridge } = renderHud();
     await user.keyboard("p");
     bridge.clearSent();
     await user.keyboard("{Escape}");
@@ -22,94 +20,134 @@ describe("HUD mount contract", () => {
 });
 
 describe("chat commands", () => {
-  test("Enter in the chat input sends SendChat {message, channel} and clears it", async () => {
+  test("Enter sends SendChat {message, channel} and clears the draft; whitespace-only drafts are not sent", async () => {
     const { user, bridge } = renderHud();
     await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
-    const input = screen.getByLabelText("Send a message to Nearby chat");
 
-    await user.type(input, "gm nearby{Enter}");
-    expect(bridge.expectSent("SendChat")).toEqual({
-      channel: "Nearby",
-      message: "gm nearby",
-    });
-    expect(input).toHaveValue("");
+    await user.type(chatInput(), "gm nearby{Enter}");
+    expect(bridge.expectSent("SendChat")).toEqual({ channel: "Nearby", message: "gm nearby" });
+    expect(chatInput()).toHaveValue("");
+
+    bridge.clearSent();
+    await user.type(chatInput(), "   {Enter}");
+    bridge.expectNotSent("SendChat");
   });
 
-  test("whitespace-only chat drafts are not sent", async () => {
+  test("slash commands go to the engine console path; echo and output render as console lines stamped today", async () => {
     const { user, bridge } = renderHud();
     await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
-    await user.type(
-      screen.getByLabelText("Send a message to Nearby chat"),
-      "   {Enter}",
-    );
+    await user.type(chatInput(), "/fps 30{Enter}");
+    expect(bridge.expectSent("SendChat")).toEqual({ channel: "Nearby", message: "/fps 30" });
+    expect(screen.queryByText("/fps 30")).toBeNull();
+
+    bridge.pushIdentity({ address: "0xabc0000000000000000000000000000000000abc", name: "Me" });
+    bridge.pushChat({ senderName: "Me", senderAddress: "0xabc0000000000000000000000000000000000abc", channel: "System", message: "/fps 30", timestamp: 12.5 });
+    bridge.pushChat({ senderName: "", senderAddress: "", channel: "System", message: "Available commands:" });
+
+    const echo = await screen.findByText("/fps 30");
+    expect(echo.closest("[data-console]")).toHaveAttribute("data-console", "echo");
+    expect(screen.getByText("Available commands:").closest("[data-console]")).toHaveAttribute("data-console", "output");
+    expect(screen.queryByRole("button", { name: /^View / })).toBeNull();
+    expect(screen.getByText("Today")).toBeInTheDocument();
+    expect(screen.queryByText(/Jan 1/)).toBeNull();
+  });
+
+  test("/clear answers locally; /help asks the engine and merges its list; /help <cmd> answers from the table", async () => {
+    const { user, bridge } = renderHud();
+    await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
+    bridge.pushChat({ message: "before the clear" });
+    expect(await screen.findByText("before the clear")).toBeInTheDocument();
+
+    await user.type(chatInput(), "/clear{Enter}");
     bridge.expectNotSent("SendChat");
+    expect(screen.queryByText("before the clear")).toBeNull();
+
+    bridge.pushChat({ message: "after the clear" });
+    expect(await screen.findByText("after the clear")).toBeInTheDocument();
+    expect(screen.queryByText("before the clear")).toBeNull();
+
+    await user.type(chatInput(), "/help{Enter}");
+    expect(bridge.expectSent("SendChat")).toEqual({ channel: "Nearby", message: "/help" });
+    expect(screen.queryByText(/Chat commands:/)).toBeNull();
+    const engine = { senderName: "", senderAddress: "", channel: "System" as const };
+    bridge.pushChat({ ...engine, message: "Available commands:" });
+    bridge.pushChat({ ...engine, message: "  /fps             - Set the target frame rate" });
+    bridge.pushChat({ ...engine, message: "  /noclip          - " });
+    bridge.pushChat({ ...engine, message: "[ok]" });
+    const help = await screen.findByText(/Chat commands:/);
+    expect(help).toHaveTextContent("/clear");
+    expect(help).toHaveTextContent("/fps <fps> \u{2014} set the target frame rate");
+    expect(help).toHaveTextContent("/noclip");
+    expect(help).not.toHaveTextContent("/teleport");
+    expect(help.closest("[data-console]")).toHaveAttribute("data-console", "output");
+    expect(screen.queryByText("Available commands:")).toBeNull();
+    expect(screen.queryByText("[ok]")).toBeNull();
+
+    bridge.clearSent();
+    await user.type(chatInput(), "/help fps{Enter}");
+    bridge.expectNotSent("SendChat");
+    await user.type(chatInput(), "/help idnoclip{Enter}");
+    expect(bridge.expectSent("SendChat")).toEqual({ channel: "Nearby", message: "/help /idnoclip" });
+  });
+
+  test("clicking a sender opens their profile card at body level; Mention fills the draft", async () => {
+    const { user, bridge } = renderHud();
+    await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
+    bridge.pushChat({ senderName: "Ripley", message: "hi there" });
+
+    await user.click(await screen.findByRole("button", { name: "View Ripley" }));
+    const card = screen.getByRole("dialog", { name: "Profile" });
+    expect(card.parentElement).toBe(document.body);
+    expect(within(card).getByText("Ripley")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "View Passport" })).toBeInTheDocument();
+
+    await user.click(within(card).getByRole("button", { name: "Mention" }));
+    expect(screen.queryByRole("dialog", { name: "Profile" })).toBeNull();
+    expect(chatInput()).toHaveValue("@Ripley ");
   });
 });
 
 describe("emote wheel", () => {
-  test("B toggles the wheel and Escape closes it", async () => {
-    const { user } = renderHud();
+  test("B toggles the wheel, Escape closes it, and picking an emote plays it without cancelling", async () => {
+    const { user, bridge } = renderHud();
     expect(screen.queryByRole("button", { name: "Wave" })).toBeNull();
 
     await user.keyboard("b");
     expect(screen.getByRole("button", { name: "Wave" })).toBeInTheDocument();
-
     await user.keyboard("b");
     expect(screen.queryByRole("button", { name: "Wave" })).toBeNull();
-
     await user.keyboard("b");
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("button", { name: "Wave" })).toBeNull();
-  });
 
-  test("picking an emote sends PlayEmote, closes the wheel and does NOT cancel it", async () => {
-    const { user, bridge } = renderHud();
     await user.keyboard("b");
     bridge.clearSent();
-
     await user.click(screen.getByRole("button", { name: "Wave" }));
-    expect(bridge.expectSent("PlayEmote")).toEqual({
-      urn: "urn:decentraland:off-chain:base-emotes:wave",
-    });
+    expect(bridge.expectSent("PlayEmote")).toEqual({ urn: "urn:decentraland:off-chain:base-emotes:wave" });
     expect(screen.queryByRole("button", { name: "Wave" })).toBeNull();
     bridge.expectNotSent("StopEmote");
   });
 
-  test("each wheel slot maps to its own urn", async () => {
+  test("each slot maps to its own urn, by click and by digit hotkey (1-9 then 0)", async () => {
     const { user, bridge } = renderHud();
     await user.keyboard("b");
     await user.click(screen.getByRole("button", { name: "Clap" }));
-    expect(bridge.expectSent("PlayEmote")).toEqual({
-      urn: "urn:decentraland:off-chain:base-emotes:clap",
-    });
+    expect(bridge.expectSent("PlayEmote")).toEqual({ urn: "urn:decentraland:off-chain:base-emotes:clap" });
 
-    await user.keyboard("b");
-    await user.click(screen.getByRole("button", { name: "Disco" }));
-    expect(bridge.expectSent("PlayEmote")).toEqual({
-      urn: "urn:decentraland:off-chain:base-emotes:disco",
-    });
-    expect(bridge.sentOf("PlayEmote")).toHaveLength(2);
-  });
-
-  test("digit hotkeys play slots while the wheel is open (1-9 then 0)", async () => {
-    const { user, bridge } = renderHud();
     await user.keyboard("b");
     await user.keyboard("3");
-    expect(bridge.expectSent("PlayEmote")).toEqual({
-      urn: "urn:decentraland:off-chain:base-emotes:dance",
-    });
+    expect(bridge.expectSent("PlayEmote")).toEqual({ urn: "urn:decentraland:off-chain:base-emotes:dance" });
     expect(screen.queryByRole("button", { name: "Dance" })).toBeNull();
 
     await user.keyboard("b");
     await user.keyboard("0");
-    expect(bridge.expectSent("PlayEmote")).toEqual({
-      urn: "urn:decentraland:off-chain:base-emotes:disco",
-    });
+    expect(bridge.expectSent("PlayEmote")).toEqual({ urn: "urn:decentraland:off-chain:base-emotes:disco" });
+    expect(bridge.sentOf("PlayEmote")).toHaveLength(3);
   });
 });
 
 describe("settings", () => {
-  test("a settings slider commits one SetSetting {name, value} on release", async () => {
+  test("a slider commits one SetSetting with the raw engine value on release", async () => {
     const { user, bridge, navigate } = renderHud();
     await navigate("/settings");
     await user.click(await screen.findByRole("tab", { name: "Sound" }));
@@ -119,16 +157,18 @@ describe("settings", () => {
     fireEvent.change(slider, { target: { value: "62" } });
     bridge.expectNotSent("SetSetting");
     fireEvent.pointerUp(slider);
-    expect(bridge.expectSent("SetSetting")).toEqual({
-      name: "Master Volume",
-      value: 62,
-    });
+    expect(bridge.expectSent("SetSetting")).toEqual({ name: "Master Volume", value: 62 });
+    expect(bridge.sentOf("SetSetting")).toHaveLength(1);
   });
 
-  test("the settings panel pulls a snapshot and renders engine values", async () => {
+  test("the panel pulls a snapshot, renders engine values, and dropdowns send the mapped engine value", async () => {
     const { user, bridge, navigate } = renderHud();
     await navigate("/settings");
     bridge.expectSent("GetSettings");
+
+    await user.click(await screen.findByRole("button", { name: "FPS Limit" }));
+    await user.click(screen.getByRole("option", { name: "60 fps" }));
+    expect(bridge.expectSent("SetSetting")).toEqual({ name: "Target Frame Rate", value: 4 });
 
     bridge.push({
       kind: "settings",
@@ -152,38 +192,14 @@ describe("settings", () => {
     });
     const bloom = await screen.findByRole("button", { name: "Bloom" });
     expect(bloom).toHaveTextContent("Off");
-
     await user.click(bloom);
     await user.click(screen.getByRole("option", { name: "High" }));
-    expect(bridge.expectSent("SetSetting")).toEqual({ name: "Bloom", value: 2 });
-  });
-
-  test("a settings dropdown sends the mapped engine value", async () => {
-    const { user, bridge, navigate } = renderHud();
-    await navigate("/settings");
-    await user.click(await screen.findByRole("button", { name: "FPS Limit" }));
-    await user.click(screen.getByRole("option", { name: "60 fps" }));
-    expect(bridge.expectSent("SetSetting")).toEqual({
-      name: "Target Frame Rate",
-      value: 4,
-    });
-  });
-
-  test("a slider sends the raw engine value on release", async () => {
-    const { bridge, navigate } = renderHud();
-    await navigate("/settings");
-    const slider = await screen.findByLabelText("Shadows Distance");
-    fireEvent.change(slider, { target: { value: "150" } });
-    fireEvent.pointerUp(slider);
-    expect(bridge.expectSent("SetSetting")).toEqual({
-      name: "Shadow Distance",
-      value: 150,
-    });
+    expect(bridge.expectSent("SetSetting", { name: "Bloom" })).toEqual({ name: "Bloom", value: 2 });
   });
 });
 
-describe("voice", () => {
-  test("the Speak button toggles SetMic based on current mic state", async () => {
+describe("voice and skybox panels", () => {
+  test("Speak toggles SetMic from the current mic state and the volume slider sends Voice Volume", async () => {
     const { user, bridge } = renderHud();
     await user.click(within(sidebar()).getByRole("button", { name: "Voice Chat" }));
 
@@ -192,23 +208,12 @@ describe("voice", () => {
 
     bridge.pushMic({ enabled: true });
     await user.click(screen.getByRole("button", { name: "Mic on \u{2014} click to mute" }));
-    expect(bridge.expectSent("SetMic")).toEqual({ enabled: false });
+    expect(bridge.expectSent("SetMic", { enabled: false })).toEqual({ enabled: false });
+
+    fireEvent.change(screen.getByLabelText("Nearby voice volume"), { target: { value: "70" } });
+    expect(bridge.expectSent("SetSetting")).toEqual({ name: "Voice Volume", value: 70 });
   });
 
-  test("the voice volume slider sends SetSetting Voice Volume", async () => {
-    const { user, bridge } = renderHud();
-    await user.click(within(sidebar()).getByRole("button", { name: "Voice Chat" }));
-    fireEvent.change(screen.getByLabelText("Nearby voice volume"), {
-      target: { value: "70" },
-    });
-    expect(bridge.expectSent("SetSetting")).toEqual({
-      name: "Voice Volume",
-      value: 70,
-    });
-  });
-});
-
-describe("skybox", () => {
   test("disabling auto and sliding time sends SetTimeOfDay", async () => {
     const { user, bridge, container } = renderHud();
     await user.click(within(sidebar()).getByRole("button", { name: "Skybox" }));
@@ -219,24 +224,6 @@ describe("skybox", () => {
     const range = container.querySelector<HTMLInputElement>(".sky__range");
     expect(range).not.toBeNull();
     fireEvent.change(range as HTMLInputElement, { target: { value: "720" } });
-    expect(bridge.expectSent("SetTimeOfDay")).toEqual({ minutes: 720, auto: false });
-  });
-});
-
-describe("minimap teleport", () => {
-  test("Jump to coordinates sends Teleport at the parcel center", async () => {
-    const { user, bridge } = renderHud();
-    bridge.pushScene({ coords: "10,-3" });
-
-    await user.click(screen.getByRole("button", { name: "Scene options" }));
-    await user.click(screen.getByRole("menuitem", { name: "Jump to coordinates" }));
-    expect(bridge.expectSent("Teleport")).toEqual({ x: 168, z: -40 });
-  });
-
-  test("no Teleport is sent when the scene has no coordinates yet", async () => {
-    const { user, bridge } = renderHud();
-    await user.click(screen.getByRole("button", { name: "Scene options" }));
-    await user.click(screen.getByRole("menuitem", { name: "Jump to coordinates" }));
-    bridge.expectNotSent("Teleport");
+    expect(bridge.expectSent("SetTimeOfDay", { minutes: 720 })).toEqual({ minutes: 720, auto: false });
   });
 });

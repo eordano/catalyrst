@@ -1,5 +1,5 @@
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import { loadBackpackEmotes } from "@data/lib/catalyst/overlay/backpack-emotes.server";
 import BackpackEmotesWizard from "@features/stories/overlay/backpack-emotes/BackpackEmotesWizard";
@@ -23,13 +23,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const urn = url.searchParams.get("urn")?.trim() || null;
   const address = url.searchParams.get("address")?.trim() || null;
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const emotes = await loadBackpackEmotes(address);
+  const {
+    sid,
+    assignment,
+    wrap,
+    data: emotes,
+  } = await storyLoaderWith(request, STORY, FALLBACK, () => loadBackpackEmotes(address));
 
   const payload = {
     sid,

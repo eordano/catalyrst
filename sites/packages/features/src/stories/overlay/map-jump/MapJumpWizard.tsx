@@ -41,7 +41,7 @@ const bridgeJump: JumpFn = async ({ pin }) => {
   return { jumpUrl };
 };
 
-export type MapJumpWizardProps = {
+type MapJumpWizardProps = {
   trackCtx: TrackContext;
   data: MapJumpData;
   initialFilter?: string;

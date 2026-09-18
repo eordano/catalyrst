@@ -109,6 +109,7 @@ export default function BackpackPanel() {
   ]);
 
   const equipped = dataProps.equipped;
+  const outfitKnown = !isLoading || (avatarLoadout?.wearables?.length ?? 0) > 0;
   const outfit = useMemo(
     () => ({
       bodyShape: previewBase?.bodyShape ?? equipped?.bodyShape ?? DEFAULT_BODY,
@@ -140,18 +141,20 @@ export default function BackpackPanel() {
     <Backpack
       avatarPreview={
         <div className="bp__avatar-preview">
-          <WearablePreview
-            outfit={outfit}
-            platform
-            spin={false}
-            controls
-            zoom={1.05}
-            pitch={8}
-            emote={emote.value}
-            emoteNonce={emote.nonce}
-            onStatus={(s) => setPreviewLoading(s === "loading")}
-          />
-          {previewLoading ? (
+          {outfitKnown ? (
+            <WearablePreview
+              outfit={outfit}
+              platform
+              spin={false}
+              controls
+              zoom={1.05}
+              pitch={8}
+              emote={emote.value}
+              emoteNonce={emote.nonce}
+              onStatus={(s) => setPreviewLoading(s === "loading")}
+            />
+          ) : null}
+          {previewLoading || !outfitKnown ? (
             <div className="bp__avatar-loading" role="status" aria-label={"Loading avatar\u{2026}"}>
               <Spinner size={34} color="rgba(255,255,255,0.72)" aria-hidden />
             </div>

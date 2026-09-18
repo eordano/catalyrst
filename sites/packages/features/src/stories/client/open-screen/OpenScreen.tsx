@@ -19,9 +19,9 @@ import {
 export { toOpenPlace } from "./select";
 import { type OpenPlace } from "./select";
 
-export type OpenCardTarget = "avatar" | "genesis" | "random";
+type OpenCardTarget = "avatar" | "genesis" | "random";
 
-export type OpenScreenProps = {
+type OpenScreenProps = {
   arm: OpenScreenArm;
   places: Place[] | null;
   busiest: OpenPlace | null;

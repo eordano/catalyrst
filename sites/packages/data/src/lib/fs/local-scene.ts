@@ -94,6 +94,26 @@ async function fileHandleAt(
   }
 }
 
+export const NO_COMPOSITE_HINT =
+  "No main.composite found in that folder \u{2014} pick the project folder that contains your saved scene, the one holding main.composite.";
+export const NO_COMPOSITE_CODE_ONLY_HINT =
+  "No main.composite found in that folder \u{2014} it looks like a code-only SDK project (scene.json but no saved scene). Pick the project folder that contains your saved scene, the one holding main.composite.";
+export const OPEN_FAILED_HINT =
+  "Couldn't read that folder \u{2014} check that this site still has permission to access it, then try again.";
+
+export async function stageLocalSceneForEditor(res: LocalSceneResult): Promise<void> {
+  stashLocalSeed(res.seed);
+  await stashCompositeHandle(res.compositeHandle);
+  stashLocalComposite(res.compositeText);
+  const { populateProjectRealm, clearProjectRealm } = await import("./project-realm");
+  if (res.files) {
+    const pr = await populateProjectRealm(res.files, res.sceneJsonText);
+    if (!pr.ok) await clearProjectRealm();
+  } else {
+    await clearProjectRealm();
+  }
+}
+
 export type OpenLocalSceneOutcome =
   | { status: "opened"; result: LocalSceneResult }
   | { status: "cancelled" }

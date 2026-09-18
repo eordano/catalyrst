@@ -89,115 +89,6 @@ const EXPECTED_STATES = new Set([
   "moderated",
 ]);
 
-describe("moderateMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(moderateMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.queue);
-    expect(slugToState(null)).toBe("queue");
-    expect(slugToState(undefined)).toBe("queue");
-    expect(slugToState("")).toBe("queue");
-    expect(slugToState("nope")).toBe("queue");
-    expect(slugToState("queue")).toBe("queue");
-    expect(slugToState("review-report")).toBe("reviewReport");
-    expect(slugToState("submitting")).toBe("submitting");
-    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
-});
-
-describe("moderateMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveModerateSnapshot({
-      step: "queue",
-      trackCtx: inputFor(okModerate, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("boots straight into queue \u{2014} there is no client-side gate to pass", () => {
-    const track = vi.fn();
-    const snapshot = resolveModerateSnapshot({
-      step: "queue",
-      trackCtx: inputFor(okModerate, track).trackCtx,
-      reports: REPORTS,
-      queueOpenCount: 1,
-      queueTotal: 2,
-      track,
-    });
-    const actor = createActor(moderateMachine, {
-      input: inputFor(okModerate, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("queue")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toEqual([
-      MODERATE_EVENTS.queueViewed,
-    ]);
-  });
-
-  it("hydrating submitting does NOT auto-commit and fires no telemetry", async () => {
-    const track = vi.fn();
-    const moderate = vi.fn(okModerate);
-    const snapshot = resolveModerateSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(moderate, track).trackCtx,
-      reports: REPORTS,
-      reportId: "1042",
-      decision: "action",
-      moderate,
-      track,
-    });
-    const actor = createActor(moderateMachine, {
-      input: inputFor(moderate, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(actor.getSnapshot().context.decision).toBe("action");
-
-    await Promise.resolve();
-    expect(track).not.toHaveBeenCalled();
-    expect(moderate).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveModerateSnapshot({
-      step: "reviewReport",
-      trackCtx: inputFor(okModerate, track).trackCtx,
-      reports: REPORTS,
-      reportId: "1042",
-      track,
-    });
-    const actor = createActor(moderateMachine, {
-      input: inputFor(okModerate, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("reviewReport")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "DECIDE", decision: "dismiss" });
-    expect(actor.getSnapshot().matches("decision")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(MODERATE_EVENTS.decisionSelected);
-  });
-});
-
 const TRAVERSAL_EVENTS = [
   { type: "OPEN" as const, reportId: "1042" },
   { type: "CLOSE" as const },
@@ -208,8 +99,93 @@ const TRAVERSAL_EVENTS = [
   { type: "CONTINUE" as const },
 ];
 
+describe("moderateMachine \u{2014} URL ?step slug map", () => {
+  it("covers every state, round-trips uniquely, and falls back to the first step", () => {
+    const machineStates = new Set(Object.keys(moderateMachine.states));
+    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mappedStates).toEqual(machineStates);
+    expect(mappedStates).toEqual(EXPECTED_STATES);
+
+    const slugs = Object.values(STATE_TO_SLUG);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
+    }
+
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.queue);
+    for (const bad of [null, undefined, "", "nope"]) {
+      expect(slugToState(bad)).toBe("queue");
+    }
+    expect(slugToState("review-report")).toBe("reviewReport");
+    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
+  });
+});
+
+describe("moderateMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
+  it("queue boots straight in (no client gate) firing exactly queueViewed; later steps hydrate silently; real transitions fire", async () => {
+    const queueTrack = vi.fn();
+    expect(
+      resolveModerateSnapshot({ step: "queue", trackCtx: inputFor(okModerate, queueTrack).trackCtx }),
+    ).toBeUndefined();
+    const queue = createActor(moderateMachine, {
+      input: inputFor(okModerate, queueTrack),
+      snapshot: resolveModerateSnapshot({
+        step: "queue",
+        trackCtx: inputFor(okModerate, queueTrack).trackCtx,
+        reports: REPORTS,
+        queueOpenCount: 1,
+        queueTotal: 2,
+        track: queueTrack,
+      }),
+    }).start();
+    expect(queue.getSnapshot().matches("queue")).toBe(true);
+    expect(queueTrack.mock.calls.map((c) => c[0])).toEqual([MODERATE_EVENTS.queueViewed]);
+
+    const track = vi.fn();
+    const moderate = vi.fn(okModerate);
+    const input = inputFor(moderate, track);
+    const submitting = createActor(moderateMachine, {
+      input,
+      snapshot: resolveModerateSnapshot({
+        step: "submitting",
+        trackCtx: input.trackCtx,
+        reports: REPORTS,
+        reportId: "1042",
+        decision: "action",
+        moderate,
+        track,
+      }),
+    }).start();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    expect(submitting.getSnapshot().context.decision).toBe("action");
+    await Promise.resolve();
+    expect(track).not.toHaveBeenCalled();
+    expect(moderate).not.toHaveBeenCalled();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+
+    const review = createActor(moderateMachine, {
+      input,
+      snapshot: resolveModerateSnapshot({
+        step: "reviewReport",
+        trackCtx: input.trackCtx,
+        reports: REPORTS,
+        reportId: "1042",
+        track,
+      }),
+    }).start();
+    expect(review.getSnapshot().matches("reviewReport")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+
+    review.send({ type: "DECIDE", decision: "dismiss" });
+    expect(review.getSnapshot().matches("decision")).toBe(true);
+    expect(track.mock.calls.map((c) => c[0])).toContain(MODERATE_EVENTS.decisionSelected);
+  });
+});
+
 describe("moderateMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and decision needs OPEN + DECIDE, never a client gate", () => {
     const paths = getShortestPaths(moderateMachine, {
       input: inputFor(okModerate, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -221,23 +197,15 @@ describe("moderateMachine \u{2014} model-based path coverage (@xstate/graph)", (
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("queue")).toBe(true);
-    expect(ends.has("reviewReport")).toBe(true);
-    expect(ends.has("decision")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
+    for (const s of ["queue", "reviewReport", "decision", "submitting"]) {
+      expect(ends.has(s)).toBe(true);
+    }
 
-  it("reaching decision passes through OPEN and DECIDE \u{2014} never a client gate", () => {
-    const paths = getShortestPaths(moderateMachine, {
-      input: inputFor(okModerate, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const decision = paths.find((p) => (p.state.value as string) === "decision");
     expect(decision).toBeDefined();
     const events = decision!.steps.map((s) => s.event.type);
     expect(events).not.toContain("SIGN_IN");
-    expect(events).toContain("OPEN");
-    expect(events).toContain("DECIDE");
+    expect(events).toEqual(expect.arrayContaining(["OPEN", "DECIDE"]));
   });
 });
 
@@ -260,11 +228,14 @@ describe("moderateMachine \u{2014} telemetry events (happy path)", () => {
     await waitFor(actor, (s) => s.matches("moderated"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(MODERATE_EVENTS.queueViewed);
-    expect(events).toContain(MODERATE_EVENTS.reportOpened);
-    expect(events).toContain(MODERATE_EVENTS.decisionSelected);
-    expect(events).toContain(MODERATE_EVENTS.committed);
-
+    expect(events).toEqual(
+      expect.arrayContaining([
+        MODERATE_EVENTS.queueViewed,
+        MODERATE_EVENTS.reportOpened,
+        MODERATE_EVENTS.decisionSelected,
+        MODERATE_EVENTS.committed,
+      ]),
+    );
     expect(events.indexOf(MODERATE_EVENTS.reportOpened)).toBeLessThan(
       events.indexOf(MODERATE_EVENTS.committed),
     );
@@ -330,29 +301,27 @@ describe("moderateMachine \u{2014} commit failure + retry", () => {
 });
 
 describe("simulateModerateDecision", () => {
-  it("resolves a patched report (status flipped, resolved_at stamped); no network", async () => {
-    const res = await simulateModerateDecision({
+  it("action patches the report and disables the place; reopen clears the resolution and sends no disable body", async () => {
+    const actioned = await simulateModerateDecision({
       report: REPORTS[0]!,
       decision: "action",
       resolution: "content_removed",
       notes: "disabled pending appeal",
       disablePlace: true,
     });
-    expect(res.report.status).toBe("actioned");
-    expect(res.report.resolved_at).toBeTruthy();
-    expect(res.placeDisabled).toBe(true);
-    expect(res.reportBody.status).toBe("actioned");
-    expect(res.disableBody).toMatchObject({ disabled: true });
-  });
+    expect(actioned.report.status).toBe("actioned");
+    expect(actioned.report.resolved_at).toBeTruthy();
+    expect(actioned.placeDisabled).toBe(true);
+    expect(actioned.reportBody.status).toBe("actioned");
+    expect(actioned.disableBody).toMatchObject({ disabled: true });
 
-  it("reopen clears resolution/resolved_at and sends no disable body", async () => {
-    const res = await simulateModerateDecision({
+    const reopened = await simulateModerateDecision({
       report: REPORTS[1]!,
       decision: "reopen",
     });
-    expect(res.report.status).toBe("open");
-    expect(res.report.resolved_at).toBeNull();
-    expect(res.report.resolution).toBeNull();
-    expect(res.disableBody).toBeUndefined();
+    expect(reopened.report.status).toBe("open");
+    expect(reopened.report.resolved_at).toBeNull();
+    expect(reopened.report.resolution).toBeNull();
+    expect(reopened.disableBody).toBeUndefined();
   });
 });

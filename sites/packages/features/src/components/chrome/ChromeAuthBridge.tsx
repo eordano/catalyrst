@@ -21,7 +21,7 @@ export default function ChromeAuthBridge({ children }: { children: ReactNode }) 
     setMounted(true);
   }, []);
 
-  const { isConnected, address, fetch: signedFetch } = useAuth();
+  const { isConnected, address, fetch: signedFetch, disconnect } = useAuth();
   const effSignedIn = mounted ? isConnected : !!seedWallet;
   const effAddress = mounted ? (address ?? "") : seedWallet;
 
@@ -44,9 +44,10 @@ export default function ChromeAuthBridge({ children }: { children: ReactNode }) 
       committee,
       avatarUrl: avatarUrl || undefined,
       onSignIn: openSignIn,
+      onSignOut: disconnect,
       fetchNotifications,
     }),
-    [effSignedIn, effAddress, name, committee, avatarUrl, fetchNotifications],
+    [effSignedIn, effAddress, name, committee, avatarUrl, fetchNotifications, disconnect],
   );
 
   return <ChromeAuthContext.Provider value={value}>{children}</ChromeAuthContext.Provider>;

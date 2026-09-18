@@ -509,6 +509,109 @@ async fn seed_voice_chat(pool: &PgPool, id: Uuid, participants: i32, moderators:
     .expect("seed voice chat");
 }
 
+async fn seed_ban(pool: &PgPool, id: Uuid, addr: &str, active: bool) {
+    sqlx::query(
+        "INSERT INTO community_bans (community_id, banned_address, banned_by, active) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(id)
+    .bind(addr)
+    .bind(OWNER)
+    .bind(active)
+    .execute(pool)
+    .await
+    .expect("seed ban");
+}
+
+async fn seed_thumbnail(pool: &PgPool, id: Uuid) {
+    sqlx::query(
+        "INSERT INTO community_ranking_metrics (community_id, has_thumbnail) VALUES ($1, TRUE)",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .expect("seed ranking metrics");
+}
+
+#[tokio::test]
+async fn by_id_reads_role_ban_count_thumbnail_and_voice_from_one_row() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let pool = scratch.pool.clone();
+    let comp = CommunitiesComponent::new(pool.clone());
+
+    let public_id = rand_uuid();
+    seed_community(&pool, public_id, OWNER, false, false).await;
+    seed_member(&pool, public_id, OWNER, "owner").await;
+    seed_member(&pool, public_id, MEMBER, "member").await;
+    seed_ban(&pool, public_id, STRANGER, true).await;
+    seed_ban(&pool, public_id, ASKER, false).await;
+    seed_thumbnail(&pool, public_id).await;
+    seed_voice_chat(&pool, public_id, 2, 1).await;
+
+    let anonymous = comp
+        .get_by_id(public_id, None)
+        .await
+        .expect("anonymous read")
+        .expect("public community");
+    assert_eq!(anonymous.members_count, 2);
+    assert!(anonymous.has_thumbnail);
+    assert!(anonymous.is_live);
+    assert_eq!(anonymous.voice_chat_status.participant_count, 2);
+    assert_eq!(anonymous.voice_chat_status.moderator_count, 1);
+    assert!(
+        anonymous.role.is_none() && anonymous.is_banned.is_none() && anonymous.visibility.is_none(),
+        "viewer-only fields stay absent for an anonymous read"
+    );
+
+    let banned = comp
+        .get_by_id(public_id, Some(STRANGER))
+        .await
+        .expect("banned read")
+        .expect("a ban does not hide a public community");
+    assert_eq!(banned.role.as_deref(), Some("none"));
+    assert_eq!(banned.is_banned, Some(true));
+    assert_eq!(banned.members_count, 2);
+
+    let lifted = comp
+        .get_by_id(public_id, Some(ASKER))
+        .await
+        .expect("lifted read")
+        .expect("public community");
+    assert_eq!(
+        lifted.is_banned,
+        Some(false),
+        "an inactive ban row is not a ban"
+    );
+
+    let member = comp
+        .get_by_id(public_id, Some(MEMBER))
+        .await
+        .expect("member read")
+        .expect("public community");
+    assert_eq!(member.role.as_deref(), Some("member"));
+    assert_eq!(member.is_banned, Some(false));
+    assert_eq!(member.visibility.as_deref(), Some("all"));
+
+    let bare_id = rand_uuid();
+    seed_community(&pool, bare_id, OWNER, false, true).await;
+    let bare = comp
+        .get_by_id(bare_id, Some(MEMBER))
+        .await
+        .expect("bare read")
+        .expect("unlisted public community");
+    assert_eq!(bare.members_count, 0);
+    assert!(
+        !bare.has_thumbnail && !bare.is_live,
+        "missing metrics and voice rows read as absent, not as an error"
+    );
+    assert_eq!(bare.visibility.as_deref(), Some("unlisted"));
+    assert_eq!(bare.role.as_deref(), Some("none"));
+
+    scratch.drop().await;
+}
+
 fn signed_for(wallet: &Wallet, path: &str) -> HeaderMap {
     header_map(signed_fetch_headers(wallet, "get", path))
 }

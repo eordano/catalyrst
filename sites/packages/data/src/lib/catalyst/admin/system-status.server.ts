@@ -31,16 +31,16 @@ const SnapshotSchema = z.object({
   probes: z.array(ProbeSchema),
 });
 
-export type SystemUnit = z.infer<typeof UnitSchema>;
-export type SystemProbe = z.infer<typeof ProbeSchema>;
+type SystemUnit = z.infer<typeof UnitSchema>;
+type SystemProbe = z.infer<typeof ProbeSchema>;
 
-export type SystemLink = {
+type SystemLink = {
   label: string;
   href: string;
   scope: "public" | "operator";
 };
 
-export type SystemStatus = {
+type SystemStatus = {
   collectedAt: string;
   stale: boolean;
   units: SystemUnit[];

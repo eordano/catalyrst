@@ -86,18 +86,14 @@ const FALLBACK: Assignment = {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
   const [
+    { sid, wrap },
     { proposals, fallback, addressById },
     projectsResult,
     engagement,
     activity,
   ] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
     loadProposals({ signal: request.signal }),
     loadProjects({ signal: request.signal }),
     loadHomeEngagement({ signal: request.signal }),

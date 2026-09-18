@@ -1,8 +1,9 @@
 import { Avatar } from "../../atoms/primitives";
 import Button from "../../atoms/Button";
+import SearchField from "../../atoms/SearchField";
 import {
   COMMUNITY_STATUSES,
-  STATUS_CLASS,
+  STATUS_TONE,
   truncateAddress,
   type CommunityModerationCard,
   type CommunityStatus,
@@ -15,7 +16,7 @@ const STATUS_LABEL: Record<CommunityStatus, string> = {
   inactive: "Inactive",
 };
 
-export type CommunityModerationListProps = {
+type CommunityModerationListProps = {
   cards: CommunityModerationCard[];
   search: string;
   status: CommunityStatus;
@@ -35,118 +36,109 @@ export default function AdCommunityModerationList({
   onReview,
 }: CommunityModerationListProps) {
   return (
-    <div className="au">
-      <div className="au__container">
-        <h1 className="au__title">Communities moderation</h1>
+    <div className="adm__inner">
+      <div className="adm__head">
+        <h1 className="adm__title">Communities moderation</h1>
+      </div>
 
-        <div className="au__header">
-          <div className="au__searchwrap">
-            <span className="au__searchicon" aria-hidden="true">
-              <SearchIcon />
-            </span>
-            <input
-              className="au__search"
-              placeholder="Search by community name"
-              aria-label="Search communities"
-              value={search}
-              onChange={(e) => onSearch(e.target.value)}
-            />
-            <span className="au__searchlabel">Search</span>
-          </div>
-
-          <div className="cml-pills" role="tablist" aria-label="Status filter">
-            {COMMUNITY_STATUSES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                role="tab"
-                aria-selected={status === s}
-                className={"cml-pill" + (status === s ? " is-active" : "")}
-                onClick={() => onStatus(s)}
-              >
-                {STATUS_LABEL[s]}
-                <span className="cml-pill__count">{counts[s]}</span>
-              </button>
-            ))}
-          </div>
+      <div className="adm__tools">
+        <SearchField
+          placeholder="Search by community name"
+          value={search}
+          onChange={onSearch}
+        />
+        <div className="adm-pills" role="tablist" aria-label="Status filter">
+          {COMMUNITY_STATUSES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              role="tab"
+              aria-selected={status === s}
+              className={"adm-pill" + (status === s ? " is-active" : "")}
+              onClick={() => onStatus(s)}
+            >
+              {STATUS_LABEL[s]}
+              <span className="adm-pill__count">{counts[s]}</span>
+            </button>
+          ))}
         </div>
+      </div>
 
-        <div className="au__tablewrap">
-          <table className="au__table" aria-label="Communities">
-            <thead>
-              <tr>
-                <th className="au__th">Community</th>
-                <th className="au__th">Owner</th>
-                <th className="au__th au__th--center">Privacy</th>
-                <th className="au__th au__th--center">Members</th>
-                <th className="au__th au__th--center">Status</th>
-                <th className="au__th au__th--center">Flagged</th>
-                <th className="au__th au__th--center" aria-label="Action" />
+      <div className="adm-scroll">
+        <table className="adm-table" aria-label="Communities">
+          <thead>
+            <tr>
+              <th>Community</th>
+              <th>Owner</th>
+              <th className="is-center">Privacy</th>
+              <th className="is-num">Members</th>
+              <th className="is-center">Status</th>
+              <th className="is-center">Flagged</th>
+              <th className="is-center" aria-label="Action" />
+            </tr>
+          </thead>
+          <tbody>
+            {cards.map((card) => (
+              <tr key={card.id} className="is-link" onClick={() => onReview(card.id)}>
+                <td className="is-nowrap">
+                  <Avatar
+                    hue={card.hue}
+                    size={36}
+                    src={card.thumbnail || undefined}
+                    name={card.name}
+                  />
+                  <strong>{card.name}</strong>
+                </td>
+                <td>
+                  <span className="adm-mono">{truncateAddress(card.owner)}</span>
+                  {card.ownerName ? (
+                    <span className="adm-dim">{` (${card.ownerName})`}</span>
+                  ) : null}
+                </td>
+                <td className="is-center">{card.privacy}</td>
+                <td className="is-num">{card.membersCount.toLocaleString()}</td>
+                <td className="is-center">
+                  <StatusPill status={card.status} />
+                </td>
+                <td className="is-center">
+                  {card.flaggedReason ? (
+                    <span className="adm-warn" aria-label="Flagged" title={card.flaggedReason}>
+                      &#x2691;
+                    </span>
+                  ) : null}
+                </td>
+                <td className="is-center">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReview(card.id);
+                    }}
+                  >
+                    Review
+                  </Button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {cards.map((card) => (
-                <tr key={card.id} className="au-row" onClick={() => onReview(card.id)}>
-                  <td className="au-cell au-cell--user">
-                    <Avatar hue={card.hue} size={36} className="cml-avatar" />
-                    <span className="cml-name">{card.name}</span>
-                  </td>
-                  <td className="au-cell">
-                    <span className="au-cell__addr">{truncateAddress(card.owner)}</span>
-                    {card.ownerName ? (
-                      <span className="au-cell__name">{` (${card.ownerName})`}</span>
-                    ) : null}
-                  </td>
-                  <td className="au-cell au-cell--center">{card.privacy}</td>
-                  <td className="au-cell au-cell--center">{card.membersCount.toLocaleString()}</td>
-                  <td className="au-cell au-cell--center">
-                    <StatusPill status={card.status} />
-                  </td>
-                  <td className="au-cell au-cell--center">
-                    {card.flaggedReason ? (
-                      <span className="cml-flag" aria-label="Flagged" title={card.flaggedReason}>
-                        &#x2691;
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="au-cell au-cell--center">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="cml-reviewbtn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onReview(card.id);
-                      }}
-                    >
-                      Review
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-              {cards.length === 0 && (
-                <tr>
-                  <td className="au-cell au-cell--center au-cell--empty" colSpan={7}>
-                    No communities match this filter.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+            ))}
+            {cards.length === 0 && (
+              <tr>
+                <td className="is-empty" colSpan={7}>
+                  No communities match this filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
 function StatusPill({ status }: { status: CommunityModerationCard["status"] }) {
-  return <span className={STATUS_CLASS[status]}>{status}</span>;
-}
-
-function SearchIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-      <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5Zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14Z" />
-    </svg>
+    <span className="adm-status" data-tone={STATUS_TONE[status]}>
+      {status}
+    </span>
   );
 }

@@ -19,7 +19,11 @@ import { makeSearchCache } from "@core/lib/router/client-cache";
 import type { AgentMarkdownHandle } from "@data/lib/agent/markdown";
 import { experimentActive, resolveFlag } from "@core/lib/experiments/flags";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { parseVariantOverride, storyLoader } from "@core/lib/experiments/story-loader";
+import {
+  parseVariantOverride,
+  sidLoader,
+  storyLoader,
+} from "@core/lib/experiments/story-loader";
 import {
   PLACES_SHOP_ENTRY_ARMS,
   PLACES_SHOP_ENTRY_EXPERIMENT_KEY,
@@ -73,24 +77,31 @@ export async function loader({ request }: Route.LoaderArgs) {
   const rawOffset = Number.parseInt(url.searchParams.get("offset") ?? "0", 10);
   const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0;
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const shop = await storyLoader(request, SHOP_ENTRY_STORY, SHOP_ENTRY_FALLBACK, {
-    skipExposure: true,
-  });
-  const shopActive = await experimentActive(PLACES_SHOP_ENTRY_EXPERIMENT_KEY, {
-    envActive:
-      activePlacesShopEntryExperiment(
-        typeof process !== "undefined"
-          ? process.env?.PLACES_SHOP_ENTRY_EXPERIMENT
-          : undefined,
-      ) !== null,
-    user: shop.userKey,
-  });
+  const { userKey } = sidLoader(request);
+  const [{ sid, wrap }, shop, shopActive, placesRes, categories, layoutV2] =
+    await Promise.all([
+      storyLoader(request, STORY, FALLBACK),
+      storyLoader(request, SHOP_ENTRY_STORY, SHOP_ENTRY_FALLBACK, {
+        skipExposure: true,
+      }),
+      experimentActive(PLACES_SHOP_ENTRY_EXPERIMENT_KEY, {
+        envActive:
+          activePlacesShopEntryExperiment(
+            typeof process !== "undefined"
+              ? process.env?.PLACES_SHOP_ENTRY_EXPERIMENT
+              : undefined,
+          ) !== null,
+        user: userKey,
+      }),
+      loadPlaces({
+        limit: PLACES_LIMIT,
+        offset: offset || undefined,
+        categories: category || undefined,
+        search: search || undefined,
+      }).catch(() => ({ data: [] as Place[], total: 0 })),
+      loadCategories().catch(() => [] as Category[]),
+      resolveFlag("places_layout_v2", false),
+    ]);
   let shopAssignment = shopActive ? shop.assignment : SHOP_ENTRY_FALLBACK;
   const forcedShop = forcedShopArm(url);
   if (forcedShop) {
@@ -103,17 +114,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const shopArm: PlacesShopEntryArm =
     shopEntryFromFlags(shopAssignment.flags) ?? "base";
 
-  const [placesRes, categories, layoutV2, railItems] = await Promise.all([
-    loadPlaces({
-      limit: PLACES_LIMIT,
-      offset: offset || undefined,
-      categories: category || undefined,
-      search: search || undefined,
-    }).catch(() => ({ data: [] as Place[], total: 0 })),
-    loadCategories().catch(() => [] as Category[]),
-    resolveFlag("places_layout_v2", false),
+  const railItems =
     shopArm === "rail"
-      ? fetchCatalog({ first: 8, isOnSale: true, sortBy: "cheapest" })
+      ? await fetchCatalog({ first: 8, isOnSale: true, sortBy: "cheapest" })
           .then((r) =>
             r.data
               .filter(isCatalogItemBuyable)
@@ -121,8 +124,7 @@ export async function loader({ request }: Route.LoaderArgs) {
               .map((it) => toCollectibleCard(it)),
           )
           .catch(() => null)
-      : Promise.resolve(null),
-  ]);
+      : null;
 
   if (shopActive && !forcedShop) {
     trackExposure({

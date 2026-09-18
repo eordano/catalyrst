@@ -6,7 +6,7 @@ import {
 } from "../generated-schemas/governance";
 import { governanceApiBase } from "./api-base";
 
-export type VoteChoiceVM = {
+type VoteChoiceVM = {
   id: string;
   label: string;
   pct: number;
@@ -14,7 +14,7 @@ export type VoteChoiceVM = {
   tone: string;
   voted: boolean;
 };
-export type VoteRationaleVM = {
+type VoteRationaleVM = {
   id: number;
   name: string;
   hue: number;
@@ -23,14 +23,14 @@ export type VoteRationaleVM = {
   vp: string;
   text: string;
 };
-export type VpSeriesVM = { yes: number[]; no: number[]; ticks: string[] };
-export type ProposalVotesVM = {
+type VpSeriesVM = { yes: number[]; no: number[]; ticks: string[] };
+type ProposalVotesVM = {
   choices: VoteChoiceVM[];
   totalVotesLabel: string;
   rationales: VoteRationaleVM[];
   vpSeries?: VpSeriesVM;
 };
-export type ProposalCommentVM = {
+type ProposalCommentVM = {
   id: number;
   name: string;
   hue: number;

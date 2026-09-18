@@ -2,7 +2,7 @@
 import type { MouseEvent } from "react";
 import type { NearbyPlayer } from "../../generated/bridge/NearbyPlayer";
 
-export type Token =
+type Token =
   | { type: "text"; value: string }
   | { type: "url"; value: string }
   | { type: "world"; value: string }
@@ -12,7 +12,7 @@ export type Token =
 const TOKEN_RE =
   /(?<url>https?:\/\/[^\s<>"']+)|(?<world>[a-z0-9][\w-]*\.(?:dcl\.)?eth\b)|(?<loc>-?\d{1,3}\s*,\s*-?\d{1,3})|(?<mention>@[\w-]+(?:#[\w]+)?)/gi;
 
-export function parseMessage(text: string): Token[] {
+function parseMessage(text: string): Token[] {
   const tokens: Token[] = [];
   let last = 0;
   for (const m of text.matchAll(TOKEN_RE)) {

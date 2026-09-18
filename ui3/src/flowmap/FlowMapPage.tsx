@@ -4,7 +4,6 @@ import type { ComponentType, ReactNode } from "react";
 import type { FlowEdge, FlowNode, FlowSection, FlowStats, Track } from "./flowmapdata";
 import "./flowmappage.css";
 
-
 export type LinkComponentProps = {
   to: string;
   className?: string;
@@ -18,7 +17,6 @@ export type LinkComponentProps = {
 };
 
 const LinkCtx = createContext<ComponentType<LinkComponentProps> | undefined>(undefined);
-
 
 const ChainCtx = createContext<{
   active: string | null;
@@ -43,7 +41,6 @@ function useChain(chains: string[], demo?: boolean) {
 
 const itemClass = (base: string, lit: boolean) =>
   `fm-item ${base}${lit ? " is-lit" : ""}`;
-
 
 export function Hourglass({ className }: { className?: string }) {
   return (
@@ -73,7 +70,6 @@ const Seg = ({ dash, long }: { dash?: boolean; long?: boolean }) => (
     aria-hidden="true"
   />
 );
-
 
 function edgeAria(e: FlowEdge): string {
   switch (e.kind) {
@@ -139,7 +135,6 @@ function EdgeView({
     </span>
   );
 }
-
 
 const KIND_NAME: Record<FlowNode["kind"], string> = {
   route: "Route",
@@ -250,7 +245,6 @@ function NodeView({
   );
 }
 
-
 function TrackView({ track, depth = 0 }: { track: Track; depth?: number }) {
   return (
     <div className={`fm-trackrow${depth > 0 ? " fm-trackrow--branch" : ""}`}>
@@ -291,7 +285,6 @@ function TrackView({ track, depth = 0 }: { track: Track; depth?: number }) {
   );
 }
 
-
 function SectionView({
   section,
   machineTitle,
@@ -326,7 +319,6 @@ function SectionView({
     </section>
   );
 }
-
 
 function Legend() {
   return (
@@ -374,7 +366,6 @@ function Legend() {
   );
 }
 
-
 function AsciiDetails({ source, label }: { source: string; label: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -403,8 +394,7 @@ function AsciiDetails({ source, label }: { source: string; label: string }) {
   );
 }
 
-
-export type FlowMapCopy = {
+type FlowMapCopy = {
   backHref: string;
   backLabel: string;
   backPlain?: boolean;
@@ -415,7 +405,7 @@ export type FlowMapCopy = {
   honesty: ReactNode;
 };
 
-export type FlowMapPageProps = {
+type FlowMapPageProps = {
   LinkComponent?: ComponentType<LinkComponentProps>;
   sections: FlowSection[];
   stats: FlowStats;

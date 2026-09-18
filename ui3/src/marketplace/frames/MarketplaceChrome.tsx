@@ -11,7 +11,7 @@ export type MarketplaceNavId =
   | "my-lists"
   | "cart";
 
-export const MARKET_TABS: { id: MarketplaceNavId; label: string; href: string }[] = [
+const MARKET_TABS: { id: MarketplaceNavId; label: string; href: string }[] = [
   { id: "overview", label: "Overview", href: "/shop" },
   { id: "collectibles", label: "Collectibles", href: "/shop?tab=all-assets" },
   { id: "names", label: "NAMEs", href: "/marketplace/names" },

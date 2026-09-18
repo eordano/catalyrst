@@ -207,10 +207,10 @@ mod filter_tests {
             ..Default::default()
         };
         let (where_clause, binds) = build_where(&f, false);
-        assert!(where_clause.contains("raw->'positions' ?|"));
+        assert!(where_clause.contains("raw->'positions' @> ANY($1::jsonb[])"));
         match binds.last().unwrap() {
-            Bind::TextArray(v) => assert_eq!(v, &vec!["10,20".to_string()]),
-            _ => panic!("expected positions text array bind"),
+            Bind::JsonbArray(v) => assert_eq!(v, &vec![serde_json::json!(["10,20"])]),
+            _ => panic!("expected positions jsonb array bind"),
         }
     }
 
@@ -224,7 +224,7 @@ mod filter_tests {
         let (where_clause, _) = build_where(&f, false);
 
         assert!(where_clause.contains("AND FALSE"));
-        assert!(!where_clause.contains("raw->'positions' ?|"));
+        assert!(!where_clause.contains("raw->'positions' @>"));
 
         let g = PlaceListFilters::default();
         let (where_g, _) = build_where(&g, false);

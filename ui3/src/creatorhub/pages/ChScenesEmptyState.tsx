@@ -1,6 +1,7 @@
 import { CreatorHubChromeMaybe } from "../frames/CreatorHubChrome";
 import EmptyStateCard from "../../components/EmptyStateCard";
 import "./chscenesemptystate.css";
+import { docsUrl } from "../../data/docs";
 
 const ImportIcon = () => (
   <svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true">
@@ -140,7 +141,7 @@ export default function ChScenesEmptyState({
                       Unleash your creativity. Start building scenes for your LANDs and
                       Worlds and share with the community.{" "}
                       <a
-                        href="https://docs.decentraland.org/creator/scenes-sdk7/getting-started/sdk-101"
+                        href={docsUrl("creator/sdk7/getting-started/sdk-101")}
                         target="_blank"
                         rel="noreferrer"
                       >

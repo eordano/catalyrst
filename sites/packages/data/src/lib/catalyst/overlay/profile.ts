@@ -29,7 +29,7 @@ const AvatarInfoSchema = z
   })
   .passthrough();
 
-export const AvatarSchema = z
+const AvatarSchema = z
   .object({
     name: z.string(),
     hasClaimedName: z.boolean(),
@@ -51,17 +51,17 @@ export const AvatarSchema = z
     avatar: AvatarInfoSchema.optional(),
   })
   .passthrough();
-export type Avatar = z.infer<typeof AvatarSchema>;
+type Avatar = z.infer<typeof AvatarSchema>;
 
-export const ProfileEnvelopeSchema = z
+const ProfileEnvelopeSchema = z
   .object({
     avatars: z.array(AvatarSchema),
     timestamp: z.number().optional(),
   })
   .passthrough();
-export type ProfileEnvelope = z.infer<typeof ProfileEnvelopeSchema>;
+type ProfileEnvelope = z.infer<typeof ProfileEnvelopeSchema>;
 
-export function parseProfileEnvelope(raw: unknown): ProfileEnvelope {
+function parseProfileEnvelope(raw: unknown): ProfileEnvelope {
   return ProfileEnvelopeSchema.parse(raw);
 }
 
@@ -77,8 +77,8 @@ export async function fetchProfile(
   return env.avatars[0] ?? null;
 }
 
-export type ProfileInfoField = { key: string; label: string; value: string; icon: string };
-export type ProfileLink = { title: string; url: string };
+type ProfileInfoField = { key: string; label: string; value: string; icon: string };
+type ProfileLink = { title: string; url: string };
 export type ProfileVM = {
   address: string;
   name: string;

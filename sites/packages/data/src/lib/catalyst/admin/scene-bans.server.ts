@@ -29,7 +29,7 @@ function readFixture(): FixtureShape | null {
   }
 }
 
-export type OperatorPlacesFixture = {
+type OperatorPlacesFixture = {
   places: PlaceRef[];
   owner: string;
   synthetic: true;
@@ -55,10 +55,3 @@ export function loadSceneBansPage(_placeId: string): Unavailable {
   return controlStatus("sceneBans.list") as Unavailable;
 }
 
-export function banInScene(): Unavailable {
-  return controlStatus("sceneBans.ban") as Unavailable;
-}
-
-export function unbanInScene(): Unavailable {
-  return controlStatus("sceneBans.unban") as Unavailable;
-}

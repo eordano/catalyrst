@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { CatalystError, getJSON } from "../client";
 import type { GetOptions } from "../client";
+import { fetchWorldsRealm, personalWorldName } from "./deploy-world";
 import {
   parseManagedWorlds,
   parseNames,
@@ -10,7 +11,7 @@ import {
   type DclName,
 } from "./manage-worlds";
 
-export type ManageWorldsData = {
+type ManageWorldsData = {
   address: string;
   worlds: ManagedWorld[];
   names: DclName[];
@@ -63,15 +64,30 @@ async function resolveWorldScenes(
   return parsed.data.configurations.scenesUrn.length;
 }
 
+function worldNamesFor(names: DclName[], address: string, personalWorlds: boolean): string[] {
+  const out = names.map((n) => worldNameForName(n.name));
+  const personal = personalWorlds ? personalWorldName(address) : null;
+  if (personal && !out.includes(personal)) out.push(personal);
+  return out;
+}
+
+async function realmOffersPersonalWorlds(opts: GetOptions): Promise<boolean> {
+  try {
+    return (await fetchWorldsRealm(opts)).personalWorlds;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchLiveWorlds(
   names: DclName[],
   address: string,
+  personalWorlds: boolean,
   opts: GetOptions = {},
 ): Promise<ManagedWorld[]> {
   const owner = normalizeAddress(address);
   const resolved = await Promise.all(
-    names.map(async (n) => {
-      const worldName = worldNameForName(n.name);
+    worldNamesFor(names, address, personalWorlds).map(async (worldName) => {
       const deployedScenes = await resolveWorldScenes(worldName, opts);
       return {
         name: worldName,
@@ -88,6 +104,7 @@ async function fetchLiveWorlds(
 export async function loadManageWorlds(
   address: string,
   signal?: AbortSignal,
+  opts: Pick<GetOptions, "fetchImpl"> = {},
 ): Promise<ManageWorldsData> {
   const wallet = normalizeAddress(address);
   if (!wallet) {
@@ -98,8 +115,12 @@ export async function loadManageWorlds(
     };
   }
 
-  const names = await fetchLiveNames(address, { signal });
-  const worlds = await fetchLiveWorlds(names, address, { signal });
+  const get: GetOptions = { signal, fetchImpl: opts.fetchImpl };
+  const [names, personalWorlds] = await Promise.all([
+    fetchLiveNames(address, get),
+    realmOffersPersonalWorlds(get),
+  ]);
+  const worlds = await fetchLiveWorlds(names, address, personalWorlds, get);
 
   return {
     address,

@@ -283,7 +283,7 @@ export function getLinkedWearablesData(): LinkedWearablesData {
 
 export const MAX_IMAGES = 10;
 
-export function isHttpsURL(url: string): boolean {
+function isHttpsURL(url: string): boolean {
   const u = url.trim();
   if (!/^https:\/\//i.test(u)) return false;
   try {
@@ -294,15 +294,15 @@ export function isHttpsURL(url: string): boolean {
   }
 }
 
-export function isEthAddress(addr: string): boolean {
+function isEthAddress(addr: string): boolean {
   return ETH_ADDRESS_RE.test(addr.trim());
 }
 
-export function asNumber(value: string): number {
+function asNumber(value: string): number {
   return Number(value);
 }
 
-export function validateImageUrl(url: string): boolean {
+function validateImageUrl(url: string): boolean {
   const u = url.trim();
   if (!u) return false;
   if (!isHttpsURL(u)) return false;
@@ -431,7 +431,7 @@ export function validateTechnical(input: TechnicalInput): FieldErrors {
   return errors;
 }
 
-export type NewProposalLinkedWearables = {
+type NewProposalLinkedWearables = {
   type: string;
   name: string;
   marketplace_link: string;

@@ -98,50 +98,6 @@
   color: var(--ink-45);
 }
 
-.cm__panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  padding: 16px 16px 12px;
-}
-.cm__panelhead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-.cm__panelhead h2 {
-  font-size: 16px;
-  margin: 0;
-  font-weight: 700;
-}
-.cm__panelmeta {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-.cm__overall {
-  font-size: 13px;
-  color: var(--ink-6);
-}
-.cm__overall strong {
-  color: var(--success);
-}
-
-.cm__simchip {
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--r-pill);
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-  color: var(--brand);
-  background: color-mix(in srgb, var(--brand) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
-}
-
 .cm__step {
   appearance: none;
   display: block;
@@ -158,36 +114,6 @@
 }
 .cm__step:hover {
   background: var(--fill-1);
-}
-.cm__steprow {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-.cm__steplabel {
-  font-size: 14px;
-  font-weight: 600;
-}
-.cm__stepmeta {
-  font-size: 12px;
-  color: var(--ink-6);
-}
-.cm__stepmeta .cm__conv {
-  color: var(--ink-85);
-  margin-left: 8px;
-}
-.cm__bar {
-  height: 8px;
-  border-radius: var(--r-pill);
-  background-color: var(--accent);
-  background-image: repeating-linear-gradient(
-    -45deg,
-    rgba(255, 255, 255, 0.24) 0 2px,
-    transparent 2px 6px
-  );
-  opacity: 0.82;
-  min-width: 2px;
 }
 
 .cm__sim {

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DeCatalogTab } from "./DeAssetsPanel";
 import type { DeCatalogItem } from "../types";
@@ -26,34 +26,78 @@ function renderWith(preset: { cat: string; smart: boolean }) {
 }
 
 describe("smart chips filter by category, not name", () => {
-  it("the doors chip shows every smart door and nothing else", () => {
-    const { container } = renderWith({ cat: "doors", smart: true });
-    const shown = names(container).join(" | ");
-    expect(shown).toContain("Cyberpunk Sliding Gate");
-    expect(shown).toContain("Wooden Door");
-    expect(shown).not.toContain("Fantasy Door Prop");
-    expect(shown).not.toContain("Park Bench");
-  });
-
-  it("matches the catalog's own casing drift (Seats)", () => {
-    const { container } = renderWith({ cat: "seats", smart: true });
-    const shown = names(container).join(" | ");
-    expect(shown).toContain("Park Bench");
-    expect(shown).not.toContain("Wooden Door");
-  });
-
-  it("smart alone still means all smart items", () => {
-    const { container } = renderWith({ cat: "", smart: true });
-    const shown = names(container).join(" | ");
-    expect(shown).toContain("Wooden Door");
-    expect(shown).toContain("Park Bench");
-    expect(shown).toContain("Red Button");
-    expect(shown).not.toContain("Fantasy Door Prop");
-  });
-
-  it("the category select reads Smart Items while a chip filter is active", () => {
-    renderWith({ cat: "doors", smart: true });
-    const select = screen.getByLabelText("Filter by category") as HTMLSelectElement;
+  it("shows the smart items of the chip's category, matching the catalog's casing drift, or all smart items with no category", () => {
+    const doors = renderWith({ cat: "doors", smart: true });
+    const shownDoors = names(doors.container).join(" | ");
+    expect(shownDoors).toContain("Cyberpunk Sliding Gate");
+    expect(shownDoors).toContain("Wooden Door");
+    expect(shownDoors).not.toContain("Fantasy Door Prop");
+    expect(shownDoors).not.toContain("Park Bench");
+    const select = within(doors.container).getByLabelText("Filter by category") as HTMLSelectElement;
     expect(select.value).toBe("__smart");
+    doors.unmount();
+
+    const seats = renderWith({ cat: "seats", smart: true });
+    const shownSeats = names(seats.container).join(" | ");
+    expect(shownSeats).toContain("Park Bench");
+    expect(shownSeats).not.toContain("Wooden Door");
+    seats.unmount();
+
+    const all = renderWith({ cat: "", smart: true });
+    const shownAll = names(all.container).join(" | ");
+    expect(shownAll).toContain("Wooden Door");
+    expect(shownAll).toContain("Park Bench");
+    expect(shownAll).toContain("Red Button");
+    expect(shownAll).not.toContain("Fantasy Door Prop");
+  });
+});
+
+describe("clicking a catalog card reports what happened", () => {
+  const flush = () => act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it("confirms a placement, surfaces a copy warning, or says why placement failed", async () => {
+    const placed: string[] = [];
+    const ok = render(
+      <DeCatalogTab
+        items={ITEMS}
+        onPlace={async (a) => {
+          placed.push(a.name);
+          return { name: a.name, mirrored: true, warning: null };
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByText("Wooden Door"));
+    expect(placed).toEqual(["Wooden Door"]);
+    await flush();
+    expect(screen.getByRole("status").textContent).toContain("Placed Wooden Door");
+    ok.unmount();
+
+    const warned = render(
+      <DeCatalogTab
+        items={ITEMS}
+        onPlace={async (a) => ({
+          name: a.name,
+          mirrored: false,
+          warning: "its files could not be copied into the project (rpc initAsset failed)",
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByText("Wooden Door"));
+    await flush();
+    expect(screen.getByRole("status").textContent).toContain("could not be copied");
+    warned.unmount();
+
+    render(
+      <DeCatalogTab
+        items={ITEMS}
+        onPlace={() => Promise.reject(new Error("the scene is not connected yet"))}
+      />,
+    );
+    fireEvent.click(screen.getByText("Wooden Door"));
+    await flush();
+    expect(screen.getByRole("alert").textContent).toContain("not connected yet");
   });
 });

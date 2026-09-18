@@ -49,15 +49,13 @@ afterEach(() => {
 });
 
 describe("canonicalItems", () => {
-  it("sorts by (collection, itemId) and lowercases collections", () => {
+  it("sorts by (collection, itemId), lowercases collections, and derives the collection from the urn when a cart line lacks one", () => {
     const out = canonicalItems([
       { collection: "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", itemId: "3", qty: 1 },
       { collection: "0x59a90bad9570ecd08895f132daf7b79696337f61", itemId: "12", qty: 2 },
     ]);
     expect(out).toBe(VECTOR_ITEMS);
-  });
 
-  it("derives the collection from the urn when the cart line lacks one", () => {
     const line = intentLineFromCart({
       itemId: "7",
       urn: "urn:decentraland:matic:collections-v2:0xABC0000000000000000000000000000000000abc:7",
@@ -89,18 +87,15 @@ describe("buildPurchaseIntent", () => {
 });
 
 describe("EIP-712 vector (TS signs, Rust recovers)", () => {
-  it("hashes the typed data to the digest the Rust verifier recomputes", () => {
+  it("hashes the typed data to the digest the Rust verifier recomputes and signs deterministically to the signature it recovers", async () => {
     const typed = purchaseIntentTypedData(VECTOR_INTENT);
     const digest = hashTypedData(
       typed as unknown as Parameters<typeof hashTypedData>[0],
     );
     expect(digest).toBe(VECTOR_DIGEST);
-  });
 
-  it("signs deterministically to the signature the Rust verifier recovers", async () => {
     const account = privateKeyToAccount(VECTOR_PK);
     expect(account.address.toLowerCase()).toBe(VECTOR_SIGNER);
-    const typed = purchaseIntentTypedData(VECTOR_INTENT);
     const types = { ...typed.types };
     delete types.EIP712Domain;
     const sig = await account.signTypedData({
@@ -145,17 +140,14 @@ describe("signPurchaseIntent routing", () => {
     expect(body.typedData.message).toEqual(VECTOR_INTENT);
   });
 
-  it("falls back to the dev burner signer on dev hosts and produces the vector signature", async () => {
+  it("falls back to the dev burner signer on dev hosts (producing the vector signature) and throws with no signer on production hosts", async () => {
     vi.stubGlobal("window", {
       location: { hostname: "localhost" },
       localStorage: fakeLocalStorage({ "dcl:auth:dev-signer-pk:v1": VECTOR_PK }),
     });
-
     const signed = await signPurchaseIntent(VECTOR_INTENT);
     expect(signed.signature).toBe(VECTOR_SIG);
-  });
 
-  it("throws (no fake signature) when no signer is available", async () => {
     vi.stubGlobal("window", {
       location: { hostname: "catalyst.example.com" },
       localStorage: fakeLocalStorage(),

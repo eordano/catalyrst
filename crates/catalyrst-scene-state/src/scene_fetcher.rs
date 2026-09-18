@@ -1,5 +1,50 @@
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
+
+/// Hash-addressed blobs (scene entity, game.js, main.crdt) are immutable, so they are
+/// remembered by URL with no TTL; the whole memo is dropped once it outgrows this budget.
+const BLOB_MEMO_BUDGET_BYTES: usize = 64 << 20;
+
+#[derive(Default)]
+struct BlobMemo {
+    bytes: usize,
+    blobs: HashMap<String, Arc<[u8]>>,
+}
+
+fn blob_memo() -> &'static parking_lot::Mutex<BlobMemo> {
+    static MEMO: OnceLock<parking_lot::Mutex<BlobMemo>> = OnceLock::new();
+    MEMO.get_or_init(Default::default)
+}
+
+async fn get_hashed(client: &reqwest::Client, url: String, max_bytes: usize) -> Result<Arc<[u8]>> {
+    if let Some(hit) = blob_memo().lock().blobs.get(&url).cloned() {
+        return Ok(hit);
+    }
+    let bytes: Arc<[u8]> = get_capped(client, url.clone(), max_bytes).await?.into();
+    let mut memo = blob_memo().lock();
+    if memo.bytes + bytes.len() > BLOB_MEMO_BUDGET_BYTES {
+        memo.blobs.clear();
+        memo.bytes = 0;
+    }
+    if bytes.len() <= BLOB_MEMO_BUDGET_BYTES {
+        memo.bytes += bytes.len();
+        memo.blobs.insert(url, bytes.clone());
+    }
+    Ok(bytes)
+}
+
+/// What `/about` and the scene entity say about a world's scene, before its files.
+#[derive(Debug, Clone)]
+pub struct ResolvedScene {
+    pub scene_hash: String,
+    pub base_url: String,
+    pub code_hash: String,
+    pub crdt_hash: Option<String>,
+    pub base_parcel: String,
+}
 
 pub async fn from_local(path: &str) -> Result<String> {
     tokio::fs::read_to_string(path)
@@ -67,6 +112,25 @@ pub async fn from_world(
     world_name: &str,
     max_body_bytes: usize,
 ) -> Result<WorldScene> {
+    let resolved =
+        resolve_world_scene(client, world_server_url, world_name, max_body_bytes).await?;
+    let (code, static_crdt) = fetch_scene_files(client, &resolved, max_body_bytes).await?;
+    Ok(WorldScene {
+        scene_hash: resolved.scene_hash,
+        code,
+        static_crdt,
+        base_parcel: resolved.base_parcel,
+    })
+}
+
+/// `/about` (never memoized: it is what changes on redeploy) plus the hash-addressed
+/// scene entity.
+pub async fn resolve_world_scene(
+    client: &reqwest::Client,
+    world_server_url: &str,
+    world_name: &str,
+    max_body_bytes: usize,
+) -> Result<ResolvedScene> {
     let body = get_capped(
         client,
         format!("{world_server_url}/world/{world_name}/about"),
@@ -99,7 +163,7 @@ pub async fn from_world(
         .map(|(_, v)| v.into_owned())
         .ok_or_else(|| anyhow!("scenesUrn missing baseUrl"))?;
 
-    let body = get_capped(client, format!("{base_url}{scene_hash}"), max_body_bytes).await?;
+    let body = get_hashed(client, format!("{base_url}{scene_hash}"), max_body_bytes).await?;
     let scene: SceneEntity = serde_json::from_slice(&body).context("parse scene entity")?;
 
     let entry = scene
@@ -107,23 +171,11 @@ pub async fn from_world(
         .iter()
         .find(|c| c.file == scene.metadata.main)
         .ok_or_else(|| anyhow!("cannot find entry point for scene"))?;
-
-    let code_bytes = get_capped(client, format!("{base_url}{}", entry.hash), max_body_bytes)
-        .await
-        .context("fetch scene code")?;
-    let code = String::from_utf8_lossy(
-        code_bytes
-            .strip_prefix(b"\xef\xbb\xbf".as_slice())
-            .unwrap_or(&code_bytes),
-    )
-    .into_owned();
-
-    let static_crdt = match scene.content.iter().find(|c| c.file == "main.crdt") {
-        Some(c) => get_capped(client, format!("{base_url}{}", c.hash), max_body_bytes)
-            .await
-            .context("fetch main.crdt")?,
-        None => Vec::new(),
-    };
+    let crdt_hash = scene
+        .content
+        .iter()
+        .find(|c| c.file == "main.crdt")
+        .map(|c| c.hash.clone());
 
     let base_parcel = if scene.metadata.scene.base.is_empty() {
         "0,0".to_string()
@@ -131,12 +183,48 @@ pub async fn from_world(
         scene.metadata.scene.base.clone()
     };
 
-    Ok(WorldScene {
+    Ok(ResolvedScene {
         scene_hash,
-        code,
-        static_crdt,
+        base_url,
+        code_hash: entry.hash.clone(),
+        crdt_hash,
         base_parcel,
     })
+}
+
+/// game.js and main.crdt, fetched together; both are hash-addressed and memoized.
+pub async fn fetch_scene_files(
+    client: &reqwest::Client,
+    resolved: &ResolvedScene,
+    max_body_bytes: usize,
+) -> Result<(String, Vec<u8>)> {
+    let base_url = &resolved.base_url;
+    let code = async {
+        get_hashed(
+            client,
+            format!("{base_url}{}", resolved.code_hash),
+            max_body_bytes,
+        )
+        .await
+        .context("fetch scene code")
+    };
+    let crdt = async {
+        match &resolved.crdt_hash {
+            Some(hash) => get_hashed(client, format!("{base_url}{hash}"), max_body_bytes)
+                .await
+                .context("fetch main.crdt")
+                .map(|b| b.to_vec()),
+            None => Ok(Vec::new()),
+        }
+    };
+    let (code_bytes, static_crdt) = tokio::try_join!(code, crdt)?;
+    let code = String::from_utf8_lossy(
+        code_bytes
+            .strip_prefix(b"\xef\xbb\xbf".as_slice())
+            .unwrap_or(&code_bytes),
+    )
+    .into_owned();
+    Ok((code, static_crdt))
 }
 
 #[cfg(test)]
@@ -173,6 +261,70 @@ mod tests {
             .await
             .unwrap_err();
         assert!(format!("{err:#}").contains("byte cap"), "{err:#}");
+    }
+
+    #[tokio::test]
+    async fn world_fetch_memoizes_hashed_blobs_but_not_about() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let hits: Arc<[AtomicUsize; 4]> = Arc::new(Default::default());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let about = serde_json::json!({
+            "healthy": true,
+            "configurations": {
+                "scenesUrn": [format!(
+                    "urn:decentraland:entity:bafyscene-memo?=&baseUrl={base}/contents/"
+                )]
+            }
+        })
+        .to_string();
+        let entity = serde_json::json!({
+            "metadata": { "main": "game.js", "scene": { "base": "3,4" } },
+            "content": [
+                { "file": "game.js", "hash": "bafycode-memo" },
+                { "file": "main.crdt", "hash": "bafycrdt-memo" }
+            ]
+        })
+        .to_string();
+        let counted = |i: usize, body: String| {
+            let hits = hits.clone();
+            move || async move {
+                hits[i].fetch_add(1, Ordering::SeqCst);
+                body
+            }
+        };
+        let app = axum::Router::new()
+            .route(
+                "/world/memo.dcl.eth/about",
+                axum::routing::get(counted(0, about)),
+            )
+            .route(
+                "/contents/bafyscene-memo",
+                axum::routing::get(counted(1, entity)),
+            )
+            .route(
+                "/contents/bafycode-memo",
+                axum::routing::get(counted(2, "\u{feff}const x = 1;".to_string())),
+            )
+            .route(
+                "/contents/bafycrdt-memo",
+                axum::routing::get(counted(3, "crdt".to_string())),
+            );
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let client = reqwest::Client::new();
+        for _ in 0..2 {
+            let ws = from_world(&client, &base, "memo.dcl.eth", 1 << 20)
+                .await
+                .unwrap();
+            assert_eq!(ws.scene_hash, "bafyscene-memo");
+            assert_eq!(ws.code, "const x = 1;");
+            assert_eq!(ws.static_crdt, b"crdt");
+            assert_eq!(ws.base_parcel, "3,4");
+        }
+        let counts: Vec<usize> = hits.iter().map(|h| h.load(Ordering::SeqCst)).collect();
+        assert_eq!(counts, vec![2, 1, 1, 1], "about refetched, blobs memoized");
     }
 
     #[tokio::test]

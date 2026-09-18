@@ -33,7 +33,7 @@ fn single_realm(srv: &PulseServer, realm: &str, parcels: &[i32]) -> SceneListene
             .into_iter()
             .collect(),
         &srv.encoder,
-        &SceneListenerCellMapper::new(&srv.grid, &srv.encoder),
+        &SceneListenerCellMapper::new(&srv.grids, &srv.encoder),
     )
 }
 
@@ -218,10 +218,15 @@ async fn scene_listener_handshake_accepts_and_is_never_a_subject() {
     match srv.dispatch(1, channel::RELIABLE, &bytes, now_ms, 0) {
         Action::AuthenticatedListener {
             wallet: w,
+            session,
             duplicate_of,
             listener,
             features,
         } => {
+            assert_ne!(
+                session, w,
+                "a delegated chain names its ephemeral as the session"
+            );
             assert_eq!(w, wallet);
             assert_eq!(duplicate_of, None);
             assert_eq!(features, 0);

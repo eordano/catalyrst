@@ -6,7 +6,7 @@ hypothesis:
   statement: >-
     A guided multi-step claim flow (enter name -> check availability -> approve
     MANA -> confirm -> mint) increases the share of started NAME claims that
-    reach the on-chain confirm step, even with the mint stubbed.
+    reach the on-chain confirm step once real registration is enabled.
   because: >-
     Minting a NAME bundles an unfamiliar ENS purchase with a MANA approval and a
     100 MANA spend; splitting it into explicit, legible steps (each making the
@@ -38,34 +38,26 @@ decision:
     stays graceful); otherwise hold.
 ---
 
-# Claim / mint a Decentraland NAME (ENS)
+# Claim a Decentraland NAME
 
-The Claim-NAME wizard (`/marketplace/claim-name`) breaks minting a DCL NAME into
-explicit, URL-addressable steps: enter a name, check availability, approve MANA,
-confirm, submit the mint tx, success. Each step makes the cost (100 MANA on
-Ethereum Mainnet), the registrar approval, and the irreversible mint legible
-before the user commits. This story tracks whether the guided flow increases the
-share of started claims that reach the on-chain confirm step.
+## Current capability
 
-- **Primary metric:** `mk_claim_name_confirm_rate` =
-  `mk_claim_name_confirm_reached` / `mk_claim_name_started`.
-- **Guardrails:** claim-start volume (`mk_claim_name_started`) and the
-  unavailable-name path (`mk_claim_name_unavailable`) must stay healthy.
-- **Events:** `mk_claim_name_started` (entering check-availability, carries the
-  candidate name), `mk_claim_name_available` | `mk_claim_name_unavailable`,
-  `mk_claim_name_mana_approved`, `mk_claim_name_confirm_reached`,
-  `mk_claim_name_submitted` (stub tx), `mk_claim_name_completed` (stub).
+The production route uses `checkNameAvailability` and owned-name reads. NAME
+registration is **unavailable**: `unavailableNameClaim` refuses the mint without
+requesting a signature. It never derives a token ID from signature bytes, reports
+a successful mint, or treats a URL preview as proof of ownership.
 
-## Data reality (real vs simulated)
+The wizard can demonstrate approval/mint states in Storybook; those states do
+not establish registrar integration. NAMEs cannot be purchased with Credits in
+this flow.
 
-- **Real:** the existing-names context is LIVE catalyst
-  (`/credits/v1/users/{address}/names`), used to seed the "names you already
-  own" / taken set. The NAME economics (100 MANA, Ethereum Mainnet, DCLRegistrar
-  address, 2..15 alphanumeric validation) are protocol constants pinned from
-  `decentraland/marketplace modules/ens/utils.ts`. The flow, states, telemetry,
-  and validation are all real.
-- **Simulated / deferred:** the DCLRegistrar `available(name)` read and the
-  `register` mint are SIMULATED via the XState machine (read-only realm -- no
-  on-chain writes). The MANA approval, tx submission, and final commit are
-  clearly-noted stubs (`simulated: true` in the emitted props). Availability is
-  classified locally against the live owned-name set + a small known-taken list.
+## Assumptions and measurement
+
+A candidate passing local validation is not necessarily available on chain.
+Availability, payment approval, transaction submission and confirmed ownership
+are distinct. Returning to world publishing must require a real owned NAME.
+
+`mk_claim_name_confirm_rate` measures intent to confirm, not a minted NAME.
+The current single-arm draft establishes no comparative improvement; a real
+registrar writer and comparison design are prerequisites for the ship decision.
+Use the shared [Marketplace assumptions](../../../../../../docs/product-capabilities.md#marketplace).

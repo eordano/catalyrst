@@ -7,22 +7,14 @@ import {
   fetchOwnedNames,
   NAME_REGEX,
 } from "@data/lib/catalyst/marketplace/names";
-import {
-  hasWallet,
-  getConnectedAddress,
-  connectWallet,
-  getChainId,
-} from "@data/lib/auth/wallet";
-import { signTypedData } from "@data/lib/auth/typed-data";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
-import { prepareNameClaim } from "@data/lib/catalyst/marketplace/tx";
+import { unavailableNameClaim } from "@data/lib/catalyst/marketplace/unavailable-actions";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 import ClaimNameWizard from "@features/stories/marketplace/claim-name/ClaimNameWizard";
 import type {
   CheckAvailabilityFn,
-  MintFn,
 } from "@features/stories/marketplace/claim-name/machine";
 
 import type { Route } from "./+types/marketplace.claim-name";
@@ -58,20 +50,17 @@ export async function loader({ request }: Route.LoaderArgs) {
   const rawName = url.searchParams.get("name")?.trim() ?? "";
   const sampleName = NAME_REGEX.test(rawName) ? rawName : "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: ownedNames } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () =>
+      owner
+        ? fetchOwnedNames(owner, { signal: request.signal })
+            .then((page) => page.elements.map((e) => e.name))
+            .catch(() => [] as string[])
+        : Promise.resolve([] as string[]),
   );
-
-  let ownedNames: string[] = [];
-  if (owner) {
-    try {
-      const page = await fetchOwnedNames(owner, { signal: request.signal });
-      ownedNames = page.elements.map((e) => e.name);
-    } catch {
-    }
-  }
 
   const payload = {
     sid,
@@ -130,17 +119,6 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
     return { available: res.kind === "claimable" };
   };
 
-  const realMint: MintFn = async ({ name }) => {
-    if (!hasWallet())
-      throw new Error(
-        "No browser wallet found. Install MetaMask (or another EIP-1193 wallet).",
-      );
-    const from = (await getConnectedAddress()) ?? (await connectWallet());
-    const chainId = await getChainId();
-    const { typedData } = prepareNameClaim({ chainId, beneficiary: from, name });
-    const sig = await signTypedData(typedData, from);
-    return { txHash: "", tokenId: BigInt("0x" + sig.slice(2, 18)).toString() };
-  };
 
   return (
     <main className="marketplace-claim-name" onClickCapture={carryDeployContext}>
@@ -176,6 +154,7 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
         </div>
       ) : null}
       <ClaimNameWizard
+        allowStepPreview={false}
         trackCtx={{
           sid,
           story: STORY,
@@ -185,14 +164,13 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
         takenNames={takenNames}
         sampleName={sampleName}
         check={realCheck}
-        mint={realMint}
+        mint={unavailableNameClaim}
         initialStep={step ?? undefined}
         banner={
           <MkFlowBanner>
-            <strong>Test mode {"\u{2014}"} no real purchase will occur.</strong> NAME
-            registration isn&apos;t connected on this marketplace yet. You can
-            try the flow, and your wallet may ask for a signature, but no NAME
-            will be minted and nothing will be charged.
+            <strong>NAME registration is not available here yet.</strong> You can
+            check availability, but no signature will be requested and no NAME
+            will be minted.
           </MkFlowBanner>
         }
         creditsNote={"Credits can't be used for NAMEs yet \u{2014} Credits checkout only supports collection items."}

@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import ChModalMobileQRCode from "../../creatorhub/components/ChModalMobileQRCode";
+import { useDismiss } from "../use-dismiss";
 import "./deeditorappbar.css";
 
 const ExitIcon = () => (
@@ -68,12 +69,12 @@ function MenuToggle({
   );
 }
 
-export interface PublishOption {
+interface PublishOption {
   id: string;
   label: string;
 }
 
-export interface DeEditorAppBarProps {
+interface DeEditorAppBarProps {
   title: string;
   viewportSrc?: string;
   previewSrc?: string;
@@ -112,6 +113,8 @@ export default function DeEditorAppBar({
   onPublish = undefined,
 }: DeEditorAppBarProps) {
   const [menu, setMenu] = useState<"preview" | "publish" | null>(null);
+  const actionsRef = useRef<HTMLDivElement | null>(null);
+  useDismiss(menu !== null, actionsRef, () => setMenu(null));
   const [preview, setPreview] = useState<PreviewState>({
     debugger: false,
     enableLandscapeTerrains: true,
@@ -137,7 +140,7 @@ export default function DeEditorAppBar({
       <span className="editor-wizard__appbar-title" title={title}>
         {title}
       </span>
-      <div className="editor-wizard__appbar-actions">
+      <div className="editor-wizard__appbar-actions" ref={actionsRef}>
         {onExit && (
           <button type="button" className="editor-wizard__btn" onClick={onExit}>
             <ExitIcon />
@@ -254,7 +257,7 @@ export default function DeEditorAppBar({
   );
 }
 
-export interface DeEditorControlsBarProps {
+interface DeEditorControlsBarProps {
   label: string;
   children?: ReactNode;
 }

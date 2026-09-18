@@ -70,6 +70,12 @@ pub struct OrderRow {
 
 impl CreditsComponent {
     pub async fn list_active_packs(&self) -> Result<Vec<PackRow>, ApiError> {
+        self.packs
+            .get_or_fetch((), || self.list_active_packs_uncached())
+            .await
+    }
+
+    async fn list_active_packs_uncached(&self) -> Result<Vec<PackRow>, ApiError> {
         let rows = sqlx::query(
             "SELECT sku, title, credits::text AS credits, price_cents, currency, sort_order \
              FROM credit_packs WHERE active = TRUE \
@@ -80,15 +86,17 @@ impl CreditsComponent {
         Ok(rows.into_iter().map(map_pack).collect())
     }
 
+    /// An active pack by sku, served from the same memoized row set as the listing.
     pub async fn get_pack(&self, sku: &str) -> Result<Option<PackRow>, ApiError> {
-        let row = sqlx::query(
-            "SELECT sku, title, credits::text AS credits, price_cents, currency, sort_order \
-             FROM credit_packs WHERE sku = $1 AND active = TRUE",
-        )
-        .bind(sku)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.map(map_pack))
+        Ok(self
+            .list_active_packs()
+            .await?
+            .into_iter()
+            .find(|p| p.sku == sku))
+    }
+
+    pub(crate) fn invalidate_packs(&self) {
+        self.packs.invalidate(&());
     }
 
     pub async fn insert_pending_purchase(
@@ -154,14 +162,30 @@ impl CreditsComponent {
         .bind(address)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| OrderRow {
-            order_id: r.get("order_id"),
-            address: r.get("address"),
-            sku: r.get("sku"),
-            credits: r.get("credits"),
-            amount_cents: r.get("amount_cents"),
-            status: r.get("status"),
-            failure_reason: r.get("failure_reason"),
+        Ok(row.map(map_order))
+    }
+
+    /// [`Self::get_order`] plus the signer's spendable balance (0 without a wallet row).
+    pub async fn get_order_with_balance(
+        &self,
+        order_id: &str,
+        address: &str,
+    ) -> Result<Option<(OrderRow, f64)>, ApiError> {
+        let row = sqlx::query(
+            "SELECT o.order_id, o.address, o.sku, o.credits::text AS credits, o.amount_cents, \
+                    o.status, o.failure_reason, \
+                    COALESCE(c.available::float8, 0) AS available \
+             FROM credit_purchases o \
+             LEFT JOIN user_credits c ON c.address = o.address \
+             WHERE o.order_id = $1 AND o.address = $2",
+        )
+        .bind(order_id)
+        .bind(address)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| {
+            let available: f64 = r.get("available");
+            (map_order(r), available)
         }))
     }
 
@@ -172,51 +196,28 @@ impl CreditsComponent {
         charged_cents: i64,
     ) -> Result<MarkPaidOutcome, ApiError> {
         let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            "SELECT address, credits::text AS credits, amount_cents, status, stripe_event_id \
-             FROM credit_purchases WHERE stripe_checkout_session = $1 FOR UPDATE",
-        )
-        .bind(session_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let Some(row) = row else {
-            tx.rollback().await?;
-            return Ok(MarkPaidOutcome::NoPendingPurchase);
-        };
-        let address: String = row.get("address");
-        let credits: String = row.get("credits");
-        let amount_cents: i64 = row.get("amount_cents");
-        let status: String = row.get("status");
-        let existing_event: Option<String> = row.get("stripe_event_id");
-
-        if status == "paid" && existing_event.as_deref() == Some(event_id) {
-            tx.commit().await?;
-            return Ok(MarkPaidOutcome::Granted { address, credits });
-        }
-        if status != "pending" {
-            tx.rollback().await?;
-            return Ok(MarkPaidOutcome::NoPendingPurchase);
-        }
-        if amount_cents != charged_cents {
-            tx.rollback().await?;
-            return Ok(MarkPaidOutcome::AmountMismatch {
-                expected_cents: amount_cents,
-                charged_cents,
-            });
-        }
-
-        sqlx::query(
-            "UPDATE credit_purchases \
-             SET status = 'paid', stripe_event_id = $2, updated_at = now() \
-             WHERE stripe_checkout_session = $1",
-        )
-        .bind(session_id)
-        .bind(event_id)
-        .execute(&mut *tx)
-        .await?;
+        let outcome = self
+            .mark_order_paid_by_session_in_tx(&mut tx, session_id, event_id, charged_cents)
+            .await?;
         tx.commit().await?;
-        Ok(MarkPaidOutcome::Granted { address, credits })
+        Ok(outcome)
+    }
+
+    pub(crate) async fn mark_order_paid_by_session_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        session_id: &str,
+        event_id: &str,
+        charged_cents: i64,
+    ) -> Result<MarkPaidOutcome, ApiError> {
+        Self::mark_paid_in_tx(
+            tx,
+            MARK_PAID_BY_SESSION,
+            session_id,
+            event_id,
+            charged_cents,
+        )
+        .await
     }
 
     pub async fn mark_order_status_by_session(
@@ -225,6 +226,18 @@ impl CreditsComponent {
         status: &str,
         failure_reason: Option<&str>,
     ) -> Result<bool, ApiError> {
+        Self::mark_order_status_by_session_on(&self.pool, session_id, status, failure_reason).await
+    }
+
+    pub(crate) async fn mark_order_status_by_session_on<'e, E>(
+        executor: E,
+        session_id: &str,
+        status: &str,
+        failure_reason: Option<&str>,
+    ) -> Result<bool, ApiError>
+    where
+        E: sqlx::PgExecutor<'e>,
+    {
         let res = sqlx::query(
             "UPDATE credit_purchases \
              SET status = $2, failure_reason = COALESCE($3, failure_reason), updated_at = now() \
@@ -233,7 +246,7 @@ impl CreditsComponent {
         .bind(session_id)
         .bind(status)
         .bind(failure_reason)
-        .execute(&self.pool)
+        .execute(executor)
         .await?;
         Ok(res.rows_affected() > 0)
     }
@@ -245,16 +258,47 @@ impl CreditsComponent {
         charged_cents: i64,
     ) -> Result<MarkPaidOutcome, ApiError> {
         let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(
-            "SELECT address, credits::text AS credits, amount_cents, status, stripe_event_id \
-             FROM credit_purchases WHERE stripe_payment_intent = $1 FOR UPDATE",
-        )
-        .bind(payment_intent_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let outcome = self
+            .mark_purchase_paid_in_tx(&mut tx, payment_intent_id, event_id, charged_cents)
+            .await?;
+        tx.commit().await?;
+        Ok(outcome)
+    }
 
+    pub(crate) async fn mark_purchase_paid_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        payment_intent_id: &str,
+        event_id: &str,
+        charged_cents: i64,
+    ) -> Result<MarkPaidOutcome, ApiError> {
+        Self::mark_paid_in_tx(
+            tx,
+            MARK_PAID_BY_PAYMENT_INTENT,
+            payment_intent_id,
+            event_id,
+            charged_cents,
+        )
+        .await
+    }
+
+    /// Locks the purchase row and flips it to `paid` in one statement when it is still
+    /// pending with the expected amount; the pre-update row decides the outcome exactly as
+    /// the separate SELECT FOR UPDATE + UPDATE did.
+    async fn mark_paid_in_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        sql: &'static str,
+        key: &str,
+        event_id: &str,
+        charged_cents: i64,
+    ) -> Result<MarkPaidOutcome, ApiError> {
+        let row = sqlx::query(sql)
+            .bind(key)
+            .bind(event_id)
+            .bind(charged_cents)
+            .fetch_optional(&mut **tx)
+            .await?;
         let Some(row) = row else {
-            tx.rollback().await?;
             return Ok(MarkPaidOutcome::NoPendingPurchase);
         };
         let address: String = row.get("address");
@@ -262,34 +306,18 @@ impl CreditsComponent {
         let amount_cents: i64 = row.get("amount_cents");
         let status: String = row.get("status");
         let existing_event: Option<String> = row.get("stripe_event_id");
+        let updated: bool = row.get("updated");
 
-        if status == "paid" && existing_event.as_deref() == Some(event_id) {
-            tx.commit().await?;
+        if updated || (status == "paid" && existing_event.as_deref() == Some(event_id)) {
             return Ok(MarkPaidOutcome::Granted { address, credits });
         }
         if status != "pending" {
-            tx.rollback().await?;
             return Ok(MarkPaidOutcome::NoPendingPurchase);
         }
-        if amount_cents != charged_cents {
-            tx.rollback().await?;
-            return Ok(MarkPaidOutcome::AmountMismatch {
-                expected_cents: amount_cents,
-                charged_cents,
-            });
-        }
-
-        sqlx::query(
-            "UPDATE credit_purchases \
-             SET status = 'paid', stripe_event_id = $2, updated_at = now() \
-             WHERE stripe_payment_intent = $1",
-        )
-        .bind(payment_intent_id)
-        .bind(event_id)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(MarkPaidOutcome::Granted { address, credits })
+        Ok(MarkPaidOutcome::AmountMismatch {
+            expected_cents: amount_cents,
+            charged_cents,
+        })
     }
 
     /// Stripe `charge.refunded`: `cumulative_refunded_cents` is the running
@@ -300,7 +328,28 @@ impl CreditsComponent {
         cumulative_refunded_cents: i64,
         event_id: &str,
     ) -> Result<ReversalOutcome, ApiError> {
+        let mut tx = self.pool.begin().await?;
+        let outcome = self
+            .record_charge_refund_in_tx(
+                &mut tx,
+                payment_intent_id,
+                cumulative_refunded_cents,
+                event_id,
+            )
+            .await?;
+        tx.commit().await?;
+        Ok(outcome)
+    }
+
+    pub(crate) async fn record_charge_refund_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        payment_intent_id: &str,
+        cumulative_refunded_cents: i64,
+        event_id: &str,
+    ) -> Result<ReversalOutcome, ApiError> {
         self.apply_reversal(
+            tx,
             payment_intent_id,
             ReversalTarget::Cumulative(cumulative_refunded_cents),
             None,
@@ -316,7 +365,23 @@ impl CreditsComponent {
         status_label: &str,
         event_id: &str,
     ) -> Result<ReversalOutcome, ApiError> {
+        let mut tx = self.pool.begin().await?;
+        let outcome = self
+            .record_full_reversal_in_tx(&mut tx, payment_intent_id, status_label, event_id)
+            .await?;
+        tx.commit().await?;
+        Ok(outcome)
+    }
+
+    pub(crate) async fn record_full_reversal_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        payment_intent_id: &str,
+        status_label: &str,
+        event_id: &str,
+    ) -> Result<ReversalOutcome, ApiError> {
         self.apply_reversal(
+            tx,
             payment_intent_id,
             ReversalTarget::Full,
             Some(status_label),
@@ -340,6 +405,10 @@ impl CreditsComponent {
     /// (migration 0018), so cumulative charge-backs can never exceed what the
     /// purchase granted no matter how the webhook is replayed or reordered.
     ///
+    /// The lock, the clamp and the conditional UPDATE are one statement: `cur` is
+    /// the locked pre-update row, `upd` only fires for a paid purchase whose
+    /// reversed amount grows, and the RETURNING compares new against old.
+    ///
     /// TODO(owner-decision): this changes MONEY SEMANTICS and needs ratifying.
     /// (a) A Stripe reversal now REVOKES the granted credits instead of crediting
     ///     them; confirm no downstream consumer depended on the old
@@ -352,74 +421,66 @@ impl CreditsComponent {
     ///     exact; it is not.
     async fn apply_reversal(
         &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         payment_intent_id: &str,
         target: ReversalTarget,
         status_label: Option<&str>,
         event_id: &str,
     ) -> Result<ReversalOutcome, ApiError> {
-        let mut tx = self.pool.begin().await?;
+        let cumulative: Option<i64> = match target {
+            ReversalTarget::Cumulative(c) => Some(c),
+            ReversalTarget::Full => None,
+        };
         let row = sqlx::query(
-            "SELECT address, amount_cents, refunded_cents, \
-                    revoked_credits::text AS revoked_credits, status \
-             FROM credit_purchases WHERE stripe_payment_intent = $1 FOR UPDATE",
+            "WITH cur AS ( \
+                 SELECT id, address, amount_cents, refunded_cents, revoked_credits, status, \
+                        CASE WHEN $2::bigint IS NULL THEN amount_cents \
+                             ELSE LEAST(GREATEST($2::bigint, refunded_cents), amount_cents) END \
+                            AS new_refunded \
+                 FROM credit_purchases WHERE stripe_payment_intent = $1 FOR UPDATE \
+             ), upd AS ( \
+                 UPDATE credit_purchases p \
+                 SET refunded_cents = c.new_refunded, \
+                     revoked_credits = LEAST(p.credits, \
+                         CASE WHEN p.amount_cents <= 0 OR c.new_refunded >= p.amount_cents \
+                                  THEN p.credits \
+                              ELSE p.revoked_credits \
+                                   + (p.credits * (c.new_refunded - c.refunded_cents)::numeric \
+                                      / p.amount_cents) END), \
+                     status = CASE WHEN $3::text IS NOT NULL THEN $3 \
+                                   WHEN c.new_refunded >= p.amount_cents THEN 'refunded' \
+                                   ELSE p.status END, \
+                     updated_at = now() \
+                 FROM cur c \
+                 WHERE p.id = c.id AND c.status = 'paid' AND c.new_refunded > c.refunded_cents \
+                 RETURNING (p.revoked_credits - c.revoked_credits)::text AS charged_back, \
+                           (p.revoked_credits > c.revoked_credits) AS has_charge \
+             ) \
+             SELECT c.address, c.amount_cents, c.status, c.new_refunded, \
+                    u.charged_back, u.has_charge \
+             FROM cur c LEFT JOIN upd u ON true",
         )
         .bind(payment_intent_id)
-        .fetch_optional(&mut *tx)
+        .bind(cumulative)
+        .bind(status_label)
+        .fetch_optional(&mut **tx)
         .await?;
 
         let Some(row) = row else {
-            tx.rollback().await?;
             return Ok(ReversalOutcome::NoPaidPurchase);
         };
+        let status: String = row.get("status");
+        if status != "paid" {
+            return Ok(ReversalOutcome::NoPaidPurchase);
+        }
         let address: String = row.get("address");
         let amount_cents: i64 = row.get("amount_cents");
-        let prior_refunded: i64 = row.get("refunded_cents");
-        let prior_revoked: String = row.get("revoked_credits");
-        let status: String = row.get("status");
-
-        if status != "paid" {
-            tx.rollback().await?;
-            return Ok(ReversalOutcome::NoPaidPurchase);
-        }
-
-        let new_refunded = match target {
-            ReversalTarget::Cumulative(c) => c.clamp(prior_refunded, amount_cents),
-            ReversalTarget::Full => amount_cents,
+        let new_refunded: i64 = row.get("new_refunded");
+        let charged_back: Option<String> = row.get("charged_back");
+        let has_charge: Option<bool> = row.get("has_charge");
+        let (Some(charged_back), Some(true)) = (charged_back, has_charge) else {
+            return Ok(ReversalOutcome::NothingToReverse);
         };
-        if new_refunded <= prior_refunded {
-            tx.rollback().await?;
-            return Ok(ReversalOutcome::NothingToReverse);
-        }
-
-        let upd = sqlx::query(
-            "UPDATE credit_purchases \
-             SET refunded_cents = $2, \
-                 revoked_credits = LEAST(credits, \
-                     CASE WHEN amount_cents <= 0 OR $2 >= amount_cents THEN credits \
-                          ELSE revoked_credits \
-                               + (credits * ($2 - $3)::numeric / amount_cents) END), \
-                 status = CASE WHEN $4::text IS NOT NULL THEN $4 \
-                               WHEN $2 >= amount_cents THEN 'refunded' \
-                               ELSE status END, \
-                 updated_at = now() \
-             WHERE stripe_payment_intent = $1 \
-             RETURNING (revoked_credits - $5::numeric)::text AS charged_back, \
-                       (revoked_credits > $5::numeric) AS has_charge",
-        )
-        .bind(payment_intent_id)
-        .bind(new_refunded)
-        .bind(prior_refunded)
-        .bind(status_label)
-        .bind(&prior_revoked)
-        .fetch_one(&mut *tx)
-        .await?;
-        let charged_back: String = upd.get("charged_back");
-        let has_charge: bool = upd.get("has_charge");
-
-        if !has_charge {
-            tx.commit().await?;
-            return Ok(ReversalOutcome::NothingToReverse);
-        }
 
         let detail = serde_json::json!({
             "source": "stripe",
@@ -430,7 +491,7 @@ impl CreditsComponent {
         });
         let outcome = self
             .revoke_in_tx(
-                &mut tx,
+                tx,
                 &address,
                 &charged_back,
                 &format!("stripe:{}", event_id),
@@ -438,7 +499,6 @@ impl CreditsComponent {
                 &detail,
             )
             .await?;
-        tx.commit().await?;
         Ok(ReversalOutcome::Reversed {
             address,
             charged_back,
@@ -448,33 +508,63 @@ impl CreditsComponent {
         })
     }
 
-    pub async fn record_stripe_event(
-        &self,
+    /// Claims the event for this transaction: a fresh or never-finished event comes back
+    /// `true` with `processed_at` already stamped (it only lands if the caller commits),
+    /// one finished by an earlier transaction comes back `false`.
+    pub(crate) async fn record_stripe_event_in_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         event_id: &str,
         event_type: &str,
         payload: &JsonValue,
     ) -> Result<bool, ApiError> {
         let row = sqlx::query(
-            "INSERT INTO stripe_events (event_id, type, payload) \
-             VALUES ($1, $2, $3) \
-             ON CONFLICT (event_id) DO UPDATE SET type = stripe_events.type \
-             RETURNING processed_at",
+            "INSERT INTO stripe_events (event_id, type, payload, processed_at) \
+             VALUES ($1, $2, $3, now()) \
+             ON CONFLICT (event_id) DO UPDATE \
+                 SET processed_at = COALESCE(stripe_events.processed_at, now()) \
+             RETURNING (processed_at = now()) AS fresh",
         )
         .bind(event_id)
         .bind(event_type)
         .bind(payload)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut **tx)
         .await?;
-        let processed_at: Option<chrono::DateTime<chrono::Utc>> = row.get("processed_at");
-        Ok(processed_at.is_none())
+        Ok(row.get::<bool, _>("fresh"))
     }
+}
 
-    pub async fn mark_stripe_event_processed(&self, event_id: &str) -> Result<(), ApiError> {
-        sqlx::query("UPDATE stripe_events SET processed_at = now() WHERE event_id = $1")
-            .bind(event_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+macro_rules! mark_paid_sql {
+    ($column:literal) => {
+        concat!(
+            "WITH cur AS ( \
+                 SELECT id, address, credits::text AS credits, amount_cents, status, stripe_event_id \
+                 FROM credit_purchases WHERE ",
+            $column,
+            " = $1 FOR UPDATE \
+             ), upd AS ( \
+                 UPDATE credit_purchases p \
+                 SET status = 'paid', stripe_event_id = $2, updated_at = now() \
+                 FROM cur WHERE p.id = cur.id AND cur.status = 'pending' AND cur.amount_cents = $3 \
+                 RETURNING p.id \
+             ) \
+             SELECT cur.address, cur.credits, cur.amount_cents, cur.status, cur.stripe_event_id, \
+                    EXISTS (SELECT 1 FROM upd) AS updated \
+             FROM cur"
+        )
+    };
+}
+const MARK_PAID_BY_PAYMENT_INTENT: &str = mark_paid_sql!("stripe_payment_intent");
+const MARK_PAID_BY_SESSION: &str = mark_paid_sql!("stripe_checkout_session");
+
+fn map_order(r: sqlx::postgres::PgRow) -> OrderRow {
+    OrderRow {
+        order_id: r.get("order_id"),
+        address: r.get("address"),
+        sku: r.get("sku"),
+        credits: r.get("credits"),
+        amount_cents: r.get("amount_cents"),
+        status: r.get("status"),
+        failure_reason: r.get("failure_reason"),
     }
 }
 

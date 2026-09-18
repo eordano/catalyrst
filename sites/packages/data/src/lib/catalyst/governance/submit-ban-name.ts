@@ -1,7 +1,7 @@
 import fixture from "../../../fixtures/governance-submit-ban-name.json";
-import { validateCoAuthors as sharedValidateCoAuthors, type FieldErrors } from "./co-authors";
+import { type FieldErrors } from "./co-authors";
 
-export const BAN_NAME_SCHEMA = {
+const BAN_NAME_SCHEMA = {
   name: { min: 2, max: 15 },
   description: { min: 20, max: 250 },
   coAuthors: { max: 5, addressLength: 42 },
@@ -28,10 +28,6 @@ export function validateDescription(description: string): FieldErrors {
   if (len < BAN_NAME_SCHEMA.description.min) errors.description = "This description is too short.";
   else if (len > BAN_NAME_SCHEMA.description.max) errors.description = "This description is too long.";
   return errors;
-}
-
-export function validateCoAuthors(coAuthors: string[]): FieldErrors {
-  return sharedValidateCoAuthors(coAuthors, BAN_NAME_SCHEMA.coAuthors.max);
 }
 
 type Fixture = {

@@ -185,7 +185,7 @@ export interface DeInteractionsPreset {
   action?: string;
 }
 
-export interface DeInteractionsPanelProps {
+interface DeInteractionsPanelProps {
   entityId?: string | number;
   entityName?: string | null;
   onWrite?: ((name: string, json: string) => void) | null;

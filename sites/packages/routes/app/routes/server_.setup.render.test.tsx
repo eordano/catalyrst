@@ -27,19 +27,17 @@ function page(answers: WizardAnswers): string {
 }
 
 describe("ServerSetupPage SSR", () => {
-  it("renders the default public-gateway shape with the required-input errors named", () => {
-    const html = page(WIZARD_DEFAULTS);
-    expect(html).toContain("Set up this server");
-    expect(html).toContain("Public gateway");
-    expect(html).toContain("a host name is required");
-    expect(html).toContain("archive-capable Ethereum JSON-RPC");
-    expect(html).toContain("Configuration preview");
-    expect(html).toContain('profile = "public-gateway";');
-    expect(html).toContain("Before first boot");
-  });
+  it("names the required inputs on the default public-gateway shape and renders a complete configuration with its secrets and DNS checklist", () => {
+    const defaults = page(WIZARD_DEFAULTS);
+    expect(defaults).toContain("Set up this server");
+    expect(defaults).toContain("Public gateway");
+    expect(defaults).toContain("a host name is required");
+    expect(defaults).toContain("archive-capable Ethereum JSON-RPC");
+    expect(defaults).toContain("Configuration preview");
+    expect(defaults).toContain('profile = "public-gateway";');
+    expect(defaults).toContain("Before first boot");
 
-  it("renders a complete configuration with its secrets and DNS checklist", () => {
-    const html = page({
+    const complete = page({
       ...WIZARD_DEFAULTS,
       domain: "realm.example.org",
       acmeEmail: "ops@example.org",
@@ -48,11 +46,11 @@ describe("ServerSetupPage SSR", () => {
       sqdPortalKey: "sqd_testkey",
       adminAddresses: "0x1111111111111111111111111111111111111111",
     });
-    expect(html).toContain("Your configuration");
-    expect(html).toContain("catalyrst-host.nix");
-    expect(html).toContain("/var/lib/secrets/squid.env");
-    expect(html).toContain("*.realm.example.org");
-    expect(html).not.toContain("needs fixing");
+    expect(complete).toContain("Your configuration");
+    expect(complete).toContain("catalyrst-host.nix");
+    expect(complete).toContain("/var/lib/secrets/squid.env");
+    expect(complete).toContain("*.realm.example.org");
+    expect(complete).not.toContain("needs fixing");
   });
 
   it("hides public-only sections for a content node and never names a foreign host", () => {

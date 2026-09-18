@@ -12,10 +12,6 @@
   color: var(--text-3);
   padding: 4px 12px 6px;
 }
-.eui-asset-sentinel {
-  grid-column: 1 / -1;
-  height: 8px;
-}
 .eui-asset {
   border: 1px solid var(--divider-soft);
   border-radius: var(--r-card);
@@ -91,30 +87,6 @@
 .eui-asset .thumb svg {
   width: 42%;
   height: 42%;
-}
-
-.eui-left-resize {
-  position: absolute;
-  top: var(--eui-top-inset, 12px);
-  bottom: var(--eui-bottom-inset, 12px);
-  width: 10px;
-  z-index: 6;
-  cursor: ew-resize;
-  pointer-events: auto;
-}
-.eui-left-resize::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  border-radius: 3px;
-  background: transparent;
-  transition: background 0.12s;
-}
-.eui-left-resize:hover::after {
-  background: var(--primary);
 }
 
 .eui-seg {

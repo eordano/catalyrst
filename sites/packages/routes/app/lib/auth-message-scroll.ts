@@ -1,6 +1,6 @@
 import type { UnverifiableReason } from "./auth-request-params";
 
-export type ScrollMetrics = {
+type ScrollMetrics = {
   scrollHeight: number;
   scrollTop: number;
   clientHeight: number;

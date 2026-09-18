@@ -34,6 +34,22 @@ pub trait ContentStorage: Send + Sync {
         &self,
         hashes: &[String],
     ) -> Result<HashMap<String, bool>, StorageError>;
+
+    /// One open answers the whole request: size, sniff window, range and body all come off the
+    /// same descriptor. The default composes the older calls for backends that do not override it.
+    async fn open(&self, hash: &str) -> Result<Option<OpenedContent>, StorageError> {
+        let Some(info) = self.file_info(hash).await? else {
+            return Ok(None);
+        };
+        let Some(bytes) = self.retrieve(hash).await? else {
+            return Ok(None);
+        };
+        Ok(Some(OpenedContent {
+            size: info.size.unwrap_or(bytes.len() as u64),
+            encoding: info.encoding,
+            reader: Box::new(std::io::Cursor::new(bytes)),
+        }))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +57,48 @@ pub struct FileInfo {
     pub size: Option<u64>,
     pub content_size: Option<u64>,
     pub encoding: Option<String>,
+}
+
+pub trait ContentReader: tokio::io::AsyncRead + tokio::io::AsyncSeek + Send + Unpin {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncSeek + Send + Unpin> ContentReader for T {}
+
+pub struct OpenedContent {
+    pub size: u64,
+    pub encoding: Option<String>,
+    pub reader: Box<dyn ContentReader>,
+}
+
+impl OpenedContent {
+    /// The bytes in `start..=end` clamped to the file; the reader is left positioned after them.
+    pub async fn read_range(&mut self, start: u64, end: u64) -> Result<Bytes, StorageError> {
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+        if start >= self.size {
+            return Ok(Bytes::new());
+        }
+        let len = (end.min(self.size - 1) - start + 1) as usize;
+        self.reader.seek(std::io::SeekFrom::Start(start)).await?;
+        let mut buf = vec![0u8; len];
+        let mut filled = 0;
+        while filled < len {
+            let n = self.reader.read(&mut buf[filled..]).await?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        buf.truncate(filled);
+        Ok(Bytes::from(buf))
+    }
+
+    /// Streams the file from the start; `consumed` is whatever a preceding `read_range(0, ..)`
+    /// took off the front, replayed instead of re-read.
+    pub fn into_body(self, consumed: Bytes) -> Body {
+        use futures::StreamExt;
+
+        let rest = tokio_util::io::ReaderStream::with_capacity(self.reader, 64 * 1024);
+        Body::from_stream(futures::stream::iter([Ok::<_, std::io::Error>(consumed)]).chain(rest))
+    }
 }
 
 #[async_trait]
@@ -80,6 +138,25 @@ pub trait Database: Send + Sync {
 
     async fn get_failed_deployments(&self) -> Result<Vec<Value>, DatabaseError>;
 
+    /// One page of `get_failed_deployments`; backends push the window into the query.
+    async fn get_failed_deployments_page(
+        &self,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<Value>, DatabaseError> {
+        let all = self.get_failed_deployments().await?;
+        Ok(all
+            .into_iter()
+            .skip(offset.max(0) as usize)
+            .take(limit.max(0) as usize)
+            .collect())
+    }
+
+    /// Boot-time shape of the content schema; `None` makes callers probe the database themselves.
+    fn deployment_schema(&self) -> Option<crate::schema_migrations::DeploymentSchema> {
+        None
+    }
+
     async fn get_audit_info(
         &self,
         entity_type: &str,
@@ -87,6 +164,41 @@ pub trait Database: Send + Sync {
     ) -> Result<Option<Value>, DatabaseError>;
 
     async fn find_entity_by_pointer(&self, pointer: &str) -> Result<Option<Value>, DatabaseError>;
+
+    /// Serialized form of `active_entities_by_pointers`: a backend holding entities as bytes hands
+    /// them over without a parse/re-serialize round; the default serializes the parsed form.
+    async fn active_entity_docs_by_pointers(
+        &self,
+        pointers: &[String],
+    ) -> Result<Vec<EntityDoc>, DatabaseError> {
+        Ok(EntityDoc::from_values(
+            self.active_entities_by_pointers(pointers).await?,
+        ))
+    }
+
+    async fn active_entity_docs_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<EntityDoc>, DatabaseError> {
+        Ok(EntityDoc::from_values(
+            self.active_entities_by_ids(ids).await?,
+        ))
+    }
+
+    async fn active_entity_docs_by_prefix(
+        &self,
+        prefix: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<PrefixDocsResult, DatabaseError> {
+        let result = self
+            .active_entities_by_prefix(prefix, offset, limit)
+            .await?;
+        Ok(PrefixDocsResult {
+            total: result.total,
+            entities: EntityDoc::from_values(result.entities),
+        })
+    }
 
     async fn clear_failed_deployment(&self, _entity_id: &str) -> Result<u64, DatabaseError> {
         Err(DatabaseError::Unsupported(
@@ -105,6 +217,55 @@ pub trait Database: Send + Sync {
 pub struct PrefixQueryResult {
     pub total: i64,
     pub entities: Vec<Value>,
+}
+
+/// An active entity as the JSON document a response carries, with its id alongside so the
+/// denylist check needs no parse.
+#[derive(Debug, Clone)]
+pub struct EntityDoc {
+    pub id: String,
+    pub json: Bytes,
+}
+
+impl EntityDoc {
+    pub fn from_value(value: &Value) -> Self {
+        Self {
+            id: value
+                .get("id")
+                .and_then(|id| id.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            json: Bytes::from(serde_json::to_vec(value).unwrap_or_default()),
+        }
+    }
+
+    pub fn from_values(values: Vec<Value>) -> Vec<Self> {
+        values.iter().map(Self::from_value).collect()
+    }
+
+    pub fn to_value(&self) -> Option<Value> {
+        serde_json::from_slice(&self.json).ok()
+    }
+
+    /// `[doc,doc,...]` by concatenation, the same bytes `Json(Vec<Value>)` would produce.
+    pub fn json_array(docs: &[Self]) -> Bytes {
+        let mut out = Vec::with_capacity(docs.iter().map(|d| d.json.len() + 1).sum::<usize>() + 2);
+        out.push(b'[');
+        for (i, doc) in docs.iter().enumerate() {
+            if i > 0 {
+                out.push(b',');
+            }
+            out.extend_from_slice(&doc.json);
+        }
+        out.push(b']');
+        Bytes::from(out)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PrefixDocsResult {
+    pub total: i64,
+    pub entities: Vec<EntityDoc>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -236,6 +397,10 @@ pub fn retain_non_denylisted(entities: &mut Vec<Value>, denylist: &dyn Denylist)
             .and_then(|id| id.as_str())
             .is_some_and(|id| !denylist.is_denylisted(id))
     });
+}
+
+pub fn retain_non_denylisted_docs(docs: &mut Vec<EntityDoc>, denylist: &dyn Denylist) {
+    docs.retain(|doc| !doc.id.is_empty() && !denylist.is_denylisted(&doc.id));
 }
 
 pub trait ChallengeSupervisor: Send + Sync {

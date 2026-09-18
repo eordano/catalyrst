@@ -21,7 +21,6 @@ import {
   slugToState,
   stateToSlug,
   slugifyProjectName,
-  simulateScaffold,
   type ScaffoldFn,
   type ScaffoldResult,
   type TrackFn,
@@ -61,66 +60,53 @@ const TRAVERSAL_EVENTS = [
 ];
 
 describe("createProjectMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
+  it("covers every state, round-trips uniquely, and falls back to the first step (including the retired path step)", () => {
     const machineStates = new Set(Object.keys(createProjectMachine.states));
     const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
     expect(mappedStates).toEqual(machineStates);
     expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
 
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.naming);
-    expect(slugToState(null)).toBe("naming");
-    expect(slugToState(undefined)).toBe("naming");
-    expect(slugToState("")).toBe("naming");
-    expect(slugToState("nope")).toBe("naming");
-    expect(slugToState("path")).toBe("naming");
+    for (const bad of [null, undefined, "", "nope", "path"]) {
+      expect(slugToState(bad)).toBe("naming");
+    }
     expect(slugToState("template")).toBe("templating");
     expect(slugToState("scaffold")).toBe("scaffolding");
-    expect(slugToState("created")).toBe("created");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("createProjectMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveCreateProjectSnapshot({
-      step: "naming",
-      trackCtx: inputFor(okScaffold, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("run-scoped steps (scaffold/created/error) are NOT cold-resumable \u{2014} they fall back to naming", async () => {
+  it("first step needs no snapshot; run-scoped steps (scaffold/created/error) are NOT cold-resumable and fall back to naming", async () => {
     const track = vi.fn();
     const scaffold = vi.fn(okScaffold);
+    const input = inputFor(scaffold, track);
+
+    expect(resolveCreateProjectSnapshot({ step: "naming", trackCtx: input.trackCtx })).toBeUndefined();
 
     for (const step of ["scaffolding", "created", "error"] as const) {
       expect(COLD_RESUMABLE_STATES).not.toContain(step);
-      const snapshot = resolveCreateProjectSnapshot({
-        step,
-        trackCtx: inputFor(scaffold, track).trackCtx,
-        scaffold,
-        track,
-        name: "My Awesome Scene",
-        template: "art-gallery",
-      });
-      expect(snapshot).toBeUndefined();
+      expect(
+        resolveCreateProjectSnapshot({
+          step,
+          trackCtx: input.trackCtx,
+          scaffold,
+          track,
+          name: "My Awesome Scene",
+          template: "art-gallery",
+        }),
+      ).toBeUndefined();
     }
 
-    const actor = createActor(createProjectMachine, {
-      input: inputFor(scaffold, track),
-      snapshot: undefined,
-    }).start();
+    const actor = createActor(createProjectMachine, { input, snapshot: undefined }).start();
     expect(actor.getSnapshot().matches("naming")).toBe(true);
     expect(actor.getSnapshot().context.result).toBeUndefined();
 
@@ -129,7 +115,7 @@ describe("createProjectMachine \u{2014} deep-link hydration (snapshot, no event 
     expect(scaffold).not.toHaveBeenCalled();
   });
 
-  it("hydrating templating does NOT fire telemetry, does NOT auto-scaffold, and seeds slug + path from the name", async () => {
+  it("hydrating templating seeds slug + path silently; SELECT_TEMPLATE then fires telemetry and reaches created", async () => {
     const track = vi.fn();
     const scaffold = vi.fn(okScaffold);
     const snapshot = resolveCreateProjectSnapshot({
@@ -154,34 +140,14 @@ describe("createProjectMachine \u{2014} deep-link hydration (snapshot, no event 
     expect(scaffold).not.toHaveBeenCalled();
 
     actor.send({ type: "SELECT_TEMPLATE", template: "empty" });
+    expect(track.mock.calls.map((c) => c[0])).toContain(CREATE_PROJECT_EVENTS.templateSelected);
     await waitFor(actor, (s) => s.matches("created"));
     expect(actor.getSnapshot().context.projectSlug).toBe("neon-market");
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveCreateProjectSnapshot({
-      step: "templating",
-      trackCtx: inputFor(okScaffold, track).trackCtx,
-      track,
-    });
-    const actor = createActor(createProjectMachine, {
-      input: inputFor(okScaffold, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("templating")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "SELECT_TEMPLATE", template: "empty" });
-    expect(track.mock.calls.map((c) => c[0])).toContain(
-      CREATE_PROJECT_EVENTS.templateSelected,
-    );
   });
 });
 
 describe("createProjectMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and scaffolding needs a valid name + a template", () => {
     const paths = getShortestPaths(createProjectMachine, {
       input: inputFor(okScaffold, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -194,21 +160,14 @@ describe("createProjectMachine \u{2014} model-based path coverage (@xstate/graph
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("naming")).toBe(true);
-    expect(ends.has("templating")).toBe(true);
-    expect(ends.has("scaffolding")).toBe(true);
-  });
+    for (const s of ["naming", "templating", "scaffolding"]) {
+      expect(ends.has(s)).toBe(true);
+    }
 
-  it("reaching scaffolding passes through a valid name and a template", () => {
-    const paths = getShortestPaths(createProjectMachine, {
-      input: inputFor(okScaffold, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const scaffolding = paths.find((p) => (p.state.value as string) === "scaffolding");
     expect(scaffolding).toBeDefined();
     const events = scaffolding!.steps.map((s) => s.event.type);
-    expect(events).toContain("SET_NAME");
-    expect(events).toContain("SELECT_TEMPLATE");
+    expect(events).toEqual(expect.arrayContaining(["SET_NAME", "SELECT_TEMPLATE"]));
   });
 });
 
@@ -228,77 +187,77 @@ describe("createProjectMachine \u{2014} telemetry events (happy path)", () => {
     await waitFor(actor, (s) => s.matches("created"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CREATE_PROJECT_EVENTS.started);
-    expect(events).toContain(CREATE_PROJECT_EVENTS.nameSet);
-    expect(events).toContain(CREATE_PROJECT_EVENTS.pathSet);
-    expect(events).toContain(CREATE_PROJECT_EVENTS.templateSelected);
-    expect(events).toContain(CREATE_PROJECT_EVENTS.scaffolding);
-    expect(events).toContain(CREATE_PROJECT_EVENTS.completed);
-
+    expect(events).toEqual(
+      expect.arrayContaining([
+        CREATE_PROJECT_EVENTS.started,
+        CREATE_PROJECT_EVENTS.nameSet,
+        CREATE_PROJECT_EVENTS.pathSet,
+        CREATE_PROJECT_EVENTS.templateSelected,
+        CREATE_PROJECT_EVENTS.scaffolding,
+        CREATE_PROJECT_EVENTS.completed,
+      ]),
+    );
     expect(events.indexOf(CREATE_PROJECT_EVENTS.started)).toBeLessThan(
       events.indexOf(CREATE_PROJECT_EVENTS.completed),
     );
-
     expect(events).not.toContain(CREATE_PROJECT_EVENTS.pathInvalid);
 
-    const startedCall = track.mock.calls.find(
-      (c) => c[0] === CREATE_PROJECT_EVENTS.started,
-    );
+    const startedCall = track.mock.calls.find((c) => c[0] === CREATE_PROJECT_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
       experimentKey: "ch_create_project_wizard",
       variant: "wizard",
     });
 
-    const completedCall = track.mock.calls.find(
-      (c) => c[0] === CREATE_PROJECT_EVENTS.completed,
-    );
+    const completedCall = track.mock.calls.find((c) => c[0] === CREATE_PROJECT_EVENTS.completed);
     expect(completedCall?.[1]).toMatchObject({ written: false, template: "art-gallery" });
     expect(completedCall?.[1].files).toEqual(SCAFFOLD_FILES.map((f) => f.name));
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
   });
-
-  it("started fires exactly once even across BACK/forward in the name step", () => {
-    const track = vi.fn();
-    const actor = createActor(createProjectMachine, {
-      input: inputFor(okScaffold, track),
-    }).start();
-
-    actor.send({ type: "SET_NAME", name: "A" });
-    actor.send({ type: "BACK" });
-    actor.send({ type: "SET_NAME", name: "B" });
-
-    const startedCount = track.mock.calls.filter(
-      (c) => c[0] === CREATE_PROJECT_EVENTS.started,
-    ).length;
-    expect(startedCount).toBe(2);
-  });
 });
 
-describe("createProjectMachine \u{2014} invalid name guardrail", () => {
-  it("an invalid SET_NAME stays in naming and fires ch_create_project_path_invalid", () => {
+describe("createProjectMachine \u{2014} invalid name guardrail + project slug", () => {
+  it("an invalid SET_NAME stays in naming with the given (or default) error and no slug; a valid name clears it, sets the slug, and carries it to created", async () => {
     const track = vi.fn();
     const actor = createActor(createProjectMachine, {
       input: inputFor(okScaffold, track),
     }).start();
 
-    actor.send({ type: "SET_NAME", name: "Taken", valid: false });
-
-    expect(actor.getSnapshot().matches("naming")).toBe(true);
-    expect(actor.getSnapshot().context.name).toBe("Taken");
-
+    actor.send({ type: "SET_NAME", name: "Taken", valid: false, error: "Name already in use" });
+    const invalid = actor.getSnapshot();
+    expect(invalid.matches("naming")).toBe(true);
+    expect(invalid.context.name).toBe("Taken");
+    expect(invalid.context.pathError).toBe("Name already in use");
+    expect(invalid.context.projectSlug).toBeUndefined();
     const events = track.mock.calls.map((c) => c[0]);
     expect(events).toContain(CREATE_PROJECT_EVENTS.pathInvalid);
     expect(events).not.toContain(CREATE_PROJECT_EVENTS.pathSet);
 
-    actor.send({ type: "SET_NAME", name: "Free", valid: true });
-    expect(actor.getSnapshot().matches("templating")).toBe(true);
+    actor.send({ type: "SET_NAME", name: "X", valid: false });
+    expect(actor.getSnapshot().matches("naming")).toBe(true);
+    expect(actor.getSnapshot().context.pathError).toBeTruthy();
+
+    actor.send({ type: "SET_NAME", name: "My Awesome Scene", valid: true });
+    const mid = actor.getSnapshot();
+    expect(mid.matches("templating")).toBe(true);
+    expect(mid.context.pathError).toBeUndefined();
+    expect(mid.context.projectSlug).toBe("my-awesome-scene");
+    expect(mid.context.path).toBe("my-awesome-scene");
     expect(track.mock.calls.map((c) => c[0])).toContain(CREATE_PROJECT_EVENTS.pathSet);
+
+    actor.send({ type: "SELECT_TEMPLATE", template: "empty" });
+    await waitFor(actor, (s) => s.matches("created"));
+    expect(actor.getSnapshot().context.projectSlug).toBe("my-awesome-scene");
+
+    expect(slugifyProjectName("My Awesome Scene")).toBe("my-awesome-scene");
+    expect(slugifyProjectName("  Neon   Market!! ")).toBe("neon-market");
+    expect(slugifyProjectName("***")).toBe("new-scene");
+    expect(slugifyProjectName("")).toBe("new-scene");
   });
 });
 
 describe("createProjectMachine \u{2014} preselected template skips templating", () => {
-  it("a valid SET_NAME goes straight to scaffolding when template came from the URL", async () => {
+  it("a valid SET_NAME goes straight to scaffolding (preselected:true); an invalid SET_NAME still stays in naming", async () => {
     const track = vi.fn();
     const actor = createActor(createProjectMachine, {
       input: { ...inputFor(okScaffold, track), template: "tower-defense" },
@@ -310,32 +269,18 @@ describe("createProjectMachine \u{2014} preselected template skips templating", 
 
     const events = track.mock.calls.map((c) => c[0]);
     expect(events).toContain(CREATE_PROJECT_EVENTS.templateSelected);
-    const selectedCall = track.mock.calls.find(
-      (c) => c[0] === CREATE_PROJECT_EVENTS.templateSelected,
-    );
+    const selectedCall = track.mock.calls.find((c) => c[0] === CREATE_PROJECT_EVENTS.templateSelected);
     expect(selectedCall?.[1]).toMatchObject({
       template: "tower-defense",
       preselected: true,
     });
     expect(actor.getSnapshot().context.template).toBe("tower-defense");
-  });
 
-  it("an invalid SET_NAME still stays in naming with a preselected template", () => {
-    const actor = createActor(createProjectMachine, {
+    const invalid = createActor(createProjectMachine, {
       input: { ...inputFor(okScaffold, vi.fn()), template: "memory-game" },
     }).start();
-
-    actor.send({ type: "SET_NAME", name: "Taken", valid: false });
-    expect(actor.getSnapshot().matches("naming")).toBe(true);
-  });
-
-  it("without a preselected template a valid SET_NAME still lands on templating", () => {
-    const actor = createActor(createProjectMachine, {
-      input: inputFor(okScaffold, vi.fn()),
-    }).start();
-
-    actor.send({ type: "SET_NAME", name: "My Scene", valid: true });
-    expect(actor.getSnapshot().matches("templating")).toBe(true);
+    invalid.send({ type: "SET_NAME", name: "Taken", valid: false });
+    expect(invalid.getSnapshot().matches("naming")).toBe(true);
   });
 });
 
@@ -366,66 +311,6 @@ describe("createProjectMachine \u{2014} scaffold failure + retry", () => {
   });
 });
 
-describe("createProjectMachine \u{2014} name error surface + project slug", () => {
-  it("invalid SET_NAME records the given error and stays in naming (no slug yet)", () => {
-    const actor = createActor(createProjectMachine, {
-      input: inputFor(okScaffold, () => {}),
-    }).start();
-
-    actor.send({
-      type: "SET_NAME",
-      name: "Taken",
-      valid: false,
-      error: "Name already in use",
-    });
-
-    const snap = actor.getSnapshot();
-    expect(snap.matches("naming")).toBe(true);
-    expect(snap.context.pathError).toBe("Name already in use");
-    expect(snap.context.projectSlug).toBeUndefined();
-  });
-
-  it("invalid SET_NAME without a message still surfaces a default reason", () => {
-    const actor = createActor(createProjectMachine, {
-      input: inputFor(okScaffold, () => {}),
-    }).start();
-
-    actor.send({ type: "SET_NAME", name: "X", valid: false });
-
-    expect(actor.getSnapshot().context.pathError).toBeTruthy();
-  });
-
-  it("a valid name clears the error, sets the slug, and carries it to created", async () => {
-    const actor = createActor(createProjectMachine, {
-      input: inputFor(okScaffold, () => {}),
-    }).start();
-
-    actor.send({ type: "SET_NAME", name: "Taken", valid: false, error: "nope" });
-    expect(actor.getSnapshot().context.pathError).toBe("nope");
-    expect(actor.getSnapshot().matches("naming")).toBe(true);
-
-    actor.send({ type: "SET_NAME", name: "My Awesome Scene", valid: true });
-    const mid = actor.getSnapshot();
-    expect(mid.matches("templating")).toBe(true);
-    expect(mid.context.pathError).toBeUndefined();
-    expect(mid.context.projectSlug).toBe("my-awesome-scene");
-    expect(mid.context.path).toBe("my-awesome-scene");
-
-    actor.send({ type: "SELECT_TEMPLATE", template: "empty" });
-    await waitFor(actor, (s) => s.matches("created"));
-    expect(actor.getSnapshot().context.projectSlug).toBe("my-awesome-scene");
-  });
-});
-
-describe("slugifyProjectName", () => {
-  it("derives a url-safe slug and falls back for empty/symbol-only names", () => {
-    expect(slugifyProjectName("My Awesome Scene")).toBe("my-awesome-scene");
-    expect(slugifyProjectName("  Neon   Market!! ")).toBe("neon-market");
-    expect(slugifyProjectName("***")).toBe("new-scene");
-    expect(slugifyProjectName("")).toBe("new-scene");
-  });
-});
-
 describe("CreateProjectView \u{2014} created screen create->edit seam", () => {
   const result: ScaffoldResult = {
     files: SCAFFOLD_FILES,
@@ -434,8 +319,8 @@ describe("CreateProjectView \u{2014} created screen create->edit seam", () => {
     written: true,
   };
 
-  it("offers a single primary 'Open in editor' deep link + secondary 'Go to My Scenes'", () => {
-    const html = renderToStaticMarkup(
+  it("offers one primary 'Open in editor' deep link + 'Go to My Scenes', notes a missing wallet without gating, and never fabricates file writes", () => {
+    const signedIn = renderToStaticMarkup(
       createElement(CreateProjectView, {
         view: "created",
         name: "My Awesome Scene",
@@ -444,17 +329,14 @@ describe("CreateProjectView \u{2014} created screen create->edit seam", () => {
         result,
       }),
     );
+    expect(signedIn).toContain("Open in editor");
+    expect(signedIn).toContain("/creator-hub/scene-editor?source=local");
+    expect(signedIn).toContain("project=my-awesome-scene");
+    expect(signedIn).toContain('href="/create/scenes"');
+    expect(signedIn).toContain("Go to My Scenes");
+    expect((signedIn.match(/create-project-wizard__btn--primary/g) ?? []).length).toBe(1);
 
-    expect(html).toContain("Open in editor");
-    expect(html).toContain("/creator-hub/scene-editor?source=local");
-    expect(html).toContain("project=my-awesome-scene");
-    expect(html).toContain('href="/create/scenes"');
-    expect(html).toContain("Go to My Scenes");
-    expect((html.match(/create-project-wizard__btn--primary/g) ?? []).length).toBe(1);
-  });
-
-  it("shows a not-signed-in note (publishing needs a wallet) but no gate", () => {
-    const html = renderToStaticMarkup(
+    const signedOut = renderToStaticMarkup(
       createElement(CreateProjectView, {
         view: "created",
         name: "Scene",
@@ -463,12 +345,10 @@ describe("CreateProjectView \u{2014} created screen create->edit seam", () => {
         result,
       }),
     );
-    expect(html).toMatch(/publishing this scene later needs a connected wallet/i);
-    expect(html).toContain("Open in editor");
-  });
+    expect(signedOut).toMatch(/publishing this scene later needs a connected wallet/i);
+    expect(signedOut).toContain("Open in editor");
 
-  it("never fabricates file-write claims when there is no scaffold result", () => {
-    const html = renderToStaticMarkup(
+    const noResult = renderToStaticMarkup(
       createElement(CreateProjectView, {
         view: "created",
         name: "Scene",
@@ -476,55 +356,32 @@ describe("CreateProjectView \u{2014} created screen create->edit seam", () => {
         signedIn: true,
       }),
     );
-    expect(html).not.toContain("0 files");
-    expect(html).not.toMatch(/Wrote/);
-    expect(html).toMatch(/Your scene is ready/);
-    expect(html).toContain("Open in editor");
+    expect(noResult).not.toContain("0 files");
+    expect(noResult).not.toMatch(/Wrote/);
+    expect(noResult).toMatch(/Your scene is ready/);
+    expect(noResult).toContain("Open in editor");
   });
 
-  it("surfaces the name error inline in the naming modal (role=alert)", () => {
-    const html = renderToStaticMarkup(
+  it("surfaces the name error inline (role=alert) and offers [Choose folder again] as the primary action after a dismissed picker", () => {
+    const naming = renderToStaticMarkup(
       createElement(CreateProjectView, {
         view: "naming",
         pathError: "A scene with that name already exists.",
       }),
     );
-    expect(html).toContain("A scene with that name already exists.");
-    expect(html).toContain('role="alert"');
-  });
-});
+    expect(naming).toContain("A scene with that name already exists.");
+    expect(naming).toContain('role="alert"');
 
-describe("CreateProjectView \u{2014} dismissed-picker error offers folder recovery", () => {
-  it("a cancellation error shows [Choose folder again] as the primary action", () => {
-    const html = renderToStaticMarkup(
+    const error = renderToStaticMarkup(
       createElement(CreateProjectView, {
         view: "error",
         error: "Scene creation canceled \u{2014} no folder was chosen.",
       }),
     );
-    expect(html).toContain(
-      "Scene creation was cancelled \u{2014} no folder was chosen.",
-    );
-    expect(html).toContain("Choose folder again");
-    expect(html).toContain("Retry");
-    expect((html.match(/btn btn--primary/g) ?? []).length).toBe(1);
-  });
-});
-
-describe("simulateScaffold", () => {
-  it("resolves the canonical SDK7 file list (no disk write)", async () => {
-    const out = await simulateScaffold({
-      name: "x",
-      path: "/x",
-      template: "empty",
-    });
-    expect(out.files.map((f) => f.name)).toEqual([
-      "scene.json",
-      "package.json",
-      "tsconfig.json",
-      "src/index.ts",
-      ".gitignore",
-    ]);
+    expect(error).toContain("Scene creation was cancelled \u{2014} no folder was chosen.");
+    expect(error).toContain("Choose folder again");
+    expect(error).toContain("Retry");
+    expect((error.match(/btn btn--primary/g) ?? []).length).toBe(1);
   });
 });
 

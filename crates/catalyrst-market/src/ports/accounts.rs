@@ -112,7 +112,8 @@ impl AccountsComponent {
         let select_sql = format!(
             "SELECT account.address, account.sales, account.purchases, \
                     account.spent::text AS spent, account.earned::text AS earned, \
-                    account.royalties::text AS royalties, account.collections \
+                    account.royalties::text AS royalties, account.collections, \
+                    COUNT(*) OVER() AS total \
              FROM {schema}.account AS account {where_} {sort_} \
              LIMIT ${limit_idx} OFFSET ${offset_idx}",
             schema = MARKETPLACE_SQUID_SCHEMA,
@@ -135,22 +136,28 @@ impl AccountsComponent {
         q = q.bind(limit).bind(offset);
         let rows = q.fetch_all(&self.pool).await?;
 
-        let count_sql = format!(
-            "SELECT COUNT(*) FROM {schema}.account AS account {where_}",
-            schema = MARKETPLACE_SQUID_SCHEMA,
-            where_ = where_sql,
-        );
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
-        if let Some(ids) = &id_values {
-            cq = cq.bind(ids);
-        }
-        if let Some(addrs) = &addresses {
-            cq = cq.bind(addrs);
-        }
-        if let Some(nets) = &networks {
-            cq = cq.bind(nets);
-        }
-        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.total,
+            None if offset > 0 => {
+                let count_sql = format!(
+                    "SELECT COUNT(*) FROM {schema}.account AS account {where_}",
+                    schema = MARKETPLACE_SQUID_SCHEMA,
+                    where_ = where_sql,
+                );
+                let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
+                if let Some(ids) = &id_values {
+                    cq = cq.bind(ids);
+                }
+                if let Some(addrs) = &addresses {
+                    cq = cq.bind(addrs);
+                }
+                if let Some(nets) = &networks {
+                    cq = cq.bind(nets);
+                }
+                cq.fetch_one(&self.pool).await.unwrap_or(0)
+            }
+            None => 0,
+        };
 
         let data = rows.into_iter().map(from_db_account_to_account).collect();
         Ok((data, total))
@@ -166,6 +173,7 @@ struct DbAccount {
     earned: String,
     royalties: String,
     collections: i32,
+    total: i64,
 }
 
 fn from_db_account_to_account(db: DbAccount) -> Account {
@@ -178,5 +186,62 @@ fn from_db_account_to_account(db: DbAccount) -> Account {
         earned: db.earned,
         royalties: db.royalties,
         collections: db.collections,
+    }
+}
+
+#[cfg(test)]
+mod pg_tests {
+    use super::*;
+    use catalyrst_contract_gate::pg::ScratchDb;
+
+    #[tokio::test]
+    async fn page_total_rides_the_page_query() {
+        let Some(scratch) = ScratchDb::builder("CATALYRST_MARKET_TEST_PG", "accounts")
+            .schemas(["squid_marketplace"])
+            .build()
+            .await
+        else {
+            return;
+        };
+        scratch
+            .apply_sql(
+                "CREATE TABLE squid_marketplace.account (id text, address text, network text, \
+                    sales int4, purchases int4, spent numeric, earned numeric, royalties numeric, \
+                    collections int4);
+                 INSERT INTO squid_marketplace.account VALUES
+                    ('0xa-ETHEREUM', '0xa', 'ETHEREUM', 1, 0, 0, 30, 0, 1),
+                    ('0xb-ETHEREUM', '0xb', 'ETHEREUM', 2, 0, 0, 20, 0, 1),
+                    ('0xc-POLYGON', '0xc', 'POLYGON', 3, 0, 0, 10, 0, 1);",
+            )
+            .await;
+        let c = AccountsComponent::new(scratch.pool.clone());
+        let page = |first, skip, network| AccountFilters {
+            first: Some(first),
+            skip: Some(skip),
+            network,
+            ..Default::default()
+        };
+
+        let (rows, total) = c.get_accounts(&page(2, 0, None)).await.unwrap();
+        assert_eq!((rows.len(), total), (2, 3));
+        assert_eq!(rows[0].address, "0xa", "earned DESC by default");
+        let (rows, total) = c.get_accounts(&page(2, 10, None)).await.unwrap();
+        assert_eq!(
+            (rows.len(), total),
+            (0, 3),
+            "past the end: standalone count"
+        );
+        let (rows, total) = c
+            .get_accounts(&page(2, 0, Some(Network::Matic)))
+            .await
+            .unwrap();
+        assert_eq!((rows.len(), total), (1, 1));
+        let none = AccountFilters {
+            address: vec!["0xzz".to_string()],
+            ..Default::default()
+        };
+        let (rows, total) = c.get_accounts(&none).await.unwrap();
+        assert_eq!((rows.len(), total), (0, 0));
+        scratch.drop().await;
     }
 }

@@ -44,7 +44,7 @@ beforeEach(() => {
 });
 
 describe("submitProposal \u{2014} governance write seam", () => {
-  it("signs the upstream proposal path while posting to the same-origin mount", async () => {
+  it("signs the upstream proposal path while posting to the same-origin mount, and accepts a data-enveloped response", async () => {
     mSignedFetch.mockResolvedValue(jsonResponse(201, { id: "prop-1", type: "catalyst_add" }));
 
     const created = await submitProposal({
@@ -63,22 +63,18 @@ describe("submitProposal \u{2014} governance write seam", () => {
     expect(typed.method).toBe("POST");
     expect(typed.signPath).toBe(governanceSubmitPath("catalyst"));
     expect(JSON.parse(typed.body)).toEqual(CATALYST_PAYLOAD);
-  });
 
-  it("accepts a data-enveloped response", async () => {
     mSignedFetch.mockResolvedValue(jsonResponse(200, { data: { id: "prop-2" } }));
-
-    const created = await submitProposal({
+    const enveloped = await submitProposal({
       identity: IDENTITY,
       kind: "hiring",
       body: {},
       unavailable: "nope",
     });
-
-    expect(created.id).toBe("prop-2");
+    expect(enveloped.id).toBe("prop-2");
   });
 
-  it("fails closed without an identity and never calls the network", async () => {
+  it("fails closed without an identity (never calling the network) and refuses to invent an id when the backend answers 200 with none", async () => {
     await expect(
       submitProposal({
         identity: null,
@@ -88,13 +84,22 @@ describe("submitProposal \u{2014} governance write seam", () => {
       }),
     ).rejects.toThrow(/sign in/i);
     expect(mSignedFetch).not.toHaveBeenCalled();
+
+    mSignedFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
+    await expect(
+      submitProposal({
+        identity: IDENTITY,
+        kind: "governance",
+        body: {},
+        unavailable: "governance unavailable",
+      }),
+    ).rejects.toThrow(/no proposal id/i);
   });
 
-  it("maps a 503 not-configured backend to the fail-closed message", async () => {
+  it("maps a 503 not-configured backend and a 500 naming the missing key to the fail-closed message", async () => {
     mSignedFetch.mockResolvedValue(
       jsonResponse(503, { ok: false, error: "not configured", message: "signer missing" }),
     );
-
     await expect(
       submitProposal({
         identity: IDENTITY,
@@ -103,13 +108,10 @@ describe("submitProposal \u{2014} governance write seam", () => {
         unavailable: "catalyst proposal submission unavailable: DAO governance signer not configured",
       }),
     ).rejects.toThrow(GovernanceSubmitUnavailableError);
-  });
 
-  it("maps a 500 whose message names the missing key to the fail-closed message", async () => {
     mSignedFetch.mockResolvedValue(
       jsonResponse(500, { ok: false, message: "SNAPSHOT_PRIVATE_KEY is not set" }),
     );
-
     await expect(
       submitProposal({
         identity: IDENTITY,
@@ -120,14 +122,13 @@ describe("submitProposal \u{2014} governance write seam", () => {
     ).rejects.toThrow("tender unavailable");
   });
 
-  it("surfaces a 501 verbatim rather than blaming a missing signing key", async () => {
+  it("surfaces a 501 and other backend errors verbatim rather than blaming a missing signing key or swallowing them", async () => {
     mSignedFetch.mockResolvedValue(
       jsonResponse(501, {
         error:
           "bid submission is not implemented: a bid does not create a snapshot proposal when it is submitted",
       }),
     );
-
     await expect(
       submitProposal({
         identity: IDENTITY,
@@ -136,13 +137,10 @@ describe("submitProposal \u{2014} governance write seam", () => {
         unavailable: "bid unavailable",
       }),
     ).rejects.toThrow(/does not create a snapshot proposal/);
-  });
 
-  it("surfaces other backend errors verbatim rather than swallowing them", async () => {
     mSignedFetch.mockResolvedValue(
       jsonResponse(400, { ok: false, message: "linked_proposal_id is required" }),
     );
-
     await expect(
       submitProposal({
         identity: IDENTITY,
@@ -152,34 +150,17 @@ describe("submitProposal \u{2014} governance write seam", () => {
       }),
     ).rejects.toThrow("linked_proposal_id is required");
   });
-
-  it("refuses to invent an id when the backend answers 200 with no id", async () => {
-    mSignedFetch.mockResolvedValue(jsonResponse(200, { ok: true }));
-
-    await expect(
-      submitProposal({
-        identity: IDENTITY,
-        kind: "governance",
-        body: {},
-        unavailable: "governance unavailable",
-      }),
-    ).rejects.toThrow(/no proposal id/i);
-  });
 });
 
 describe("per-wizard factories", () => {
-  it("catalyst returns the server id and echoes the submitted request", async () => {
+  it("catalyst returns the server id echoing the submitted request; tender posts the trimmed form and reports the server pending flag", async () => {
     mSignedFetch.mockResolvedValue(jsonResponse(201, { id: "cat-9" }));
+    const proposal = await buildCreateProposal(IDENTITY)({ payload: CATALYST_PAYLOAD });
+    expect(proposal).toEqual({ id: "cat-9", type: "catalyst_add", request: "add" });
 
-    const created = await buildCreateProposal(IDENTITY)({ payload: CATALYST_PAYLOAD });
-
-    expect(created).toEqual({ id: "cat-9", type: "catalyst_add", request: "add" });
-  });
-
-  it("tender posts the trimmed form and reports the server pending flag", async () => {
+    mSignedFetch.mockClear();
     mSignedFetch.mockResolvedValue(jsonResponse(201, { id: "tender-3", pending: false }));
-
-    const created = await buildCreateTender(IDENTITY)({
+    const tender = await buildCreateTender(IDENTITY)({
       form: {
         linked_proposal_id: " pitch-1 ",
         project_name: " Name ",
@@ -192,8 +173,7 @@ describe("per-wizard factories", () => {
         coAuthors: [" ", "0xabc"],
       },
     });
-
-    expect(created).toEqual({
+    expect(tender).toEqual({
       id: "tender-3",
       type: "tender",
       linked_proposal_id: "pitch-1",
@@ -205,23 +185,18 @@ describe("per-wizard factories", () => {
     expect(body.coAuthors).toEqual(["0xabc"]);
   });
 
-  it("bid never claims publication the server did not report", async () => {
+  it("bid never claims publication the server did not report and fails closed when the backend has no signer", async () => {
     mSignedFetch.mockResolvedValue(jsonResponse(201, { id: "bid-7" }));
-
     const created = await buildSubmitBid(IDENTITY)({
       tenderId: "tender-3",
       budget: 1000,
       duration: 3,
     });
-
     expect(created).toEqual({ proposalId: "bid-7", published: false });
-  });
 
-  it("bid fails closed when the backend has no signer", async () => {
     mSignedFetch.mockResolvedValue(
       jsonResponse(503, { error: "SNAPSHOT_PRIVATE_KEY not configured" }),
     );
-
     await expect(
       buildSubmitBid(IDENTITY)({ tenderId: "t", budget: 1, duration: 1 }),
     ).rejects.toThrow(/DAO governance signer not configured/);

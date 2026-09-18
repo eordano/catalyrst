@@ -25,7 +25,7 @@ export type SystemLink = {
   scope: "public" | "operator";
 };
 
-export type SystemsData = {
+type SystemsData = {
   collectedAt: string;
   stale: boolean;
   units: SystemUnit[];
@@ -48,7 +48,7 @@ export type ExperimentRow = {
   reason?: string;
 };
 
-export type ExperimentsData = {
+type ExperimentsData = {
   readable: ExperimentRow[];
   unreadable: ExperimentRow[];
 };

@@ -96,10 +96,16 @@ async fn get_catalog_inner(
         .await?;
 
     let ids: Vec<String> = page.0.iter().map(|item| item.id.clone()).collect();
-    let mut by_id: HashMap<String, PickStats> = state
-        .lists
-        .get_picks_stats(&ids, picked_by.as_deref())
-        .await?
+    let stats: Vec<PickStats> = match picked_by.as_deref() {
+        Some(user) => state.lists.get_picks_stats(&ids, Some(user)).await?,
+        None => state
+            .catalog
+            .anonymous_picks(ids.clone(), || state.lists.get_picks_stats(&ids, None))
+            .await?
+            .as_ref()
+            .clone(),
+    };
+    let mut by_id: HashMap<String, PickStats> = stats
         .into_iter()
         .map(|stats| (stats.item_id.clone(), stats))
         .collect();

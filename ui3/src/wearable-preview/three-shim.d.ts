@@ -42,7 +42,10 @@ declare module "three" {
     isMesh?: boolean;
     material?: Material | Material[];
     geometry?: BufferGeometry;
+    children: Object3D[];
     add(...objects: Object3D[]): this;
+    remove(...objects: Object3D[]): this;
+    getObjectByName(name: string): Object3D | undefined;
     traverse(callback: (object: Object3D) => void): void;
   }
 
@@ -84,6 +87,11 @@ declare module "three" {
     dispose(): void;
   }
 
+  export class BoxGeometry {
+    constructor(width?: number, height?: number, depth?: number);
+    dispose(): void;
+  }
+
   export class CylinderGeometry {
     constructor(
       radiusTop?: number,
@@ -106,8 +114,8 @@ declare module "three" {
 
   export class Mesh extends Object3D {
     constructor(
-      geometry?: BufferGeometry | CylinderGeometry,
-      material?: MeshBasicMaterial | MeshBasicMaterial[],
+      geometry?: BufferGeometry | BoxGeometry | CylinderGeometry,
+      material?: MeshBasicMaterial | MeshBasicMaterial[] | MeshStandardMaterial,
     );
   }
 
@@ -132,7 +140,13 @@ declare module "three" {
     name: string;
   }
 
-  export interface AnimationClip {
+  export class VectorKeyframeTrack implements KeyframeTrack {
+    constructor(name: string, times: ArrayLike<number>, values: ArrayLike<number>);
+    name: string;
+  }
+
+  export class AnimationClip {
+    constructor(name?: string, duration?: number, tracks?: KeyframeTrack[]);
     tracks: KeyframeTrack[];
     duration: number;
   }
@@ -143,9 +157,21 @@ declare module "three" {
 
   export class AnimationMixer {
     constructor(root: Object3D);
-    update(deltaSeconds: number): void;
-    stopAllAction(): void;
+    time: number;
+    update(deltaSeconds: number): this;
+    setTime(seconds: number): this;
+    stopAllAction(): this;
     clipAction(clip: AnimationClip): AnimationAction;
+  }
+
+  export class PropertyBinding {
+    static parseTrackName(trackName: string): {
+      nodeName: string;
+      objectName?: string;
+      objectIndex?: string;
+      propertyName: string;
+      propertyIndex?: string;
+    };
   }
 
   export class Clock {

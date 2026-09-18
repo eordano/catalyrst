@@ -35,35 +35,25 @@ afterEach(() => {
 });
 
 describe("GET /bevy-overlay/minimap", () => {
-  it("normalizes an explicit coords param", async () => {
+  it("normalizes coords and heading params and drops garbage", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("down"));
     expect((await dataFrom("?coords=%2012%20,%2034%20")).coords).toBe("12,34");
-  });
-
-  it("collapses garbage coords to 0,0", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("down"));
     expect((await dataFrom("?coords=junk")).coords).toBe("0,0");
-  });
-
-  it("falls back to the first map pin when no coords are given", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(pinsEnvelope([GENESIS]));
-    const d = await dataFrom();
-    expect(d.coords).toBe("-9,-9");
-    expect(d.place).toBe("Genesis Plaza");
-  });
-
-  it("defaults to 0,0 with no place name when the map is unavailable", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
-    const d = await dataFrom();
-    expect(d.coords).toBe("0,0");
-    expect(d.place).toBe("");
-  });
-
-  it("parses a finite heading and drops garbage", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("down"));
     expect((await dataFrom("?heading=12.5")).heading).toBe(12.5);
     expect((await dataFrom("?heading=north")).heading).toBeNull();
     expect((await dataFrom("?heading=")).heading).toBeNull();
     expect((await dataFrom()).heading).toBeNull();
+  });
+
+  it("falls back to the first map pin without coords, or to 0,0 with no place name when the map is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(pinsEnvelope([GENESIS]));
+    const pinned = await dataFrom();
+    expect(pinned.coords).toBe("-9,-9");
+    expect(pinned.place).toBe("Genesis Plaza");
+
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
+    const down = await dataFrom();
+    expect(down.coords).toBe("0,0");
+    expect(down.place).toBe("");
   });
 });

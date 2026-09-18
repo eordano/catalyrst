@@ -13,7 +13,7 @@ export function buildRequestPayload(
   return `${method}:${path}:${timestamp}:${metadataStr}`.toLowerCase();
 }
 
-export type SignedAuthChain = {
+type SignedAuthChain = {
   headers: Record<string, string>;
   authChain: AuthLink[];
   payload: string;

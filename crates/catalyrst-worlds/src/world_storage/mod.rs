@@ -117,34 +117,6 @@ pub fn signed_path(uri: &axum::http::Uri) -> String {
     }
 }
 
-pub async fn resolve_scene_context(
-    state: &AppState,
-    headers: &HeaderMap,
-    method: &str,
-    path: &str,
-) -> Result<SceneContext, ApiError> {
-    let verified = verify_request(headers, method, path, state.eip1654_validator.as_deref())
-        .await
-        .map_err(auth_chain_to_api)?;
-    let (world_name, parcel) = derive_world_and_parcel(&verified.metadata)?;
-    let place_id = state
-        .external
-        .resolve_place_id(&world_name, &parcel)
-        .await?;
-    let scope_header = headers
-        .get(AUTHORITATIVE_SCOPE_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-    Ok(SceneContext {
-        signer: verified.signer,
-        world_name,
-        parcel,
-        scene_id: verified.metadata.scene_id.clone().unwrap_or_default(),
-        place_id,
-        scope_header,
-    })
-}
-
 /// Whether `signer` is the authoritative server address or a member of `authorized_addresses`.
 /// Config values are compared verbatim against the already-lowercased `signer`, which is what
 /// the discarded `Vec<String>` this replaced did.
@@ -156,25 +128,35 @@ fn signer_directly_authorized(
     authoritative_server_address == Some(signer) || authorized_addresses.iter().any(|a| a == signer)
 }
 
-pub async fn authorize(
-    state: &AppState,
-    ctx: &SceneContext,
-    policy: AuthPolicy,
-) -> Result<(), ApiError> {
-    let signer = ctx.signer.to_ascii_lowercase();
+enum LocalAuth {
+    Granted,
+    NeedsPermission,
+    Denied,
+}
 
+/// The policy checks that need no upstream call: direct addresses and the scoped
+/// delegation header. `NeedsPermission` defers to the worlds/lands permission lookup.
+fn authorize_locally(
+    state: &AppState,
+    signer: &str,
+    world_name: &str,
+    scene_id: &str,
+    parcel: &str,
+    scope_header: Option<&str>,
+    policy: AuthPolicy,
+) -> LocalAuth {
     if policy.allow_authorized_addresses
         && signer_directly_authorized(
             state.cfg.authoritative_server_address.as_deref(),
             &state.cfg.authorized_addresses,
-            &signer,
+            signer,
         )
     {
-        return Ok(());
+        return LocalAuth::Granted;
     }
 
     if policy.allow_scoped_delegation {
-        if let Some(scope_header) = &ctx.scope_header {
+        if let Some(scope_header) = scope_header {
             let trusted_signers: Vec<String> = state
                 .cfg
                 .authoritative_server_address
@@ -185,17 +167,17 @@ pub async fn authorize(
             match verify_storage_delegation(
                 scope_header,
                 &StorageDelegationTarget {
-                    signer: &signer,
-                    world: &ctx.world_name,
-                    scene_id: &ctx.scene_id,
-                    parcel: &ctx.parcel,
+                    signer,
+                    world: world_name,
+                    scene_id,
+                    parcel,
                     trusted_signers: &trusted_signers,
                 },
             ) {
-                Ok(()) => return Ok(()),
+                Ok(()) => return LocalAuth::Granted,
                 Err(reason) => {
                     tracing::warn!(
-                        world = %ctx.world_name,
+                        world = %world_name,
                         reason,
                         "Rejected world-scoped storage delegation"
                     );
@@ -205,21 +187,80 @@ pub async fn authorize(
     }
 
     if policy.allow_owners_and_deployers {
-        let has = state
-            .external
-            .has_world_permission(&ctx.world_name, &signer, &ctx.parcel)
-            .await
-            .map_err(|_| {
-                ApiError::not_authorized("Unauthorized: Failed to verify world permissions")
-            })?;
-        if has {
-            return Ok(());
+        LocalAuth::NeedsPermission
+    } else {
+        LocalAuth::Denied
+    }
+}
+
+/// Verifies the signed fetch, then resolves the place id and (when the policy needs it)
+/// the signer's world permission concurrently. Place-lookup failures still take precedence
+/// over authorization failures, as they did when the two ran back to back.
+pub async fn resolve_authorized(
+    state: &AppState,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    policy: AuthPolicy,
+) -> Result<SceneContext, ApiError> {
+    let verified = verify_request(headers, method, path, state.eip1654_validator.as_deref())
+        .await
+        .map_err(auth_chain_to_api)?;
+    let (world_name, parcel) = derive_world_and_parcel(&verified.metadata)?;
+    let scope_header = headers
+        .get(AUTHORITATIVE_SCOPE_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let scene_id = verified.metadata.scene_id.clone().unwrap_or_default();
+    let signer = verified.signer.to_ascii_lowercase();
+
+    let local = authorize_locally(
+        state,
+        &signer,
+        &world_name,
+        &scene_id,
+        &parcel,
+        scope_header.as_deref(),
+        policy,
+    );
+    let permission = async {
+        match local {
+            LocalAuth::NeedsPermission => Some(
+                state
+                    .external
+                    .has_world_permission(&world_name, &signer, &parcel)
+                    .await,
+            ),
+            _ => None,
         }
+    };
+    let (place_id, permission) = tokio::join!(
+        state.external.resolve_place_id(&world_name, &parcel),
+        permission
+    );
+    let place_id = place_id?;
+
+    let granted = match local {
+        LocalAuth::Granted => true,
+        LocalAuth::Denied => false,
+        LocalAuth::NeedsPermission => permission.unwrap_or(Ok(false)).map_err(|_| {
+            ApiError::not_authorized("Unauthorized: Failed to verify world permissions")
+        })?,
+    };
+    if !granted {
+        return Err(ApiError::not_authorized(
+            "Unauthorized: Signer is not authorized to perform operations on this world",
+        ));
     }
 
-    Err(ApiError::not_authorized(
-        "Unauthorized: Signer is not authorized to perform operations on this world",
-    ))
+    Ok(SceneContext {
+        signer: verified.signer,
+        world_name,
+        parcel,
+        scene_id,
+        place_id,
+        scope_header,
+    })
 }
 
 fn derive_world_and_parcel(meta: &SceneAuthMetadata) -> Result<(String, String), ApiError> {

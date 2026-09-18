@@ -1,6 +1,6 @@
 import type { EditorTool } from "./bus-protocol";
 
-export type EditorShortcutAction =
+type EditorShortcutAction =
   | { type: "tool"; tool: EditorTool }
   | { type: "delete" }
   | { type: "duplicate" }
@@ -140,12 +140,12 @@ export function forwardEngineKeys(engineWindow: Window | null | undefined): void
   }
 }
 
-export interface ShortcutItem {
+interface ShortcutItem {
   combo: string;
   label: string;
 }
 
-export interface ShortcutGroup {
+interface ShortcutGroup {
   title: string;
   items: ShortcutItem[];
 }

@@ -56,6 +56,37 @@ impl CreditsComponent {
         a: &NewAuthorization<'_>,
         idempotency_key: &str,
     ) -> Result<ReserveOutcome, ApiError> {
+        self.reserve(a, Some(a.amount_wei), None, idempotency_key)
+            .await
+            .map(|(outcome, _)| outcome)
+    }
+
+    /// [`Self::reserve_authorization`] with the MANA amount derived in SQL from
+    /// `a.usd_cents` at `mana_usd` (`a.amount_wei` is ignored); also returns the
+    /// oracle rate in wei-per-MANA the way `usd_cents_to_mana_wei` did.
+    pub async fn reserve_authorization_priced(
+        &self,
+        a: &NewAuthorization<'_>,
+        mana_usd: &str,
+        idempotency_key: &str,
+    ) -> Result<(ReserveOutcome, String), ApiError> {
+        let (outcome, rate) = self
+            .reserve(a, None, Some(mana_usd), idempotency_key)
+            .await?;
+        let rate = rate.ok_or_else(|| ApiError::Internal("oracle rate missing".into()))?;
+        Ok((outcome, rate))
+    }
+
+    /// Two statements after BEGIN: the wallet lock, then (under that lock, so in a fresh
+    /// snapshot) the idempotency probe, the outstanding-authorized budget, the wei math and
+    /// the conditional INSERT as one statement.
+    async fn reserve(
+        &self,
+        a: &NewAuthorization<'_>,
+        given_wei: Option<&str>,
+        mana_usd: Option<&str>,
+        idempotency_key: &str,
+    ) -> Result<(ReserveOutcome, Option<String>), ApiError> {
         let mut tx = self.pool.begin().await?;
 
         let available_cents: Option<i64> = sqlx::query_scalar(
@@ -66,69 +97,86 @@ impl CreditsComponent {
         .fetch_optional(&mut *tx)
         .await?;
 
-        let prior = sqlx::query(
-            "SELECT id, amount_wei, usd_cents, expires_at \
-             FROM credit_authorizations WHERE idempotency_key = $1",
-        )
-        .bind(idempotency_key)
-        .fetch_optional(&mut *tx)
-        .await?;
-        if let Some(r) = prior {
-            tx.commit().await?;
-            return Ok(ReserveOutcome {
-                id: r.get("id"),
-                amount_wei: r.get("amount_wei"),
-                usd_cents: r.get("usd_cents"),
-                expires_at: r.get("expires_at"),
-                replayed: true,
-            });
-        }
-
-        let available_cents = available_cents.unwrap_or(0);
-        let outstanding_cents: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(usd_cents), 0)::bigint FROM credit_authorizations \
-             WHERE address = $1 AND status = 'authorized' AND expires_at > now()",
-        )
-        .bind(a.address)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        if a.usd_cents > available_cents - outstanding_cents {
-            return Err(ApiError::payment_required("insufficient credit balance"));
-        }
-
-        sqlx::query(
-            "INSERT INTO credit_authorizations \
-                 (id, address, usd_cents, amount_wei, trade_id, contract_address, \
-                  item_id, source, status, expires_at, idempotency_key) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'authorized', $9, $10)",
+        let row = sqlx::query(
+            "WITH prior AS ( \
+                 SELECT id, amount_wei, usd_cents, expires_at \
+                 FROM credit_authorizations WHERE idempotency_key = $10::text \
+             ), budget AS ( \
+                 SELECT $12::bigint - (SELECT COALESCE(SUM(usd_cents), 0)::bigint \
+                                       FROM credit_authorizations \
+                                       WHERE address = $2::text AND status = 'authorized' \
+                                         AND expires_at > now()) AS remaining_cents, \
+                        COALESCE($4::text, \
+                                 floor(($3::bigint::numeric / 100) / $11::numeric * 1e18)::text) \
+                            AS amount_wei, \
+                        floor($11::numeric * 1e18)::text AS oracle_rate \
+             ), ins AS ( \
+                 INSERT INTO credit_authorizations \
+                     (id, address, usd_cents, amount_wei, trade_id, contract_address, \
+                      item_id, source, status, expires_at, idempotency_key) \
+                 SELECT $1::text, $2::text, $3::bigint, b.amount_wei, $5::text, $6::text, \
+                        $7::text, $8::text, 'authorized', $9::timestamptz, $10::text \
+                 FROM budget b \
+                 WHERE NOT EXISTS (SELECT 1 FROM prior) AND $3::bigint <= b.remaining_cents \
+                 RETURNING id \
+             ) \
+             SELECT p.id AS prior_id, p.amount_wei AS prior_wei, p.usd_cents AS prior_cents, \
+                    p.expires_at AS prior_expires, b.amount_wei, b.oracle_rate, \
+                    EXISTS (SELECT 1 FROM ins) AS inserted \
+             FROM budget b LEFT JOIN prior p ON TRUE",
         )
         .bind(a.id)
         .bind(a.address)
         .bind(a.usd_cents)
-        .bind(a.amount_wei)
+        .bind(given_wei)
         .bind(a.trade_id)
         .bind(a.contract_address)
         .bind(a.item_id)
         .bind(a.source)
         .bind(a.expires_at)
         .bind(idempotency_key)
-        .execute(&mut *tx)
+        .bind(mana_usd)
+        .bind(available_cents.unwrap_or(0))
+        .fetch_one(&mut *tx)
         .await?;
 
+        let oracle_rate: Option<String> = row.get("oracle_rate");
+        if let Some(prior_id) = row.get::<Option<String>, _>("prior_id") {
+            tx.commit().await?;
+            return Ok((
+                ReserveOutcome {
+                    id: prior_id,
+                    amount_wei: row.get("prior_wei"),
+                    usd_cents: row.get("prior_cents"),
+                    expires_at: row.get("prior_expires"),
+                    replayed: true,
+                },
+                oracle_rate,
+            ));
+        }
+        if !row.get::<bool, _>("inserted") {
+            return Err(ApiError::payment_required("insufficient credit balance"));
+        }
+        let amount_wei: String = row
+            .get::<Option<String>, _>("amount_wei")
+            .ok_or_else(|| ApiError::Internal("authorization amount missing".into()))?;
+
         tx.commit().await?;
-        Ok(ReserveOutcome {
-            id: a.id.to_string(),
-            amount_wei: a.amount_wei.to_string(),
-            usd_cents: a.usd_cents,
-            expires_at: a.expires_at,
-            replayed: false,
-        })
+        Ok((
+            ReserveOutcome {
+                id: a.id.to_string(),
+                amount_wei,
+                usd_cents: a.usd_cents,
+                expires_at: a.expires_at,
+                replayed: false,
+            },
+            oracle_rate,
+        ))
     }
 
     /// Flip live-but-past-expiry 'authorized' rows to 'expired' so they stop
-    /// counting against the outstanding-authorized budget. Runs on the standing
-    /// worker cadence (see `OutboxWorker::run_once`).
+    /// counting against the outstanding-authorized budget. The outbox worker tick
+    /// inlines this same UPDATE (see `OutboxWorker::run_once`).
     pub async fn expire_stale_authorizations(&self) -> Result<u64, ApiError> {
         let res = sqlx::query(
             "UPDATE credit_authorizations SET status = 'expired' \

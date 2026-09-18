@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useState } from "react";
 import Spinner from "../../atoms/Spinner";
 import "./chitemdetail.css";
+import { docsUrl } from "../../data/docs";
 import { ChevronLeft } from "../../atoms/icons";
 
 type MetricKind =
@@ -477,7 +478,7 @@ export default function ChItemDetail({
                     <div className="bditemdetail__title">Permissions</div>
                     <a
                       className="bditemdetail__editbtn"
-                      href="https://docs.decentraland.org/creator/development-guide/sdk7/scene-metadata/#required-permissions"
+                      href={docsUrl("creator/sdk7/projects/scene-metadata#required-permissions")}
                       target="_blank"
                       rel="noopener noreferrer"
                     >

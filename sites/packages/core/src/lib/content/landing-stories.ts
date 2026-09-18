@@ -1,9 +1,9 @@
-export type LandingBeat = {
+type LandingBeat = {
   title: string;
   body: string;
   cta: { label: string; href: string };
 };
-export type LandingKind = "creator" | "user";
+type LandingKind = "creator" | "user";
 
 export type LandingStory = {
   id: string;
@@ -233,7 +233,7 @@ function hashString(s: string): number {
   return h;
 }
 
-export type LandingPick = {
+type LandingPick = {
   story: LandingStory;
   via: "utm" | "sticky" | "random";
 };

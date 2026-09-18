@@ -4,7 +4,7 @@ import { SIDECAR_START_COMMAND } from "./rules";
 
 import "./mpunpaired.css";
 
-export type MpUnpairedProps = {
+type MpUnpairedProps = {
   reason: "no-pairing" | "unreachable";
   port?: number | null;
   desktopShellOnHttps?: boolean;

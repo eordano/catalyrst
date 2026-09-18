@@ -55,24 +55,31 @@ const EXPECTED_STATES = new Set([
   "error",
 ]);
 
-describe("claimNameMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(claimNameMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
+const TRAVERSAL_EVENTS = [
+  { type: "SUBMIT_NAME" as const, name: "myWorld" },
+  { type: "APPROVE_MANA" as const },
+  { type: "CONFIRM_MINT" as const },
+  { type: "EDIT" as const },
+  { type: "BACK" as const },
+  { type: "RETRY" as const },
+];
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
+
+describe("claimNameMachine \u{2014} URL ?step slug map", () => {
+  it("maps every state to a unique round-tripping audit slug and falls back to entering", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(claimNameMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("the audit-spec step ids are all addressable slugs", () => {
     for (const step of [
       "enter-name",
       "check-availability",
@@ -83,91 +90,51 @@ describe("claimNameMachine \u{2014} URL ?step slug map", () => {
     ]) {
       expect(SLUG_TO_STATE[step as keyof typeof SLUG_TO_STATE]).toBeDefined();
     }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.entering);
-    expect(slugToState(null)).toBe("entering");
-    expect(slugToState(undefined)).toBe("entering");
-    expect(slugToState("")).toBe("entering");
-    expect(slugToState("nope")).toBe("entering");
     expect(slugToState("approve-mana")).toBe("approving");
     expect(slugToState("confirm-mint")).toBe("confirming");
     expect(slugToState("submit-tx")).toBe("submitting");
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.entering);
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("entering");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("claimNameMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveClaimSnapshot({
-      step: "entering",
-      trackCtx: inputFor({ track: () => {} }).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submit-tx does NOT fire telemetry and does NOT auto-mint", async () => {
+  it("boots entering without a snapshot, hydrates submit-tx/confirm-mint silently, and only real transitions track", async () => {
     const track = vi.fn();
     const mint = vi.fn(okMint);
-    const snapshot = resolveClaimSnapshot({
-      step: "submitting",
-      trackCtx: inputFor({ track }).trackCtx,
-      mint,
-      track,
-      name: "myWorld",
-    });
-    const actor = createActor(claimNameMachine, {
+    const trackCtx = inputFor({ track }).trackCtx;
+    expect(resolveClaimSnapshot({ step: "entering", trackCtx })).toBeUndefined();
+
+    const submitting = createActor(claimNameMachine, {
       input: inputFor({ mint, track }),
-      snapshot,
+      snapshot: resolveClaimSnapshot({ step: "submitting", trackCtx, mint, track, name: "myWorld" }),
     }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(actor.getSnapshot().context.name).toBe("myWorld");
-
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    expect(submitting.getSnapshot().context.name).toBe("myWorld");
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(mint).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("hydrating confirm-mint does NOT re-fire the confirm_reached entry event", async () => {
-    const track = vi.fn();
-    const snapshot = resolveClaimSnapshot({
-      step: "confirming",
-      trackCtx: inputFor({ track }).trackCtx,
-      track,
-    });
-    const actor = createActor(claimNameMachine, {
+    const confirming = createActor(claimNameMachine, {
       input: inputFor({ track }),
-      snapshot,
+      snapshot: resolveClaimSnapshot({ step: "confirming", trackCtx, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("confirming")).toBe(true);
+    expect(confirming.getSnapshot().matches("confirming")).toBe(true);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "CONFIRM_MINT" });
-    expect(track.mock.calls.map((c) => c[0])).toContain(CLAIM_EVENTS.submitted);
+    confirming.send({ type: "CONFIRM_MINT" });
+    expect(names(track)).toContain(CLAIM_EVENTS.submitted);
   });
 });
 
-const TRAVERSAL_EVENTS = [
-  { type: "SUBMIT_NAME" as const, name: "myWorld" },
-  { type: "APPROVE_MANA" as const },
-  { type: "CONFIRM_MINT" as const },
-  { type: "EDIT" as const },
-  { type: "BACK" as const },
-  { type: "RETRY" as const },
-];
-
 describe("claimNameMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and checking needs SUBMIT_NAME", () => {
     const paths = getShortestPaths(claimNameMachine, {
       input: inputFor({ track: () => {} }),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
@@ -177,22 +144,13 @@ describe("claimNameMachine \u{2014} model-based path coverage (@xstate/graph)", 
     }
     expect(ends.has("entering")).toBe(true);
     expect(ends.has("checking")).toBe(true);
-  });
-
-  it("reaching checking passes through SUBMIT_NAME", () => {
-    const paths = getShortestPaths(claimNameMachine, {
-      input: inputFor({ track: () => {} }),
-      events: TRAVERSAL_EVENTS,
-    });
     const checking = paths.find((p) => (p.state.value as string) === "checking");
-    expect(checking).toBeDefined();
-    const events = checking!.steps.map((s) => s.event.type);
-    expect(events).toContain("SUBMIT_NAME");
+    expect(checking!.steps.map((s) => s.event.type)).toContain("SUBMIT_NAME");
   });
 });
 
-describe("claimNameMachine \u{2014} telemetry events (happy path)", () => {
-  it("enter -> check(available) -> approve -> confirm -> submit -> success fires the full funnel", async () => {
+describe("claimNameMachine \u{2014} telemetry events", () => {
+  it("an available name runs enter -> check -> approve -> confirm -> submit -> success; a taken name is unavailable and never mints", async () => {
     const track = vi.fn();
     const actor = createActor(claimNameMachine, {
       input: inputFor({ check: availableCheck, mint: okMint, track }),
@@ -200,28 +158,28 @@ describe("claimNameMachine \u{2014} telemetry events (happy path)", () => {
 
     actor.send({ type: "SUBMIT_NAME", name: "myWorld" });
     await waitFor(actor, (s) => s.matches("approving"));
-
     actor.send({ type: "APPROVE_MANA" });
     expect(actor.getSnapshot().matches("confirming")).toBe(true);
-
     actor.send({ type: "CONFIRM_MINT" });
     await waitFor(actor, (s) => s.matches("success"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CLAIM_EVENTS.started);
-    expect(events).toContain(CLAIM_EVENTS.available);
-    expect(events).toContain(CLAIM_EVENTS.manaApproved);
-    expect(events).toContain(CLAIM_EVENTS.confirmReached);
-    expect(events).toContain(CLAIM_EVENTS.submitted);
-    expect(events).toContain(CLAIM_EVENTS.completed);
-
+    const events = names(track);
+    for (const e of [
+      CLAIM_EVENTS.started,
+      CLAIM_EVENTS.available,
+      CLAIM_EVENTS.manaApproved,
+      CLAIM_EVENTS.confirmReached,
+      CLAIM_EVENTS.submitted,
+      CLAIM_EVENTS.completed,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(CLAIM_EVENTS.confirmReached)).toBeLessThan(
       events.indexOf(CLAIM_EVENTS.submitted),
     );
     expect(events.indexOf(CLAIM_EVENTS.submitted)).toBeLessThan(
       events.indexOf(CLAIM_EVENTS.completed),
     );
-
     const startedCall = track.mock.calls.find((c) => c[0] === CLAIM_EVENTS.started);
     expect(startedCall?.[1]).toMatchObject({ name: "myWorld" });
     expect(startedCall?.[2]).toMatchObject({
@@ -230,26 +188,20 @@ describe("claimNameMachine \u{2014} telemetry events (happy path)", () => {
       variant: "wizard",
     });
     expect(actor.getSnapshot().context.result).toEqual(MINT);
-  });
 
-  it("taken name -> unavailable fires mk_claim_name_unavailable and does not mint", async () => {
-    const track = vi.fn();
+    const takenTrack = vi.fn();
     const mint = vi.fn(okMint);
-    const actor = createActor(claimNameMachine, {
-      input: inputFor({ check: takenCheck, mint, track }),
+    const taken = createActor(claimNameMachine, {
+      input: inputFor({ check: takenCheck, mint, track: takenTrack }),
     }).start();
-
-    actor.send({ type: "SUBMIT_NAME", name: "buterin" });
-    await waitFor(actor, (s) => s.matches("unavailable"));
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CLAIM_EVENTS.started);
-    expect(events).toContain(CLAIM_EVENTS.unavailable);
-    expect(events).not.toContain(CLAIM_EVENTS.confirmReached);
+    taken.send({ type: "SUBMIT_NAME", name: "buterin" });
+    await waitFor(taken, (s) => s.matches("unavailable"));
+    expect(names(takenTrack)).toContain(CLAIM_EVENTS.started);
+    expect(names(takenTrack)).toContain(CLAIM_EVENTS.unavailable);
+    expect(names(takenTrack)).not.toContain(CLAIM_EVENTS.confirmReached);
     expect(mint).not.toHaveBeenCalled();
-
-    actor.send({ type: "EDIT" });
-    expect(actor.getSnapshot().matches("entering")).toBe(true);
+    taken.send({ type: "EDIT" });
+    expect(taken.getSnapshot().matches("entering")).toBe(true);
   });
 });
 
@@ -262,7 +214,6 @@ describe("claimNameMachine \u{2014} mint failure + retry", () => {
       if (calls === 1) throw new Error("registrar reverted");
       return okMint(args);
     };
-
     const actor = createActor(claimNameMachine, {
       input: inputFor({ check: availableCheck, mint, track }),
     }).start();
@@ -276,20 +227,15 @@ describe("claimNameMachine \u{2014} mint failure + retry", () => {
 
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("success"));
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CLAIM_EVENTS.completed);
+    expect(names(track)).toContain(CLAIM_EVENTS.completed);
   });
 });
 
 describe("simulated actors (no network/chain)", () => {
-  it("makeSimulateCheck flips on the seeded taken set", async () => {
+  it("makeSimulateCheck flips on the seeded taken set and simulateMint resolves a fake tx hash + tokenId", async () => {
     const check = makeSimulateCheck(new Set(["buterin"]));
     expect((await check({ name: "buterin" })).available).toBe(false);
     expect((await check({ name: "myWorld" })).available).toBe(true);
-  });
-
-  it("simulateMint resolves a fake tx hash + tokenId keyed by name", async () => {
     const a = await simulateMint({ name: "myWorld" });
     expect(a.txHash).toMatch(/^0x[0-9a-f]+$/);
     expect(a.tokenId).toMatch(/^\d+$/);

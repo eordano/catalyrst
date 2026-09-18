@@ -3,7 +3,7 @@ import { isRecord } from "@ui/data/catalyst/rows";
 
 import type { ZodType } from "zod";
 
-export type PendingStore<T extends { ts: number }> = {
+type PendingStore<T extends { ts: number }> = {
   get(signer: string | null | undefined): T | null;
   set(signer: string | null | undefined, entry: T): void;
   clear(signer: string | null | undefined): void;

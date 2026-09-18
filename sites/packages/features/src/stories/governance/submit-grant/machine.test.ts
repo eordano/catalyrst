@@ -20,9 +20,6 @@ import {
 const RESULT: SubmitResult = { proposalId: "stub-grant-platform-abc" };
 
 const okSubmit: SubmitFn = async () => RESULT;
-const failSubmit: SubmitFn = async () => {
-  throw new Error("governance api unreachable");
-};
 
 function inputFor(submitGrant: SubmitFn, track: TrackFn) {
   return {
@@ -58,105 +55,71 @@ const TRAVERSAL_EVENTS = [
 ];
 
 describe("grantMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
+  it("covers every state, round-trips uniquely, routes the spec steps, and falls back to the first step", () => {
     const machineStates = new Set(Object.keys(grantMachine.states));
     const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
     expect(mappedStates).toEqual(machineStates);
     expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("spec ?step values are all routable", () => {
-    for (const step of [
-      "category",
-      "funding",
-      "general",
-      "assessment",
-      "review",
-      "submitting",
-      "success",
-    ]) {
+    for (const step of ["category", "funding", "general", "assessment", "review", "submitting", "success"]) {
       expect(EXPECTED_STATES.has(slugToState(step))).toBe(true);
     }
-  });
 
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.category);
-    expect(slugToState(null)).toBe("category");
-    expect(slugToState(undefined)).toBe("category");
-    expect(slugToState("")).toBe("category");
-    expect(slugToState("nope")).toBe("category");
-    expect(slugToState("funding")).toBe("funding");
+    for (const bad of [null, undefined, "", "nope"]) {
+      expect(slugToState(bad)).toBe("category");
+    }
     expect(slugToState("submit-error")).toBe("submitError");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("grantMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveGrantSnapshot({
-      step: "category",
-      trackCtx: inputFor(okSubmit, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submitting does NOT fire telemetry and does NOT auto-submit", async () => {
+  it("first step boots from initial; submitting hydrates without telemetry or auto-submit; review then SUBMIT fires", async () => {
     const track = vi.fn();
     const submitGrant = vi.fn(okSubmit);
-    const snapshot = resolveGrantSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(submitGrant, track).trackCtx,
-      submitGrant,
-      track,
-    });
-    const actor = createActor(grantMachine, {
-      input: inputFor(submitGrant, track),
-      snapshot,
+    const input = inputFor(submitGrant, track);
+
+    expect(resolveGrantSnapshot({ step: "category", trackCtx: input.trackCtx })).toBeUndefined();
+
+    const submitting = createActor(grantMachine, {
+      input,
+      snapshot: resolveGrantSnapshot({
+        step: "submitting",
+        trackCtx: input.trackCtx,
+        submitGrant,
+        track,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(actor.getSnapshot().context.draft.category).toBe("Platform");
-
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    expect(submitting.getSnapshot().context.draft.category).toBe("Platform");
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(submitGrant).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveGrantSnapshot({
-      step: "review",
-      trackCtx: inputFor(okSubmit, track).trackCtx,
-      track,
-    });
-    const actor = createActor(grantMachine, {
-      input: inputFor(okSubmit, track),
-      snapshot,
+    const review = createActor(grantMachine, {
+      input,
+      snapshot: resolveGrantSnapshot({ step: "review", trackCtx: input.trackCtx, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("review")).toBe(true);
+    expect(review.getSnapshot().matches("review")).toBe(true);
     expect(track).not.toHaveBeenCalled();
 
-    actor.send({ type: "SUBMIT" });
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(
-      GRANT_EVENTS.submitAttempted,
-    );
+    review.send({ type: "SUBMIT" });
+    expect(review.getSnapshot().matches("submitting")).toBe(true);
+    expect(track.mock.calls.map((c) => c[0])).toContain(GRANT_EVENTS.submitAttempted);
   });
 });
 
 describe("grantMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and submitting needs the full step sequence", () => {
     const paths = getShortestPaths(grantMachine, {
       input: inputFor(okSubmit, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -169,30 +132,21 @@ describe("grantMachine \u{2014} model-based path coverage (@xstate/graph)", () =
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("funding")).toBe(true);
-    expect(ends.has("general")).toBe(true);
-    expect(ends.has("assessment")).toBe(true);
-    expect(ends.has("review")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
+    for (const s of ["funding", "general", "assessment", "review", "submitting"]) {
+      expect(ends.has(s)).toBe(true);
+    }
 
-  it("reaching submitting passes through the full step sequence", () => {
-    const paths = getShortestPaths(grantMachine, {
-      input: inputFor(okSubmit, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const submitting = paths.find((p) => (p.state.value as string) === "submitting");
     expect(submitting).toBeDefined();
     const events = submitting!.steps.map((s) => s.event.type);
-    expect(events).toContain("PICK_CATEGORY");
-    expect(events).toContain("SET_FUNDING");
-    expect(events).toContain("NEXT");
-    expect(events).toContain("SUBMIT");
+    expect(events).toEqual(
+      expect.arrayContaining(["PICK_CATEGORY", "SET_FUNDING", "NEXT", "SUBMIT"]),
+    );
   });
 });
 
 describe("grantMachine \u{2014} telemetry events (happy path)", () => {
-  it("full flow fires the complete funnel in order", async () => {
+  it("full flow fires the funnel in order with one step_advanced per NEXT", async () => {
     const track = vi.fn();
     const actor = createActor(grantMachine, {
       input: inputFor(okSubmit, track),
@@ -206,16 +160,22 @@ describe("grantMachine \u{2014} telemetry events (happy path)", () => {
 
     actor.send({ type: "NEXT" });
     actor.send({ type: "NEXT" });
+    const advanced = track.mock.calls.filter((c) => c[0] === GRANT_EVENTS.stepAdvanced);
+    expect(advanced.map((c) => (c[1] as { to: string }).to)).toEqual(["assessment", "review"]);
+
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("success"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(GRANT_EVENTS.started);
-    expect(events).toContain(GRANT_EVENTS.fundingSet);
-    expect(events).toContain(GRANT_EVENTS.stepAdvanced);
-    expect(events).toContain(GRANT_EVENTS.submitAttempted);
-    expect(events).toContain(GRANT_EVENTS.submitted);
-
+    expect(events).toEqual(
+      expect.arrayContaining([
+        GRANT_EVENTS.started,
+        GRANT_EVENTS.fundingSet,
+        GRANT_EVENTS.stepAdvanced,
+        GRANT_EVENTS.submitAttempted,
+        GRANT_EVENTS.submitted,
+      ]),
+    );
     expect(events.indexOf(GRANT_EVENTS.submitAttempted)).toBeLessThan(
       events.indexOf(GRANT_EVENTS.submitted),
     );
@@ -227,25 +187,6 @@ describe("grantMachine \u{2014} telemetry events (happy path)", () => {
       variant: "wizard",
     });
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
-  });
-
-  it("two step-advanced events fire (general->assessment, assessment->review)", () => {
-    const track = vi.fn();
-    const actor = createActor(grantMachine, {
-      input: inputFor(okSubmit, track),
-    }).start();
-
-    actor.send({ type: "PICK_CATEGORY", category: "Core Unit" });
-    actor.send({ type: "SET_FUNDING", budget: 5000, duration: 3, tier: "Tier 3" });
-    actor.send({ type: "NEXT" });
-    actor.send({ type: "NEXT" });
-
-    const advanced = track.mock.calls.filter((c) => c[0] === GRANT_EVENTS.stepAdvanced);
-    expect(advanced.length).toBe(2);
-    expect(advanced.map((c) => (c[1] as { to: string }).to)).toEqual([
-      "assessment",
-      "review",
-    ]);
   });
 
   it("BACK steps return without re-firing forward telemetry", () => {
@@ -269,12 +210,12 @@ describe("grantMachine \u{2014} telemetry events (happy path)", () => {
 });
 
 describe("grantMachine \u{2014} submit failure + retry", () => {
-  it("submit error -> RETRY recovers to success", async () => {
+  it("submit error -> BACK returns to review; a second failure -> RETRY recovers to success", async () => {
     const track = vi.fn();
     let calls = 0;
     const submitGrant: SubmitFn = async (args) => {
       calls += 1;
-      if (calls === 1) throw new Error("governance api unreachable");
+      if (calls <= 2) throw new Error("governance api unreachable");
       return okSubmit(args);
     };
 
@@ -290,28 +231,16 @@ describe("grantMachine \u{2014} submit failure + retry", () => {
     await waitFor(actor, (s) => s.matches("submitError"));
     expect(actor.getSnapshot().context.error).toBe("governance api unreachable");
 
-    actor.send({ type: "RETRY" });
-    await waitFor(actor, (s) => s.matches("success"));
+    actor.send({ type: "BACK" });
+    expect(actor.getSnapshot().matches("review")).toBe(true);
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(GRANT_EVENTS.submitted);
-  });
-
-  it("submit error -> BACK returns to review without submitting", async () => {
-    const track = vi.fn();
-    const actor = createActor(grantMachine, {
-      input: inputFor(failSubmit, track),
-    }).start();
-
-    actor.send({ type: "PICK_CATEGORY", category: "Platform" });
-    actor.send({ type: "SET_FUNDING", budget: 24000, duration: 6, tier: "Tier 4" });
-    actor.send({ type: "NEXT" });
-    actor.send({ type: "NEXT" });
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("submitError"));
 
-    actor.send({ type: "BACK" });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
+    actor.send({ type: "RETRY" });
+    await waitFor(actor, (s) => s.matches("success"));
+    expect(calls).toBe(3);
+    expect(track.mock.calls.map((c) => c[0])).toContain(GRANT_EVENTS.submitted);
   });
 });
 

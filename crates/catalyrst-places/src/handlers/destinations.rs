@@ -174,6 +174,7 @@ fn present(s: &Option<String>) -> bool {
 fn is_lookup_query(f: &PlaceListFilters) -> bool {
     present(&f.search)
         || !f.ids.is_empty()
+        || f.viewer_favorites_only
         || f.owner_filtered
         || present(&f.creator_address)
         || f.only_highlighted
@@ -325,13 +326,56 @@ pub(crate) fn parse_filters(
     Ok((f, only_favorites, parse_with_options(pairs)?))
 }
 
-async fn inject_live_user_counts(state: &AppState, filters: &mut PlaceListFilters) {
+async fn inject_live_user_counts(
+    state: &AppState,
+    filters: &mut PlaceListFilters,
+) -> Option<LiveUserCounts> {
     if !matches!(filters.order_by, PlaceOrderBy::MostActive) {
-        return;
+        return None;
     }
     let counts = state.presence.live_user_counts().await;
-    filters.place_user_counts = counts.places;
-    filters.world_user_counts = counts.worlds;
+    filters.place_user_counts = counts.places.clone();
+    filters.world_user_counts = counts.worlds.clone();
+    Some(counts)
+}
+
+const COMMS_CONCURRENCY: usize = 16;
+
+fn comms_key(d: &PlaceRow) -> Option<(bool, String)> {
+    if d.world {
+        d.world_name.clone().map(|name| (true, name))
+    } else {
+        Some((false, d.base_position.clone()))
+    }
+}
+
+/// One comms lookup per distinct location, at most COMMS_CONCURRENCY in flight.
+async fn connected_by_key(
+    state: &AppState,
+    keys: Vec<(bool, String)>,
+) -> HashMap<(bool, String), Vec<String>> {
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(COMMS_CONCURRENCY));
+    let mut set = tokio::task::JoinSet::new();
+    for (world, key) in keys {
+        let state = state.clone();
+        let sem = sem.clone();
+        set.spawn(async move {
+            let _permit = sem.acquire_owned().await.ok();
+            let addresses = if world {
+                state.comms_gatekeeper.get_world_participants(&key).await
+            } else {
+                state.comms_gatekeeper.get_scene_participants(&key).await
+            };
+            ((world, key), addresses)
+        });
+    }
+    let mut out = HashMap::new();
+    while let Some(res) = set.join_next().await {
+        if let Ok((key, addresses)) = res {
+            out.insert(key, addresses);
+        }
+    }
+    out
 }
 
 fn event_key(d: &PlaceRow) -> String {
@@ -365,25 +409,36 @@ fn fill_user_counts(rows: &mut [PlaceRow], counts: &LiveUserCounts) {
 }
 
 pub(crate) async fn enrich(state: &AppState, data: &mut [PlaceRow], flags: &DestinationFlags) {
+    enrich_with_counts(state, data, flags, None).await
+}
+
+async fn enrich_with_counts(
+    state: &AppState,
+    data: &mut [PlaceRow],
+    flags: &DestinationFlags,
+    counts: Option<LiveUserCounts>,
+) {
     if data.is_empty() {
         return;
     }
-    let counts = state.presence.live_user_counts().await;
+    let counts = match counts {
+        Some(c) => c,
+        None => state.presence.live_user_counts().await,
+    };
     fill_user_counts(data, &counts);
 
     if flags.with_connected_users {
+        let mut keys: Vec<(bool, String)> = Vec::new();
+        for key in data.iter().filter_map(comms_key) {
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+        let connected = connected_by_key(state, keys).await;
         for d in data.iter_mut() {
-            let addresses = if d.world {
-                match d.world_name.as_deref() {
-                    Some(name) => state.comms_gatekeeper.get_world_participants(name).await,
-                    None => Vec::new(),
-                }
-            } else {
-                state
-                    .comms_gatekeeper
-                    .get_scene_participants(&d.base_position)
-                    .await
-            };
+            let addresses = comms_key(d)
+                .and_then(|k| connected.get(&k).cloned())
+                .unwrap_or_default();
 
             let connected_len = addresses.len() as i32;
             let base_count = d.user_count.unwrap_or(0);
@@ -442,31 +497,8 @@ fn empty() -> Json<ApiDataTotal<Destination>> {
     Json(ApiDataTotal::ok(vec![], 0))
 }
 
-async fn narrow_to_favorites(
-    state: &AppState,
-    user: Option<&str>,
-    filters: &mut PlaceListFilters,
-) -> Result<bool, ApiError> {
-    let Some(addr) = user else {
-        return Ok(false);
-    };
-    let Some(favorites) = state.places.favorite_entity_ids(addr).await? else {
-        return Ok(false);
-    };
-    if favorites.is_empty() {
-        return Ok(false);
-    }
-    if filters.ids.is_empty() {
-        filters.ids = favorites;
-    } else {
-        filters.ids.retain(|id| favorites.contains(id));
-    }
-    Ok(!filters.ids.is_empty())
-}
-
 async fn run_list(
     state: &AppState,
-    user: Option<&str>,
     mut filters: PlaceListFilters,
     flags: &DestinationFlags,
 ) -> Result<Json<ApiDataTotal<Destination>>, ApiError> {
@@ -474,13 +506,9 @@ async fn run_list(
         return Ok(empty());
     }
     require_feed_content(&mut filters);
-    inject_live_user_counts(state, &mut filters).await;
-    let (mut data, total) = tokio::try_join!(
-        state.places.find_list(&filters),
-        state.places.count_list(&filters),
-    )?;
-    state.places.apply_user_interactions(user, &mut data).await;
-    enrich(state, &mut data, flags).await;
+    let counts = inject_live_user_counts(state, &mut filters).await;
+    let (mut data, total) = state.places.list_page(&filters).await?;
+    enrich_with_counts(state, &mut data, flags, counts).await;
     let mut out: Vec<Destination> = data.into_iter().map(Destination::from).collect();
     decorate_next_event(state, &mut out, flags).await;
     Ok(Json(ApiDataTotal::ok(out, total)))
@@ -495,14 +523,18 @@ pub(crate) async fn list_destinations(
 ) -> Result<Json<ApiDataTotal<Destination>>, ApiError> {
     let (mut filters, only_favorites, flags) = parse_filters(pairs)?;
     let user = crate::auth::auth_address_optional(headers, method, signed_path).await;
-    if only_favorites && !narrow_to_favorites(state, user.as_deref(), &mut filters).await? {
+    if !state
+        .places
+        .scope_to_viewer(&mut filters, user.as_deref(), only_favorites)
+        .await?
+    {
         return Ok(empty());
     }
     if let Some(owner) = owner_param(pairs) {
         filters.owner_filtered = true;
         filters.operated_positions = state.places.operated_positions(owner).await?;
     }
-    run_list(state, user.as_deref(), filters, &flags).await
+    run_list(state, filters, &flags).await
 }
 
 #[utoipa::path(
@@ -633,7 +665,8 @@ pub async fn post_destinations_list_by_id(
         ..Default::default()
     };
     select_branches(&mut filters, &[]);
-    run_list(&state, user.as_deref(), filters, &flags).await
+    filters.viewer = user.map(|u| u.to_lowercase());
+    run_list(&state, filters, &flags).await
 }
 
 #[cfg(test)]

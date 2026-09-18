@@ -172,7 +172,7 @@ const ChartEmptyGlyph = glyph(
   34,
 );
 
-export type SceneAnalyticsPhase = "signed-out" | "loading" | "error" | "ready";
+type SceneAnalyticsPhase = "signed-out" | "loading" | "error" | "ready";
 
 export type SceneSelection = { sceneType: SceneType; sceneId: string };
 

@@ -17,7 +17,7 @@ import {
 import { OPERATOR_EVENTS } from "@core/lib/telemetry/operator-events";
 
 describe("presence schemas (generated, wire-strict)", () => {
-  it("parses a current snapshot and tolerates a null worlds_live_total", () => {
+  it("parses a current snapshot (null worlds_live_total tolerated), a full scene row (only scene_name nullable), and a world headcount row", () => {
     const s = CurrentSnapshotSchema.parse({
       snapshot_id: 1,
       taken_at: "2026-06-24T00:00:00Z",
@@ -33,9 +33,7 @@ describe("presence schemas (generated, wire-strict)", () => {
     });
     expect(s.peers_count).toBe(36);
     expect(s.worlds_live_total).toBeNull();
-  });
 
-  it("parses a full scene row; only scene_name may be null", () => {
     const row = SceneOccupancyRowSchema.parse({
       taken_at: "2026-06-24T00:00:00Z",
       pointer: "-3,-2",
@@ -45,6 +43,14 @@ describe("presence schemas (generated, wire-strict)", () => {
     });
     expect(row.scene_name).toBeNull();
     expect(row.realm).toBe("main");
+
+    const w = WorldHeadcountRowSchema.parse({
+      taken_at: "2026-06-24T00:00:00Z",
+      world_name: "museum.dcl.eth",
+      count: 2,
+      live_users: 2,
+    });
+    expect(w.count).toBe(2);
   });
 
   it("rejects rows that are missing wire-required fields", () => {
@@ -64,24 +70,12 @@ describe("presence schemas (generated, wire-strict)", () => {
     );
     expect(CurrentSnapshotSchema.safeParse({ snapshot_id: 1 }).success).toBe(false);
   });
-
-  it("parses a world headcount row", () => {
-    const w = WorldHeadcountRowSchema.parse({
-      taken_at: "2026-06-24T00:00:00Z",
-      world_name: "museum.dcl.eth",
-      count: 2,
-      live_users: 2,
-    });
-    expect(w.count).toBe(2);
-  });
 });
 
 describe("parsePointer + jump urls", () => {
-  it("parses x,y and tolerates junk", () => {
+  it("parses x,y tolerating junk and builds genesis + world jump links", () => {
     expect(parsePointer("144,-7")).toEqual([144, -7]);
     expect(parsePointer("")).toEqual([0, 0]);
-  });
-  it("builds genesis + world jump links", () => {
     expect(sceneJumpUrl("-3,-2")).toBe(
       "https://catalyst.example.com/play/?position=-3,-2",
     );
@@ -108,7 +102,7 @@ function zeroedCurrent(): CurrentSnapshot {
 }
 
 describe("occupancyTotals", () => {
-  it("is null when any of the three reads is missing", () => {
+  it("is null when any of the three reads is missing, and still reports empty when nobody is anywhere", () => {
     expect(
       occupancyTotals({
         current: null,
@@ -125,9 +119,22 @@ describe("occupancyTotals", () => {
         source: "unavailable",
       }),
     ).toBeNull();
+
+    const idle: PresenceSnapshot = {
+      current: zeroedCurrent(),
+      scenes: [],
+      worlds: [
+        { taken_at: "2026-06-24T00:00:00Z", world_name: "idle.dcl.eth", count: 0, live_users: 0 },
+      ],
+      source: "catalyst",
+    };
+    const t = occupancyTotals(idle);
+    expect(t?.peers).toBe(0);
+    expect(t?.activeScenes).toBe(0);
+    expect(t?.activeWorlds).toBe(0);
   });
 
-  it("derives headline numbers, preferring summary counts", () => {
+  it("derives headline numbers preferring summary counts, and folds per-world live_users when the comms summary reports zero (worlds steady state)", () => {
     const snap: PresenceSnapshot = {
       current: {
         ...zeroedCurrent(),
@@ -152,10 +159,8 @@ describe("occupancyTotals", () => {
     expect(t?.worlds).toBe(3);
     expect(t?.activeScenes).toBe(1);
     expect(t?.activeWorlds).toBe(1);
-  });
 
-  it("folds per-world live_users when the comms summary reports zero (worlds steady state)", () => {
-    const snap: PresenceSnapshot = {
+    const steady: PresenceSnapshot = {
       current: { ...zeroedCurrent(), worlds_polled: 4, worlds_live_total: 9 },
       scenes: [],
       worlds: [
@@ -164,26 +169,11 @@ describe("occupancyTotals", () => {
       ],
       source: "catalyst",
     };
-    const t = occupancyTotals(snap);
-    expect(t?.activeWorlds).toBe(2);
-    expect(t?.worldUsers).toBe(9);
-    expect(t?.peers).toBe(9);
-    expect(t?.activeScenes).toBe(0);
-  });
-
-  it("still reports empty when nobody is anywhere", () => {
-    const snap: PresenceSnapshot = {
-      current: zeroedCurrent(),
-      scenes: [],
-      worlds: [
-        { taken_at: "2026-06-24T00:00:00Z", world_name: "idle.dcl.eth", count: 0, live_users: 0 },
-      ],
-      source: "catalyst",
-    };
-    const t = occupancyTotals(snap);
-    expect(t?.peers).toBe(0);
-    expect(t?.activeScenes).toBe(0);
-    expect(t?.activeWorlds).toBe(0);
+    const folded = occupancyTotals(steady);
+    expect(folded?.activeWorlds).toBe(2);
+    expect(folded?.worldUsers).toBe(9);
+    expect(folded?.peers).toBe(9);
+    expect(folded?.activeScenes).toBe(0);
   });
 });
 

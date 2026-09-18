@@ -9,10 +9,9 @@ import CreatorHubBreadcrumb from "@ui/creatorhub/components/CreatorHubBreadcrumb
 import ChPublishWizardPublishToWorld from "@ui/creatorhub/workflows/ChPublishWizardPublishToWorld";
 
 import { resolveBreadcrumbOrigin, type BreadcrumbOrigin } from "@features/components/creator-hub/breadcrumbOrigins";
-import { loadDeployWorld } from "@data/lib/catalyst/creator-hub/deploy-world.server";
+import { fallbackDeployWorld, loadDeployWorld } from "@data/lib/catalyst/creator-hub/deploy-world.server";
 import {
   landJumpUrl,
-  shortAddress,
   worldJumpUrl,
   type DeployFile,
   type DeployWorldData,
@@ -67,6 +66,15 @@ const CLAIM_TEST_MODE_NOTE =
   "NAME registration isn't connected on this realm yet \u{2014} no real NAME can be " +
   "bought here. You can publish to a NAME you already own.";
 
+const CLAIM_TEST_MODE_NOTE_PERSONAL =
+  "NAME registration isn't connected on this realm yet \u{2014} no real NAME can be " +
+  "bought here. Publish to your personal test world (your wallet address as a " +
+  ".dcl.eth name) or to a NAME you already own.";
+
+function claimNoteFor(deploy: DeployWorldData): string {
+  return deploy.personalWorlds ? CLAIM_TEST_MODE_NOTE_PERSONAL : CLAIM_TEST_MODE_NOTE;
+}
+
 async function reuseProjectDir(): Promise<FileSystemDirectoryHandle | null> {
   if (typeof window === "undefined") return null;
   const slug = new URLSearchParams(window.location.search).get("project")?.trim();
@@ -119,23 +127,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     deployData = await loadDeployWorld(address, { signal: request.signal });
   } catch {
-    deployData = {
-      address: address ?? "",
-      names: [],
-      liveEmpty: true,
-      worldsOnline: null,
-      project: { title: "Your scene", size: "", grad: "#222" },
-      files: [],
-      maxFileSizeMb: 50,
-      owner: {
-        network: "Mainnet",
-        address: address ? shortAddress(address) : "0x\u{2026}",
-        username: "",
-        verified: false,
-        role: "Owner",
-      },
-      source: "empty",
-    };
+    deployData = fallbackDeployWorld(address);
   }
   const namesEmpty = forceEmpty || deployData.liveEmpty;
 
@@ -491,7 +483,7 @@ export default function CreatorHubDeployWorld({ loaderData }: Route.ComponentPro
           <ChPublishWizardPublishToWorld
             state="signedOut"
             inline
-            claimNote={CLAIM_TEST_MODE_NOTE}
+            claimNote={claimNoteFor(deploy)}
             onSignIn={() => openSignIn()}
             onClaimName={() => navigate(claimNameUrl(searchParams))}
             onClose={() => {
@@ -518,7 +510,7 @@ export default function CreatorHubDeployWorld({ loaderData }: Route.ComponentPro
             }}
             names={deploy.names}
             namesEmpty={namesEmpty}
-            claimNote={CLAIM_TEST_MODE_NOTE}
+            claimNote={claimNoteFor(deploy)}
             land={land}
             landNotice={landNotice}
             files={localProject?.files ?? draftPack?.list ?? deploy.files}

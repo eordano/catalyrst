@@ -4,6 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::handlers::admin::audited;
 use crate::handlers::db_err;
 use crate::AppState;
 
@@ -17,40 +18,68 @@ pub struct FlagsQuery {
     pub user: Option<String>,
 }
 
+/// Upstream config is fetched at most once per TTL; a failing upstream serves the last good body (or null).
+const CONFIG_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+const OBSERVED_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+const OBSERVED_SQL: &str = "SELECT f->>'flag' AS k, count(*) c FROM telemetry.telemetry_events, \
+           jsonb_array_elements(CASE WHEN jsonb_typeof(body->'contexts'->'flags'->'values')='array' \
+             THEN body->'contexts'->'flags'->'values' ELSE '[]'::jsonb END) f \
+         WHERE source='sentry' AND body->'contexts'->'flags'->'values' IS NOT NULL \
+         GROUP BY 1 ORDER BY 2 DESC LIMIT 200";
+
+fn decode<T: serde::de::DeserializeOwned>(v: Value) -> Result<T, (StatusCode, String)> {
+    serde_json::from_value(v).map_err(|e| db_err("telemetry dashboard", sqlx::Error::decode(e)))
+}
+
 pub async fn flags(
     State(st): State<AppState>,
     Query(p): Query<FlagsQuery>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let url = std::env::var("FLAGS_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:5137/explorer.json".to_string());
-    let config: Value = match flags_client()
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-    {
-        Ok(r) => r.json().await.unwrap_or(Value::Null),
-        Err(_) => Value::Null,
-    };
-
-    let observed = sqlx::query_as::<_, (Option<String>, i64)>(
-        "SELECT f->>'flag' AS k, count(*) c FROM telemetry.telemetry_events, \
-           jsonb_array_elements(CASE WHEN jsonb_typeof(body->'contexts'->'flags'->'values')='array' \
-             THEN body->'contexts'->'flags'->'values' ELSE '[]'::jsonb END) f \
-         WHERE source='sentry' AND body->'contexts'->'flags'->'values' IS NOT NULL \
-         GROUP BY 1 ORDER BY 2 DESC LIMIT 200")
-        .fetch_all(&st.pool).await.map_err(|e| db_err("telemetry dashboard", e))?;
-
-    let mut overrides = load_flag_overrides(&st.pool)
-        .await
-        .map_err(|e| db_err("telemetry dashboard", e))?;
     let user_key = p.user.unwrap_or_default();
-    let groups = if user_key.is_empty() {
-        Vec::new()
-    } else {
-        crate::handlers::groups::groups_for_user(&st.pool, &user_key).await
-    };
-    let targeted = crate::handlers::groups::flag_targets_for(&st.pool, &groups).await;
+
+    let config = st
+        .flags_config
+        .get_or_refresh_backoff(CONFIG_TTL, || async {
+            flags_client()
+                .get(&url)
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await?
+                .json::<Value>()
+                .await
+        });
+    let observed = st.flags_observed.get_or_refresh(OBSERVED_TTL, || async {
+        sqlx::query_as::<_, (Option<String>, i64)>(OBSERVED_SQL)
+            .fetch_all(&st.pool)
+            .await
+    });
+    let fold = sqlx::query_as::<_, (Value, Value, Value, Value)>(sqlx::AssertSqlSafe(format!(
+        "SELECT \
+           (SELECT COALESCE(jsonb_agg(jsonb_build_array(flag, state, forced_variant) ORDER BY flag), '[]'::jsonb) \
+              FROM telemetry.flag_overrides) AS overrides, \
+           CASE WHEN $1::text = '' THEN '[]'::jsonb ELSE {groups_json} END AS groups, \
+           (SELECT COALESCE(jsonb_agg(jsonb_build_array(group_name, flag, state, forced_variant)), '[]'::jsonb) \
+              FROM telemetry.flag_group_targets WHERE $1::text <> '') AS targets, \
+           (SELECT COALESCE(jsonb_agg(jsonb_build_array(name, area)), '[]'::jsonb) \
+              FROM telemetry.product_areas WHERE kind = 'flag') AS areas",
+        groups_json = crate::handlers::groups::GROUPS_JSON,
+    )))
+    .bind(&user_key)
+    .fetch_one(&st.pool);
+    let (config, observed, fold) = tokio::join!(config, observed, fold);
+    let config = config.unwrap_or(Value::Null);
+    let observed = observed.map_err(|e| db_err("telemetry dashboard", e))?;
+    let (overrides, groups, targets, areas) = fold.map_err(|e| db_err("telemetry dashboard", e))?;
+
+    let mut overrides: Vec<FlagOverride> = decode(overrides)?;
+    let groups = crate::handlers::groups::groups_for(decode(groups)?, &user_key);
+    let targeted = crate::handlers::groups::rank_flag_targets(decode(targets)?, &groups);
+    let areas: std::collections::HashMap<String, String> = decode::<Vec<(String, String)>>(areas)?
+        .into_iter()
+        .collect();
     for (flag, (state, variant)) in &targeted {
         match overrides.iter_mut().find(|(f, _, _)| f == flag) {
             Some(row) => *row = (flag.clone(), state.clone(), variant.clone()),
@@ -67,19 +96,11 @@ pub async fn flags(
         "user": user_key,
         "groups": groups,
         "group_targeted": targeted.keys().collect::<Vec<_>>(),
-        "areas": crate::handlers::groups::areas(&st.pool, "flag").await,
+        "areas": areas,
     })))
 }
 
 type FlagOverride = (String, String, Option<String>);
-
-async fn load_flag_overrides(pool: &sqlx::PgPool) -> Result<Vec<FlagOverride>, sqlx::Error> {
-    sqlx::query_as::<_, FlagOverride>(
-        "SELECT flag, state, forced_variant FROM telemetry.flag_overrides ORDER BY flag",
-    )
-    .fetch_all(pool)
-    .await
-}
 
 fn merge_flags(config: &Value, overrides: &[FlagOverride]) -> (Value, Value) {
     let up_flags = config
@@ -185,27 +206,6 @@ pub async fn flag_set(
             "state must be on|off|forced".into(),
         ));
     }
-    if b.clear {
-        sqlx::query("DELETE FROM telemetry.flag_overrides WHERE flag = $1")
-            .bind(&b.flag)
-            .execute(&st.pool)
-            .await
-            .map_err(|e| db_err("telemetry dashboard", e))?;
-    } else {
-        let variant = b.variant.as_deref().filter(|s| !s.is_empty());
-        sqlx::query(
-            "INSERT INTO telemetry.flag_overrides (flag, state, forced_variant, updated_at) \
-             VALUES ($1, $2, $3, now()) \
-             ON CONFLICT (flag) DO UPDATE SET \
-               state = $2, forced_variant = $3, updated_at = now()",
-        )
-        .bind(&b.flag)
-        .bind(&state)
-        .bind(variant)
-        .execute(&st.pool)
-        .await
-        .map_err(|e| db_err("telemetry dashboard", e))?;
-    }
     let action = if b.clear { "flag.clear" } else { "flag.set" };
     let detail = json!({
         "flag": b.flag,
@@ -213,7 +213,37 @@ pub async fn flag_set(
         "variant": b.variant,
         "clear": b.clear,
     });
-    crate::handlers::admin::audit(&st, "loopback", action, detail).await;
+    if b.clear {
+        sqlx::query(sqlx::AssertSqlSafe(audited(
+            "DELETE FROM telemetry.flag_overrides WHERE flag = $1",
+            1,
+        )))
+        .bind(&b.flag)
+        .bind("loopback")
+        .bind(action)
+        .bind(detail)
+        .execute(&st.pool)
+        .await
+        .map_err(|e| db_err("telemetry dashboard", e))?;
+    } else {
+        let variant = b.variant.as_deref().filter(|s| !s.is_empty());
+        sqlx::query(sqlx::AssertSqlSafe(audited(
+            "INSERT INTO telemetry.flag_overrides (flag, state, forced_variant, updated_at) \
+             VALUES ($1, $2, $3, now()) \
+             ON CONFLICT (flag) DO UPDATE SET \
+               state = $2, forced_variant = $3, updated_at = now()",
+            3,
+        )))
+        .bind(&b.flag)
+        .bind(&state)
+        .bind(variant)
+        .bind("loopback")
+        .bind(action)
+        .bind(detail)
+        .execute(&st.pool)
+        .await
+        .map_err(|e| db_err("telemetry dashboard", e))?;
+    }
     Ok(Json(json!({ "ok": true, "flag": b.flag })))
 }
 

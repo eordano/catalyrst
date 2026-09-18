@@ -17,8 +17,6 @@ const STORY: StoryId = "misc/blog";
 
 export const handle = { agentMarkdown: "blogPost" } satisfies AgentMarkdownHandle;
 
-type RelatedCard = ReturnType<typeof relatedBlogPosts>[number];
-
 const FALLBACK: Assignment = {
   variant: "index_grid",
   flags: { mainPostHero: true },
@@ -28,7 +26,7 @@ const FALLBACK: Assignment = {
 export async function loader({ request, params }: Route.LoaderArgs) {
   const slug = params.slug ?? "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,

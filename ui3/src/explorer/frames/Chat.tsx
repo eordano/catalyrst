@@ -1,6 +1,7 @@
 
 import type { ButtonHTMLAttributes, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { NearbyPlayer } from "../../generated/bridge/NearbyPlayer";
 import { Avatar } from "../../atoms/primitives";
 import DclLogomark from "../../atoms/DclLogomark";
@@ -8,6 +9,7 @@ import type { BridgeChatLine } from "../../overlay/bridge";
 import { EmojiPicker } from "./EmojiPicker";
 import { getEmojiData, loadEmojiData, searchByShortcode, SHORTCODE_RE, type Emoji } from "./emojiData";
 import { MessageText, mentionsMe, buildNameIndex } from "./chatText";
+import { consoleLineKey, dispatchCommand, helpText, requestEngineHelp, wallClockMs, type ConsoleSource } from "./chatCommands";
 import type { ProfileCardProps } from "../components/ProfileCard";
 import type { ProfileCardUser } from "../components/ProfileCardPresentation";
 import styles from "./Chat.module.css";
@@ -19,6 +21,7 @@ export type ChatIo = {
   blocked: string[];
   live: boolean;
   send: (message: string) => void;
+  console?: ConsoleSource;
   teleport?: (x: number, z: number) => void;
   changeRealm?: (realm: string) => void;
 };
@@ -33,6 +36,7 @@ const RARITY = [
   "#a0abff", "#c640cd",
 ];
 const SYSTEM_COLOR = "#61d04f";
+const CONSOLE_CHANNEL = "System";
 
 function isSystem(sender: string): boolean {
   return !sender || sender.toLowerCase() === "system";
@@ -185,7 +189,7 @@ function CtrlButton({
   );
 }
 
-export function DaySeparator({ ts }: { ts: number }) {
+function DaySeparator({ ts }: { ts: number }) {
   return (
     <div className={styles.dayRow}>
       <span className={styles.dayPill}>{formatDay(ts)}</span>
@@ -195,9 +199,38 @@ export function DaySeparator({ ts }: { ts: number }) {
 
 const MSG_STYLES = { url: styles.url, mention: styles.mention, location: styles.location, world: styles.world };
 
-type ChatLine = { id: string; ts: number; sender: string; senderName?: string; message: string };
+type ChatLine = { id: string; ts: number; sender: string; senderName?: string; message: string; channel?: string };
+type LocalLine = { id: string; ts: number; message: string; anchor: BridgeChatLine | null; anchorKey?: string };
 
-export function ChatBubble({
+const receivedAt = new WeakMap<BridgeChatLine, number>();
+let localSeq = 0;
+
+function stampOf(l: BridgeChatLine): number {
+  const seen = receivedAt.get(l);
+  if (seen != null) return seen;
+  const ts = wallClockMs(l.timestamp, Date.now());
+  receivedAt.set(l, ts);
+  return ts;
+}
+
+function isConsole(line: ChatLine): boolean {
+  return line.channel === CONSOLE_CHANNEL || isSystem(line.sender);
+}
+
+function ConsoleLine({ line, echo }: { line: ChatLine; echo: boolean }) {
+  return (
+    <div className={`${styles.consoleLine} ${echo ? styles.consoleEcho : ""}`.trim()} data-console={echo ? "echo" : "output"}>
+      {echo && (
+        <span className={styles.consolePrompt} aria-hidden="true">
+          &#x203A;
+        </span>
+      )}
+      <span className={styles.consoleText}>{line.message}</span>
+    </div>
+  );
+}
+
+function ChatBubble({
   line,
   name,
   members = [],
@@ -249,7 +282,7 @@ export function ChatBubble({
   );
 }
 
-export function MemberRow({ member }: { member: NearbyPlayer }) {
+function MemberRow({ member }: { member: NearbyPlayer }) {
   const { base, tag } = splitName(memberLabel(member));
   const color = senderColor(member.address);
   return (
@@ -340,6 +373,9 @@ export function ChatView({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionSug, setMentionSug] = useState<NearbyPlayer[]>([]);
   const [profileTarget, setProfileTarget] = useState<{ user: ProfileCardUser; x: number; y: number } | null>(null);
+  const [clearedAfter, setClearedAfter] = useState<{ line: BridgeChatLine | null } | null>(null);
+  const [localLines, setLocalLines] = useState<LocalLine[]>([]);
+  const [hiddenKeys, setHiddenKeys] = useState<ReadonlySet<string>>(() => new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -377,22 +413,46 @@ export function ChatView({
     () => new Set(blocked.map((a) => a.toLowerCase())),
     [blocked],
   );
-  const lines = useMemo<ChatLine[]>(
-    () =>
-      chatPushes
-        .filter((l) => !(l.senderAddress && blockedSet.has(l.senderAddress.toLowerCase())))
-        .map((l, i) => {
-          const sender = l.senderAddress || l.senderName || "system";
-          return {
-            id: l.timestamp != null ? `t${l.timestamp}-${i}` : `i${sender}|${l.message ?? ""}|${i}`,
-            ts: l.timestamp ?? Date.now(),
-            sender,
-            senderName: l.senderName ?? undefined,
-            message: l.message ?? "",
-          };
-        }),
-    [chatPushes, blockedSet],
-  );
+  const visiblePushes = useMemo(() => {
+    if (!clearedAfter) return chatPushes;
+    const i = clearedAfter.line ? chatPushes.indexOf(clearedAfter.line) : -1;
+    return chatPushes.slice(i + 1);
+  }, [chatPushes, clearedAfter]);
+
+  const lines = useMemo<ChatLine[]>(() => {
+    const out: ChatLine[] = [];
+    const visible = new Set(visiblePushes);
+    const lastByKey = new Map<string, number>();
+    visiblePushes.forEach((l, i) => lastByKey.set(consoleLineKey(l), i));
+    const pending = new Map<BridgeChatLine, LocalLine[]>();
+    const pendingByKey = new Map<string, LocalLine[]>();
+    const toLine = (ll: LocalLine): ChatLine => ({ id: ll.id, ts: ll.ts, sender: "system", message: ll.message, channel: CONSOLE_CHANNEL });
+    for (const ll of localLines) {
+      if (ll.anchorKey != null && lastByKey.has(ll.anchorKey)) pendingByKey.set(ll.anchorKey, [...(pendingByKey.get(ll.anchorKey) ?? []), ll]);
+      else if (ll.anchorKey == null && ll.anchor && visible.has(ll.anchor)) pending.set(ll.anchor, [...(pending.get(ll.anchor) ?? []), ll]);
+      else out.push(toLine(ll));
+    }
+    visiblePushes.forEach((l, i) => {
+      const key = consoleLineKey(l);
+      const blockedLine = l.senderAddress && blockedSet.has(l.senderAddress.toLowerCase());
+      const hiddenLine = !l.senderAddress && !l.senderName && hiddenKeys.has(key);
+      if (!blockedLine && !hiddenLine) {
+        const sender = l.senderAddress || l.senderName || "system";
+        const ts = stampOf(l);
+        out.push({
+          id: `t${ts}-${i}`,
+          ts,
+          sender,
+          senderName: l.senderName ?? undefined,
+          message: l.message ?? "",
+          channel: l.channel ?? undefined,
+        });
+      }
+      for (const ll of pending.get(l) ?? []) out.push(toLine(ll));
+      if (lastByKey.get(key) === i) for (const ll of pendingByKey.get(key) ?? []) out.push(toLine(ll));
+    });
+    return out;
+  }, [visiblePushes, localLines, blockedSet, hiddenKeys]);
 
   const rows = useMemo(() => {
     const out: ({ kind: "day"; ts: number; id: string } | { kind: "msg"; line: ChatLine })[] = [];
@@ -416,6 +476,26 @@ export function ChatView({
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
+    else setHovered(false);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey) return;
+      const ae = document.activeElement;
+      if (
+        ae &&
+        (ae.tagName === "INPUT" ||
+          ae.tagName === "TEXTAREA" ||
+          (ae instanceof HTMLElement && ae.isContentEditable))
+      )
+        return;
+      e.preventDefault();
+      inputRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
   useEffect(() => {
@@ -465,10 +545,38 @@ export function ChatView({
     inputRef.current?.focus();
   };
 
+  const printLocal = (message: string, anchor: BridgeChatLine | null, anchorKey?: string): void => {
+    localSeq += 1;
+    setLocalLines((ls) => [...ls, { id: `l${localSeq}`, ts: Date.now(), message, anchor, anchorKey }]);
+  };
+
+  const askEngineHelp = (source: ConsoleSource, anchor: BridgeChatLine | null): void => {
+    void requestEngineHelp(source, io.send).then((help) => {
+      if (!help || help.names.length === 0) {
+        printLocal(helpText(), anchor);
+        return;
+      }
+      setHiddenKeys((h) => new Set([...h, ...help.keys]));
+      printLocal(helpText(help.names), anchor, help.keys[help.keys.length - 1]);
+    });
+  };
+
   const send = (): void => {
     const message = draft.trim();
     if (!message) return;
-    io.send(message);
+    const action = dispatchCommand(message);
+    const anchor = chatPushes[chatPushes.length - 1] ?? null;
+    if (action.kind === "clear") {
+      setClearedAfter({ line: anchor });
+      setLocalLines([]);
+    } else if (action.kind === "print") {
+      printLocal(action.text, anchor);
+    } else if (action.kind === "help") {
+      if (io.console) askEngineHelp(io.console, anchor);
+      else printLocal(helpText(), anchor);
+    } else {
+      io.send(action.message);
+    }
     setDraft("");
     setScQuery(null);
     setMentionSug([]);
@@ -506,7 +614,7 @@ export function ChatView({
     io.changeRealm?.(name);
   };
 
-  if (hidden) return null;
+  if (hidden || !open) return null;
 
   return (
     <div
@@ -552,6 +660,8 @@ export function ChatView({
             rows.map((r) =>
               r.kind === "day" ? (
                 <DaySeparator key={r.id} ts={r.ts} />
+              ) : isConsole(r.line) ? (
+                <ConsoleLine key={r.line.id} line={r.line} echo={!isSystem(r.line.sender)} />
               ) : (
                 <ChatBubble
                   key={r.line.id}
@@ -660,18 +770,21 @@ export function ChatView({
         />
       )}
 
-      {profileTarget && ProfileCardImpl && (
-        <ProfileCardImpl
-          user={profileTarget.user}
-          x={profileTarget.x}
-          y={profileTarget.y}
-          onMention={(name) => {
-            insertMention(name);
-            setProfileTarget(null);
-          }}
-          onClose={() => setProfileTarget(null)}
-        />
-      )}
+      {profileTarget &&
+        ProfileCardImpl &&
+        createPortal(
+          <ProfileCardImpl
+            user={profileTarget.user}
+            x={profileTarget.x}
+            y={profileTarget.y}
+            onMention={(name) => {
+              insertMention(name);
+              setProfileTarget(null);
+            }}
+            onClose={() => setProfileTarget(null)}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

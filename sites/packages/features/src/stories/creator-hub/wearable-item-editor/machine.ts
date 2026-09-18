@@ -25,14 +25,14 @@ export type SaveFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SaveResult>;
 
-export type WearableEditorInput = {
+type WearableEditorInput = {
   trackCtx: TrackContext;
   draft: WearableDraft;
   save?: SaveFn;
   track?: TrackFn;
 };
 
-export type WearableEditorContext = {
+type WearableEditorContext = {
   trackCtx: TrackContext;
   baseline: WearableDraft;
   draft: WearableDraft;
@@ -42,7 +42,7 @@ export type WearableEditorContext = {
   error?: string;
 };
 
-export type WearableEditorEvent =
+type WearableEditorEvent =
   | { type: "SELECT_ITEM"; collectionId: string; itemId: string; name: string }
   | { type: "SET_NAME"; name: string }
   | { type: "SET_MODEL"; modelFile: string }
@@ -75,8 +75,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type WearableEditorStateId = keyof typeof STATE_TO_SLUG;
-export type WearableEditorStepSlug = (typeof STATE_TO_SLUG)[WearableEditorStateId];
+type WearableEditorStateId = keyof typeof STATE_TO_SLUG;
+type WearableEditorStepSlug = (typeof STATE_TO_SLUG)[WearableEditorStateId];
 
 export const FIRST_STEP_SLUG: WearableEditorStepSlug = STATE_TO_SLUG.selecting;
 
@@ -303,8 +303,6 @@ export const wearableEditorMachine = setup({
     },
   },
 });
-
-export type WearableEditorMachine = typeof wearableEditorMachine;
 
 export function resolveWearableEditorSnapshot(args: {
   step: WearableEditorStateId;

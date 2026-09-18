@@ -23,7 +23,7 @@ export type SubmitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SubmitResult>;
 
-export type PitchInput = {
+type PitchInput = {
   trackCtx: TrackContext;
   meetsGate: boolean;
   votingPower: number;
@@ -31,7 +31,7 @@ export type PitchInput = {
   track?: TrackFn;
 };
 
-export type PitchContext = {
+type PitchContext = {
   trackCtx: TrackContext;
   meetsGate: boolean;
   votingPower: number;
@@ -43,7 +43,7 @@ export type PitchContext = {
   error?: string;
 };
 
-export type PitchEvent =
+type PitchEvent =
   | { type: "PASS_GATE" }
   | { type: "SUBMIT_DETAILS"; details: PitchDetails }
   | { type: "SUBMIT_COAUTHORS"; coAuthors: string[] }
@@ -73,8 +73,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type PitchStateId = keyof typeof STATE_TO_SLUG;
-export type PitchStepSlug = (typeof STATE_TO_SLUG)[PitchStateId];
+type PitchStateId = keyof typeof STATE_TO_SLUG;
+type PitchStepSlug = (typeof STATE_TO_SLUG)[PitchStateId];
 
 export const FIRST_STEP_SLUG: PitchStepSlug = STATE_TO_SLUG.intro;
 
@@ -280,8 +280,6 @@ export const pitchMachine = setup({
     },
   },
 });
-
-export type PitchMachine = typeof pitchMachine;
 
 export function resolvePitchSnapshot(args: {
   step: PitchStateId;

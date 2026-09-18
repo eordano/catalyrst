@@ -11,7 +11,7 @@ type CurationStatus =
   | "disabled";
 type Option = { value: string; text: string };
 
-export type CurationCollection = {
+type CurationCollection = {
   id: string;
   name: string;
   type: CollectionType;

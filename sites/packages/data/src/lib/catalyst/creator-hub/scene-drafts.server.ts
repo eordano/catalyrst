@@ -27,12 +27,31 @@ export class DraftStoreError extends Error {
   }
 }
 
+export class DraftStoreUnavailable extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DraftStoreUnavailable";
+  }
+}
+
+const UNAVAILABLE_CODES = new Set(["ENOENT", "ENOTDIR", "EACCES", "EPERM", "EROFS"]);
+
+function unavailable(err: unknown, op: string): unknown {
+  const code = (err as NodeJS.ErrnoException)?.code;
+  if (!code || !UNAVAILABLE_CODES.has(code)) return err;
+  return new DraftStoreUnavailable(
+    `drafts store ${op} failed (${code}) under ${draftsRoot()}: set CH_DRAFTS_DIR (or SITES_STATE_DIR) to a writable directory`,
+  );
+}
+
 type StoredFile = { meta: DraftMeta; blob: unknown };
 
 export function draftsRoot(): string {
-  return (
-    process.env.CH_DRAFTS_DIR || path.join(process.cwd(), "data", "ch-drafts")
-  );
+  if (process.env.CH_DRAFTS_DIR) return process.env.CH_DRAFTS_DIR;
+  if (process.env.SITES_STATE_DIR) {
+    return path.join(process.env.SITES_STATE_DIR, "ch-drafts");
+  }
+  return path.join(process.cwd(), "data", "ch-drafts");
 }
 
 function walletDir(wallet: string): string {
@@ -55,7 +74,7 @@ async function readStored(
     raw = await fs.readFile(draftPath(wallet, id), "utf8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw err;
+    throw unavailable(err, "read");
   }
   try {
     const parsed = JSON.parse(raw) as StoredFile;
@@ -80,7 +99,7 @@ export async function listDrafts(wallet: string): Promise<DraftMeta[]> {
     names = await fs.readdir(walletDir(wallet));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
+    throw unavailable(err, "list");
   }
   const metas: DraftMeta[] = [];
   for (const name of names) {
@@ -132,16 +151,21 @@ export async function putDraft(
   const file: StoredFile = { meta, blob: input.blob };
 
   const dir = walletDir(wallet);
-  await fs.mkdir(dir, { recursive: true });
   const finalPath = draftPath(wallet, id);
   const tmpPath = path.join(dir, `.${id}.${randomUUID()}.tmp`);
-  await fs.writeFile(tmpPath, JSON.stringify(file), "utf8");
-  await fs.rename(tmpPath, finalPath);
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(tmpPath, JSON.stringify(file), "utf8");
+    await fs.rename(tmpPath, finalPath);
+  } catch (err) {
+    await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+    throw unavailable(err, "write");
+  }
 
   return { ok: true, meta };
 }
 
-export type AuthResult =
+type AuthResult =
   | { ok: true; wallet: string }
   | { ok: false; status: number; error: string };
 

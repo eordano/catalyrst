@@ -37,17 +37,28 @@ impl ContentStorage {
     pub async fn store(&self, hash: &str, data: Bytes) -> Result<(), StorageError> {
         use tokio::io::AsyncWriteExt;
 
+        let started = std::time::Instant::now();
         let path = ensure_file_path(&self.root, hash, &self.known_shards).await?;
 
+        let path_us = started.elapsed().as_micros() as u64;
+        let stage_started = std::time::Instant::now();
         let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
         let (mut file, mut staging) =
             create_staging_file(staging_path(&path, "content", seq)).await?;
+        let open_us = stage_started.elapsed().as_micros() as u64;
+        let stage_started = std::time::Instant::now();
         file.write_all(&data).await?;
+        let write_us = stage_started.elapsed().as_micros() as u64;
+        let stage_started = std::time::Instant::now();
         file.sync_all().await?;
+        let file_sync_us = stage_started.elapsed().as_micros() as u64;
+        let stage_started = std::time::Instant::now();
         drop(file);
 
         tokio::fs::rename(staging.path(), &path).await?;
         staging.disarm();
+        let rename_us = stage_started.elapsed().as_micros() as u64;
+        let stage_started = std::time::Instant::now();
 
         if let Some(parent) = path.parent() {
             if let Ok(dir) = tokio::fs::File::open(parent).await {
@@ -55,6 +66,7 @@ impl ContentStorage {
             }
         }
 
+        tracing::debug!(target: "catalyrst_perf", phase="file_store", hash, bytes=data.len(), path_us, open_us, write_us, file_sync_us, rename_us, dir_sync_us=stage_started.elapsed().as_micros() as u64, elapsed_us=started.elapsed().as_micros() as u64);
         debug!(hash, bytes = data.len(), "content stored");
         Ok(())
     }

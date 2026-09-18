@@ -26,3 +26,4 @@ pub mod trendings;
 pub mod usage_grants;
 pub mod user_assets;
 pub mod volume;
+pub mod wearable_last_seen;

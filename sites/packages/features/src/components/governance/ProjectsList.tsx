@@ -47,7 +47,7 @@ const SORT_OPTIONS = [
 
 const STORY: StoryId = "governance/projects";
 
-export type ProjectsListProps = {
+type ProjectsListProps = {
   sid: string;
   projects: ProjectCard[];
   stats: ProjectStats;

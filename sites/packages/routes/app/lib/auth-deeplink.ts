@@ -1,10 +1,10 @@
 import type { AuthIdentity } from "@data/lib/auth/types";
 
-export const FLOW_PARAM = "flow";
-export const DEEP_LINK_FLOW_VALUE = "deeplink";
-export const BRIDGE_ONLY_PARAM = "bridgeOnly";
-export const AUTH_REQUEST_ID_PARAM = "authRequestId";
-export const EXPLORER_DEEP_LINK = "decentraland://";
+const FLOW_PARAM = "flow";
+const DEEP_LINK_FLOW_VALUE = "deeplink";
+const BRIDGE_ONLY_PARAM = "bridgeOnly";
+const AUTH_REQUEST_ID_PARAM = "authRequestId";
+const EXPLORER_DEEP_LINK = "decentraland://";
 
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -30,9 +30,9 @@ export function startsRequestRecovery(loaded: { isDeepLink: boolean; valid: bool
   return !loaded.isDeepLink && loaded.valid;
 }
 
-export const ENVIRONMENT = "production";
+const ENVIRONMENT = "production";
 
-export function getDeeplinkQueryParams(
+function getDeeplinkQueryParams(
   bridgeOnly?: boolean,
   authRequestId?: string | null,
 ): URLSearchParams {
@@ -82,11 +82,11 @@ export function resolveAuthApiUrl(configured: string | undefined, host: string):
   return explicit || authApiUrlFor(host);
 }
 
-export function isMobileUserAgent(userAgent: string): boolean {
+function isMobileUserAgent(userAgent: string): boolean {
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 }
 
-export const DEEPLINK_DETECTION_TIMEOUT = 5000;
+const DEEPLINK_DETECTION_TIMEOUT = 5000;
 
 export function launchDeepLink(url: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -132,7 +132,7 @@ export function launchDeepLink(url: string): Promise<boolean> {
   });
 }
 
-export type DeepLinkSignInOutcome =
+type DeepLinkSignInOutcome =
   | { kind: "ok"; identityId: string; identity: AuthIdentity }
   | { kind: "denied" }
   | { kind: "wallet_error"; message: string }

@@ -14,7 +14,7 @@ const InputSchema = z.object({
 
 const ErrorMessageSchema = z.object({ message: z.string() });
 
-export type SubmitSuspensionResult =
+type SubmitSuspensionResult =
   | { ok: true; result: SuspendResult }
   | { ok: false; status: number; error: string };
 

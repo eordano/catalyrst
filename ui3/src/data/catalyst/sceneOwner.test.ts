@@ -1,0 +1,133 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  asAddress,
+  deployerFromAuthChain,
+  fetchSceneDeployment,
+  homeRealmFromAbout,
+  isHomeRealm,
+  sceneEntityForParcel,
+} from "./sceneOwner";
+
+const DEPLOYER = "0xD6EFF8F07CAF3443A1178407D3DE4129149D6EF6";
+
+const AUDIT = {
+  version: "v3",
+  localTimestamp: 1786397392145,
+  authChain: [
+    { type: "SIGNER", payload: DEPLOYER },
+    { type: "ECDSA_EPHEMERAL", payload: "Decentraland Login", signature: "0x1" },
+    { type: "ECDSA_SIGNED_ENTITY", payload: "bafkrei", signature: "0x2" },
+  ],
+};
+
+const ENTITIES = [
+  {
+    id: "bafkreibg66k5",
+    type: "scene",
+    pointers: ["-147,91", "-143,102", "-146,91"],
+    metadata: { display: { title: "CBD Plaza" }, scene: { base: "-147,91" } },
+  },
+];
+
+describe("asAddress", () => {
+  it("lowercases checksummed or padded addresses and rejects names, short hex and non-strings", () => {
+    expect(asAddress(DEPLOYER)).toBe(DEPLOYER.toLowerCase());
+    expect(asAddress(` ${DEPLOYER.toLowerCase()} `)).toBe(DEPLOYER.toLowerCase());
+    expect(asAddress("dhingia builds")).toBeNull();
+    expect(asAddress("0x1234")).toBeNull();
+    expect(asAddress(null)).toBeNull();
+    expect(asAddress(42)).toBeNull();
+  });
+});
+
+describe("sceneEntityForParcel", () => {
+  it("finds the entity whose pointers cover the parcel, with a null title when there is none, else null", () => {
+    expect(sceneEntityForParcel(ENTITIES, "-143,102")).toEqual({
+      id: "bafkreibg66k5",
+      title: "CBD Plaza",
+    });
+    expect(sceneEntityForParcel([{ id: "x", pointers: ["1,1"], metadata: {} }], "1,1")).toEqual({
+      id: "x",
+      title: null,
+    });
+    expect(sceneEntityForParcel(ENTITIES, "0,0")).toBeNull();
+    expect(sceneEntityForParcel([], "-143,102")).toBeNull();
+    expect(sceneEntityForParcel({ data: ENTITIES }, "-143,102")).toBeNull();
+    expect(sceneEntityForParcel([{ pointers: ["-143,102"] }], "-143,102")).toBeNull();
+  });
+});
+
+describe("deployerFromAuthChain", () => {
+  it("takes the SIGNER link of the audit auth chain or null without a valid signer", () => {
+    expect(deployerFromAuthChain(AUDIT)).toBe(DEPLOYER.toLowerCase());
+    expect(deployerFromAuthChain({ authChain: [] })).toBeNull();
+    expect(deployerFromAuthChain({ authChain: [{ type: "SIGNER", payload: "nope" }] })).toBeNull();
+    expect(deployerFromAuthChain(null)).toBeNull();
+  });
+});
+
+describe("fetchSceneDeployment", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("resolves the parcel to its active entity then the deployer from the audit, and skips the audit when there is no scene", async () => {
+    const calls: { url: string; method: string; body: string | undefined }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, method: init?.method ?? "GET", body: init?.body as string | undefined });
+        const payload = url.endsWith("/content/entities/active") ? ENTITIES : AUDIT;
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    const out = await fetchSceneDeployment("-143,102", { base: "https://dcl.test" });
+    expect(out).toEqual({
+      entityId: "bafkreibg66k5",
+      title: "CBD Plaza",
+      deployer: DEPLOYER.toLowerCase(),
+    });
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "POST https://dcl.test/content/entities/active",
+      "GET https://dcl.test/content/audit/scene/bafkreibg66k5",
+    ]);
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ pointers: ["-143,102"] });
+
+    const fetchMock = vi.fn(async () => new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await fetchSceneDeployment("0,0", { base: "https://dcl.test" })).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("home realm detection", () => {
+  const home = homeRealmFromAbout(
+    { configurations: { realmName: "dcl-one", networkId: 1 } },
+    "https://catalyst.example.com",
+  );
+
+  it("treats only the server's own realm name or about URL as land, never worlds, foreign realms or unknowns", () => {
+    expect(home).toEqual({ name: "dcl-one", base: "https://catalyst.example.com" });
+    expect(homeRealmFromAbout({}, "https://catalyst.example.com")).toEqual({ name: null, base: "https://catalyst.example.com" });
+    for (const realm of ["dcl-one", " DCL-One ", "https://catalyst.example.com/about", "https://catalyst.example.com/"]) {
+      expect(isHomeRealm(realm, home), realm).toBe(true);
+    }
+    for (const realm of [
+      "foo",
+      "foo.dcl.eth",
+      "https://catalyst.example.com/world/foo/about",
+      "https://peer.decentraland.org/about",
+      "main",
+      null,
+      "",
+    ]) {
+      expect(isHomeRealm(realm, home), String(realm)).toBe(false);
+    }
+    expect(isHomeRealm("dcl-one", null)).toBe(false);
+    expect(isHomeRealm("dcl-one", { name: null, base: "" })).toBe(false);
+  });
+});

@@ -7,65 +7,55 @@ import LobbyNew from "./LobbyNew";
 const checks = (root: HTMLElement) =>
   root.querySelector(".lobbynew__checks")?.className ?? "";
 
+const TRIGGERS: Array<[string, "button" | "radio"]> = [
+  ["Random name", "button"],
+  ["Random", "button"],
+  ["Feminine body", "radio"],
+];
+
 describe("LobbyNew terms nudge", () => {
-  test("the terms sit quiet until something asks for them", () => {
+  test("the terms sit quiet until typing raises them once, and accepting the terms clears the nudge", async () => {
     const { container } = render(<LobbyNew />);
     expect(checks(container)).not.toContain("is-nudged");
     expect(screen.queryByRole("alert")).toBeNull();
-  });
 
-  test("typing a name raises the terms requirement", async () => {
-    const { container } = render(<LobbyNew />);
-    await userEvent.type(screen.getByLabelText("Username"), "a");
-    expect(checks(container)).toContain("is-nudged");
-    expect(screen.getByRole("alert").textContent).toMatch(/accept the terms/i);
-  });
-
-  test("typing a name with the terms already accepted raises nothing", async () => {
-    const { container } = render(<LobbyNew />);
-    await userEvent.click(screen.getByRole("checkbox"));
-    await userEvent.type(screen.getByLabelText("Username"), "a");
-    expect(checks(container)).not.toContain("is-nudged");
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  test("accepting the terms clears a nudge that typing raised", async () => {
-    const { container } = render(<LobbyNew />);
-    await userEvent.type(screen.getByLabelText("Username"), "a");
-    expect(screen.getByRole("alert")).toBeTruthy();
-
-    await userEvent.click(screen.getByRole("checkbox"));
-    expect(checks(container)).not.toContain("is-nudged");
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  test("further typing does not re-raise the alert", async () => {
-    render(<LobbyNew />);
     const field = screen.getByLabelText("Username");
-    await userEvent.type(field, "abc");
-    expect(screen.getAllByRole("alert")).toHaveLength(1);
-  });
-
-  test.each([
-    ["Random name", "button"],
-    ["Random", "button"],
-    ["Feminine body", "radio"],
-  ])("%s raises the terms too", async (name, role) => {
-    const { container } = render(<LobbyNew />);
-    await userEvent.click(screen.getByRole(role, { name }));
+    await userEvent.type(field, "a");
     expect(checks(container)).toContain("is-nudged");
     expect(screen.getByRole("alert").textContent).toMatch(/accept the terms/i);
-  });
+    await userEvent.type(field, "bc");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
 
-  test.each([
-    ["Random name", "button"],
-    ["Random", "button"],
-    ["Feminine body", "radio"],
-  ])("%s raises nothing once the terms are accepted", async (name, role) => {
-    const { container } = render(<LobbyNew />);
     await userEvent.click(screen.getByRole("checkbox"));
-    await userEvent.click(screen.getByRole(role, { name }));
     expect(checks(container)).not.toContain("is-nudged");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("the random-name and body-shape controls raise the terms too", async () => {
+    for (const [name, role] of TRIGGERS) {
+      const view = render(<LobbyNew />);
+      await userEvent.click(screen.getByRole(role, { name }));
+      expect(checks(view.container), name).toContain("is-nudged");
+      expect(screen.getByRole("alert").textContent, name).toMatch(/accept the terms/i);
+      view.unmount();
+    }
+  });
+
+  test("with the terms already accepted, neither typing nor the other controls raise anything", async () => {
+    const typed = render(<LobbyNew />);
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.type(screen.getByLabelText("Username"), "a");
+    expect(checks(typed.container)).not.toContain("is-nudged");
+    expect(screen.queryByRole("alert")).toBeNull();
+    typed.unmount();
+
+    for (const [name, role] of TRIGGERS) {
+      const view = render(<LobbyNew />);
+      await userEvent.click(screen.getByRole("checkbox"));
+      await userEvent.click(screen.getByRole(role, { name }));
+      expect(checks(view.container), name).not.toContain("is-nudged");
+      expect(screen.queryByRole("alert"), name).toBeNull();
+      view.unmount();
+    }
   });
 });

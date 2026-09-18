@@ -139,10 +139,6 @@ pub async fn authorize(
     };
 
     let mana_usd = state.pricing.fetch_mana_usd().await?;
-    let (amount_wei, oracle_rate) = state
-        .credits
-        .usd_cents_to_mana_wei(body.usd_price_cents, &mana_usd)
-        .await?;
 
     let id = format!(
         "0x{}",
@@ -169,20 +165,21 @@ pub async fn authorize(
     let idempotency_key =
         derive_idempotency_key(signer.as_str(), &item_key, body.usd_price_cents, &auth_ts);
 
-    let reserved = state
+    let (reserved, oracle_rate) = state
         .credits
-        .reserve_authorization(
+        .reserve_authorization_priced(
             &NewAuthorization {
                 id: &id,
                 address: signer.as_str(),
                 usd_cents: body.usd_price_cents,
-                amount_wei: &amount_wei,
+                amount_wei: "",
                 trade_id: body.trade_id.as_deref(),
                 contract_address: body.contract_address.as_deref(),
                 item_id: body.item_id.as_deref(),
                 source: body.source.as_deref(),
                 expires_at,
             },
+            &mana_usd,
             &idempotency_key,
         )
         .await?;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { act, waitFor } from "@testing-library/react";
+import { act, cleanup, waitFor } from "@testing-library/react";
 
 import { renderHud } from "../../test/harness";
 import { WORLD_CANVAS_ID, WORLD_KEY_CODES, isSynthesizedWorldKey } from "./keys";
@@ -61,19 +61,16 @@ afterEach(() => {
 });
 
 describe("synthesized world key guard", () => {
-  test("recognises untrusted world-key codes only", () => {
+  test("recognises untrusted world-key codes only, and covers exactly the codes the touch controls can synthesize", () => {
     expect(isSynthesizedWorldKey(new KeyboardEvent("keydown", { code: "KeyW" }))).toBe(
       true,
     );
     expect(isSynthesizedWorldKey(new KeyboardEvent("keydown", { code: "KeyP" }))).toBe(
       false,
     );
-
     const trusted = { isTrusted: true, code: "KeyW" } as unknown as KeyboardEvent;
     expect(isSynthesizedWorldKey(trusted)).toBe(false);
-  });
 
-  test("covers exactly the codes the touch controls can synthesize", () => {
     const engine = Object.keys(ENGINE_CODES).sort();
     const guarded = [...WORLD_KEY_CODES].sort();
     expect(guarded).toEqual(engine);
@@ -99,15 +96,18 @@ describe("AppLayout keydown contract", () => {
     expect(path()).toBe("/");
   });
 
-  test("movement keys still fall through with a left panel and the emote wheel open", async () => {
+  test("real keystrokes drive the UI shortcuts, and movement keys still fall through with a panel and the emote wheel open", async () => {
     const { user, path } = renderHud();
+    await user.keyboard("m");
+    expect(path()).toBe("/map");
+    await user.keyboard("{Escape}");
+    expect(path()).toBe("/");
+
     await user.keyboard("b");
     seen = [];
-
     await act(async () => {
       synthesize("keydown", "KeyW");
     });
-
     expect(seen.map((s) => s.code)).toEqual(["KeyW"]);
     expect(seen.every((s) => !s.defaultPrevented)).toBe(true);
     expect(path()).toBe("/");
@@ -130,26 +130,26 @@ describe("AppLayout keydown contract", () => {
     expect(path()).toBe("/settings");
     expect(seen).toEqual([]);
   });
-
-  test("real keystrokes keep driving the UI shortcuts", async () => {
-    const { user, path } = renderHud();
-    await user.keyboard("m");
-    expect(path()).toBe("/map");
-    await user.keyboard("{Escape}");
-    expect(path()).toBe("/");
-  });
 });
 
-describe("desktop chrome suppression", () => {
-  test("leaves the document root unstamped on desktop", () => {
+describe("mobile detection and desktop chrome suppression", () => {
+  test("defaults to desktop under jsdom, honours the stored override, and stamps the document root only on mobile", () => {
+    expect(getMobileEnv().isMobile).toBe(false);
     renderHud();
     expect(document.documentElement.hasAttribute("data-mobile-chrome")).toBe(false);
-  });
+    cleanup();
 
-  test("stamps the attribute the desktop-suppression stylesheets key on", () => {
     setMobileOverride("mobile");
+    expect(getMobileEnv().isMobile).toBe(true);
+    expect(getMobileEnv().override).toBe("mobile");
     renderHud();
     expect(document.documentElement.hasAttribute("data-mobile-chrome")).toBe(true);
+
+    setMobileOverride("desktop");
+    expect(getMobileEnv().isMobile).toBe(false);
+    setMobileOverride(null);
+    refreshMobileEnv();
+    expect(getMobileEnv().override).toBe(null);
   });
 });
 
@@ -162,45 +162,22 @@ describe("mobile touch-control gating", () => {
       if (!el) throw new Error("touch controls did not mount");
       return el;
     });
+    expect(controls.getAttribute("data-enabled")).toBe("true");
     return { ...hud, controls };
   }
 
-  test("goes inert while chat is open and comes back when it closes", async () => {
-    const { user, controls } = await mountMobileHud();
-    expect(controls.getAttribute("data-enabled")).toBe("true");
+  test("goes inert while chat or the emote wheel is open and comes back when they close", async () => {
+    const chat = await mountMobileHud();
+    await chat.user.keyboard("{Enter}");
+    expect(chat.controls.getAttribute("data-enabled")).toBe("false");
+    await chat.user.keyboard("{Escape}");
+    expect(chat.controls.getAttribute("data-enabled")).toBe("true");
+    cleanup();
 
-    await user.keyboard("{Enter}");
-    expect(controls.getAttribute("data-enabled")).toBe("false");
-
-    await user.keyboard("{Escape}");
-    expect(controls.getAttribute("data-enabled")).toBe("true");
-  });
-
-  test("goes inert while the emote wheel is open", async () => {
-    const { user, controls } = await mountMobileHud();
-    expect(controls.getAttribute("data-enabled")).toBe("true");
-
-    await user.keyboard("b");
-    expect(controls.getAttribute("data-enabled")).toBe("false");
-
-    await user.keyboard("b");
-    expect(controls.getAttribute("data-enabled")).toBe("true");
-  });
-});
-
-describe("mobile detection", () => {
-  test("defaults to desktop under jsdom and honours the stored override", () => {
-    expect(getMobileEnv().isMobile).toBe(false);
-
-    setMobileOverride("mobile");
-    expect(getMobileEnv().isMobile).toBe(true);
-    expect(getMobileEnv().override).toBe("mobile");
-
-    setMobileOverride("desktop");
-    expect(getMobileEnv().isMobile).toBe(false);
-
-    setMobileOverride(null);
-    refreshMobileEnv();
-    expect(getMobileEnv().override).toBe(null);
+    const wheel = await mountMobileHud();
+    await wheel.user.keyboard("b");
+    expect(wheel.controls.getAttribute("data-enabled")).toBe("false");
+    await wheel.user.keyboard("b");
+    expect(wheel.controls.getAttribute("data-enabled")).toBe("true");
   });
 });

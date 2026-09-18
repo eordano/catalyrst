@@ -15,34 +15,14 @@ import { parseNotifications } from "../notifications";
 import { fetchCategories, fetchPlace, fetchPlaces } from "../placesSchema";
 import { fetchProfile, parseProfileEnvelope } from "../profile";
 
-export type Divergence =
+type Divergence =
   | "federated-cdn"
   | "normalization"
   | "bad-row"
   | "row-guard"
   | "key-strip";
 
-export const DIVERGENCE_LEGEND: Record<Divergence, string> = {
-  "federated-cdn":
-    "a cdn.decentraland.org thumbnail must be repointed at the federated CDN base " +
-    "(schemas/communities.ts:16-22). Stubbed, play.catalyst.example.com loads it from the PROD CDN.",
-  normalization:
-    "transforms must run in both modes: `nullish().transform((v) => v ?? null)` and the " +
-    "emote-category reshape (schemas/backpack.ts:87). Stubbed, the field arrives undefined " +
-    "where the type says null.",
-  "bad-row":
-    "the default build DROPS a malformed row; the accepting stub hands it to the view " +
-    "mapper, which throws on a field the row does not have and takes the valid rows with it.",
-  "row-guard":
-    "a reader's structural guard (rows.ts) must run in both modes: it is what keeps an " +
-    "unusable row out of a mapper once the schema is gone. Missing, the two modes disagree " +
-    "about a row neither build should have kept.",
-  "key-strip":
-    "a reader that hands a schema more keys than the shape declares relies on zod stripping " +
-    "them; the accepting stub returns them all.",
-};
-
-export type ParityAnchor = {
+type ParityAnchor = {
   id: string;
   select: (output: unknown) => unknown;
   expect: unknown;

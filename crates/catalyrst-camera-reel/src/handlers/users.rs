@@ -63,16 +63,10 @@ pub async fn get_user_images(
 ) -> Result<Response, ApiError> {
     let only_public = only_public_for(&headers, "get", uri.path(), &user_address).await;
 
-    let images_count = state
-        .db
-        .get_user_images_count(&user_address, only_public)
-        .await
-        .map_err(|_| ApiError::NotFound("user not found".to_string()))?;
-
     let limit = q.limit.min(MAX_LIMIT) as i64;
-    let images = state
+    let (images, images_count) = state
         .db
-        .get_user_images(&user_address, q.offset as i64, limit, only_public)
+        .get_user_images_page(&user_address, q.offset as i64, limit, only_public)
         .await
         .map_err(|_| ApiError::NotFound("user not found".to_string()))?;
 

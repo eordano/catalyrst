@@ -59,12 +59,6 @@ export const IconCamera = () => (
 export const IconEdit = () => (
   <svg {...S}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>
 );
-export const IconUndo = () => (
-  <svg {...S}><path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" /></svg>
-);
-export const IconRedo = () => (
-  <svg {...S}><path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0 0 10h1" /></svg>
-);
 export const ModelGlyph = () => (
   <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="M12 2.5 21 7v10l-9 4.5L3 17V7l9-4.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />

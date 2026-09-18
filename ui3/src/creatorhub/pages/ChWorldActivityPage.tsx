@@ -58,7 +58,7 @@ type LinkComponentProps = {
   children?: ReactNode;
 };
 
-export type ChWorldActivityPageProps = {
+type ChWorldActivityPageProps = {
   world: string;
   worldMeta: Datum<WorldMeta>;
   jumpUrl?: string | null;

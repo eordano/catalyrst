@@ -19,12 +19,14 @@ export interface RibbonMeter {
   limit: number;
 }
 
-export interface DeRibbonProps {
+interface DeRibbonProps {
   commands?: Record<string, (() => void) | undefined>;
   pressed?: Record<string, boolean>;
   labels?: Record<string, string>;
   hasSelection?: boolean;
   selectionLabel?: string;
+  selectionHint?: string;
+  selectionHints?: Record<string, string>;
   busLive?: boolean;
   showDeveloper?: boolean;
   onToggleDeveloper?: (next: boolean) => void;
@@ -94,6 +96,8 @@ export default function DeRibbon({
   labels = {},
   hasSelection = false,
   selectionLabel = "Selection",
+  selectionHint = undefined,
+  selectionHints = {},
   busLive = false,
   showDeveloper = false,
   onToggleDeveloper,
@@ -165,7 +169,13 @@ export default function DeRibbon({
         className={
           "rb-cmd" + (cmd.kind === "big" ? " big" : "") + (isToggle ? " rb-toggle" : "") + (on ? " on" : "")
         }
-        title={blocked ? BLOCKED_REASON[blocked] : (cmd.hint ?? text)}
+        title={
+          blocked
+            ? blocked === "selection"
+              ? (selectionHints[cmd.id] ?? selectionHint ?? BLOCKED_REASON.selection)
+              : BLOCKED_REASON[blocked]
+            : (cmd.hint ?? text)
+        }
         aria-label={text}
         aria-pressed={
           (isToggle || cmd.id.startsWith("tool.")) && cmd.id in pressed ? on : undefined

@@ -19,8 +19,9 @@ use crate::hardening::{
 };
 use crate::interest::{
     ParcelEncoder, ParcelEncoderOptions, SceneListenerCellMapper, SceneListenerState,
-    SpatialAreaOfInterest, SpatialAreaOfInterestOptions, SpatialGrid, SPATIAL_GRID_CELL_SIZE,
+    SpatialAreaOfInterest, SpatialAreaOfInterestOptions, SPATIAL_GRID_CELL_SIZE,
 };
+use crate::realm_grids::RealmSpatialGrids;
 use crate::simulation::{
     OutgoingMessage, PacketMode, PeerConnectionState, PeerSimulation, PeerState,
 };
@@ -59,6 +60,7 @@ pub enum Action {
 
     Authenticated {
         wallet: String,
+        session: String,
         duplicate_of: Option<u32>,
         initial_state: Option<Box<PlayerInitialState>>,
         features: u32,
@@ -66,6 +68,7 @@ pub enum Action {
 
     AuthenticatedListener {
         wallet: String,
+        session: String,
         duplicate_of: Option<u32>,
         listener: Arc<SceneListenerState>,
         features: u32,
@@ -83,6 +86,7 @@ pub enum Action {
 
 struct Admitted {
     wallet: String,
+    session: String,
     duplicate_of: Option<u32>,
 }
 
@@ -153,7 +157,7 @@ mod validate {
 pub struct PulseServer {
     pub peers: HashMap<u32, PeerState>,
     pub board: SnapshotBoard,
-    pub grid: SpatialGrid,
+    pub grids: RealmSpatialGrids,
     pub encoder: ParcelEncoder,
     pub cell_mapper: SceneListenerCellMapper,
     pub aoi: SpatialAreaOfInterest,
@@ -184,6 +188,10 @@ pub struct PulseServer {
 
     pub scene_listener_forbidden_drops: u64,
 
+    /// `None` leaves every cluster path -- pass, board, publisher -- entirely out of the loop,
+    /// which is what `PULSE_CLUSTERS_ENABLED=0` buys: not a tracker publishing nothing.
+    pub clusters: Option<crate::cluster::ClusterTracker>,
+
     tick_counter: u32,
 }
 
@@ -209,13 +217,13 @@ impl PulseServer {
         simulation_steps: &[u32],
         resync_with_delta: bool,
     ) -> Self {
-        let grid = SpatialGrid::new(SPATIAL_GRID_CELL_SIZE);
+        let grids = RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, max_peers);
         let encoder = ParcelEncoder::new(ParcelEncoderOptions::default());
-        let cell_mapper = SceneListenerCellMapper::new(&grid, &encoder);
+        let cell_mapper = SceneListenerCellMapper::new(&grids, &encoder);
         Self {
             peers: HashMap::new(),
             board: SnapshotBoard::new(max_peers, ring_capacity),
-            grid,
+            grids,
             encoder,
             cell_mapper,
             aoi: SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default()),
@@ -253,6 +261,7 @@ impl PulseServer {
             max_realm_length: DEFAULT_MAX_REALM_LENGTH,
             max_scene_listener_parcels: scene_listener_max_parcels_from_env(),
             scene_listener_forbidden_drops: 0,
+            clusters: None,
             tick_counter: 0,
         }
     }
@@ -354,6 +363,7 @@ impl PulseServer {
 
         Action::Authenticated {
             wallet: admitted.wallet,
+            session: admitted.session,
             duplicate_of: admitted.duplicate_of,
             initial_state: req.initial_state.map(Box::new),
             features: req.protocol_features & SERVER_FEATURES,
@@ -395,6 +405,7 @@ impl PulseServer {
         };
         let VerifiedHandshake {
             user_address,
+            session,
             timestamp,
         } = verified;
 
@@ -424,6 +435,7 @@ impl PulseServer {
             .filter(|p| *p != peer);
         Admission::Ok(Admitted {
             wallet: user_address,
+            session,
             duplicate_of,
         })
     }
@@ -458,6 +470,7 @@ impl PulseServer {
 
         Action::AuthenticatedListener {
             wallet: admitted.wallet,
+            session: admitted.session,
             duplicate_of: admitted.duplicate_of,
             listener: Arc::new(listener),
             features: req.protocol_features & SERVER_FEATURES,
@@ -672,7 +685,7 @@ impl PulseServer {
                 }
                 PeerSnapshotPublisher::publish_from_player_state(
                     &mut self.board,
-                    &mut self.grid,
+                    &mut self.grids,
                     &self.encoder,
                     peer,
                     now,
@@ -693,7 +706,7 @@ impl PulseServer {
                 }
                 PeerSnapshotPublisher::publish_teleport(
                     &mut self.board,
-                    &mut self.grid,
+                    &mut self.grids,
                     &self.encoder,
                     peer,
                     now,
@@ -725,7 +738,7 @@ impl PulseServer {
                 }
                 PeerSnapshotPublisher::publish_from_player_state(
                     &mut self.board,
-                    &mut self.grid,
+                    &mut self.grids,
                     &self.encoder,
                     peer,
                     now,
@@ -806,6 +819,7 @@ impl PulseServer {
             }
             Action::Authenticated {
                 wallet,
+                session,
                 duplicate_of,
                 initial_state,
                 features,
@@ -827,7 +841,8 @@ impl PulseServer {
                 }
 
                 self.pre_auth_for(peer).release_on_promotion(peer);
-                self.identity.set(peer, wallet.clone());
+                self.identity
+                    .set_with_session(peer, wallet.clone(), session);
                 self.board.set_active(peer);
 
                 if let Some(init) = initial_state {
@@ -839,6 +854,7 @@ impl PulseServer {
             }
             Action::AuthenticatedListener {
                 wallet,
+                session,
                 duplicate_of,
                 listener,
                 features,
@@ -869,7 +885,8 @@ impl PulseServer {
                 }
 
                 self.pre_auth_for(peer).release_on_promotion(peer);
-                self.identity.set(peer, wallet.clone());
+                self.identity
+                    .set_with_session(peer, wallet.clone(), session);
                 crate::metrics::scene_listener_connected_inc();
                 crate::metrics::scene_listener_parcels(parcel_count);
 
@@ -903,7 +920,7 @@ impl PulseServer {
             });
         PeerSnapshotPublisher::publish_from_player_state(
             &mut self.board,
-            &mut self.grid,
+            &mut self.grids,
             &self.encoder,
             peer,
             now,
@@ -918,7 +935,7 @@ impl PulseServer {
         self.simulation.simulate_tick(
             &mut self.peers,
             &self.board,
-            &self.grid,
+            &self.grids,
             &self.aoi,
             &self.identity,
             &self.profiles,
@@ -992,7 +1009,8 @@ impl PulseServer {
         let transports = match wt {
             Some(cfg) => {
                 let wt_bind = cfg.bind_addr;
-                let (host, events) = WtHost::start(cfg)?;
+                let (host, events) =
+                    tokio::task::spawn_blocking(move || WtHost::start(cfg)).await??;
                 tracing::info!(bind = %wt_bind, local = %host.local_addr(),
                     "catalyrst-pulse listening (webtransport)");
                 Transports::with_webtransport(enet, ENET_CAPACITY as u32, host, events)
@@ -1008,6 +1026,13 @@ impl PulseServer {
 
     async fn run_on(mut self, mut transports: Transports, tick_ms: u64) -> anyhow::Result<()> {
         let mut ticker = tokio::time::interval(std::time::Duration::from_millis(tick_ms));
+        let mut cluster_ticker = tokio::time::interval(std::time::Duration::from_millis(
+            self.clusters
+                .as_ref()
+                .map(|c| c.pass_interval_ms())
+                .unwrap_or(crate::cluster::DEFAULT_PASS_INTERVAL_MS),
+        ));
+        cluster_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let started = std::time::Instant::now();
         loop {
             tokio::select! {
@@ -1060,6 +1085,9 @@ impl PulseServer {
                     let now = started.elapsed().as_millis() as u32;
                     self.run_tick(&mut transports, now).await?;
                 }
+                _ = cluster_ticker.tick(), if self.clusters.is_some() => {
+                    self.run_cluster_pass();
+                }
             }
         }
     }
@@ -1090,7 +1118,7 @@ impl PulseServer {
             .unwrap_or(false);
 
         self.board.clear_active(peer);
-        self.grid.remove(peer);
+        self.grids.remove(peer);
         self.identity.remove(peer);
         self.profiles.remove(peer);
         self.simulation.cleanup_observer_views(peer);

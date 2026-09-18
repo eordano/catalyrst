@@ -22,7 +22,7 @@ function upstream(name: string, deployedScenes = 1): ManagedWorld {
 }
 
 describe("unionWorlds", () => {
-  it("marks where every row came from and never merges the two into one claim", () => {
+  it("marks where every row came from, never merges the two into one claim, and keeps a NAME with nothing deployed as a catalyst.example.com-only row", () => {
     const rows = unionWorlds(
       [{ name: "petbarn", contractAddress: null, tokenId: null }],
       [upstream("petbarn.dcl.eth"), upstream("elsewhere.dcl.eth")],
@@ -30,16 +30,14 @@ describe("unionWorlds", () => {
     const byName = Object.fromEntries(rows.map((r) => [r.name, r.origin]));
     expect(byName["petbarn.dcl.eth"]).toBe("both");
     expect(byName["elsewhere.dcl.eth"]).toBe("upstream");
-  });
 
-  it("keeps a NAME with nothing deployed as a catalyst.example.com-only row", () => {
-    const rows = unionWorlds(
+    const nameOnly = unionWorlds(
       [{ name: "onlyname.dcl.eth", contractAddress: null, tokenId: null }],
       [],
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0].origin).toBe("catalyst.example.com");
-    expect(rows[0].name).toBe("onlyname.dcl.eth");
+    expect(nameOnly).toHaveLength(1);
+    expect(nameOnly[0].origin).toBe("catalyst.example.com");
+    expect(nameOnly[0].name).toBe("onlyname.dcl.eth");
   });
 });
 
@@ -80,43 +78,39 @@ describe("loadMyWorldsUnion", () => {
       status: 200,
     });
 
-  it("unions both hosts when both answer", async () => {
-    const data = await loadMyWorldsUnion("0xABC", {
+  it("unions both hosts when both answer, flags the list as incomplete when one fails, and has no rows when both fail", async () => {
+    const both = await loadMyWorldsUnion("0xABC", {
       wcsBase: WCS,
       fetchImpl: stub({ "/names": namesOk, "/worlds": wcsOk }),
     });
-    expect(data.bothFailed).toBe(false);
-    expect(data.partial).toBe(false);
-    expect(data.rows.map((r) => r.origin).sort()).toEqual(["catalyst.example.com", "upstream"]);
-  });
+    expect(both.bothFailed).toBe(false);
+    expect(both.partial).toBe(false);
+    expect(both.rows.map((r) => r.origin).sort()).toEqual(["catalyst.example.com", "upstream"]);
 
-  it("renders the surviving host's rows and flags the list as incomplete", async () => {
-    const data = await loadMyWorldsUnion("0xABC", {
+    const partial = await loadMyWorldsUnion("0xABC", {
       wcsBase: WCS,
       fetchImpl: stub({
         "/names": () => new Response("boom", { status: 500 }),
         "/worlds": wcsOk,
       }),
     });
-    expect(data.partial).toBe(true);
-    expect(data.bothFailed).toBe(false);
-    expect(data.rows).toHaveLength(1);
-    expect(data.dclOne.state).toBe("unavailable");
-    if (data.dclOne.state !== "unavailable") throw new Error("unreachable");
-    expect(data.dclOne.reason).toContain("/lambdas/users/0xabc/names");
-  });
+    expect(partial.partial).toBe(true);
+    expect(partial.bothFailed).toBe(false);
+    expect(partial.rows).toHaveLength(1);
+    expect(partial.dclOne.state).toBe("unavailable");
+    if (partial.dclOne.state !== "unavailable") throw new Error("unreachable");
+    expect(partial.dclOne.reason).toContain("/lambdas/users/0xabc/names");
 
-  it("when both hosts fail there are no rows and both datums say so", async () => {
-    const data = await loadMyWorldsUnion("0xABC", {
+    const failed = await loadMyWorldsUnion("0xABC", {
       wcsBase: WCS,
       fetchImpl: (async () => {
         throw new Error("down");
       }) as unknown as typeof fetch,
     });
-    expect(data.bothFailed).toBe(true);
-    expect(data.rows).toEqual([]);
-    expect(data.dclOne.state).toBe("unavailable");
-    expect(data.upstream.state).toBe("unavailable");
-    expect(Object.keys(data.upstream)).not.toContain("value");
+    expect(failed.bothFailed).toBe(true);
+    expect(failed.rows).toEqual([]);
+    expect(failed.dclOne.state).toBe("unavailable");
+    expect(failed.upstream.state).toBe("unavailable");
+    expect(Object.keys(failed.upstream)).not.toContain("value");
   });
 });

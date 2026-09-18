@@ -1,3 +1,4 @@
+import '@dcl/sdk'
 import { engine } from '@dcl/sdk/ecs'
 import { initAssetPacks } from '@dcl/asset-packs/dist/scene-entrypoint'
 import { getSceneInformation } from '~system/Runtime'

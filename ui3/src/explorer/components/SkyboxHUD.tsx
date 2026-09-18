@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { useState } from "react";
 import Toggle from "../../atoms/Toggle";
 import { sendBridge } from "../../overlay/bridge";
+import { FLOATING_PANEL_TITLES } from "./FloatingPanel";
 import "./skybox.css";
 
 const fmt = (min: number) => {
@@ -10,7 +11,7 @@ const fmt = (min: number) => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 };
 
-export default function SkyboxHUD() {
+export function SkyboxControls() {
   const [minutes, setMinutes] = useState(990);
   const [auto, setAuto] = useState(true);
 
@@ -31,35 +32,42 @@ export default function SkyboxHUD() {
   };
 
   return (
+    <div className="sky__controls">
+      <div className="sky__row sky__row--auto">
+        <span className="sky__label">Auto</span>
+        <Toggle checked={auto} onChange={onAuto} ariaLabel="Auto" />
+      </div>
+
+      <div className={"sky__group" + (auto ? " is-dim" : "")}>
+        <div className="sky__row">
+          <label className="sky__label sky__label--muted" htmlFor="sky-time-range">Custom</label>
+          <span className="sky__time">{fmt(minutes)}</span>
+        </div>
+
+        <div className="sky__slider">
+          <div className="sky__track">
+            <input
+              type="range" className="sky__range" id="sky-time-range"
+              min="0" max="1439" step="1" value={minutes}
+              disabled={auto}
+              onChange={(e) => onSlide(Number(e.target.value))}
+              style={rangeStyle}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function SkyboxHUD() {
+  return (
     <div className="sky__backdrop">
       <div className="sky">
         <div className="sky__head">
-          <span className="sky__title">NIGHT/DAY</span>
+          <span className="sky__title">{FLOATING_PANEL_TITLES.skybox}</span>
         </div>
-
-        <div className="sky__row sky__row--auto">
-          <span className="sky__label">Auto</span>
-          <Toggle checked={auto} onChange={onAuto} ariaLabel="Auto" />
-        </div>
-
-        <div className={"sky__group" + (auto ? " is-dim" : "")}>
-          <div className="sky__row">
-            <label className="sky__label sky__label--muted" htmlFor="sky-time-range">Custom</label>
-            <span className="sky__time">{fmt(minutes)}</span>
-          </div>
-
-          <div className="sky__slider">
-            <div className="sky__track">
-              <input
-                type="range" className="sky__range" id="sky-time-range"
-                min="0" max="1439" step="1" value={minutes}
-                disabled={auto}
-                onChange={(e) => onSlide(Number(e.target.value))}
-                style={rangeStyle}
-              />
-            </div>
-          </div>
-        </div>
+        <SkyboxControls />
       </div>
     </div>
   );

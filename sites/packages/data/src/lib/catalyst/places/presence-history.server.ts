@@ -18,7 +18,7 @@ import {
   type Datum,
 } from "../creator-hub/datum.server";
 
-export type HistoryOptions = GetOptions & { cadenceSeconds?: number };
+type HistoryOptions = GetOptions & { cadenceSeconds?: number };
 
 function label(path: string, query: Record<string, string | number>): string {
   return endpointLabel("GET", `${catalystBase()}${path}${buildQuery(query)}`);

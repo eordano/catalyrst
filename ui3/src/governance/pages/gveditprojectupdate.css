@@ -133,18 +133,6 @@
   color: var(--gpu-field-border);
   transition: border-color 0.2s, color 0.2s;
 }
-.gpu__health--onTrack {
-  border-color: var(--gpu-green);
-  color: var(--gpu-green);
-}
-.gpu__health--atRisk {
-  border-color: var(--gpu-yellow);
-  color: var(--gpu-yellow);
-}
-.gpu__health--offTrack {
-  border-color: var(--gpu-red);
-  color: var(--gpu-red);
-}
 
 .gpu__editor {
   border: 1px solid var(--gpu-line);

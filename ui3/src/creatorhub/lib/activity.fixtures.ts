@@ -24,24 +24,14 @@ import type {
   WorldHistory,
   WorldMeta,
 } from "../pages/ChWorldActivityPage";
-import {
-  DEFAULT_CADENCE_SECONDS,
-  live,
-  noSample,
-  sampled,
-  unavailable,
-  unbuilt,
-  type Datum,
-} from "./datum";
-import { FIXTURE_NOW, at } from "./datum.fixtures";
+import { DEFAULT_CADENCE_SECONDS, live, noSample, sampled, unavailable, type Datum } from "./datum";
+import { at } from "./datum.fixtures";
 import type { ChartSeries, DailyPoint } from "./scene-analytics";
-
-export { FIXTURE_NOW, at };
 
 const READ_AT = at(0);
 const TAKEN_AT = at(2 * 60_000);
 
-export const WCS = "worlds-content-server.decentraland.org";
+const WCS = "worlds-content-server.decentraland.org";
 export const CATALYST = "catalyst.example.com";
 
 const E = {
@@ -70,7 +60,7 @@ const s = <T,>(value: T, endpoint: string): Datum<T> =>
 const l = <T,>(value: T, endpoint: string): Datum<T> =>
   live(value, endpoint, READ_AT);
 
-export const activityWorldRows: ActivityWorldRow[] = [
+const activityWorldRows: ActivityWorldRow[] = [
   {
     name: "petbarn.dcl.eth",
     title: "Pet Barn",
@@ -147,12 +137,12 @@ export const activityWorldRows: ActivityWorldRow[] = [
   },
 ];
 
-export const busiestScenes: BusiestRow[] = [
+const busiestScenes: BusiestRow[] = [
   { key: "-3,-2", label: "Plaza Corner", sub: "-3,-2", count: 4 },
   { key: "12,-40", label: "Sandbox", sub: "12,-40", count: 1 },
 ];
 
-export const busiestWorlds: BusiestRow[] = [
+const busiestWorlds: BusiestRow[] = [
   { key: "petbarn.dcl.eth", label: "petbarn.dcl.eth", count: 2 },
   { key: "kickoff.dcl.eth", label: "kickoff.dcl.eth", count: 1 },
 ];
@@ -170,7 +160,7 @@ function occupancyPoints(): DailyPoint[] {
   }));
 }
 
-export const occupancySeries: ChartSeries[] = [
+const occupancySeries: ChartSeries[] = [
   {
     key: "headcount",
     label: "Headcount",
@@ -179,7 +169,7 @@ export const occupancySeries: ChartSeries[] = [
   },
 ];
 
-export const occupancyGapBands = [{ fromIndex: 7, toIndex: 13 }];
+const occupancyGapBands = [{ fromIndex: 7, toIndex: 13 }];
 
 export const parcelActivity: ParcelActivity = {
   pointer: "-3,-2",
@@ -605,8 +595,3 @@ export const sourceGroupsAllDown: SourceLedgerGroup[] = sourceGroups.map(
       : group,
 );
 
-export const unbuiltGenesis = unbuilt(
-  "Your Genesis parcels",
-  "Nothing on this stack maps a wallet to the parcels it deployed to.",
-  "look a parcel up by coordinate.",
-);

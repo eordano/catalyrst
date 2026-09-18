@@ -1,6 +1,6 @@
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  border: none; cursor: pointer; font-family: inherit;
+  border: none; cursor: pointer; font-family: inherit; text-decoration: none;
   font-weight: var(--ctl-weight, 800);
   letter-spacing: var(--ctl-tracking, .04em);
   border-radius: var(--ctl-radius, var(--r-pill));
@@ -15,8 +15,8 @@
   box-shadow: none;
   opacity: 1;
   cursor: default;
-  pointer-events: none;
 }
+.btn.is-disabled { pointer-events: none; }
 .btn:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset);
@@ -34,6 +34,16 @@
 
 .btn--ghost { background: transparent; border: 1.5px solid var(--ink-6); color: var(--ink-85); }
 .btn--ghost:not(:disabled):not(.is-disabled):hover { background: var(--fill-4); border-color: var(--text); color: var(--text); }
+
+.btn[data-tone="danger"] { --btn-tone: var(--error); }
+.btn[data-tone="success"] { --btn-tone: var(--success); }
+.btn[data-tone="warning"] { --btn-tone: var(--warning); }
+.btn--primary[data-tone] { background: var(--btn-tone); color: var(--on-brand); }
+.btn--primary[data-tone]:not(:disabled):not(.is-disabled):hover { background: color-mix(in srgb, var(--btn-tone) 85%, var(--on-brand)); }
+.btn--secondary[data-tone] { background: color-mix(in srgb, var(--btn-tone) 16%, transparent); color: var(--btn-tone); }
+.btn--secondary[data-tone]:not(:disabled):not(.is-disabled):hover { background: color-mix(in srgb, var(--btn-tone) 26%, transparent); }
+.btn--ghost[data-tone] { border-color: var(--btn-tone); color: var(--btn-tone); }
+.btn--ghost[data-tone]:not(:disabled):not(.is-disabled):hover { background: color-mix(in srgb, var(--btn-tone) 12%, transparent); border-color: var(--btn-tone); color: var(--btn-tone); }
 
 .ui2 .btn--primary:not(:disabled):not(.is-disabled):hover,
 .ui2 .btn--secondary:not(:disabled):not(.is-disabled):hover {

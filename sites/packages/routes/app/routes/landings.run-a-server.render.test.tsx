@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import LdRunServerPage from "@ui/landings/pages/LdRunServerPage";
 
 describe("LdRunServerPage SSR", () => {
-  it("renders the three shapes, the steps, and both CTAs to the wizard", () => {
+  it("renders the three shapes, the steps and both CTAs to the wizard, and stays domain-neutral", () => {
     const html = renderToString(
       <LdRunServerPage setupHref="/server/setup" serverHref="/server" />,
     ).replace(/<!-- -->/g, "");
@@ -17,12 +17,6 @@ describe("LdRunServerPage SSR", () => {
     expect(html).toContain('href="/server"');
     expect(html).toContain("nixos-rebuild switch");
     expect(html).toContain("archive-capable Ethereum and Polygon RPC");
-  });
-
-  it("stays domain-neutral", () => {
-    const html = renderToString(
-      <LdRunServerPage setupHref="/server/setup" serverHref="/server" />,
-    );
     expect(html).not.toMatch(/dcl\.one|decentraland\.org|interconnected/i);
   });
 });

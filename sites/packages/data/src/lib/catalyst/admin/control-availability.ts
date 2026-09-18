@@ -1,19 +1,19 @@
 
 import { unavailable, type Unavailable } from "./availability";
 
-export type AvailableVia =
+type AvailableVia =
   | "server-module"
   | "public-read"
   | "wallet";
 
-export type ControlAvailable = {
+type ControlAvailable = {
   ok: true;
   via: AvailableVia;
   serverCheck: string;
   label?: string;
 };
 
-export type ControlStatus = ControlAvailable | Unavailable;
+type ControlStatus = ControlAvailable | Unavailable;
 
 const ok = (
   via: AvailableVia,
@@ -21,7 +21,7 @@ const ok = (
   label?: string,
 ): ControlAvailable => ({ ok: true, via, serverCheck, ...(label ? { label } : {}) });
 
-export const ADMIN_CONTROLS = {
+const ADMIN_CONTROLS = {
 
   "places.reports.read": ok(
     "server-module",
@@ -253,20 +253,9 @@ export const ADMIN_CONTROLS = {
   ),
 } as const satisfies Record<string, ControlStatus>;
 
-export type ControlId = keyof typeof ADMIN_CONTROLS;
+type ControlId = keyof typeof ADMIN_CONTROLS;
 
 export function controlStatus(id: ControlId): ControlStatus {
   return ADMIN_CONTROLS[id];
 }
 
-export function isControlAvailable(id: ControlId): boolean {
-  return ADMIN_CONTROLS[id].ok === true;
-}
-
-export function unavailableControls(): Array<{ id: ControlId; status: Unavailable }> {
-  const out: Array<{ id: ControlId; status: Unavailable }> = [];
-  for (const [id, status] of Object.entries(ADMIN_CONTROLS)) {
-    if (!status.ok) out.push({ id: id as ControlId, status });
-  }
-  return out;
-}

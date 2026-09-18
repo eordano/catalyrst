@@ -18,29 +18,30 @@ import {
 
 const REQUEST_ID = "123e4567-e89b-42d3-a456-426614174000";
 const IDENTITY_ID = "9b2c1a1e-4c3d-4f5e-8a6b-7c8d9e0f1a2b";
+const SENDER = "0xabc0000000000000000000000000000000000001";
 
 describe("deep-link request flags", () => {
-  it("enables the flow on flow=deeplink, case-insensitively", () => {
-    expect(isDeepLinkFlowEnabled(new URLSearchParams("flow=deeplink"))).toBe(true);
-    expect(isDeepLinkFlowEnabled(new URLSearchParams("flow=DeepLink"))).toBe(true);
-    expect(isDeepLinkFlowEnabled(new URLSearchParams("flow=polling"))).toBe(false);
-    expect(isDeepLinkFlowEnabled(new URLSearchParams(""))).toBe(false);
-  });
-
-  it("treats a bare or true bridgeOnly as enabled and anything else as off", () => {
-    expect(isBridgeOnlyEnabled(new URLSearchParams("bridgeOnly"))).toBe(true);
-    expect(isBridgeOnlyEnabled(new URLSearchParams("bridgeOnly=true"))).toBe(true);
-    expect(isBridgeOnlyEnabled(new URLSearchParams("bridgeOnly=TRUE"))).toBe(true);
-    expect(isBridgeOnlyEnabled(new URLSearchParams("bridgeOnly=false"))).toBe(false);
-    expect(isBridgeOnlyEnabled(new URLSearchParams(""))).toBe(false);
-  });
-
-  it("returns the raw authRequestId query value", () => {
+  it("reads flow, bridgeOnly and authRequestId from the query and never recovers a request for the handoff", () => {
+    for (const [query, enabled] of [
+      ["flow=deeplink", true],
+      ["flow=DeepLink", true],
+      ["flow=polling", false],
+      ["", false],
+    ] as const) {
+      expect(isDeepLinkFlowEnabled(new URLSearchParams(query)), query).toBe(enabled);
+    }
+    for (const [query, enabled] of [
+      ["bridgeOnly", true],
+      ["bridgeOnly=true", true],
+      ["bridgeOnly=TRUE", true],
+      ["bridgeOnly=false", false],
+      ["", false],
+    ] as const) {
+      expect(isBridgeOnlyEnabled(new URLSearchParams(query)), query).toBe(enabled);
+    }
     expect(getAuthRequestId(new URLSearchParams("authRequestId=abc-123"))).toBe("abc-123");
     expect(getAuthRequestId(new URLSearchParams(""))).toBeNull();
-  });
 
-  it("never starts the request recovery for the deep-link handoff", () => {
     expect(startsRequestRecovery({ isDeepLink: true, valid: true })).toBe(false);
     expect(startsRequestRecovery({ isDeepLink: false, valid: true })).toBe(true);
     expect(startsRequestRecovery({ isDeepLink: false, valid: false })).toBe(false);
@@ -56,28 +57,19 @@ describe("deep-link request flags", () => {
 });
 
 describe("client deep links", () => {
-  it("builds the signin deep link with the identity and the route id", () => {
+  it("builds the signin deep link from the identity, the route id and bridgeOnly, percent-encoded and without dclenv", () => {
     expect(getSigninDeeplink(undefined, IDENTITY_ID, false, REQUEST_ID)).toBe(
       `decentraland://open?signin=${IDENTITY_ID}&authRequestId=${REQUEST_ID}`,
     );
-  });
-
-  it("adds bridgeOnly=true when the page was opened with the flag", () => {
     expect(getSigninDeeplink(undefined, IDENTITY_ID, true, REQUEST_ID)).toBe(
       `decentraland://open?signin=${IDENTITY_ID}&bridgeOnly=true&authRequestId=${REQUEST_ID}`,
     );
-  });
-
-  it("never carries dclenv for a production deployment", () => {
     expect(getSigninDeeplink(undefined, IDENTITY_ID)).not.toContain("dclenv");
-    expect(getExplorerDeeplink()).toBe("decentraland://");
-  });
-
-  it("percent-encodes the identity id", () => {
     expect(getSigninDeeplink(undefined, "a b&c")).toBe("decentraland://open?signin=a+b%26c");
   });
 
   it("builds the bare explorer deep link with only the flags it was given", () => {
+    expect(getExplorerDeeplink()).toBe("decentraland://");
     expect(getExplorerDeeplink(undefined, true)).toBe("decentraland://?bridgeOnly=true");
     expect(getExplorerDeeplink(undefined, false, "req-1")).toBe(
       "decentraland://?authRequestId=req-1",
@@ -89,19 +81,12 @@ describe("client deep links", () => {
 });
 
 describe("authApiUrlFor", () => {
-  it("targets the auth-api fanout host the client also reads from", () => {
+  it("targets the auth-api fanout host, keeps the same-origin prefix on dev origins and lets AUTH_API_URL override", () => {
     expect(authApiUrlFor("catalyst.example.com")).toBe("https://auth-api.catalyst.example.com");
     expect(authApiUrlFor("Example.COM")).toBe("https://auth-api.example.com");
-  });
-
-  it("keeps the same-origin prefix on dev origins", () => {
-    expect(authApiUrlFor("localhost")).toBe("/auth-api");
-    expect(authApiUrlFor("localhost:5173")).toBe("/auth-api");
-    expect(authApiUrlFor("dev.catalyst.example.com:5173")).toBe("/auth-api");
-    expect(authApiUrlFor("")).toBe("/auth-api");
-  });
-
-  it("lets AUTH_API_URL override the derived host, trailing slashes stripped", () => {
+    for (const host of ["localhost", "localhost:5173", "dev.catalyst.example.com:5173", ""]) {
+      expect(authApiUrlFor(host), host).toBe("/auth-api");
+    }
     expect(resolveAuthApiUrl("https://auth.example.com/", "app.example.com")).toBe(
       "https://auth.example.com",
     );
@@ -126,9 +111,8 @@ function identityFor(signer: string): AuthIdentity {
 }
 
 function deps(overrides: Partial<DeepLinkSignInDeps> = {}): DeepLinkSignInDeps {
-  const sender = "0xabc0000000000000000000000000000000000001";
   return {
-    connect: vi.fn(async () => sender),
+    connect: vi.fn(async () => SENDER),
     cachedIdentity: () => null,
     createIdentity: vi.fn(async (who: string) => identityFor(who)),
     postIdentity: vi.fn(async () => ({ identityId: IDENTITY_ID })),
@@ -138,43 +122,39 @@ function deps(overrides: Partial<DeepLinkSignInDeps> = {}): DeepLinkSignInDeps {
 }
 
 describe("completeDeepLinkSignIn", () => {
-  it("mints and posts a fresh identity for the connected wallet", async () => {
-    const d = deps();
-    const outcome = await completeDeepLinkSignIn(d);
+  it("re-posts the identity already minted for this handoff, otherwise mints and posts a fresh one", async () => {
+    const cached = identityFor(SENDER);
+    const reused = deps({ cachedIdentity: () => cached });
+    expect((await completeDeepLinkSignIn(reused)).kind).toBe("ok");
+    expect(reused.createIdentity).not.toHaveBeenCalled();
+    expect(reused.postIdentity).toHaveBeenCalledWith(cached);
+
+    const fresh = deps();
+    const outcome = await completeDeepLinkSignIn(fresh);
     expect(outcome.kind).toBe("ok");
     if (outcome.kind !== "ok") return;
     expect(outcome.identityId).toBe(IDENTITY_ID);
-    expect(d.createIdentity).toHaveBeenCalledWith("0xabc0000000000000000000000000000000000001");
-    expect(d.postIdentity).toHaveBeenCalledWith(outcome.identity);
+    expect(fresh.createIdentity).toHaveBeenCalledWith(SENDER);
+    expect(fresh.postIdentity).toHaveBeenCalledWith(outcome.identity);
   });
 
-  it("reuses the identity minted for this handoff without prompting the wallet again", async () => {
-    const cached = identityFor("0xabc0000000000000000000000000000000000001");
-    const d = deps({ cachedIdentity: () => cached });
-    const outcome = await completeDeepLinkSignIn(d);
-    expect(outcome.kind).toBe("ok");
-    expect(d.createIdentity).not.toHaveBeenCalled();
-    expect(d.postIdentity).toHaveBeenCalledWith(cached);
-  });
-
-  it("maps a wallet rejection to the denied outcome", async () => {
-    const d = deps({
+  it("maps a wallet rejection at connect or at the ephemeral signature to the denied outcome", async () => {
+    const rejection = { code: 4001, message: "User rejected the request" };
+    const atConnect = deps({
       connect: async () => {
-        throw { code: 4001, message: "User rejected the request" };
+        throw rejection;
       },
     });
-    expect(await completeDeepLinkSignIn(d)).toEqual({ kind: "denied" });
-    expect(d.postIdentity).not.toHaveBeenCalled();
-  });
+    expect(await completeDeepLinkSignIn(atConnect)).toEqual({ kind: "denied" });
+    expect(atConnect.postIdentity).not.toHaveBeenCalled();
 
-  it("maps a refused ephemeral signature to the denied outcome", async () => {
-    const d = deps({
+    const atSignature = deps({
       createIdentity: vi.fn(async () => {
-        throw { code: 4001, message: "User rejected the request" };
+        throw rejection;
       }),
     });
-    expect(await completeDeepLinkSignIn(d)).toEqual({ kind: "denied" });
-    expect(d.postIdentity).not.toHaveBeenCalled();
+    expect(await completeDeepLinkSignIn(atSignature)).toEqual({ kind: "denied" });
+    expect(atSignature.postIdentity).not.toHaveBeenCalled();
   });
 
   it("reports other wallet failures as wallet errors", async () => {
@@ -199,6 +179,6 @@ describe("completeDeepLinkSignIn", () => {
     expect(outcome.kind).toBe("post_error");
     if (outcome.kind !== "post_error") return;
     expect(outcome.message).toBe("Failed to create identity");
-    expect(outcome.identity.signer).toBe("0xabc0000000000000000000000000000000000001");
+    expect(outcome.identity.signer).toBe(SENDER);
   });
 });

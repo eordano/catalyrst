@@ -33,9 +33,6 @@ const LISTING: BuyListing = {
 const RESULT: TradeResult = { txHash: "0xdeadbeef" };
 
 const okSim: SimFn = async () => RESULT;
-const failSim: SimFn = async () => {
-  throw new Error("auth chain: Invalid Auth Chain");
-};
 
 function inputFor(sim: SimFn, track: TrackFn) {
   return {
@@ -63,115 +60,6 @@ const EXPECTED_STATES = new Set([
   "error",
 ]);
 
-describe("buyMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(buyMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("slugs match the SHARED SPEC step ids", () => {
-    expect(STATE_TO_SLUG.review).toBe("review");
-    expect(STATE_TO_SLUG.connecting).toBe("connect-wallet");
-    expect(STATE_TO_SLUG.approving).toBe("approve-mana");
-    expect(STATE_TO_SLUG.confirming).toBe("confirm-purchase");
-    expect(STATE_TO_SLUG.submitting).toBe("submit-tx");
-    expect(STATE_TO_SLUG.success).toBe("success");
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.review);
-    expect(slugToState(null)).toBe("review");
-    expect(slugToState(undefined)).toBe("review");
-    expect(slugToState("")).toBe("review");
-    expect(slugToState("nope")).toBe("review");
-    expect(slugToState("approve-mana")).toBe("approving");
-    expect(slugToState("submit-tx")).toBe("submitting");
-    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
-});
-
-describe("buyMachine \u{2014} deep-link hydration", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveBuySnapshot({
-      step: "review",
-      listing: LISTING,
-      trackCtx: inputFor(okSim, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submit-tx fires NO telemetry and does NOT auto-commit", async () => {
-    const track = vi.fn();
-    const commit = vi.fn(okSim);
-    const snapshot = resolveBuySnapshot({
-      step: "submitting",
-      listing: LISTING,
-      trackCtx: inputFor(commit, track).trackCtx,
-      commit,
-      track,
-    });
-    const actor = createActor(buyMachine, {
-      input: inputFor(commit, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-
-    await Promise.resolve();
-    expect(track).not.toHaveBeenCalled();
-    expect(commit).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
-
-  it("hydrating approve-mana does not auto-run and keeps the listing context", () => {
-    const track = vi.fn();
-    const snapshot = resolveBuySnapshot({
-      step: "approving",
-      listing: LISTING,
-      trackCtx: inputFor(okSim, track).trackCtx,
-      track,
-    });
-    const actor = createActor(buyMachine, {
-      input: inputFor(okSim, track),
-      snapshot,
-    }).start();
-    expect(actor.getSnapshot().matches("approving")).toBe(true);
-    expect(actor.getSnapshot().context.listing.assetId).toBe(LISTING.assetId);
-    expect(track).not.toHaveBeenCalled();
-  });
-
-  it("a real transition from a hydrated confirming step still fires telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveBuySnapshot({
-      step: "confirming",
-      listing: LISTING,
-      trackCtx: inputFor(okSim, track).trackCtx,
-      track,
-    });
-    const actor = createActor(buyMachine, {
-      input: inputFor(okSim, track),
-      snapshot,
-    }).start();
-    expect(actor.getSnapshot().matches("confirming")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "CONFIRM" });
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(BUY_EVENTS.confirmReached);
-  });
-});
-
 const TRAVERSAL_EVENTS = [
   { type: "START" as const },
   { type: "CONFIRM" as const },
@@ -179,8 +67,75 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
+
+describe("buyMachine \u{2014} URL ?step slug map", () => {
+  it("uses the shared-spec step ids, unique and round-tripping, falling back to review", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(buyMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
+    expect(STATE_TO_SLUG).toMatchObject({
+      review: "review",
+      connecting: "connect-wallet",
+      approving: "approve-mana",
+      confirming: "confirm-purchase",
+      submitting: "submit-tx",
+      success: "success",
+    });
+    const slugs = Object.values(STATE_TO_SLUG);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
+    }
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.review);
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("review");
+    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
+  });
+});
+
+describe("buyMachine \u{2014} deep-link hydration", () => {
+  it("boots review without a snapshot, hydrates submit-tx/approve-mana silently, and only real transitions track", async () => {
+    const track = vi.fn();
+    const commit = vi.fn(okSim);
+    const trackCtx = inputFor(commit, track).trackCtx;
+    expect(resolveBuySnapshot({ step: "review", listing: LISTING, trackCtx })).toBeUndefined();
+
+    const submitting = createActor(buyMachine, {
+      input: inputFor(commit, track),
+      snapshot: resolveBuySnapshot({ step: "submitting", listing: LISTING, trackCtx, commit, track }),
+    }).start();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    await Promise.resolve();
+    expect(track).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+
+    const approving = createActor(buyMachine, {
+      input: inputFor(okSim, track),
+      snapshot: resolveBuySnapshot({ step: "approving", listing: LISTING, trackCtx, track }),
+    }).start();
+    expect(approving.getSnapshot().matches("approving")).toBe(true);
+    expect(approving.getSnapshot().context.listing.assetId).toBe(LISTING.assetId);
+    expect(track).not.toHaveBeenCalled();
+
+    const confirming = createActor(buyMachine, {
+      input: inputFor(okSim, track),
+      snapshot: resolveBuySnapshot({ step: "confirming", listing: LISTING, trackCtx, track }),
+    }).start();
+    expect(confirming.getSnapshot().matches("confirming")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+    confirming.send({ type: "CONFIRM" });
+    expect(confirming.getSnapshot().matches("submitting")).toBe(true);
+    expect(names(track)).toContain(BUY_EVENTS.confirmReached);
+  });
+});
+
 describe("buyMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state; connecting needs START and CANCEL at review is a no-op", () => {
     const paths = getShortestPaths(buyMachine, {
       input: inputFor(okSim, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -194,47 +149,44 @@ describe("buyMachine \u{2014} model-based path coverage (@xstate/graph)", () => 
     }
     expect(ends.has("review")).toBe(true);
     expect(ends.has("connecting")).toBe(true);
-  });
-
-  it("reaching connecting passes through START", () => {
-    const paths = getShortestPaths(buyMachine, {
-      input: inputFor(okSim, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const connecting = paths.find((p) => (p.state.value as string) === "connecting");
-    expect(connecting).toBeDefined();
     expect(connecting!.steps.map((s) => s.event.type)).toContain("START");
+
+    const track = vi.fn();
+    const actor = createActor(buyMachine, { input: inputFor(okSim, track) }).start();
+    actor.send({ type: "CANCEL" });
+    expect(actor.getSnapshot().matches("review")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
   });
 });
 
 describe("buyMachine \u{2014} telemetry events (happy path)", () => {
   it("review -> connect -> approve -> confirm -> submit -> success fires the full funnel", async () => {
     const track = vi.fn();
-    const actor = createActor(buyMachine, {
-      input: inputFor(okSim, track),
-    }).start();
+    const actor = createActor(buyMachine, { input: inputFor(okSim, track) }).start();
 
     actor.send({ type: "START" });
     await waitFor(actor, (s) => s.matches("confirming"));
-
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("success"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BUY_EVENTS.started);
-    expect(events).toContain(BUY_EVENTS.walletConnected);
-    expect(events).toContain(BUY_EVENTS.manaApproved);
-    expect(events).toContain(BUY_EVENTS.confirmReached);
-    expect(events).toContain(BUY_EVENTS.completed);
+    const events = names(track);
+    for (const e of [
+      BUY_EVENTS.started,
+      BUY_EVENTS.walletConnected,
+      BUY_EVENTS.manaApproved,
+      BUY_EVENTS.confirmReached,
+      BUY_EVENTS.completed,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events).not.toContain(BUY_EVENTS.failed);
-
     expect(events.indexOf(BUY_EVENTS.started)).toBeLessThan(
       events.indexOf(BUY_EVENTS.confirmReached),
     );
     expect(events.indexOf(BUY_EVENTS.confirmReached)).toBeLessThan(
       events.indexOf(BUY_EVENTS.completed),
     );
-
     const startedCall = track.mock.calls.find((c) => c[0] === BUY_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
@@ -243,56 +195,34 @@ describe("buyMachine \u{2014} telemetry events (happy path)", () => {
     });
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
   });
-
-  it("CANCEL at review does not start the funnel", () => {
-    const track = vi.fn();
-    const actor = createActor(buyMachine, {
-      input: inputFor(okSim, track),
-    }).start();
-    actor.send({ type: "CANCEL" });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-  });
 });
 
 describe("buyMachine \u{2014} failure + retry", () => {
-  it("a failed sim phase routes to error and fires mk_buy_failed", async () => {
-    const track = vi.fn();
-    const actor = createActor(buyMachine, {
-      input: inputFor(failSim, track),
-    }).start();
-
-    actor.send({ type: "START" });
-    await waitFor(actor, (s) => s.matches("error"));
-
-    expect(actor.getSnapshot().context.error).toBe("auth chain: Invalid Auth Chain");
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(BUY_EVENTS.started);
-    expect(events).toContain(BUY_EVENTS.failed);
-    expect(events).not.toContain(BUY_EVENTS.completed);
-  });
-
-  it("RETRY after a transient failure recovers to success", async () => {
+  it("a failed phase routes to error and fires mk_buy_failed; RETRY after the transient failure recovers to success", async () => {
     const track = vi.fn();
     let calls = 0;
     const sim: SimFn = async (args) => {
       calls += 1;
-      if (calls === 1) throw new Error("user rejected");
+      if (calls === 1) throw new Error("auth chain: Invalid Auth Chain");
       return okSim(args);
     };
-    const actor = createActor(buyMachine, {
-      input: inputFor(sim, track),
-    }).start();
+    const actor = createActor(buyMachine, { input: inputFor(sim, track) }).start();
 
     actor.send({ type: "START" });
     await waitFor(actor, (s) => s.matches("error"));
+    expect(actor.getSnapshot().context.error).toBe("auth chain: Invalid Auth Chain");
+    let events = names(track);
+    expect(events).toContain(BUY_EVENTS.started);
+    expect(events).toContain(BUY_EVENTS.failed);
+    expect(events).not.toContain(BUY_EVENTS.completed);
 
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("confirming"));
     actor.send({ type: "CONFIRM" });
     await waitFor(actor, (s) => s.matches("success"));
-
-    expect(track.mock.calls.map((c) => c[0])).toContain(BUY_EVENTS.completed);
+    events = names(track);
+    expect(events).toContain(BUY_EVENTS.completed);
+    expect(events.indexOf(BUY_EVENTS.failed)).toBeLessThan(events.indexOf(BUY_EVENTS.completed));
   });
 });
 

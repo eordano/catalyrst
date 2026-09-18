@@ -6,9 +6,12 @@ use axum::Json;
 use serde_json::{json, Value as JsonValue};
 
 use crate::http::ApiError;
+use crate::ports::credits::CreditsComponent;
 use crate::ports::packs::{MarkPaidOutcome, ReversalOutcome};
 use crate::ports::stripe::{verify_stripe_signature, SIGNATURE_TOLERANCE_SECS};
 use crate::AppState;
+
+type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 fn ok(detail: &str) -> Json<JsonValue> {
     Json(json!({ "ok": true, "detail": detail }))
@@ -52,11 +55,13 @@ pub async fn webhook(
         .ok_or_else(|| ApiError::bad_request("event missing type"))?
         .to_string();
 
-    let needs_processing = state
-        .credits
-        .record_stripe_event(&event_id, &event_type, &event)
-        .await?;
+    // One transaction: the event claim, the purchase flip and the wallet move land together.
+    let mut tx = state.credits.pool.begin().await?;
+    let needs_processing =
+        CreditsComponent::record_stripe_event_in_tx(&mut tx, &event_id, &event_type, &event)
+            .await?;
     if !needs_processing {
+        tx.commit().await?;
         return Ok(ok("already processed"));
     }
 
@@ -80,7 +85,7 @@ pub async fn webhook(
 
             match state
                 .credits
-                .mark_purchase_paid(pi_id, &event_id, charged_cents)
+                .mark_purchase_paid_in_tx(&mut tx, pi_id, &event_id, charged_cents)
                 .await?
             {
                 MarkPaidOutcome::Granted { address, credits } => {
@@ -93,7 +98,8 @@ pub async fn webhook(
 
                     state
                         .credits
-                        .admin_grant_credits(
+                        .admin_grant_credits_in_tx(
+                            &mut tx,
                             &address,
                             &credits,
                             "purchase",
@@ -138,7 +144,7 @@ pub async fn webhook(
 
             match state
                 .credits
-                .mark_order_paid_by_session(session_id, &event_id, charged_cents)
+                .mark_order_paid_by_session_in_tx(&mut tx, session_id, &event_id, charged_cents)
                 .await?
             {
                 MarkPaidOutcome::Granted { address, credits } => {
@@ -152,7 +158,8 @@ pub async fn webhook(
 
                     state
                         .credits
-                        .admin_grant_credits(
+                        .admin_grant_credits_in_tx(
+                            &mut tx,
                             &address,
                             &credits,
                             "purchase",
@@ -185,30 +192,30 @@ pub async fn webhook(
             }
         }
         "checkout.session.expired" => {
-            mark_session_terminal(&state, &object, &event_id, "abandoned", None).await?;
+            mark_session_terminal(&mut tx, &object, &event_id, "abandoned", None).await?;
         }
         "checkout.session.async_payment_failed" => {
             let reason = object
                 .get("last_payment_error")
                 .and_then(|e| e.get("message"))
                 .and_then(|v| v.as_str());
-            mark_session_terminal(&state, &object, &event_id, "failed", reason).await?;
+            mark_session_terminal(&mut tx, &object, &event_id, "failed", reason).await?;
         }
         "charge.refunded" => {
-            apply_partial_refund(&state, &object, &event_id).await?;
+            apply_partial_refund(&state, &mut tx, &object, &event_id).await?;
         }
         "charge.dispute.created" | "charge.dispute.funds_withdrawn" => {
-            apply_full_reversal(&state, &object, &event_id, "disputed").await?;
+            apply_full_reversal(&state, &mut tx, &object, &event_id, "disputed").await?;
         }
         _ => {}
     }
 
-    state.credits.mark_stripe_event_processed(&event_id).await?;
+    tx.commit().await?;
     Ok(ok("processed"))
 }
 
 async fn mark_session_terminal(
-    state: &AppState,
+    tx: &mut Tx<'_>,
     object: &JsonValue,
     event_id: &str,
     status: &str,
@@ -218,10 +225,13 @@ async fn mark_session_terminal(
         tracing::warn!(event_id = %event_id, status = %status, "checkout.session event missing id");
         return Ok(());
     };
-    let changed = state
-        .credits
-        .mark_order_status_by_session(session_id, status, failure_reason)
-        .await?;
+    let changed = CreditsComponent::mark_order_status_by_session_on(
+        &mut **tx,
+        session_id,
+        status,
+        failure_reason,
+    )
+    .await?;
     if !changed {
         tracing::info!(
             event_id = %event_id,
@@ -235,6 +245,7 @@ async fn mark_session_terminal(
 
 async fn apply_partial_refund(
     state: &AppState,
+    tx: &mut Tx<'_>,
     object: &JsonValue,
     event_id: &str,
 ) -> Result<(), ApiError> {
@@ -252,7 +263,7 @@ async fn apply_partial_refund(
 
     let outcome = state
         .credits
-        .record_charge_refund(pi_id, cumulative_refunded_cents, event_id)
+        .record_charge_refund_in_tx(tx, pi_id, cumulative_refunded_cents, event_id)
         .await?;
     log_reversal(&outcome, event_id, pi_id, "charge.refunded");
     Ok(())
@@ -260,6 +271,7 @@ async fn apply_partial_refund(
 
 async fn apply_full_reversal(
     state: &AppState,
+    tx: &mut Tx<'_>,
     object: &JsonValue,
     event_id: &str,
     status: &str,
@@ -275,7 +287,7 @@ async fn apply_full_reversal(
 
     let outcome = state
         .credits
-        .record_full_reversal(pi_id, status, event_id)
+        .record_full_reversal_in_tx(tx, pi_id, status, event_id)
         .await?;
     log_reversal(&outcome, event_id, pi_id, status);
     Ok(())

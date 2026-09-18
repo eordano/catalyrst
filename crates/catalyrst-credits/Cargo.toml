@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-credits"
-version = "0.26.0"
+version = "0.27.0"
 edition = "2021"
 description = "Rust port of credits.decentraland.org (Marketplace Credits program API): enrollment, seasons/weeks/goals, per-wallet progress, captcha-gated claims. SignedFetch (AuthChain) auth via catalyrst-crypto."
 
@@ -44,6 +44,7 @@ ts-rs = { workspace = true, optional = true }
 ts = ["dep:ts-rs"]
 
 [dev-dependencies]
+catalyrst-contract-gate = { workspace = true }
 catalyrst-testgate = { workspace = true }
 alloy = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

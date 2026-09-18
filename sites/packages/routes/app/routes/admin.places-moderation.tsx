@@ -1,6 +1,3 @@
-import { Link } from "react-router";
-import { href } from "@core/lib/router/routes";
-
 import AdControlNotice from "@ui/admin/pages/AdControlNotice";
 import AdPlacesModerationPage from "@ui/admin/pages/AdPlacesModerationPage";
 import SitesChrome from "@ui/web/frames/SitesChrome";
@@ -15,8 +12,9 @@ import {
 } from "@data/lib/catalyst/admin/places-moderation";
 import { loadReportQueue } from "@data/lib/catalyst/admin/places-moderation.server";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
+import AdminConsoleLinks from "@features/components/admin/AdminConsoleLinks";
 import ModeratePlacesWizard from "@features/stories/admin/places-moderation/ModeratePlacesWizard";
 
 import type { Route } from "./+types/admin.places-moderation";
@@ -34,17 +32,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const step = url.searchParams.get("step")?.trim() || null;
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: queue } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () => loadReportQueue({ signal: request.signal, status: "open", limit: 50 }),
   );
-
-  const queue = await loadReportQueue({
-    signal: request.signal,
-    status: "open",
-    limit: 50,
-  });
 
   const reports: ReportRow[] = queue.ok ? queue.data.rows : [];
   const total = queue.ok ? queue.data.total : 0;
@@ -74,24 +67,7 @@ export default function AdminPlacesModerationRoute({ loaderData }: Route.Compone
 
   return (
     <SitesChrome active="play">
-      <AdPlacesModerationPage
-        nav={
-          <>
-            <Link prefetch="intent" to={href("/admin/places-moderation")} aria-current="page">
-              Places
-            </Link>
-            <Link prefetch="intent" to={href("/admin/communities-moderation")}>
-              Communities
-            </Link>
-            <Link prefetch="intent" to={href("/admin/whatson-users")}>
-              What's On
-            </Link>
-            <Link prefetch="intent" to={href("/admin/metrics")}>
-              Metrics
-            </Link>
-          </>
-        }
-      >
+      <AdPlacesModerationPage nav={<AdminConsoleLinks current="places" />}>
         {d.unavailable ? (
           <AdControlNotice
             title="Places moderation is unavailable on this node"

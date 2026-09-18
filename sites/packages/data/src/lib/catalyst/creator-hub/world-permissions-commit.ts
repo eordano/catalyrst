@@ -3,19 +3,19 @@ import type { AuthIdentity, SignedFetchMetadata } from "../../auth/types";
 import { CatalystError, worldsBase } from "../client";
 import type { AccessType } from "./world-permissions";
 
-export type CommitWorldAccessInput = {
+type CommitWorldAccessInput = {
   accessType: AccessType;
   collaborators: string[];
   secret?: string;
 };
 
-export type CommitWorldAccessOptions = {
+type CommitWorldAccessOptions = {
   identity: AuthIdentity;
   base?: string;
   signal?: AbortSignal;
 };
 
-export function accessMetadata(input: CommitWorldAccessInput): SignedFetchMetadata {
+function accessMetadata(input: CommitWorldAccessInput): SignedFetchMetadata {
   switch (input.accessType) {
     case "unrestricted":
       return { type: "unrestricted" };

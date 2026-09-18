@@ -1,13 +1,11 @@
 import { z } from "zod";
 
 import staticConfig from "./submit-draft.data.json";
-import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 import { governanceApiBase } from "./api-base";
 import { ProposalRowSchema as RsProposalRowSchema } from "../generated-schemas/governance";
+import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 
-export { governanceApiBase };
-
-export type LinkedPoll = {
+type LinkedPoll = {
   id: string;
   title: string;
   status: string;
@@ -17,7 +15,7 @@ export type LinkedPoll = {
   label: string;
 };
 
-export type DraftFieldLimits = {
+type DraftFieldLimits = {
   titleMin: number;
   titleMax: number;
   summaryMax: number;
@@ -26,13 +24,13 @@ export type DraftFieldLimits = {
   coauthorsMax: number;
 };
 
-export type DraftAccount = {
+type DraftAccount = {
   address: string;
   short: string;
   vp: number;
 };
 
-export type DraftSource = "live" | "empty";
+type DraftSource = "live" | "empty";
 
 export type DraftSubmitData = {
   source: DraftSource;
@@ -61,7 +59,7 @@ const StaticConfigSchema = z.object({
 
 const STATIC = StaticConfigSchema.parse(staticConfig);
 
-export const DRAFT_LIMITS: DraftFieldLimits = {
+const DRAFT_LIMITS: DraftFieldLimits = {
   titleMin: STATIC.field_limits.title_min,
   titleMax: STATIC.field_limits.title_max,
   summaryMax: STATIC.field_limits.summary_max,
@@ -70,9 +68,9 @@ export const DRAFT_LIMITS: DraftFieldLimits = {
   coauthorsMax: STATIC.field_limits.coauthors_max,
 };
 
-export const DRAFT_BODIES: string[] = STATIC.bodies;
+const DRAFT_BODIES: string[] = STATIC.bodies;
 export const VP_THRESHOLD: number = STATIC.vpThreshold;
-export const VP_UNIT: string = STATIC.vpUnit;
+const VP_UNIT: string = STATIC.vpUnit;
 
 const ProposalSchema = RsProposalRowSchema.pick({
   id: true,
@@ -102,7 +100,7 @@ function projectPoll(p: UpstreamPoll): LinkedPoll {
   };
 }
 
-export type LoadDraftOptions = {
+type LoadDraftOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -110,7 +108,7 @@ export type LoadDraftOptions = {
   scan?: number;
 };
 
-export type LinkedPollsResult = {
+type LinkedPollsResult = {
   ok: boolean;
   polls: LinkedPoll[];
 };
@@ -164,7 +162,9 @@ export function buildDraftData(args: {
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftProposalsEnvelope = Assert<
   AssignableTo<
     RsListEnvelope,
@@ -173,3 +173,4 @@ export type _DriftProposalsEnvelope = Assert<
     }
   >
 >;
+

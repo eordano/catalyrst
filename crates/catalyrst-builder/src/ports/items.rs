@@ -221,6 +221,8 @@ impl ItemsComponent {
                 i.utility, i.mappings, i.is_published, i.is_approved, i.in_catalyst,
                 i.total_supply, i.local_content_hash, i.content_hash,
                 i.catalyst_content_hash, i.created_at, i.updated_at,
+                (SELECT COALESCE(json_object_agg(ic.file, ic.hash), '{}'::json)
+                   FROM item_contents ic WHERE ic.item_id = i.id) AS contents,
                 count(*) OVER() AS total_count
             FROM items i
             WHERE i.collection_id = $1
@@ -237,18 +239,7 @@ impl ItemsComponent {
         .await?;
 
         let total = rows.first().map(|r| r.total_count).unwrap_or(0);
-
-        let mut items = Vec::with_capacity(rows.len());
-        for r in rows {
-            let content_rows: Vec<(String, String)> = sqlx::query_as(
-                "SELECT file, hash FROM item_contents WHERE item_id = $1 ORDER BY file ASC",
-            )
-            .bind(r.id)
-            .fetch_all(&self.pool)
-            .await?;
-            let contents = content_rows.into_iter().collect::<BTreeMap<_, _>>();
-            items.push(r.into_row(contents));
-        }
+        let items = rows.into_iter().map(ItemDbRow::into_row).collect();
         Ok((items, total))
     }
 }
@@ -281,11 +272,12 @@ struct ItemDbRow {
     catalyst_content_hash: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    contents: sqlx::types::Json<BTreeMap<String, String>>,
     total_count: i64,
 }
 
 impl ItemDbRow {
-    fn into_row(self, contents: BTreeMap<String, String>) -> ItemRow {
+    fn into_row(self) -> ItemRow {
         ItemRow {
             id: self.id,
             urn_suffix: self.urn_suffix,
@@ -313,7 +305,7 @@ impl ItemDbRow {
             catalyst_content_hash: self.catalyst_content_hash,
             created_at: self.created_at,
             updated_at: self.updated_at,
-            contents,
+            contents: self.contents.0,
         }
     }
 }

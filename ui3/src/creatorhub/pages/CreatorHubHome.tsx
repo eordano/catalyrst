@@ -4,14 +4,15 @@ import { useChromeAuth } from "../../web/frames/chrome-auth";
 import EmptyState from "../../components/EmptyState";
 import Spinner from "../../atoms/Spinner";
 import { asset } from "../../asset";
+import { docsUrl } from "../../data/docs";
 import "./creatorhubhome.css";
 
 type LearnResource = { title: string; href: string; kind: "doc" | "video" };
 
 const LEARN_RESOURCES: LearnResource[] = [
-  { title: "Let's build the metaverse together", href: "https://docs.decentraland.org/creator/", kind: "doc" },
-  { title: "Scene Editor About", href: "https://docs.decentraland.org/creator/scene-editor/get-started/about-editor", kind: "doc" },
-  { title: "Development Workflow", href: "https://docs.decentraland.org/creator/scenes-sdk7/getting-started/dev-workflow", kind: "doc" },
+  { title: "Let's build the metaverse together", href: docsUrl("creator"), kind: "doc" },
+  { title: "Scene Editor About", href: docsUrl("creator/scene-editor/get-started/about-editor"), kind: "doc" },
+  { title: "Development Workflow", href: docsUrl("creator/sdk7/getting-started/dev-workflow"), kind: "doc" },
   { title: "Product Updates", href: "https://www.youtube.com/playlist?list=PLAcRraQmr_GMJw77zKvN84LX_OLyn-lVz", kind: "video" },
   { title: "SDK Tutorials", href: "https://www.youtube.com/playlist?list=PLAcRraQmr_GP_K8WN7csnKnImK4R2TgMA", kind: "video" },
 ];
@@ -335,7 +336,7 @@ function LearnCard({ onLearn }: LearnCardProps) {
               key={i}
               title={r.title}
               href={r.href}
-              external
+              external={r.kind === "video"}
               icon={r.kind === "video" ? <VideoIcon /> : <BookmarkIcon />}
             />
           ))}

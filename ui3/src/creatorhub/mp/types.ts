@@ -8,7 +8,7 @@ export type MpRunPhase =
   | "done"
   | "failed";
 
-export type MpRunStatus = {
+type MpRunStatus = {
   state: MpRunPhase;
   detail?: string;
   updated?: string;
@@ -37,7 +37,7 @@ export type MpRunSummary = {
   state?: string;
 };
 
-export type MpVerdictCheck = {
+type MpVerdictCheck = {
   name: string;
   value: number;
   threshold: number;
@@ -46,7 +46,7 @@ export type MpVerdictCheck = {
 
 export type MpVerdict = { pass: boolean; checks: MpVerdictCheck[] };
 
-export type MpDivergenceRow = {
+type MpDivergenceRow = {
   entity: string;
   component: string;
   peers: string[];

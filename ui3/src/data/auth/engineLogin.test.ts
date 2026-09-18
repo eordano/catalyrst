@@ -91,6 +91,9 @@ describe("identity conversion", () => {
     expect(typed.ephemeralPrivateKey).toBe(EPHEMERAL_KEY);
     expect(typed.message).toContain("Ephemeral address:");
     expect(typed.signature).toBe("0xsigsig");
+    expect(identitySigner(stored)).toBe(SIGNER.toLowerCase());
+    expect(isExpired(stored)).toBe(false);
+    expect(isExpired(toStoredIdentity(makeIdentity(Date.now() - 1000)))).toBe(true);
   });
 
   test("loginIdentityCommand emits the engine's /login_identity contract", () => {
@@ -111,41 +114,25 @@ describe("identity conversion", () => {
     expect(delegate[0]?.type).toBe("ECDSA_EPHEMERAL");
     expect(delegate[0]?.signature).toBe("0xsigsig");
   });
-
-  test("identitySigner and isExpired", () => {
-    const stored = toStoredIdentity(makeIdentity());
-    expect(identitySigner(stored)).toBe(SIGNER.toLowerCase());
-    expect(isExpired(stored)).toBe(false);
-    expect(isExpired(toStoredIdentity(makeIdentity(Date.now() - 1000)))).toBe(true);
-  });
 });
 
 describe("lobby skip decision (shouldAutoJumpIn)", () => {
   const raw = (expirationMs: number) =>
     JSON.stringify(toStoredIdentity(makeIdentity(expirationMs)));
 
-  test("healthy persisted identity (>24h of validity) skips the lobby", () => {
-    expect(shouldAutoJumpIn(raw(Date.now() + 48 * 3_600_000))).toBe(true);
-  });
-
-  test("no stored value or malformed JSON keeps the lobby", () => {
-    expect(shouldAutoJumpIn(null)).toBe(false);
-    expect(shouldAutoJumpIn("not json{")).toBe(false);
-  });
-
-  test("expired identity keeps the lobby", () => {
-    expect(shouldAutoJumpIn(raw(Date.now() - 1000))).toBe(false);
-  });
-
-  test("identity expiring within 24h keeps the lobby (Unity-parity margin)", () => {
+  test("skips the lobby only with more than 24h of validity left (Unity-parity margin)", () => {
     const now = Date.now();
+    expect(shouldAutoJumpIn(raw(now + 48 * 3_600_000))).toBe(true);
+    expect(shouldAutoJumpIn(raw(now - 1000))).toBe(false);
     expect(shouldAutoJumpIn(raw(now + 3_600_000), now)).toBe(false);
     expect(
       shouldAutoJumpIn(raw(now + AUTO_JUMP_IN_MIN_VALIDITY_MS + 60_000), now),
     ).toBe(true);
   });
 
-  test("identity the engine cannot consume keeps the lobby", () => {
+  test("keeps the lobby for nothing stored, malformed JSON, or an identity the engine cannot consume", () => {
+    expect(shouldAutoJumpIn(null)).toBe(false);
+    expect(shouldAutoJumpIn("not json{")).toBe(false);
     const stored = toStoredIdentity(makeIdentity(Date.now() + 48 * 3_600_000));
     stored.authChain = stored.authChain.filter((l) => l.type === "SIGNER");
     expect(shouldAutoJumpIn(JSON.stringify(stored))).toBe(false);
@@ -153,7 +140,7 @@ describe("lobby skip decision (shouldAutoJumpIn)", () => {
 });
 
 describe("delivery timing", () => {
-  test("lobby sign-in: nothing is sent until the engine's first identity push", () => {
+  test("lobby sign-in: nothing is sent until the engine's first identity push, subscribers see each state", () => {
     const { bridge, sent, push } = makeFakeBridge();
     const storage = memStorage();
     const auth = createEngineAuth({
@@ -161,6 +148,8 @@ describe("delivery timing", () => {
       send: (a: string, p?: unknown) => bridge.send(a, p),
       storage: () => storage,
     });
+    const seen: string[] = [];
+    const unsub = auth.subscribe((s) => seen.push(`${s.status}:${s.address ?? "-"}`));
 
     const identity = makeIdentity();
     expect(auth.loginWithIdentity(identity)).toBe(true);
@@ -184,42 +173,43 @@ describe("delivery timing", () => {
       address: SIGNER.toLowerCase(),
     });
     expect(storage.getItem(IDENTITY_STORAGE_KEY)).not.toBeNull();
+    expect(seen).toEqual([
+      `pending:${SIGNER.toLowerCase()}`,
+      `signedIn:${SIGNER.toLowerCase()}`,
+    ]);
+    unsub();
     auth.dispose();
   });
 
-  test("in-world sign-in: engine already pushed identity -> immediate send", () => {
-    const { bridge, sent, push } = makeFakeBridge();
-    const storage = memStorage();
-    push({ kind: "identity", isGuest: true, signerAddress: "0xguest" });
-    const auth = createEngineAuth({
-      bridge: () => bridge,
-      send: (a: string, p?: unknown) => bridge.send(a, p),
-      storage: () => storage,
+  test("sends immediately when the engine already pushed identity, and waits for a bridge that appears later", async () => {
+    const early = makeFakeBridge();
+    early.push({ kind: "identity", isGuest: true, signerAddress: "0xguest" });
+    const inWorld = createEngineAuth({
+      bridge: () => early.bridge,
+      send: (a: string, p?: unknown) => early.bridge.send(a, p),
+      storage: () => memStorage(),
     });
-    auth.init();
-    expect(sent).toEqual([]);
+    inWorld.init();
+    expect(early.sent).toEqual([]);
+    inWorld.loginWithIdentity(makeIdentity());
+    expect(early.sent.length).toBe(1);
+    expect(early.sent[0]?.action).toBe("SetIdentity");
+    inWorld.dispose();
 
-    auth.loginWithIdentity(makeIdentity());
-    expect(sent.length).toBe(1);
-    expect(sent[0]?.action).toBe("SetIdentity");
-    auth.dispose();
-  });
-
-  test("bridge appears after sign-in (engine starts later)", async () => {
-    const { bridge, sent, push } = makeFakeBridge();
+    const late = makeFakeBridge();
     let available = false;
     const auth = createEngineAuth({
-      bridge: () => (available ? bridge : null),
-      send: (a: string, p?: unknown) => bridge.send(a, p),
+      bridge: () => (available ? late.bridge : null),
+      send: (a: string, p?: unknown) => late.bridge.send(a, p),
       storage: () => memStorage(),
       attachIntervalMs: 1,
     });
     auth.loginWithIdentity(makeIdentity());
-    expect(sent).toEqual([]);
+    expect(late.sent).toEqual([]);
     available = true;
     await new Promise((r) => setTimeout(r, 20));
-    push({ kind: "identity", isGuest: true, signerAddress: "0xguest" });
-    expect(sent.length).toBe(1);
+    late.push({ kind: "identity", isGuest: true, signerAddress: "0xguest" });
+    expect(late.sent.length).toBe(1);
     auth.dispose();
   });
 
@@ -265,7 +255,7 @@ describe("persistence", () => {
     auth.dispose();
   });
 
-  test("returning visitor: persisted identity is re-delivered at boot", () => {
+  test("a returning visitor is re-delivered at boot, and signOut clears identity and state", () => {
     const storage = memStorage();
     const first = makeFakeBridge();
     const session1 = createEngineAuth({
@@ -274,6 +264,7 @@ describe("persistence", () => {
       storage: () => storage,
     });
     session1.loginWithIdentity(makeIdentity());
+    expect(storage.getItem(IDENTITY_STORAGE_KEY)).not.toBeNull();
     session1.dispose();
 
     const second = makeFakeBridge();
@@ -287,42 +278,10 @@ describe("persistence", () => {
     second.push({ kind: "identity", isGuest: true, signerAddress: "0xguest" });
     expect(second.sent.length).toBe(1);
     expect(second.sent[0]?.action).toBe("SetIdentity");
-    session2.dispose();
-  });
 
-  test("signOut clears persisted identity and state", () => {
-    const storage = memStorage();
-    const { bridge } = makeFakeBridge();
-    const auth = createEngineAuth({
-      bridge: () => bridge,
-      send: (a: string, p?: unknown) => bridge.send(a, p),
-      storage: () => storage,
-    });
-    auth.loginWithIdentity(makeIdentity());
-    expect(storage.getItem(IDENTITY_STORAGE_KEY)).not.toBeNull();
-    auth.signOut();
+    session2.signOut();
     expect(storage.getItem(IDENTITY_STORAGE_KEY)).toBeNull();
-    expect(auth.getState()).toEqual({ status: "none", address: null });
-    auth.dispose();
-  });
-
-  test("state change notifications reach subscribers", () => {
-    const { bridge, push } = makeFakeBridge();
-    const auth = createEngineAuth({
-      bridge: () => bridge,
-      send: (a: string, p?: unknown) => bridge.send(a, p),
-      storage: () => memStorage(),
-    });
-    const seen: string[] = [];
-    const unsub = auth.subscribe((s) => seen.push(`${s.status}:${s.address ?? "-"}`));
-    auth.loginWithIdentity(makeIdentity());
-    push({ kind: "identity", isGuest: true, signerAddress: "0xguest" });
-    push({ kind: "identity", isGuest: false, signerAddress: SIGNER });
-    expect(seen).toEqual([
-      `pending:${SIGNER.toLowerCase()}`,
-      `signedIn:${SIGNER.toLowerCase()}`,
-    ]);
-    unsub();
-    auth.dispose();
+    expect(session2.getState()).toEqual({ status: "none", address: null });
+    session2.dispose();
   });
 });

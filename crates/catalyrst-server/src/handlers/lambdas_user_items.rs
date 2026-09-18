@@ -45,25 +45,49 @@ struct IndividualData {
     price: String,
 }
 
+/// One row per item urn; the representative fields come from the most recent copy.
 #[derive(sqlx::FromRow)]
-struct ItemRow {
+struct GroupRow {
     urn: String,
-    token_id: String,
-    transferred_at: i64,
-    rarity: Option<String>,
-    price: Option<String>,
-    name: Option<String>,
-    category: Option<String>,
+    name: String,
+    category: String,
+    rarity: String,
+    token_ids: Vec<String>,
+    transferred_ats: Vec<i64>,
+    prices: Vec<String>,
+    min_transferred_at: i64,
+    max_transferred_at: i64,
 }
 
-async fn fetch_owned_grouped(
-    pool: &sqlx::PgPool,
-    owner: &str,
-    item_category: &str,
-    filter_category: Option<&str>,
-    filter_rarity: Option<&str>,
-    filter_name: Option<&str>,
-) -> Vec<GroupedItem> {
+impl From<GroupRow> for GroupedItem {
+    fn from(r: GroupRow) -> Self {
+        let individual = r
+            .token_ids
+            .into_iter()
+            .zip(r.transferred_ats)
+            .zip(r.prices)
+            .map(|((token_id, transferred_at), price)| IndividualData {
+                token_id,
+                transferred_at,
+                price,
+            })
+            .collect();
+        GroupedItem {
+            urn: r.urn,
+            name: r.name,
+            category: r.category,
+            rarity: r.rarity,
+            individual,
+            min_transferred_at: r.min_transferred_at,
+            max_transferred_at: r.max_transferred_at,
+        }
+    }
+}
+
+const OWNED_FETCH_LIMIT: i64 = (MAX_PAGE_SIZE as i64) * 100;
+
+/// Groups and category/rarity-filters in SQL; name filter, sort, and paging stay in Rust (UCA order).
+fn owned_grouped_sql(item_category: &str, overlay: bool) -> String {
     let meta_join = if item_category == "emote" {
         "LEFT JOIN squid_marketplace.metadata m ON n.metadata_id = m.id \
          LEFT JOIN squid_marketplace.emote md ON m.emote_id = md.id"
@@ -71,10 +95,7 @@ async fn fetch_owned_grouped(
         "LEFT JOIN squid_marketplace.metadata m ON n.metadata_id = m.id \
          LEFT JOIN squid_marketplace.wearable md ON m.wearable_id = md.id"
     };
-
-    const OWNED_FETCH_LIMIT: i64 = (MAX_PAGE_SIZE as i64) * 100;
-
-    let grant_leg = if super::lease_overlay::usage_grants_present(pool).await {
+    let grant_leg = if overlay {
         " UNION ALL \
              SELECT replace(ug.urn, ':mainnet:', ':ethereum:') AS urn, \
                     COALESCE(ug.token_id, '') AS token_id, \
@@ -89,73 +110,71 @@ async fn fetch_owned_grouped(
     } else {
         ""
     };
-    let sql = format!(
-        "SELECT urn, token_id, transferred_at, rarity, price, name, category FROM ( \
-             SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, \
-                    n.token_id::text AS token_id, \
-                    n.transferred_at::bigint AS transferred_at, \
-                    i.rarity AS rarity, \
-                    i.price::text AS price, \
-                    md.name AS name, \
-                    md.category AS category \
-             FROM squid_marketplace.nft n \
-             LEFT JOIN squid_marketplace.item i ON n.item_id = i.id \
-             {meta_join} \
-             WHERE n.category = $1 AND n.urn IS NOT NULL AND n.owner_address = lower($2) \
-           {grant_leg} \
-         ) owned \
-         ORDER BY transferred_at DESC \
-         LIMIT $3"
-    );
+    const ORD: &str = "ORDER BY transferred_at DESC, token_id, price";
+    format!(
+        "SELECT * FROM ( \
+             SELECT urn, \
+                    (array_agg(COALESCE(name, '') {ORD}))[1] AS name, \
+                    (array_agg(COALESCE(category, '') {ORD}))[1] AS category, \
+                    (array_agg(COALESCE(rarity, '') {ORD}))[1] AS rarity, \
+                    array_agg(token_id {ORD}) AS token_ids, \
+                    array_agg(transferred_at {ORD}) AS transferred_ats, \
+                    array_agg(COALESCE(price, '0') {ORD}) AS prices, \
+                    min(transferred_at) AS min_transferred_at, \
+                    max(transferred_at) AS max_transferred_at \
+             FROM ( \
+                 SELECT * FROM ( \
+                     SELECT replace(n.urn, ':mainnet:', ':ethereum:') AS urn, \
+                            n.token_id::text AS token_id, \
+                            n.transferred_at::bigint AS transferred_at, \
+                            i.rarity AS rarity, \
+                            i.price::text AS price, \
+                            md.name AS name, \
+                            md.category AS category \
+                     FROM squid_marketplace.nft n \
+                     LEFT JOIN squid_marketplace.item i ON n.item_id = i.id \
+                     {meta_join} \
+                     WHERE n.category = $1 AND n.urn IS NOT NULL \
+                       AND n.owner_address = lower($2) \
+                   {grant_leg} \
+                 ) copies \
+                 ORDER BY transferred_at DESC \
+                 LIMIT $3 \
+             ) owned \
+             GROUP BY urn \
+         ) g \
+         WHERE ($4::text IS NULL OR g.category = $4) \
+           AND ($5::text IS NULL OR g.rarity = $5)"
+    )
+}
 
-    let rows: Vec<ItemRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
-        .bind(item_category)
-        .bind(owner)
-        .bind(OWNED_FETCH_LIMIT)
-        .fetch_all(pool)
-        .await
-        .unwrap_or_default();
+async fn fetch_owned_grouped(
+    pool: &sqlx::PgPool,
+    owner: &str,
+    item_category: &str,
+    filter_category: Option<&str>,
+    filter_rarity: Option<&str>,
+    filter_name: Option<&str>,
+) -> Vec<GroupedItem> {
+    let overlay = super::lease_overlay::usage_grants_present(pool).await;
+    let rows: Vec<GroupRow> = sqlx::query_as(sqlx::AssertSqlSafe(owned_grouped_sql(
+        item_category,
+        overlay,
+    )))
+    .bind(item_category)
+    .bind(owner)
+    .bind(OWNED_FETCH_LIMIT)
+    .bind(filter_category)
+    .bind(filter_rarity)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
 
-    use std::collections::HashMap;
-    let mut by_urn: HashMap<String, GroupedItem> = HashMap::new();
-    for r in rows {
-        let category = r.category.unwrap_or_default();
-        let name = r.name.unwrap_or_default();
-        let rarity = r.rarity.unwrap_or_default();
-        let price = r.price.unwrap_or_else(|| "0".to_string());
-        let individual = IndividualData {
-            token_id: r.token_id,
-            transferred_at: r.transferred_at,
-            price,
-        };
-
-        let entry = by_urn.entry(r.urn.clone()).or_insert_with(|| GroupedItem {
-            urn: r.urn.clone(),
-            name,
-            category,
-            rarity,
-            individual: Vec::new(),
-            min_transferred_at: r.transferred_at,
-            max_transferred_at: r.transferred_at,
-        });
-        entry.min_transferred_at = entry.min_transferred_at.min(r.transferred_at);
-        entry.max_transferred_at = entry.max_transferred_at.max(r.transferred_at);
-        entry.individual.push(individual);
-    }
-
-    let mut items: Vec<GroupedItem> = by_urn.into_values().collect();
-
-    if let Some(cat) = filter_category {
-        items.retain(|i| i.category == cat);
-    }
-    if let Some(rar) = filter_rarity {
-        items.retain(|i| i.rarity == rar);
-    }
+    let mut items: Vec<GroupedItem> = rows.into_iter().map(GroupedItem::from).collect();
     if let Some(n) = filter_name {
         let needle = n.to_lowercase();
         items.retain(|i| i.name.to_lowercase().contains(&needle));
     }
-
     items
 }
 
@@ -544,7 +563,7 @@ pub async fn fetch_all_third_party_wearables(
         .collect()
 }
 
-const COLLECTION_ENTITIES_TTL: Duration = Duration::from_secs(60);
+const COLLECTION_ENTITIES_TTL: Duration = Duration::from_secs(300);
 
 fn collection_entities_cache() -> &'static TtlMap<String, Arc<Vec<Value>>> {
     static C: OnceLock<TtlMap<String, Arc<Vec<Value>>>> = OnceLock::new();
@@ -575,31 +594,45 @@ async fn collection_entity_lists<'a>(
     .await
 }
 
+fn has_mappings(entity: &Value) -> bool {
+    entity
+        .get("metadata")
+        .and_then(|m| m.get("mappings"))
+        .map(|m| !m.is_null())
+        .unwrap_or(false)
+}
+
+/// First page sequentially for the total, the remaining pages concurrently in page order.
 async fn fetch_collection_entities(state: &AppState, collection_id: &str) -> Vec<Value> {
     const PAGE: i64 = 1000;
-    let mut out = Vec::new();
-    let mut offset = 0i64;
-    loop {
-        let result = match state
+    const PAGE_CONCURRENCY: usize = 4;
+    use futures::stream::StreamExt;
+
+    let Ok(first) = state
+        .database
+        .active_entities_by_prefix(collection_id, 0, PAGE)
+        .await
+    else {
+        return Vec::new();
+    };
+    let short = (first.entities.len() as i64) < PAGE;
+    let mut out: Vec<Value> = first.entities.into_iter().filter(has_mappings).collect();
+    if short || first.total <= PAGE {
+        return out;
+    }
+    let rest = (PAGE..first.total).step_by(PAGE as usize).map(|offset| {
+        state
             .database
             .active_entities_by_prefix(collection_id, offset, PAGE)
-            .await
-        {
-            Ok(r) => r,
-            Err(_) => break,
+    });
+    let mut pages = futures::stream::iter(rest).buffered(PAGE_CONCURRENCY);
+    while let Some(page) = pages.next().await {
+        let Ok(page) = page else {
+            break;
         };
-        let n = result.entities.len() as i64;
-        for e in result.entities {
-            if e.get("metadata")
-                .and_then(|m| m.get("mappings"))
-                .map(|m| !m.is_null())
-                .unwrap_or(false)
-            {
-                out.push(e);
-            }
-        }
-        offset += PAGE;
-        if n < PAGE || offset >= result.total {
+        let short = (page.entities.len() as i64) < PAGE;
+        out.extend(page.entities.into_iter().filter(has_mappings));
+        if short {
             break;
         }
     }
@@ -772,6 +805,226 @@ pub(crate) fn is_third_party_name_urn(urn: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const OWNER: &str = "0xaaaa000000000000000000000000000000000001";
+    const HAT: &str = "urn:decentraland:matic:collections-v2:0xc0ffee:1";
+    const CAPE: &str = "urn:decentraland:matic:collections-v2:0xc0ffee:2";
+    const OLD_HAT: &str = "urn:decentraland:ethereum:collections-v1:oldies:hat";
+
+    const SQUID_DDL: &str = "
+        CREATE TABLE squid_marketplace.item (id TEXT PRIMARY KEY, rarity TEXT, price NUMERIC);
+        CREATE TABLE squid_marketplace.wearable (id TEXT PRIMARY KEY, name TEXT, category TEXT);
+        CREATE TABLE squid_marketplace.emote (id TEXT PRIMARY KEY, name TEXT, category TEXT);
+        CREATE TABLE squid_marketplace.metadata (id TEXT PRIMARY KEY, wearable_id TEXT, emote_id TEXT);
+        CREATE TABLE squid_marketplace.nft (
+            id TEXT PRIMARY KEY, owner_address TEXT NOT NULL, category TEXT, urn TEXT,
+            token_id NUMERIC, transferred_at BIGINT, item_id TEXT, metadata_id TEXT);
+        INSERT INTO squid_marketplace.item VALUES ('i-hat', 'epic', 10), ('i-cape', 'rare', 5);
+        INSERT INTO squid_marketplace.wearable VALUES ('w-hat', 'Hat', 'hat'), ('w-cape', 'Cape', 'upper_body');
+        INSERT INTO squid_marketplace.metadata VALUES ('m-hat', 'w-hat', NULL), ('m-cape', 'w-cape', NULL);
+        INSERT INTO squid_marketplace.nft VALUES
+            ('n-1', '0xaaaa000000000000000000000000000000000001', 'wearable', 'urn:decentraland:matic:collections-v2:0xc0ffee:1', 7, 100, 'i-hat', 'm-hat'),
+            ('n-2', '0xaaaa000000000000000000000000000000000001', 'wearable', 'urn:decentraland:matic:collections-v2:0xc0ffee:1', 3, 300, 'i-hat', 'm-hat'),
+            ('n-3', '0xaaaa000000000000000000000000000000000001', 'wearable', 'urn:decentraland:matic:collections-v2:0xc0ffee:1', 5, 200, 'i-hat', 'm-hat'),
+            ('n-4', '0xaaaa000000000000000000000000000000000001', 'wearable', 'urn:decentraland:matic:collections-v2:0xc0ffee:2', 9, 250, 'i-cape', 'm-cape'),
+            ('n-5', '0xaaaa000000000000000000000000000000000001', 'wearable', 'urn:decentraland:mainnet:collections-v1:oldies:hat', 1, 50, NULL, NULL),
+            ('n-6', '0xaaaa000000000000000000000000000000000001', 'emote', 'urn:decentraland:matic:collections-v2:0xc0ffee:3', 1, 400, NULL, NULL),
+            ('n-7', '0xbbbb000000000000000000000000000000000002', 'wearable', 'urn:decentraland:matic:collections-v2:0xc0ffee:1', 8, 500, 'i-hat', 'm-hat');
+    ";
+
+    struct PagedDb {
+        entities: Vec<Value>,
+        fail_at: Option<i64>,
+        offsets: std::sync::Mutex<Vec<i64>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::state::Database for PagedDb {
+        async fn active_entities_by_pointers(
+            &self,
+            _pointers: &[String],
+        ) -> Result<Vec<Value>, crate::state::DatabaseError> {
+            Ok(Vec::new())
+        }
+        async fn active_entities_by_ids(
+            &self,
+            _ids: &[String],
+        ) -> Result<Vec<Value>, crate::state::DatabaseError> {
+            Ok(Vec::new())
+        }
+        async fn active_entities_by_prefix(
+            &self,
+            _prefix: &str,
+            offset: i64,
+            limit: i64,
+        ) -> Result<crate::state::PrefixQueryResult, crate::state::DatabaseError> {
+            self.offsets.lock().unwrap().push(offset);
+            if self.fail_at == Some(offset) {
+                return Err(crate::state::DatabaseError::Unsupported("boom".into()));
+            }
+            let page = self
+                .entities
+                .iter()
+                .skip(offset as usize)
+                .take(limit as usize)
+                .cloned()
+                .collect();
+            Ok(crate::state::PrefixQueryResult {
+                total: self.entities.len() as i64,
+                entities: page,
+            })
+        }
+        async fn active_entity_ids_by_content_hash(
+            &self,
+            _hash: &str,
+        ) -> Result<Vec<String>, crate::state::DatabaseError> {
+            Ok(Vec::new())
+        }
+        async fn get_deployments(
+            &self,
+            _options: &crate::state::DeploymentQueryOptions,
+        ) -> Result<crate::state::DeploymentQueryResult, crate::state::DatabaseError> {
+            Err(crate::state::DatabaseError::Unsupported("stub".into()))
+        }
+        async fn get_pointer_changes(
+            &self,
+            _options: &crate::state::PointerChangesQueryOptions,
+        ) -> Result<crate::state::PointerChangesQueryResult, crate::state::DatabaseError> {
+            Err(crate::state::DatabaseError::Unsupported("stub".into()))
+        }
+        async fn get_failed_deployments(&self) -> Result<Vec<Value>, crate::state::DatabaseError> {
+            Ok(Vec::new())
+        }
+        async fn get_audit_info(
+            &self,
+            _entity_type: &str,
+            _entity_id: &str,
+        ) -> Result<Option<Value>, crate::state::DatabaseError> {
+            Ok(None)
+        }
+        async fn find_entity_by_pointer(
+            &self,
+            _pointer: &str,
+        ) -> Result<Option<Value>, crate::state::DatabaseError> {
+            Ok(None)
+        }
+    }
+
+    fn paged_state(n: usize, fail_at: Option<i64>) -> (Arc<AppState>, Arc<PagedDb>) {
+        let entities = (0..n)
+            .map(|i| {
+                let mappings = if i % 3 == 0 { Value::Null } else { json!({}) };
+                json!({ "id": format!("Qm{i}"), "metadata": { "mappings": mappings } })
+            })
+            .collect();
+        let db = Arc::new(PagedDb {
+            entities,
+            fail_at,
+            offsets: Default::default(),
+        });
+        (crate::test_support::app_state_with_database(db.clone()), db)
+    }
+
+    #[tokio::test]
+    async fn collection_pages_are_fetched_concurrently_in_order() {
+        let (state, db) = paged_state(2500, None);
+        let got = fetch_collection_entities(&state, "urn:x").await;
+        let ids: Vec<&str> = got.iter().map(|e| e["id"].as_str().unwrap()).collect();
+        let want: Vec<String> = (0..2500)
+            .filter(|i| i % 3 != 0)
+            .map(|i| format!("Qm{i}"))
+            .collect();
+        assert_eq!(ids, want, "every page, page order, mappings-only");
+        let mut offsets = db.offsets.lock().unwrap().clone();
+        offsets.sort();
+        assert_eq!(offsets, vec![0, 1000, 2000]);
+
+        let (state, db) = paged_state(900, None);
+        assert_eq!(fetch_collection_entities(&state, "urn:x").await.len(), 600);
+        assert_eq!(
+            *db.offsets.lock().unwrap(),
+            vec![0],
+            "a short first page ends it"
+        );
+
+        let (state, _) = paged_state(2500, Some(1000));
+        let got = fetch_collection_entities(&state, "urn:x").await;
+        assert_eq!(got.len(), 666, "a failed page keeps the pages before it");
+
+        let (state, _) = paged_state(10, Some(0));
+        assert!(fetch_collection_entities(&state, "urn:x").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn owned_groups_come_back_grouped_and_filtered_by_sql() {
+        let Some(db) =
+            crate::handlers::profile_processing::pg_scratch::ScratchSquid::new(SQUID_DDL).await
+        else {
+            return;
+        };
+        let pool = &db.pool;
+
+        let mut items = fetch_owned_grouped(pool, OWNER, "wearable", None, None, None).await;
+        items.sort_by(|a, b| a.urn.cmp(&b.urn));
+        assert_eq!(urns(&items), vec![OLD_HAT, HAT, CAPE]);
+
+        let hat = &items[1];
+        assert_eq!(
+            (
+                hat.name.as_str(),
+                hat.category.as_str(),
+                hat.rarity.as_str()
+            ),
+            ("Hat", "hat", "epic")
+        );
+        assert_eq!((hat.min_transferred_at, hat.max_transferred_at), (100, 300));
+        let copies: Vec<(&str, i64, &str)> = hat
+            .individual
+            .iter()
+            .map(|d| (d.token_id.as_str(), d.transferred_at, d.price.as_str()))
+            .collect();
+        assert_eq!(
+            copies,
+            vec![("3", 300, "10"), ("5", 200, "10"), ("7", 100, "10")],
+            "copies newest first"
+        );
+        let old = &items[0];
+        assert_eq!(
+            (
+                old.name.as_str(),
+                old.category.as_str(),
+                old.rarity.as_str()
+            ),
+            ("", "", "")
+        );
+        assert_eq!(old.individual[0].price, "0", "no item row means price 0");
+
+        let by_category =
+            fetch_owned_grouped(pool, OWNER, "wearable", Some("hat"), None, None).await;
+        assert_eq!(urns(&by_category), vec![HAT]);
+        let by_rarity =
+            fetch_owned_grouped(pool, OWNER, "wearable", None, Some("rare"), None).await;
+        assert_eq!(urns(&by_rarity), vec![CAPE]);
+        let by_name = fetch_owned_grouped(pool, OWNER, "wearable", None, None, Some("cAp")).await;
+        assert_eq!(urns(&by_name), vec![CAPE]);
+        let none =
+            fetch_owned_grouped(pool, OWNER, "wearable", Some("hat"), Some("rare"), None).await;
+        assert!(none.is_empty());
+        let empty_category =
+            fetch_owned_grouped(pool, OWNER, "wearable", Some(""), None, None).await;
+        assert_eq!(
+            urns(&empty_category),
+            vec![OLD_HAT],
+            "an empty filter keeps unnamed items"
+        );
+        let upper =
+            fetch_owned_grouped(pool, &OWNER.to_uppercase(), "wearable", None, None, None).await;
+        assert_eq!(upper.len(), 3, "owner lookups are case-insensitive");
+        let emotes = fetch_owned_grouped(pool, OWNER, "emote", None, None, None).await;
+        assert_eq!(emotes.len(), 1);
+
+        db.drop().await;
+    }
 
     fn item(urn: &str, name: &str, rarity: &str, min_at: i64, max_at: i64) -> GroupedItem {
         GroupedItem {

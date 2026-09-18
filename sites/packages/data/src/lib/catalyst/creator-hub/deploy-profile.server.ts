@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { catalystBase } from "../client";
 
-export type AuthChainDelegate = {
+type AuthChainDelegate = {
   type: string;
   payload: string;
   signature: string;
@@ -18,7 +18,7 @@ export type AuthIdentity = {
 
 export type AvatarColor = { color: { r: number; g: number; b: number; a?: number } };
 
-export type AvatarWireFormat = {
+type AvatarWireFormat = {
   bodyShape?: string;
   eyes?: AvatarColor;
   hair?: AvatarColor;
@@ -28,7 +28,7 @@ export type AvatarWireFormat = {
   emotes?: { slot: number; urn: string }[];
 };
 
-export type ProfileAvatar = {
+type ProfileAvatar = {
   name: string;
   version: number;
   ethAddress: string;
@@ -39,9 +39,9 @@ export type ProfileAvatar = {
   [key: string]: unknown;
 };
 
-export type ContentFile = { file: string; hash: string };
+type ContentFile = { file: string; hash: string };
 
-export type ProfileDeployment = {
+type ProfileDeployment = {
   version: "v3";
   type: "profile";
   pointers: string[];
@@ -94,9 +94,9 @@ export function computeEntityId(bytes: Uint8Array): string {
   return multibaseBase32Lower(Uint8Array.from(cidBytes));
 }
 
-export type AuthChainLink = { type: string; payload: string; signature: string };
+type AuthChainLink = { type: string; payload: string; signature: string };
 
-export function buildAuthChain(
+function buildAuthChain(
   signerAddress: string,
   entityId: string,
   signature: string,
@@ -119,7 +119,7 @@ export type ProfileEntityInput = {
   timestamp?: number;
 };
 
-export const DEFAULT_PROFILE_EMOTES: { slot: number; urn: string }[] = [
+const DEFAULT_PROFILE_EMOTES: { slot: number; urn: string }[] = [
   { slot: 0, urn: "handsair" },
   { slot: 1, urn: "wave" },
   { slot: 2, urn: "fistpump" },
@@ -156,7 +156,7 @@ export function buildProfileDeployment(input: ProfileEntityInput): ProfileDeploy
   };
 }
 
-export type DeployProfileOptions = {
+type DeployProfileOptions = {
   base?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
@@ -165,9 +165,9 @@ export type DeployProfileOptions = {
 const DeployAckSchema = z
   .object({ creationTimestamp: z.number().nullish() })
   .nullable();
-export type DeployAck = z.infer<typeof DeployAckSchema>;
+type DeployAck = z.infer<typeof DeployAckSchema>;
 
-export type DeployProfileResult = {
+type DeployProfileResult = {
   entityId: string;
   response: DeployAck;
 };
@@ -243,7 +243,7 @@ export async function deployProfile(
   return { entityId, response: ack.data };
 }
 
-export type ServerDeploySigner = AuthIdentity & {
+type ServerDeploySigner = AuthIdentity & {
   isGuest?: boolean;
 };
 
@@ -252,7 +252,7 @@ declare global {
   var __dclServerDeploySigner: ServerDeploySigner | undefined;
 }
 
-export function resolveServerSigner(): AuthIdentity | null {
+function resolveServerSigner(): AuthIdentity | null {
   const s = globalThis.__dclServerDeploySigner;
   if (!s || s.isGuest || !s.signerAddress || typeof s.signMessage !== "function") {
     return null;
@@ -260,7 +260,7 @@ export function resolveServerSigner(): AuthIdentity | null {
   return { signerAddress: s.signerAddress, signMessage: s.signMessage, delegates: s.delegates };
 }
 
-export type GatedDeployResult =
+type GatedDeployResult =
   | { deployed: true; entityId: string; response: DeployAck }
   | { deployed: false; reason: "no-signer"; entityId?: undefined };
 

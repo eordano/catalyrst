@@ -5,32 +5,12 @@ import type { GetOptions } from "../client";
 import { signedFetch } from "../../auth/signer";
 import type { AuthIdentity } from "../../auth/types";
 
-import {
-  ClaimCreditsResponseSchema,
-  CreditsProgramProgressResponseSchema,
-  GoalDataSchema,
-  GoalProgressDataSchema,
-  SeasonDataSchema,
-  SeasonsDataSchema,
-  WeekSchema,
-} from "../generated-schemas/credits";
+import { ClaimCreditsResponseSchema, CreditsProgramProgressResponseSchema, GoalDataSchema, SeasonsDataSchema } from "../generated-schemas/credits";
 
-export {
-  SeasonDataSchema,
-  WeekSchema,
-  SeasonsDataSchema,
-  GoalProgressDataSchema as GoalProgressSchema,
-  GoalDataSchema as GoalSchema,
-  CreditsProgramProgressResponseSchema as ProgressSchema,
-  ClaimCreditsResponseSchema as ClaimResultSchema,
-};
-
-export type SeasonData = z.infer<typeof SeasonDataSchema>;
-export type Week = z.infer<typeof WeekSchema>;
 export type SeasonsData = z.infer<typeof SeasonsDataSchema>;
-export type Goal = z.infer<typeof GoalDataSchema>;
-export type CreditsProgress = z.infer<typeof CreditsProgramProgressResponseSchema>;
-export type ClaimResult = z.infer<typeof ClaimCreditsResponseSchema>;
+type Goal = z.infer<typeof GoalDataSchema>;
+type CreditsProgress = z.infer<typeof CreditsProgramProgressResponseSchema>;
+type ClaimResult = z.infer<typeof ClaimCreditsResponseSchema>;
 
 export async function fetchSeasons(opts: GetOptions = {}): Promise<SeasonsData> {
   const raw = await getJSON<unknown>("/credits/seasons", opts);
@@ -75,9 +55,9 @@ export async function claimCredits(
   return ClaimCreditsResponseSchema.parse(raw);
 }
 
-export type GoalStatus = "progress" | "claim" | "claimed" | "completed";
+type GoalStatus = "progress" | "claim" | "claimed" | "completed";
 
-export type CreditsGoalVM = {
+type CreditsGoalVM = {
   title: string;
   description: string;
   completed: number;
@@ -100,7 +80,7 @@ export type CreditsHubVM = {
   goals: CreditsGoalVM[];
 };
 
-export function goalStatus(g: Goal): GoalStatus {
+function goalStatus(g: Goal): GoalStatus {
   if (g.isClaimed) return "claimed";
   const done = g.progress.completedSteps >= g.progress.totalSteps;
   return done ? "claim" : "progress";

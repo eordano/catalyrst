@@ -3,13 +3,13 @@ import { z } from "zod";
 import { getJSON } from "../client";
 import { submitProposal } from "./submit-client";
 import type { AuthIdentity } from "../../auth/types";
-import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 import {
   ProposalRowSchema,
   ProposalsEnvelopeSchema,
 } from "../generated-schemas/governance";
 import { governanceApiBase } from "./api-base";
-import { validateCoAuthors as sharedValidateCoAuthors, type FieldErrors } from "./co-authors";
+import { type FieldErrors } from "./co-authors";
+import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 
 export const GOVERNANCE_SCHEMA = {
   vpThreshold: 2500,
@@ -25,8 +25,6 @@ export const GOVERNANCE_SCHEMA = {
   ],
   coAuthorsMax: 5,
 } as const;
-
-export const BODY_NAMES = GOVERNANCE_SCHEMA.bodies.map((b) => b.name);
 
 export type LinkedDraft = {
   id: string;
@@ -86,7 +84,7 @@ export function getGovernanceProposalCopy(): GovernanceProposalCopy {
   return GOVERNANCE_COPY;
 }
 
-export type LoadDraftsOptions = {
+type LoadDraftsOptions = {
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   base?: string;
@@ -160,10 +158,6 @@ export function validateDetails(values: {
   return errors;
 }
 
-export function validateCoAuthors(coAuthors: string[]): FieldErrors {
-  return sharedValidateCoAuthors(coAuthors, GOVERNANCE_SCHEMA.coAuthorsMax);
-}
-
 export type GovernanceProposalDraft = {
   linkedDraftId: string;
   title: string;
@@ -176,21 +170,21 @@ export type CreatedProposal = {
   type: "governance";
 };
 
-export type CreateProposalFn = (args: {
+type CreateProposalFn = (args: {
   draft: GovernanceProposalDraft;
   signal?: AbortSignal;
 }) => Promise<CreatedProposal>;
 
-export type GovernanceBodyName = (typeof GOVERNANCE_SCHEMA.bodies)[number]["name"];
+type GovernanceBodyName = (typeof GOVERNANCE_SCHEMA.bodies)[number]["name"];
 
-export type NewProposalGovernance = {
+type NewProposalGovernance = {
   type: "governance";
   linked_proposal_id: string;
   title: string;
   coAuthors: string[];
 } & Record<GovernanceBodyName, string>;
 
-export function buildProposalPayload(
+function buildProposalPayload(
   draft: GovernanceProposalDraft,
 ): NewProposalGovernance {
   const bodies = {} as Record<GovernanceBodyName, string>;
@@ -229,7 +223,9 @@ export function buildCreateProposal(
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftProposalsEnvelope = Assert<
   AssignableTo<
     RsListEnvelope,
@@ -238,3 +234,4 @@ export type _DriftProposalsEnvelope = Assert<
     }
   >
 >;
+

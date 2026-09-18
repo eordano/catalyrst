@@ -3,10 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use catalyrst_commons::cache::TtlCell;
+use catalyrst_commons::cache::{TtlCell, TtlMap};
 use serde::Deserialize;
 
 const BAN_CHECK_TIMEOUT: Duration = Duration::from_millis(1000);
+
+const BAN_VERDICT_TTL: Duration = Duration::from_secs(10);
+const BAN_VERDICT_MAX_ENTRIES: usize = 20_000;
 
 const DENY_LIST_TTL: Duration = Duration::from_secs(5 * 60);
 
@@ -56,6 +59,9 @@ struct BansData {
 pub struct BanChecker {
     gatekeeper_url: Option<String>,
     http: reqwest::Client,
+    /// Verdicts keyed on the address as asked; a lookup that failed open is
+    /// never stored, so the next caller asks again.
+    verdicts: Arc<TtlMap<String, bool>>,
 }
 
 impl BanChecker {
@@ -66,6 +72,11 @@ impl BanChecker {
         Arc::new(Self {
             gatekeeper_url,
             http,
+            verdicts: Arc::new(TtlMap::bounded(
+                "archipelago-ban-verdicts",
+                BAN_VERDICT_TTL,
+                BAN_VERDICT_MAX_ENTRIES,
+            )),
         })
     }
 
@@ -73,27 +84,49 @@ impl BanChecker {
         self.gatekeeper_url.is_some()
     }
 
+    /// Memoized for a few seconds; the sweep uses `is_banned_fresh` instead.
     pub async fn is_banned(&self, address: &str) -> bool {
         let Some(base) = self.gatekeeper_url.as_deref() else {
             return false;
         };
+        self.verdicts
+            .get_or_fetch(address.to_string(), || self.lookup(base, address))
+            .await
+            .unwrap_or(false)
+    }
+
+    /// Always asks the gatekeeper and refreshes the memo with what it said.
+    pub async fn is_banned_fresh(&self, address: &str) -> bool {
+        let Some(base) = self.gatekeeper_url.as_deref() else {
+            return false;
+        };
+        match self.lookup(base, address).await {
+            Ok(banned) => {
+                self.verdicts.insert(address.to_string(), banned);
+                banned
+            }
+            Err(()) => false,
+        }
+    }
+
+    async fn lookup(&self, base: &str, address: &str) -> Result<bool, ()> {
         let url = format!("{}/users/{}/bans", base, encode_uri_component(address));
         let resp = match self.http.get(&url).timeout(BAN_CHECK_TIMEOUT).send().await {
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(address, error = %e, "ban check failed, allowing connection");
-                return false;
+                return Err(());
             }
         };
         if !resp.status().is_success() {
             tracing::warn!(address, status = %resp.status(), "ban check non-OK status, allowing connection");
-            return false;
+            return Err(());
         }
         match resp.json::<BansEnvelope>().await {
-            Ok(body) => body.data.and_then(|d| d.is_banned).unwrap_or(false),
+            Ok(body) => Ok(body.data.and_then(|d| d.is_banned).unwrap_or(false)),
             Err(e) => {
                 tracing::warn!(address, error = %e, "ban check malformed body, allowing connection");
-                false
+                Err(())
             }
         }
     }

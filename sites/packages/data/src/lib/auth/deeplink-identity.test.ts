@@ -17,8 +17,8 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
-describe("toHandoffIdentity", () => {
-  it("emits the persisted shape the client reads back, with a public key", async () => {
+describe("postIdentityHandoff", () => {
+  it("posts the persisted identity shape with signed-fetch headers and returns the identity id", async () => {
     const identity = await createIdentityFromPrivateKey(SIGNER_KEY);
     const handoff = toHandoffIdentity(identity);
     expect(Object.keys(handoff).sort()).toEqual(["authChain", "ephemeralIdentity", "expiration"]);
@@ -28,12 +28,7 @@ describe("toHandoffIdentity", () => {
     expect(handoff.expiration).toBe(identity.expiration);
     expect(handoff.authChain).toEqual(identity.authChain);
     expect("signer" in handoff).toBe(false);
-  });
-});
 
-describe("postIdentityHandoff", () => {
-  it("posts the identity with signed-fetch headers and returns the identity id", async () => {
-    const identity = await createIdentityFromPrivateKey(SIGNER_KEY);
     const fetchMock = vi.fn(async () =>
       jsonResponse(201, {
         identityId: "9b2c1a1e-4c3d-4f5e-8a6b-7c8d9e0f1a2b",
@@ -41,9 +36,7 @@ describe("postIdentityHandoff", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-
     const result = await postIdentityHandoff(identity, "https://auth-api.catalyst.example.com");
-
     expect(result).toEqual({
       identityId: "9b2c1a1e-4c3d-4f5e-8a6b-7c8d9e0f1a2b",
       expiration: "2026-09-04T13:00:00.000Z",
@@ -52,7 +45,6 @@ describe("postIdentityHandoff", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://auth-api.catalyst.example.com/identities");
     expect(init.method).toBe("POST");
-
     const headers = new Headers(init.headers);
     expect(headers.get("content-type")).toBe("application/json");
     expect(headers.get("x-identity-timestamp")).toMatch(/^\d+$/);
@@ -66,13 +58,12 @@ describe("postIdentityHandoff", () => {
     expect(link2.payload).toBe(
       `post:/identities:${headers.get("x-identity-timestamp")}:{}`.toLowerCase(),
     );
-
     const body = JSON.parse(String(init.body));
     expect(body.isMobile).toBe(false);
-    expect(body.identity).toEqual(toHandoffIdentity(identity));
+    expect(body.identity).toEqual(handoff);
   });
 
-  it("surfaces the server error text when the post is refused", async () => {
+  it("surfaces the server error when refused and rejects a success that carries no identity id", async () => {
     const identity = await createIdentityFromPrivateKey(SIGNER_KEY);
     vi.stubGlobal(
       "fetch",
@@ -81,42 +72,28 @@ describe("postIdentityHandoff", () => {
     await expect(postIdentityHandoff(identity, "/auth-api")).rejects.toThrow(
       "Request sender does not match identity owner",
     );
-  });
-
-  it("rejects a success response that carries no identity id", async () => {
-    const identity = await createIdentityFromPrivateKey(SIGNER_KEY);
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(201, { ok: true })));
     await expect(postIdentityHandoff(identity, "/auth-api")).rejects.toThrow(
       "The sign-in server returned no identity id.",
     );
   });
 
-  it("hands the caller's deadline to the handoff so a hung server cannot freeze the sign-in", async () => {
+  it("hands the caller's deadline to fetch and gives up once it passes", async () => {
     const identity = await createIdentityFromPrivateKey(SIGNER_KEY);
-    const fetchMock = vi.fn(async () => jsonResponse(201, { identityId: "id-1", expiration: "" }));
+    const fetchMock = vi.fn(async (_input: string, init: RequestInit = {}) => {
+      if (init.signal?.aborted) throw init.signal.reason;
+      return jsonResponse(201, { identityId: "id-1", expiration: "" });
+    });
     vi.stubGlobal("fetch", fetchMock);
-    const controller = new AbortController();
-
-    await postIdentityHandoff(identity, "/auth-api", { signal: controller.signal });
-
+    const live = new AbortController();
+    await postIdentityHandoff(identity, "/auth-api", { signal: live.signal });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(init.signal).toBe(controller.signal);
-  });
+    expect(init.signal).toBe(live.signal);
 
-  it("gives the handoff up when the deadline passes", async () => {
-    const identity = await createIdentityFromPrivateKey(SIGNER_KEY);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_input: string, init: RequestInit = {}) => {
-        if (init.signal?.aborted) throw init.signal.reason;
-        return jsonResponse(201, { identityId: "id-1", expiration: "" });
-      }),
-    );
-    const controller = new AbortController();
-    controller.abort(new DOMException("timed out", "TimeoutError"));
-
+    const expired = new AbortController();
+    expired.abort(new DOMException("timed out", "TimeoutError"));
     await expect(
-      postIdentityHandoff(identity, "/auth-api", { signal: controller.signal }),
+      postIdentityHandoff(identity, "/auth-api", { signal: expired.signal }),
     ).rejects.toThrow("timed out");
   });
 });

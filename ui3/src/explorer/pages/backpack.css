@@ -233,7 +233,6 @@
 }
 .bp__pagebtn:hover:not(:disabled) { background: rgba(255,255,255,.5); }
 .bp__pagebtn:disabled { opacity: .35; cursor: default; }
-.bp__pageinfo { font-size: var(--fs-sm); font-weight: 700; color: rgba(255,255,255,.85); min-width: 56px; text-align: center; }
 .bp__pagenum {
   min-width: 30px; height: 30px; padding: 0 4px; border-radius: 8px; border: none; cursor: pointer;
   background: transparent; color: rgba(255,255,255,.75); font: inherit; font-size: var(--fs-sm); font-weight: 700;

@@ -73,97 +73,69 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
-describe("communityMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(communityMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
+describe("communityMachine \u{2014} URL ?step slug map", () => {
+  it("maps every state to a unique round-tripping slug and falls back to signinGate", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(communityMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.signinGate);
-    expect(slugToState(null)).toBe("signinGate");
-    expect(slugToState(undefined)).toBe("signinGate");
-    expect(slugToState("")).toBe("signinGate");
-    expect(slugToState("nope")).toBe("signinGate");
-    expect(slugToState("basics")).toBe("basics");
-    expect(slugToState("privacy")).toBe("privacy");
-    expect(slugToState("submitting")).toBe("submitting");
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("signinGate");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("communityMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveCommunitySnapshot({
-      step: "signinGate",
-      trackCtx: inputFor(okCreate, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating a later step does NOT fire telemetry and does NOT auto-create", async () => {
+  it("boots signinGate without a snapshot, hydrates submitting silently, and only real transitions track", async () => {
     const track = vi.fn();
     const create = vi.fn(okCreate);
-    const snapshot = resolveCommunitySnapshot({
-      step: "submitting",
-      trackCtx: inputFor(create, track).trackCtx,
-      draft: validDraft(),
-      create,
-      track,
-    });
-    const actor = createActor(communityMachine, {
+    const trackCtx = inputFor(create, track).trackCtx;
+    expect(resolveCommunitySnapshot({ step: "signinGate", trackCtx })).toBeUndefined();
+
+    const submitting = createActor(communityMachine, {
       input: inputFor(create, track),
-      snapshot,
+      snapshot: resolveCommunitySnapshot({
+        step: "submitting",
+        trackCtx,
+        draft: validDraft(),
+        create,
+        track,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveCommunitySnapshot({
-      step: "places",
-      trackCtx: inputFor(okCreate, track).trackCtx,
-      draft: validDraft(),
-      track,
-    });
-    const actor = createActor(communityMachine, {
+    const places = createActor(communityMachine, {
       input: inputFor(okCreate, track),
-      snapshot,
+      snapshot: resolveCommunitySnapshot({ step: "places", trackCtx, draft: validDraft(), track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("places")).toBe(true);
+    expect(places.getSnapshot().matches("places")).toBe(true);
     expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "NEXT" });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(COMMUNITY_EVENTS.reviewReached);
+    places.send({ type: "NEXT" });
+    expect(places.getSnapshot().matches("review")).toBe(true);
+    expect(names(track)).toContain(COMMUNITY_EVENTS.reviewReached);
   });
 });
 
 describe("communityMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state, and basics NEXT is guarded by draft validity", () => {
     const paths = getShortestPaths(communityMachine, {
       input: inputFor(okCreate, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
@@ -171,43 +143,22 @@ describe("communityMachine \u{2014} model-based path coverage (@xstate/graph)", 
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("basics")).toBe(true);
-    expect(ends.has("thumbnail")).toBe(true);
-    expect(ends.has("privacy")).toBe(true);
-    expect(ends.has("places")).toBe(true);
-    expect(ends.has("review")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
-
-  it("reaching submitting passes through SIGN_IN, the form steps, and SUBMIT", () => {
-    const paths = getShortestPaths(communityMachine, {
-      input: inputFor(okCreate, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["basics", "thumbnail", "privacy", "places", "review", "submitting"]) {
+      expect(ends.has(s)).toBe(true);
+    }
     const submitting = paths.find((p) => (p.state.value as string) === "submitting");
-    expect(submitting).toBeDefined();
     const events = submitting!.steps.map((s) => s.event.type);
-    expect(events).toContain("SIGN_IN");
-    expect(events).toContain("NEXT");
-    expect(events).toContain("SUBMIT");
-  });
+    for (const e of ["SIGN_IN", "NEXT", "SUBMIT"]) expect(events).toContain(e);
 
-  it("basics NEXT is blocked when the draft is invalid (empty name/description)", () => {
-    const track = vi.fn();
     const actor = createActor(communityMachine, {
-      input: inputFor(okCreate, track, emptyDraft()),
+      input: inputFor(okCreate, vi.fn(), emptyDraft()),
     }).start();
-
     actor.send({ type: "SIGN_IN" });
-    expect(actor.getSnapshot().matches("basics")).toBe(true);
-
     actor.send({ type: "NEXT" });
     expect(actor.getSnapshot().matches("basics")).toBe(true);
-
     actor.send({ type: "EDIT", patch: { name: "My Community" } });
     actor.send({ type: "NEXT" });
     expect(actor.getSnapshot().matches("basics")).toBe(true);
-
     actor.send({ type: "EDIT", patch: { description: "Hello there." } });
     actor.send({ type: "NEXT" });
     expect(actor.getSnapshot().matches("thumbnail")).toBe(true);
@@ -220,8 +171,7 @@ describe("communityMachine \u{2014} telemetry events (happy path)", () => {
     const actor = createActor(communityMachine, {
       input: inputFor(okCreate, track),
     }).start();
-
-    expect(track.mock.calls.map((c) => c[0])).toContain(COMMUNITY_EVENTS.gateViewed);
+    expect(names(track)).toContain(COMMUNITY_EVENTS.gateViewed);
 
     actor.send({ type: "SIGN_IN" });
     actor.send({ type: "NEXT" });
@@ -229,23 +179,24 @@ describe("communityMachine \u{2014} telemetry events (happy path)", () => {
     actor.send({ type: "NEXT" });
     actor.send({ type: "NEXT" });
     expect(actor.getSnapshot().matches("review")).toBe(true);
-
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("created"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(COMMUNITY_EVENTS.started);
-    expect(events).toContain(COMMUNITY_EVENTS.reviewReached);
-    expect(events).toContain(COMMUNITY_EVENTS.submitAttempted);
-    expect(events).toContain(COMMUNITY_EVENTS.created);
-
+    const events = names(track);
+    for (const e of [
+      COMMUNITY_EVENTS.started,
+      COMMUNITY_EVENTS.reviewReached,
+      COMMUNITY_EVENTS.submitAttempted,
+      COMMUNITY_EVENTS.created,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(COMMUNITY_EVENTS.started)).toBeLessThan(
       events.indexOf(COMMUNITY_EVENTS.reviewReached),
     );
     expect(events.indexOf(COMMUNITY_EVENTS.reviewReached)).toBeLessThan(
       events.indexOf(COMMUNITY_EVENTS.created),
     );
-
     const startedCall = track.mock.calls.find((c) => c[0] === COMMUNITY_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
@@ -265,7 +216,6 @@ describe("communityMachine \u{2014} create failure + retry", () => {
       if (calls === 1) throw new Error("catalyst unreachable");
       return okCreate(args);
     };
-
     const actor = createActor(communityMachine, {
       input: inputFor(create, track),
     }).start();
@@ -275,30 +225,23 @@ describe("communityMachine \u{2014} create failure + retry", () => {
     actor.send({ type: "NEXT" });
     actor.send({ type: "NEXT" });
     actor.send({ type: "NEXT" });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
-
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("review") && s.context.error !== undefined);
     expect(actor.getSnapshot().context.error).toBe("catalyst unreachable");
-
-    const failEvents = track.mock.calls.map((c) => c[0]);
-    expect(failEvents).toContain(COMMUNITY_EVENTS.submitFailed);
+    expect(names(track)).toContain(COMMUNITY_EVENTS.submitFailed);
 
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("created"));
-    expect(track.mock.calls.map((c) => c[0])).toContain(COMMUNITY_EVENTS.created);
+    expect(names(track)).toContain(COMMUNITY_EVENTS.created);
   });
 });
 
 describe("simulate create", () => {
-  it("resolves a 64-hex id and echoes privacy/visibility (no network)", async () => {
+  it("resolves a 64-hex id echoing privacy/visibility, and rejects an empty draft", async () => {
     const created = await simulateCreate({ draft: validDraft() });
     expect(created.id).toMatch(/^[0-9a-f]{64}$/);
     expect(created.privacy).toBe("public");
     expect(created.visibility).toBe("all");
-  });
-
-  it("rejects an empty draft (name/description required)", async () => {
     await expect(simulateCreateCommunity(emptyDraft())).rejects.toThrow(/required/);
   });
 });

@@ -37,31 +37,6 @@
   background: var(--gv-page);
 }
 
-.gv__vp {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 38px;
-  padding: 0 14px;
-  border-radius: var(--r-pill);
-  background: var(--gv-wash);
-  border: 1px solid var(--gv-line);
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--gv-ink);
-  white-space: nowrap;
-}
-.gv__vpmark {
-  display: inline-flex;
-  color: var(--brand);
-}
-.gv__vplabel {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  color: var(--gv-muted);
-}
-
 .gv .dtb__download,
 .gv .dtb__signin {
   cursor: pointer;

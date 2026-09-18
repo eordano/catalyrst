@@ -103,14 +103,26 @@ pub enum PoolError {
 }
 
 pub async fn connect_pool(url: &str, settings: &PoolSettings) -> Result<PgPool, PoolError> {
+    connect_pool_with_options(url, settings, &[]).await
+}
+
+/// Like `connect_pool`, with extra per-session GUCs set once at connect time
+/// (no per-request SET LOCAL round trip).
+pub async fn connect_pool_with_options(
+    url: &str,
+    settings: &PoolSettings,
+    session_options: &[(&str, &str)],
+) -> Result<PgPool, PoolError> {
     let statement_timeout = settings.statement_timeout_ms.to_string();
+    let mut options: Vec<(&str, &str)> = vec![
+        ("statement_timeout", statement_timeout.as_str()),
+        ("idle_in_transaction_session_timeout", "30000"),
+    ];
+    options.extend(session_options.iter().copied());
     let connect_opts: PgConnectOptions = url
         .parse::<PgConnectOptions>()
         .map_err(PoolError::InvalidUrl)?
-        .options([
-            ("statement_timeout", statement_timeout.as_str()),
-            ("idle_in_transaction_session_timeout", "30000"),
-        ]);
+        .options(options);
 
     let mut pool_opts = PgPoolOptions::new()
         .max_connections(settings.max_connections)
@@ -139,18 +151,26 @@ pub struct Database {
 
 impl Database {
     pub async fn connect(cfg: &DatabaseConfig) -> Result<Self, DatabaseError> {
+        Self::connect_with_options(cfg, &[]).await
+    }
+
+    pub async fn connect_with_options(
+        cfg: &DatabaseConfig,
+        session_options: &[(&str, &str)],
+    ) -> Result<Self, DatabaseError> {
         let url = format!(
             "postgres://{}:{}@{}:{}/{}",
             cfg.user, cfg.password, cfg.host, cfg.port, cfg.database
         );
 
-        let pool = connect_pool(
+        let pool = connect_pool_with_options(
             &url,
             &PoolSettings {
                 max_connections: cfg.max_connections,
                 idle_timeout_secs: cfg.idle_timeout_secs,
                 ..PoolSettings::default()
             },
+            session_options,
         )
         .await
         .map_err(|e| match e {

@@ -21,7 +21,7 @@ export function loadStoredIdentity(now = Date.now()): StoredAuthIdentity | null 
   return parseStoredIdentity(raw, now);
 }
 
-export type SignedFetchHeaderOpts = {
+type SignedFetchHeaderOpts = {
   metadata?: string;
   now?: () => number;
   identity?: StoredAuthIdentity;

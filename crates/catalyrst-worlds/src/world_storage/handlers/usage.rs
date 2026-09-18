@@ -5,7 +5,7 @@ use axum::Json;
 use crate::world_storage::dto::UsageResponse;
 use crate::world_storage::handlers::common::{is_eth_address, normalize_player};
 use crate::world_storage::http::errors::ApiError;
-use crate::world_storage::{authorize, resolve_scene_context, signed_path, AppState, AuthPolicy};
+use crate::world_storage::{resolve_authorized, signed_path, AppState, AuthPolicy};
 
 pub async fn get_world_usage(
     State(state): State<AppState>,
@@ -13,8 +13,7 @@ pub async fn get_world_usage(
     uri: axum::http::Uri,
 ) -> Result<Json<UsageResponse>, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &headers, "get", &path, AuthPolicy::DEFAULT).await?;
 
     let info = state
         .storage
@@ -34,8 +33,7 @@ pub async fn get_player_usage(
 ) -> Result<Json<UsageResponse>, ApiError> {
     let player = normalize_player(&player)?;
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::DEFAULT).await?;
+    let ctx = resolve_authorized(&state, &headers, "get", &path, AuthPolicy::DEFAULT).await?;
 
     if !is_eth_address(&player) {
         return Err(ApiError::bad_request("Invalid player address"));
@@ -57,8 +55,14 @@ pub async fn get_env_usage(
     uri: axum::http::Uri,
 ) -> Result<Json<UsageResponse>, ApiError> {
     let path = signed_path(&uri);
-    let ctx = resolve_scene_context(&state, &headers, "get", &path).await?;
-    authorize(&state, &ctx, AuthPolicy::OWNERS_DEPLOYERS_ONLY).await?;
+    let ctx = resolve_authorized(
+        &state,
+        &headers,
+        "get",
+        &path,
+        AuthPolicy::OWNERS_DEPLOYERS_ONLY,
+    )
+    .await?;
 
     let info = state
         .storage

@@ -26,7 +26,7 @@ const VALID_DEPLOYMENT_FIELDS: &[&str] = &["pointers", "content", "metadata", "a
 
 const MAX_DEPLOYMENT_FILTER_VALUES: usize = 1000;
 
-fn normalize_query_string(qs: &str) -> String {
+pub(crate) fn normalize_query_string(qs: &str) -> String {
     let mut pairs: Vec<&str> = qs.split('&').filter(|s| !s.is_empty()).collect();
     pairs.sort_unstable();
     pairs.join("&")

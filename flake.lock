@@ -7,16 +7,16 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1787970971,
-        "narHash": "sha256-BCGAsWlqUHKerpf29gjx5qzIOf+dsD565DC90S5fTJw=",
+        "lastModified": 1789345694,
+        "narHash": "sha256-EeE+6hc5pQxvsaAFDEUcMAa+CWDiRWjBUGHGZGkuB0M=",
         "owner": "decentraland",
         "repo": "abgen",
-        "rev": "b0eff29ebff1cad7d80780cdc9cadc63794f602c",
+        "rev": "2230291c5eedebff9b249d60bf70b857cb25568a",
         "type": "github"
       },
       "original": {
         "owner": "decentraland",
-        "ref": "v0.17.10",
+        "ref": "v0.17.13",
         "repo": "abgen",
         "type": "github"
       }

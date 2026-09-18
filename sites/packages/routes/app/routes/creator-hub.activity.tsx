@@ -208,7 +208,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     url.searchParams.get("address")?.trim() || readWallet(request) || "";
   const pointer = url.searchParams.get("pointer")?.trim() || "";
 
-  const { sid, assignment, wrap } = await storyLoader(request, STORY, FALLBACK);
+  const { sid, wrap } = await storyLoader(request, STORY, FALLBACK);
 
   const index = await loadActivityIndex({ address, signal: request.signal });
   const scene = pointer

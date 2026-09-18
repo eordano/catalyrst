@@ -147,8 +147,8 @@ pub fn validate_event(contract: &Contract, event_name: &str, properties: &Value)
     let mut problems: Vec<String> = Vec::new();
     for (name, spec) in &ev.props {
         let val = match props.get(name) {
-            Some(v) if !v.is_null() => v,
-            _ => {
+            Some(v) => v,
+            None => {
                 if !spec.optional {
                     problems.push(format!("missing required prop \"{name}\""));
                 }
@@ -324,6 +324,30 @@ mod validate_tests {
             None,
             "the unknown kind must accept any value"
         );
+    }
+
+    #[test]
+    fn null_is_a_present_value_not_a_missing_property() {
+        let mut props = valid_props();
+        props["payload"] = Value::Null;
+        assert_eq!(validate_event(&fixture(), "thing_clicked", &props), None);
+        props.as_object_mut().unwrap().remove("payload");
+        assert_eq!(
+            validate_event(&fixture(), "thing_clicked", &props).as_deref(),
+            Some("missing required prop \"payload\"")
+        );
+    }
+
+    #[test]
+    fn null_still_fails_non_nullable_primitive_and_optional_types() {
+        for (name, kind) in [("count", "number"), ("note", "string")] {
+            let mut props = valid_props();
+            props[name] = Value::Null;
+            assert_eq!(
+                validate_event(&fixture(), "thing_clicked", &props),
+                Some(format!("prop \"{name}\" should be {kind}, got null"))
+            );
+        }
     }
 
     #[test]

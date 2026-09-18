@@ -32,12 +32,18 @@ import {
 import { loadCameraPrefs, saveCameraPrefs } from "../camera-prefs";
 import { placeAssetOnBus, setProjectPlayState } from "../project-cache";
 import { findNodeName } from "../live-tree";
+import DeSceneCard, {
+  countPlaced,
+  sceneMetaWithName,
+  type DeSceneInfo,
+} from "../components/DeSceneCard";
+import { playBadgeLabel } from "../play-badge";
 import DeCameraSettings from "../components/DeCameraSettings";
 import DeDebugPanel from "../components/DeDebugPanel";
 import DeRenderPanel from "../components/DeRenderPanel";
 import { engineConsoleRunner } from "../debugger";
 import DeShortcutsOverlay from "../components/DeShortcutsOverlay";
-import { DeAssetsPanel, type DeAssetsPreset } from "../components/DeAssetsPanel";
+import { DeAssetsPanel, usePlaceStatus, type DeAssetsPreset } from "../components/DeAssetsPanel";
 import type { DeInteractionsPreset } from "../components/DeInteractionsPanel";
 import { DeHierarchyPanel } from "../components/DeHierarchyPanel";
 import {
@@ -55,48 +61,26 @@ import { useProjectRealm } from "./useProjectRealm";
 import { useSceneMeters } from "./useSceneMeters";
 import { useWorkspaceShortcuts } from "./useWorkspaceShortcuts";
 import { ACTION_ID, TRIGGER_ID } from "../interactions-vocab";
+import { docsUrl } from "../../data/docs";
 
-export {
-  IconSelect,
-  IconMove,
-  IconRotate,
-  IconScale,
-  IconPlay,
-  IconPause,
-  IconStep,
-  IconStop,
-  IconBug,
-  IconDots,
-  IconPlus,
-  IconBolt,
-  IconImport,
-  IconTrash,
-  IconSidebarLeft,
-  IconSidebarRight,
-  IconCamera,
-  IconEdit,
-  IconUndo,
-  IconRedo,
-  ModelGlyph,
-} from "../components/DeIcons";
 export { DeToolbar } from "../components/DeToolbar";
-export type { DeToolbarProps } from "../components/DeToolbar";
-export { DeContextMenu, DeHierarchyPanel } from "../components/DeHierarchyPanel";
-export type { DeContextMenuProps, DeHierarchyPanelProps } from "../components/DeHierarchyPanel";
-export { DeAddComponentPicker, DeInspectorPanel } from "../components/DeInspectorPanel";
-export type { DeInspectorPanelProps } from "../components/DeInspectorPanel";
-export { DeAssetsPanel, DeCatalogTab, DeLocalTab } from "../components/DeAssetsPanel";
-export type {
-  DeAssetsPanelProps,
-  DeCatalogTabProps,
-  DeLocalTabProps,
-} from "../components/DeAssetsPanel";
 
 const DeCodeWorkspace = lazy(() => import("../code/DeCodeWorkspace"));
 
 const PLAY_EDIT_WARNED_KEY = "dcl-editor:play-edit-warned";
 
 const DEFAULT_VEC = { x: 0, y: 0, z: 0 };
+
+const ROOT_SELECTION_HINT =
+  "The scene root can\u{2019}t be wired \u{2014} select an item placed in the scene first";
+const ROOT_COMMAND_HINTS: Record<string, string> = {
+  delete: "The scene root can\u{2019}t be deleted \u{2014} select an item placed in the scene first",
+  duplicate:
+    "The scene root can\u{2019}t be duplicated \u{2014} select an item placed in the scene first",
+  "item.focus":
+    "The camera can\u{2019}t focus the scene root \u{2014} select an item placed in the scene first",
+};
+const SCENE_METADATA_COMPONENT = "inspector::SceneMetadata-v3";
 
 const SAVE_CHIP: Record<string, { label: string; cls: string }> = {
   idle: { label: "Unsaved", cls: "dim" },
@@ -105,7 +89,7 @@ const SAVE_CHIP: Record<string, { label: string; cls: string }> = {
   error: { label: "Save failed", cls: "error" },
 };
 
-export interface DeWorkspaceProps {
+interface DeWorkspaceProps {
   left?: "scene" | "assets";
   title?: string;
   tree?: DeTreeNode[];
@@ -119,8 +103,10 @@ export interface DeWorkspaceProps {
   prepareRealm?: (() => Promise<unknown>) | null;
   onEngineStatus?: ((status: EditorEngineStatus) => void) | null;
   onSaveToDisk?: (() => void) | null;
+  onOpenFromDisk?: (() => void) | null;
   onPublish?: (() => void) | null;
   saveState?: "idle" | "saving" | "saved" | "error";
+  sceneInfo?: DeSceneInfo | null;
 }
 
 export default function DeWorkspace({
@@ -137,8 +123,10 @@ export default function DeWorkspace({
   prepareRealm = null,
   onEngineStatus = null,
   onSaveToDisk = null,
+  onOpenFromDisk = null,
   onPublish = null,
   saveState = "idle",
+  sceneInfo = null,
 }: DeWorkspaceProps) {
   const viewportRef = useRef<HTMLIFrameElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -505,24 +493,27 @@ export default function DeWorkspace({
     return placeAssetOnBus(busRef, asset, drop ?? null);
   };
 
+  const busLive = live && sceneReady;
+  const { status: placeStatus, place: placeTracked } = usePlaceStatus(
+    busLive ? placeAsset : undefined,
+  );
+
   const [dragAsset, setDragAsset] = useState<DeCatalogItem | null>(null);
   const handleViewportDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const asset = dragAsset;
     setDragAsset(null);
-    if (!asset) return;
+    if (!asset || !placeTracked) return;
     const el = viewportRef.current;
     const r = el?.getBoundingClientRect();
     if (!r || r.width <= 0 || r.height <= 0) {
-      void placeAsset(asset);
+      placeTracked(asset);
       return;
     }
     const x = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
     const y = Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1);
-    void placeAsset(asset, { x, y });
+    placeTracked(asset, { x, y });
   };
-
-  const busLive = live && sceneReady;
   const activeId = liveSel?.active ?? null;
   const onHierSelect = busLive
     ? (id: string | number) => busRef.current?.setSelection([String(id)], String(id))
@@ -556,12 +547,23 @@ export default function DeWorkspace({
         busRef.current?.addEntity("Entity", 0);
       }
     : undefined;
+  const renameScene = busLive
+    ? (name: string) =>
+        authorComponent(
+          "0",
+          SCENE_METADATA_COMPONENT,
+          JSON.stringify(
+            sceneMetaWithName(compValuesRef.current["0"]?.[SCENE_METADATA_COMPONENT], name),
+          ),
+        )
+    : undefined;
   const undo = busLive && history.canUndo() ? () => history.undo() : undefined;
   const redo = busLive && history.canRedo() ? () => history.redo() : undefined;
   const effLeft = assetsOverride ? "assets" : left;
   const showScene = busLive ? () => setAssetsOverride(false) : undefined;
 
   const effTree = live && liveTree != null ? liveTree : tree;
+  const sceneEmpty = countPlaced(effTree) === 0;
   const activeName = useMemo(
     () => (activeId != null ? findNodeName(effTree, activeId) : null),
     [effTree, activeId],
@@ -572,12 +574,17 @@ export default function DeWorkspace({
     : activeId != null
       ? [String(activeId)]
       : [];
+  const rootActive =
+    activeId != null ? String(activeId) === "0" : !live && String(inspector.id ?? "") === "0";
+  const placeableIds = selectedIds.filter((id) => String(id) !== "0");
+  const activePlaceable =
+    activeId != null && String(activeId) !== "0" ? String(activeId) : null;
   const deleteSelected =
-    busLive && selectedIds.length > 0
+    busLive && placeableIds.length > 0
       ? () => {
           notePlayEdit();
           const batch: HistoryEntry[] = [];
-          for (const id of selectedIds) {
+          for (const id of placeableIds) {
             const comps = compValuesRef.current[String(id)];
             if (comps) {
               for (const [cname, value] of Object.entries(comps)) {
@@ -593,9 +600,9 @@ export default function DeWorkspace({
         }
       : undefined;
   const duplicateSelected =
-    busLive && activeId != null && compValuesRef.current[String(activeId)] !== undefined
+    busLive && activePlaceable !== null && compValuesRef.current[activePlaceable] !== undefined
       ? () => {
-          const src = String(activeId);
+          const src = activePlaceable;
           const comps = compValuesRef.current[src];
           if (!comps) return;
           notePlayEdit();
@@ -800,9 +807,10 @@ export default function DeWorkspace({
     debug: () => controls.onDebug?.(),
     code: code ? () => setCodeOpen((v) => !v) : undefined,
     "render.tuning": () => setRenderTuningOpen((v) => !v),
-    "ref.docs": () => openDocs("https://docs.decentraland.org/creator/"),
+    "ref.docs": () => openDocs(docsUrl("creator")),
     "ref.playground": () => openDocs("https://playground.decentraland.org/"),
     save: onSaveToDisk ?? undefined,
+    open: onOpenFromDisk ?? undefined,
     publish: onPublish ?? undefined,
   };
 
@@ -828,8 +836,14 @@ export default function DeWorkspace({
         onTab={(t) => {
           if (t !== "insert") showScene?.();
         }}
-        hasSelection={selectedIds.length > 0}
+        hasSelection={placeableIds.length > 0}
         selectionLabel={selectionLabel}
+        selectionHint={
+          rootActive && placeableIds.length === 0 ? ROOT_SELECTION_HINT : undefined
+        }
+        selectionHints={
+          rootActive && placeableIds.length === 0 ? ROOT_COMMAND_HINTS : undefined
+        }
         busLive={busLive}
         showDeveloper={devTab}
         onToggleDeveloper={setDevTab}
@@ -898,7 +912,8 @@ export default function DeWorkspace({
             local={local}
             live={live}
             preset={assetsPreset}
-            onPlace={busLive ? placeAsset : undefined}
+            onPlace={placeTracked}
+            placeStatus={placeStatus}
             onDragAsset={busLive ? setDragAsset : undefined}
           />
         ) : (
@@ -921,7 +936,17 @@ export default function DeWorkspace({
             onOpenAssets={() => setAssetsOverride(true)}
           />
         ))}
-      {!hideRight && (
+      {!hideRight && rootActive && (
+        <DeSceneCard
+          title={title}
+          info={sceneInfo}
+          live={liveScene ?? null}
+          metadata={compValuesRef.current["0"]?.[SCENE_METADATA_COMPONENT]}
+          tree={effTree}
+          onRename={renameScene}
+        />
+      )}
+      {!hideRight && !rootActive && (
         <DeInspectorPanel
           name={effInspector.name}
           id={effInspector.id}
@@ -1010,7 +1035,7 @@ export default function DeWorkspace({
           role="status"
           title={"Edits made while the scene is running are temporary \u{2014} Stop restores the scene to its pre-play state."}
         >
-          {runPaused ? "\u{275A}\u{275A} Paused \u{2014} edits are temporary" : "\u{25CF} Running \u{2014} edits are temporary"}
+          {playBadgeLabel(runPaused, sceneEmpty)}
         </span>
       )}
       {renderTuningOpen && effViewportSrc && (

@@ -29,7 +29,7 @@ export type SummaryView = {
   emotes: ChCollectionItem[];
 };
 
-export type PublishCollectionWizardProps = {
+type PublishCollectionWizardProps = {
   collection: PublishCollection;
   summary: SummaryView;
   manaPerItem?: number;

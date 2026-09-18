@@ -80,24 +80,35 @@ pub async fn lookup_entity(
     entity_id: &str,
     is_world: bool,
 ) -> Result<Option<PlaceRow>, ApiError> {
+    lookup_entity_for(places, entity_id, is_world, None).await
+}
+
+/// Same lookup with the viewer's own favorite/like state applied.
+pub async fn lookup_entity_for(
+    places: &PlacesComponent,
+    entity_id: &str,
+    is_world: bool,
+    viewer: Option<&str>,
+) -> Result<Option<PlaceRow>, ApiError> {
     if is_world {
-        return places.find_world_by_id(entity_id).await;
+        return places.find_world_by_id_for(entity_id, viewer).await;
     }
-    if let Some(place) = places.find_by_id(entity_id).await? {
+    if let Some(place) = places.find_by_id_for(entity_id, viewer).await? {
         return Ok(Some(place));
     }
     if is_place_uuid(entity_id) {
         return Ok(None);
     }
-    places.find_world_by_id(entity_id).await
+    places.find_world_by_id_for(entity_id, viewer).await
 }
 
 async fn resolve_entity(
     state: &AppState,
     entity_id: &str,
     is_world: bool,
+    viewer: &str,
 ) -> Result<PlaceRow, ApiError> {
-    match lookup_entity(&state.places, entity_id, is_world).await? {
+    match lookup_entity_for(&state.places, entity_id, is_world, Some(viewer)).await? {
         Some(entity) => Ok(entity),
         None if is_world => Err(ApiError::not_found(format!(
             "Not found world \"{}\"",
@@ -187,11 +198,7 @@ async fn do_patch_favorites(
         ApiError::bad_request("Invalid favorites body. Expected { favorites: boolean }.")
     })?;
 
-    let mut entity = resolve_entity(&state, &entity_id, is_world).await?;
-    state
-        .places
-        .apply_user_interactions(Some(user.as_str()), std::slice::from_mut(&mut entity))
-        .await;
+    let entity = resolve_entity(&state, &entity_id, is_world, user.as_str()).await?;
 
     if favorites_req == entity.user_favorite {
         return Ok(Json(ApiData::ok(FavoritesResult {
@@ -319,11 +326,7 @@ async fn do_patch_likes(
         ApiError::bad_request("Invalid likes body. Expected { like: boolean|null }.")
     })?;
 
-    let mut entity = resolve_entity(&state, &entity_id, is_world).await?;
-    state
-        .places
-        .apply_user_interactions(Some(user.as_str()), std::slice::from_mut(&mut entity))
-        .await;
+    let entity = resolve_entity(&state, &entity_id, is_world, user.as_str()).await?;
 
     let current = if entity.user_like {
         Some(true)

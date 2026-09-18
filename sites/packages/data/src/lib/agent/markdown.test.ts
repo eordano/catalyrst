@@ -37,17 +37,14 @@ function req(url: string, headers: Record<string, string> = {}): Request {
 }
 
 describe("wantsMarkdown", () => {
-  it("is true when Accept explicitly includes text/markdown", () => {
+  it("is true for an Accept carrying text/markdown, ?format=md (any case) or a trailing .md path; false otherwise", () => {
     expect(wantsMarkdown(req("https://x.io/blog", { accept: "text/markdown" }))).toBe(true);
-  });
-
-  it("is true when text/markdown appears among other accepted types", () => {
     expect(
       wantsMarkdown(req("https://x.io/blog", { accept: "text/html, text/markdown;q=0.9" })),
     ).toBe(true);
-  });
-
-  it("is false for a normal browser Accept header (text/html, no markdown)", () => {
+    expect(wantsMarkdown(req("https://x.io/blog?format=md"))).toBe(true);
+    expect(wantsMarkdown(req("https://x.io/blog?format=MD&x=1"))).toBe(true);
+    expect(wantsMarkdown(req("https://x.io/blog/post.md"))).toBe(true);
     expect(
       wantsMarkdown(
         req("https://x.io/blog", {
@@ -55,38 +52,18 @@ describe("wantsMarkdown", () => {
         }),
       ),
     ).toBe(false);
-  });
-
-  it("is false for application/json and for a missing Accept header", () => {
     expect(wantsMarkdown(req("https://x.io/blog", { accept: "application/json" }))).toBe(false);
     expect(wantsMarkdown(req("https://x.io/blog"))).toBe(false);
-  });
-
-  it("is true when ?format=md is present (case-insensitive)", () => {
-    expect(wantsMarkdown(req("https://x.io/blog?format=md"))).toBe(true);
-    expect(wantsMarkdown(req("https://x.io/blog?format=MD&x=1"))).toBe(true);
-  });
-
-  it("is false for other format values", () => {
     expect(wantsMarkdown(req("https://x.io/blog?format=html"))).toBe(false);
-  });
-
-  it("is true for a trailing .md path", () => {
-    expect(wantsMarkdown(req("https://x.io/blog/post.md"))).toBe(true);
-  });
-});
-
-describe("estimateTokens", () => {
-  it("is ceil(length / 4)", () => {
-    expect(estimateTokens("")).toBe(0);
-    expect(estimateTokens("abcd")).toBe(1);
-    expect(estimateTokens("abcde")).toBe(2);
-    expect(estimateTokens("a".repeat(400))).toBe(100);
   });
 });
 
 describe("markdownResponse", () => {
-  it("sets content-type, token count, and Vary headers", async () => {
+  it("sets content-type, ceil(len/4) token count and Vary headers, honoring status and cacheControl", async () => {
+    expect(estimateTokens("")).toBe(0);
+    expect(estimateTokens("abcd")).toBe(1);
+    expect(estimateTokens("abcde")).toBe(2);
+    expect(estimateTokens("a".repeat(400))).toBe(100);
     const md = "# Hello\n\nWorld";
     const res = markdownResponse(md);
     expect(res.status).toBe(200);
@@ -95,35 +72,23 @@ describe("markdownResponse", () => {
     expect(res.headers.get("Vary")).toBe("Accept");
     expect(res.headers.get("Cache-Control")).toBeNull();
     expect(await res.text()).toBe(md);
-  });
-
-  it("honors status and cacheControl options", () => {
-    const res = markdownResponse("# x", { status: 404, cacheControl: "public, max-age=60" });
-    expect(res.status).toBe(404);
-    expect(res.headers.get("Cache-Control")).toBe("public, max-age=60");
+    const custom = markdownResponse("# x", { status: 404, cacheControl: "public, max-age=60" });
+    expect(custom.status).toBe(404);
+    expect(custom.headers.get("Cache-Control")).toBe("public, max-age=60");
   });
 });
 
 describe("reactNodeToMarkdown", () => {
-  it("passes strings and numbers through", () => {
+  it("passes text through, drops nullish and booleans, links anchors, bolds strong and flattens children", () => {
     expect(reactNodeToMarkdown("hello")).toBe("hello");
     expect(reactNodeToMarkdown(42)).toBe("42");
-  });
-
-  it("drops null / undefined / boolean", () => {
     expect(reactNodeToMarkdown(null)).toBe("");
     expect(reactNodeToMarkdown(undefined)).toBe("");
     expect(reactNodeToMarkdown(false)).toBe("");
-  });
-
-  it("renders anchors as markdown links and strong as bold", () => {
     expect(reactNodeToMarkdown(createElement("a", { href: "https://x.io" }, "link"))).toBe(
       "[link](https://x.io)",
     );
     expect(reactNodeToMarkdown(createElement("strong", null, "bold"))).toBe("**bold**");
-  });
-
-  it("flattens arrays and nested children", () => {
     expect(
       reactNodeToMarkdown(["Visit ", createElement("a", { href: "u" }, "here"), "."]),
     ).toBe("Visit [here](u).");
@@ -131,113 +96,89 @@ describe("reactNodeToMarkdown", () => {
 });
 
 describe("blogPostToMarkdown", () => {
-  const post: BlogPost = {
-    id: "test-post",
-    slug: "test-post",
-    title: "Test Post Title",
-    description: "A test description of the post.",
-    publishedDate: "JAN 1, 2026",
-    image: { url: "", width: 1200, height: 600 },
-    category: {
-      id: "announcements",
-      slug: "announcements",
-      title: "Announcements",
-      url: "/blog?category=announcements",
-    },
-    author: {
-      id: "test-author",
-      title: "Test Author",
-      slug: "test-author",
-      image: { url: "" },
-      url: "/blog?author=test-author",
-    },
-    hue: 0,
-    body: [
-      { type: "p", content: "An opening paragraph." },
-      { type: "h2", content: "A Brand-New Desktop Client" },
-      { type: "quote", content: "A pull quote." },
-      { type: "h3", content: "What's New for Explorers" },
-      { type: "ul", items: ["Photorealistic visuals with upgraded lighting and shadows"] },
-    ],
-  };
-  const md = blogPostToMarkdown(post);
-
-  it("leads with the H1 title", () => {
+  it("leads with the H1, includes description and metadata, renders body blocks; no HTML", () => {
+    const post: BlogPost = {
+      id: "test-post",
+      slug: "test-post",
+      title: "Test Post Title",
+      description: "A test description of the post.",
+      publishedDate: "JAN 1, 2026",
+      image: { url: "", width: 1200, height: 600 },
+      category: {
+        id: "announcements",
+        slug: "announcements",
+        title: "Announcements",
+        url: "/blog?category=announcements",
+      },
+      author: {
+        id: "test-author",
+        title: "Test Author",
+        slug: "test-author",
+        image: { url: "" },
+        url: "/blog?author=test-author",
+      },
+      hue: 0,
+      body: [
+        { type: "p", content: "An opening paragraph." },
+        { type: "h2", content: "A Brand-New Desktop Client" },
+        { type: "quote", content: "A pull quote." },
+        { type: "h3", content: "What's New for Explorers" },
+        { type: "ul", items: ["Photorealistic visuals with upgraded lighting and shadows"] },
+      ],
+    };
+    const md = blogPostToMarkdown(post);
     expect(md.startsWith(`# ${post.title}`)).toBe(true);
-  });
-
-  it("includes description and metadata (category, date, author)", () => {
     expect(md).toContain(post.description);
     expect(md).toContain(post.category.title);
     expect(md).toContain(post.publishedDate);
     expect(md).toContain(post.author.title);
-  });
-
-  it("renders body blocks as markdown (##, ###, quote, list)", () => {
     expect(md).toContain("## A Brand-New Desktop Client");
     expect(md).toContain("### What's New for Explorers");
     expect(md).toMatch(/^> /m);
     expect(md).toContain("- Photorealistic visuals with upgraded lighting and shadows");
-  });
-
-  it("contains no HTML tags", () => {
     expect(md).not.toMatch(NO_HTML);
   });
 });
 
 describe("blogIndexToMarkdown", () => {
-  const cards = blogPostCards();
-  const md = blogIndexToMarkdown(cards);
-
-  it("has the index H1 and a count line", () => {
+  it("has the index H1, a count line and an H2 + read-more link per post; no HTML", () => {
+    const cards = blogPostCards();
+    const md = blogIndexToMarkdown(cards);
     expect(md.startsWith("# Decentraland Blog")).toBe(true);
     expect(md).toContain(`${cards.length} posts.`);
-  });
-
-  it("lists each post as an H2 with a read-more link", () => {
     expect(md).toContain(`## ${cards[0].title}`);
     expect(md).toContain(`[Read more](/blog/${cards[0].slug})`);
-  });
-
-  it("contains no HTML tags", () => {
     expect(md).not.toMatch(NO_HTML);
   });
 });
 
 describe("legalDocToMarkdown", () => {
-  const doc: AgentLegalDoc = {
-    title: "Terms of Use",
-    intro: "Please read carefully.",
-    sections: [
-      {
-        id: "acceptance",
-        heading: "1. Acceptance of Terms",
-        body: [
-          "By using the service you agree to these terms.",
-          { type: "h3", id: "scope", content: "1.1 Scope" },
-          {
-            type: "p",
-            content: ["For more info visit ", createElement("a", { href: "https://dao.decentraland.org" }, "the DAO"), "."],
-          },
-          { type: "ul", items: ["First point", "Second point"] },
-        ],
-      },
-    ],
-  };
-  const md = legalDocToMarkdown(doc);
-
-  it("leads with the H1 title and includes the intro", () => {
+  it("leads with the H1 and intro, renders sections, subheadings, lists and embedded anchors; no HTML", () => {
+    const doc: AgentLegalDoc = {
+      title: "Terms of Use",
+      intro: "Please read carefully.",
+      sections: [
+        {
+          id: "acceptance",
+          heading: "1. Acceptance of Terms",
+          body: [
+            "By using the service you agree to these terms.",
+            { type: "h3", id: "scope", content: "1.1 Scope" },
+            {
+              type: "p",
+              content: ["For more info visit ", createElement("a", { href: "https://dao.decentraland.org" }, "the DAO"), "."],
+            },
+            { type: "ul", items: ["First point", "Second point"] },
+          ],
+        },
+      ],
+    };
+    const md = legalDocToMarkdown(doc);
     expect(md.startsWith("# Terms of Use")).toBe(true);
     expect(md).toContain("Please read carefully.");
-  });
-
-  it("renders sections (##), subheadings (###) and lists (-)", () => {
     expect(md).toContain("## 1. Acceptance of Terms");
     expect(md).toContain("### 1.1 Scope");
     expect(md).toContain("- First point");
-  });
-
-  it("flattens embedded anchors into markdown links (no HTML)", () => {
     expect(md).toContain("[the DAO](https://dao.decentraland.org)");
     expect(md).not.toMatch(NO_HTML);
   });
@@ -270,64 +211,52 @@ function makePlace(overrides: Partial<Place>): Place {
 }
 
 describe("placeToMarkdown", () => {
-  const place = makePlace({
-    id: "abc-123",
-    title: "Neon Arcade",
-    description: "A retro arcade in the heart of the city.",
-    base_position: "10,20",
-    positions: ["10,20", "11,20"],
-    contact_name: "Pixel Studio",
-    categories: ["game", "social"],
-    user_count: 42,
-    likes: 100,
-    favorites: 7,
-    like_rate: 0.83,
-    world: false,
-  });
-  const md = placeToMarkdown(place);
-
-  it("leads with the H1 title and includes the description", () => {
+  it("leads with the H1 and description and lists key metadata as bullets; no HTML", () => {
+    const md = placeToMarkdown(
+      makePlace({
+        id: "abc-123",
+        title: "Neon Arcade",
+        description: "A retro arcade in the heart of the city.",
+        base_position: "10,20",
+        positions: ["10,20", "11,20"],
+        contact_name: "Pixel Studio",
+        categories: ["game", "social"],
+        user_count: 42,
+        likes: 100,
+        favorites: 7,
+        like_rate: 0.83,
+        world: false,
+      }),
+    );
     expect(md.startsWith("# Neon Arcade")).toBe(true);
     expect(md).toContain("A retro arcade in the heart of the city.");
-  });
-
-  it("lists key metadata as bullets", () => {
     expect(md).toContain("- Coordinates: 10,20");
     expect(md).toContain("- Parcels: 2");
     expect(md).toContain("- Creator: Pixel Studio");
     expect(md).toContain("- Visitors: 42");
     expect(md).toContain("- Categories: game, social");
     expect(md).toContain("- Approval: 83%");
-  });
-
-  it("contains no HTML tags", () => {
     expect(md).not.toMatch(NO_HTML);
   });
 });
 
 describe("placesIndexToMarkdown", () => {
-  const place = makePlace({
-    id: "abc-123",
-    title: "Neon Arcade",
-    description: "A retro arcade.",
-    base_position: "10,20",
-    user_count: 42,
-    likes: 100,
-    world: false,
-  });
-  const md = placesIndexToMarkdown([place]);
-
-  it("has the index H1 and a singular count line", () => {
+  it("has the index H1, a singular count line and an H2 + view link per place; no HTML", () => {
+    const md = placesIndexToMarkdown([
+      makePlace({
+        id: "abc-123",
+        title: "Neon Arcade",
+        description: "A retro arcade.",
+        base_position: "10,20",
+        user_count: 42,
+        likes: 100,
+        world: false,
+      }),
+    ]);
     expect(md.startsWith("# Decentraland Places")).toBe(true);
     expect(md).toContain("1 place.");
-  });
-
-  it("lists each place as an H2 with a view link", () => {
     expect(md).toContain("## Neon Arcade");
     expect(md).toContain("[View](/places/abc-123)");
-  });
-
-  it("contains no HTML tags", () => {
     expect(md).not.toMatch(NO_HTML);
   });
 });

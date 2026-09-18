@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useMachine } from "@xstate/react";
 import { useSearchParams } from "react-router";
 
@@ -23,7 +23,8 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type ModerateCommunitiesWizardProps = {
+type ModerateCommunitiesWizardProps = {
+  nav?: ReactNode;
   trackCtx: TrackContext;
   cards: CommunityModerationCard[];
   initialStep?: string;
@@ -32,6 +33,7 @@ export type ModerateCommunitiesWizardProps = {
 };
 
 export default function ModerateCommunitiesWizard({
+  nav,
   trackCtx,
   cards,
   initialStep,
@@ -46,6 +48,7 @@ export default function ModerateCommunitiesWizard({
   return (
     <ModerateCommunitiesInner
       key={stateId}
+      nav={nav}
       stateId={stateId}
       trackCtx={trackCtx}
       cards={cards}
@@ -56,6 +59,7 @@ export default function ModerateCommunitiesWizard({
 }
 
 type InnerProps = {
+  nav?: ReactNode;
   stateId: ModerateStateId;
   trackCtx: TrackContext;
   cards: CommunityModerationCard[];
@@ -64,6 +68,7 @@ type InnerProps = {
 };
 
 function ModerateCommunitiesInner({
+  nav,
   stateId,
   trackCtx,
   cards,
@@ -166,6 +171,7 @@ function ModerateCommunitiesInner({
 
   return (
     <AdCommunitiesModerationPage
+      nav={nav}
       step={step}
       value={value}
       cards={visible}

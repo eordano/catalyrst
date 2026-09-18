@@ -2,8 +2,8 @@ use catalyrst_contract_gate::pg::ScratchSchema;
 use catalyrst_worlds::access::AccessSetting;
 use catalyrst_worlds::http::ApiError;
 use catalyrst_worlds::ports::worlds::{
-    OrderDirection, SceneReplacement, WorldsComponent, WorldsListFilters, WorldsListOptions,
-    WorldsOrderBy,
+    AllowListEdit, AllowListEditOutcome, OrderDirection, SceneReplacement, WorldsComponent,
+    WorldsListFilters, WorldsListOptions, WorldsOrderBy,
 };
 use serde_json::json;
 
@@ -668,6 +668,7 @@ async fn permission_parcels_lifecycle() {
             "perm.dcl.eth",
             "deployment",
             &[deployer.to_string()],
+            None,
         )
         .await
         .unwrap();
@@ -1037,6 +1038,471 @@ async fn scoped_replacement_conflicts_on_unauthorized_overlap() {
     assert_eq!(scenes.len(), 1);
     assert_eq!(scenes[0].entity_id, "bafyB");
     assert_eq!(scenes[0].parcels, vec!["0,0".to_string()]);
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn world_about_joins_world_row_and_scenes_newest_first() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let wc = WorldsComponent::new(scratch.pool.clone());
+    let owner = "0x1111111111111111111111111111111111111111";
+    let contents_dir = scratch_contents_dir("about");
+    std::fs::write(contents_dir.join("bafythumb"), PNG_MAGIC).unwrap();
+
+    let none = wc.get_world_with_scenes("nothing.dcl.eth").await.unwrap();
+    assert!(none.world.is_none() && none.scenes.is_empty());
+
+    wc.create_basic_world_if_not_exists("empty.dcl.eth", owner)
+        .await
+        .unwrap();
+    let empty = wc.get_world_with_scenes("empty.dcl.eth").await.unwrap();
+    assert_eq!(
+        empty.world.as_ref().map(|w| w.name.as_str()),
+        Some("empty.dcl.eth")
+    );
+    assert!(empty.scenes.is_empty());
+
+    wc.deploy_scene(
+        "test.dcl.eth",
+        Some(owner),
+        "bafyentity",
+        owner,
+        &json!([{ "type": "SIGNER", "payload": owner }]),
+        &deploy_entity("My World", "bafythumb"),
+        &["0,0".to_string(), "0,1".to_string()],
+        123,
+        &contents_dir,
+        &SceneReplacement::UnrestrictedOwner,
+    )
+    .await
+    .expect("deploy_scene");
+    wc.deploy_scene(
+        "test.dcl.eth",
+        Some(owner),
+        "bafynewer",
+        owner,
+        &json!([{ "type": "SIGNER", "payload": owner }]),
+        &deploy_entity_at("Annex", "bafythumb", "5,5", &["5,5"]),
+        &["5,5".to_string()],
+        1,
+        &contents_dir,
+        &SceneReplacement::UnrestrictedOwner,
+    )
+    .await
+    .expect("deploy_scene 2");
+    let about = wc.world_about("TEST.dcl.eth").await.unwrap();
+    let world = about.world.as_ref().expect("world row");
+    assert_eq!(world.owner.as_deref(), Some(owner));
+    assert_eq!(world.skybox_time, Some(36000));
+    let ids: Vec<&str> = about.scenes.iter().map(|s| s.entity_id.as_str()).collect();
+    assert_eq!(ids, vec!["bafynewer", "bafyentity"]);
+
+    // The memo drops on a local write.
+    wc.undeploy_world("test.dcl.eth").await.unwrap();
+    let after = wc.world_about("test.dcl.eth").await.unwrap();
+    assert!(after.scenes.is_empty());
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn single_statement_permission_routes_keep_their_row_shapes() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let wc = WorldsComponent::new(scratch.pool.clone());
+    let owner = "0x1111111111111111111111111111111111111111";
+    let a = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let c = "0xcccccccccccccccccccccccccccccccccccccccc";
+
+    // Unknown world: no row, no records.
+    let (world, records) = wc
+        .get_world_with_permission_records("one.dcl.eth")
+        .await
+        .unwrap();
+    assert!(world.is_none());
+    assert!(records.is_empty());
+
+    // POST /permissions/{perm}: creates the world row and the listed grants.
+    wc.replace_world_wide_permission("one.dcl.eth", owner, "deployment", &[a.into(), b.into()])
+        .await
+        .unwrap();
+    // PUT .../{perm}/{address} on an existing row needs no ensure.
+    let added = wc
+        .grant_addresses_world_wide_permission("one.dcl.eth", "streaming", &[c.into()], None)
+        .await
+        .unwrap();
+    assert_eq!(added, vec![c.to_string()]);
+    // A repeat grant adds nothing.
+    let added = wc
+        .grant_addresses_world_wide_permission("one.dcl.eth", "streaming", &[c.into()], None)
+        .await
+        .unwrap();
+    assert!(added.is_empty());
+
+    let (world, records) = wc
+        .get_world_with_permission_records("ONE.dcl.eth")
+        .await
+        .unwrap();
+    assert_eq!(world.unwrap().owner.as_deref(), Some(owner));
+    let full = wc
+        .get_world_permission_records_full("one.dcl.eth")
+        .await
+        .unwrap();
+    assert_eq!(records.len(), 3);
+    for (agg, row) in records.iter().zip(full.iter()) {
+        assert_eq!(agg.id, row.id);
+        assert_eq!(agg.permission_type, row.permission_type);
+        assert_eq!(agg.address, row.address);
+        assert_eq!(agg.is_world_wide, row.is_world_wide);
+        assert_eq!(agg.parcel_count, row.parcel_count);
+    }
+
+    // Replacing the list drops b, keeps a, adds c; a keeps its row (and id).
+    let a_id = full
+        .iter()
+        .find(|r| r.address == a && r.permission_type == "deployment")
+        .unwrap()
+        .id;
+    wc.replace_world_wide_permission("one.dcl.eth", owner, "deployment", &[a.into(), c.into()])
+        .await
+        .unwrap();
+    let (_, records) = wc
+        .get_world_with_permission_records("one.dcl.eth")
+        .await
+        .unwrap();
+    let deployment: Vec<(i32, &str)> = records
+        .iter()
+        .filter(|r| r.permission_type == "deployment")
+        .map(|r| (r.id, r.address.as_str()))
+        .collect();
+    assert_eq!(deployment.len(), 2);
+    assert!(deployment.contains(&(a_id, a)));
+    assert!(deployment.iter().any(|(_, addr)| *addr == c));
+    assert!(!deployment.iter().any(|(_, addr)| *addr == b));
+
+    // Parcel scoping: created flag, page + total in one statement, by-address removal.
+    assert!(wc
+        .add_parcels_to_permission(
+            "one.dcl.eth",
+            "deployment",
+            b,
+            &["00,00".into(), "2,3".into()]
+        )
+        .await
+        .unwrap());
+    assert!(!wc
+        .add_parcels_to_permission(
+            "one.dcl.eth",
+            "deployment",
+            b,
+            &["2,3".into(), "5,5".into()]
+        )
+        .await
+        .unwrap());
+    let (total, parcels) = wc
+        .get_parcels_for_permission_by_address("one.dcl.eth", "deployment", b, 2, 0, None)
+        .await
+        .unwrap()
+        .expect("b holds a deployment permission");
+    assert_eq!(total, 3);
+    assert_eq!(parcels, vec!["0,0".to_string(), "2,3".to_string()]);
+    let (total, parcels) = wc
+        .get_parcels_for_permission_by_address("one.dcl.eth", "deployment", b, 10, 10, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((total, parcels), (3, Vec::new()));
+    let (total, parcels) = wc
+        .get_parcels_for_permission_by_address(
+            "one.dcl.eth",
+            "deployment",
+            b,
+            10,
+            0,
+            Some((5, 5, 2, 3)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (total, parcels),
+        (2, vec!["2,3".to_string(), "5,5".to_string()])
+    );
+    assert!(wc
+        .get_parcels_for_permission_by_address("one.dcl.eth", "streaming", b, 10, 0, None)
+        .await
+        .unwrap()
+        .is_none());
+
+    // Coverage query: world-wide a covers anything; scoped b covers only its parcels.
+    assert!(wc
+        .has_deployment_permission_covering("one.dcl.eth", a, &["9,9".into()])
+        .await
+        .unwrap());
+    assert!(wc
+        .has_deployment_permission_covering("one.dcl.eth", b, &["0,0".into(), "5,5".into()])
+        .await
+        .unwrap());
+    assert!(!wc
+        .has_deployment_permission_covering("one.dcl.eth", b, &["0,0".into(), "9,9".into()])
+        .await
+        .unwrap());
+    assert!(!wc
+        .has_deployment_permission_covering("one.dcl.eth", owner, &["0,0".into()])
+        .await
+        .unwrap());
+
+    let (atot, addrs) = wc
+        .get_addresses_for_parcel_permission("one.dcl.eth", "deployment", &["0,0".into()], 1, 0)
+        .await
+        .unwrap();
+    assert_eq!(atot, 3);
+    assert_eq!(addrs, vec![a.to_string()]);
+    let (atot, addrs) = wc
+        .get_addresses_for_parcel_permission("one.dcl.eth", "deployment", &["0,0".into()], 5, 9)
+        .await
+        .unwrap();
+    assert_eq!((atot, addrs), (3, Vec::new()));
+
+    assert!(wc
+        .remove_parcels_from_permission_by_address("one.dcl.eth", "deployment", b, &["0,0".into()])
+        .await
+        .unwrap());
+    assert!(!wc
+        .remove_parcels_from_permission_by_address("one.dcl.eth", "streaming", b, &["0,0".into()])
+        .await
+        .unwrap());
+    assert!(!wc
+        .remove_parcels_from_permission_by_address("one.dcl.eth", "streaming", b, &[])
+        .await
+        .unwrap());
+    let (total, _) = wc
+        .get_parcels_for_permission_by_address("one.dcl.eth", "deployment", b, 10, 0, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(total, 2);
+
+    // A world without a deployed scene has no manifest; the CTE pages parcels in order.
+    assert!(wc
+        .get_world_manifest("one.dcl.eth")
+        .await
+        .unwrap()
+        .is_none());
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn allow_list_edits_are_guarded_updates() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let wc = WorldsComponent::new(scratch.pool.clone());
+    let owner = "0x1111111111111111111111111111111111111111";
+
+    // No row yet: not an allow-list.
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddWallet("0xabc"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::NotAllowList
+    );
+
+    wc.store_access_for_owner("al.dcl.eth", owner, &AccessSetting::Unrestricted)
+        .await
+        .unwrap();
+    assert_eq!(
+        wc.get_world_settings("al.dcl.eth")
+            .await
+            .unwrap()
+            .unwrap()
+            .settings_version,
+        1
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddWallet("0xabc"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::NotAllowList
+    );
+
+    wc.store_access_for_owner(
+        "al.dcl.eth",
+        owner,
+        &AccessSetting::AllowList {
+            wallets: vec!["0xABC".into()],
+            communities: vec![],
+        },
+    )
+    .await
+    .unwrap();
+    let version = || async {
+        wc.get_world_settings("al.dcl.eth")
+            .await
+            .unwrap()
+            .unwrap()
+            .settings_version
+    };
+    assert_eq!(version().await, 2);
+
+    // Case-insensitive presence keeps the stored spelling but still counts as a write.
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddWallet("0xabc"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::Applied
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddWallet("0xdef"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::Applied
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddCommunity("c-1"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::Applied
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddCommunity("c-2"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::Applied
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::RemoveWallet("0xabc"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::Applied
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::RemoveCommunity("c-1"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::Applied
+    );
+    assert_eq!(version().await, 8);
+    match wc.get_world("al.dcl.eth").await.unwrap().unwrap().access {
+        AccessSetting::AllowList {
+            wallets,
+            communities,
+        } => {
+            assert_eq!(wallets, vec!["0xdef".to_string()]);
+            assert_eq!(communities, vec!["c-2".to_string()]);
+        }
+        other => panic!("unexpected access {other:?}"),
+    }
+
+    // Caps: the wallet list refuses its 1001st entry, communities their 51st.
+    let many: Vec<String> = (0..999).map(|i| format!("0x{i:040x}")).collect();
+    wc.store_access_for_owner(
+        "al.dcl.eth",
+        owner,
+        &AccessSetting::AllowList {
+            wallets: many,
+            communities: (0..50).map(|i| format!("c-{i}")).collect(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddWallet("0xlast"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::Applied
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddWallet("0xtoomany"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::CapExceeded
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddWallet("0xlast"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::Applied
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddCommunity("c-new"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::CapExceeded
+    );
+    assert_eq!(
+        wc.modify_allow_list_access("al.dcl.eth", AllowListEdit::AddCommunity("c-7"))
+            .await
+            .unwrap(),
+        AllowListEditOutcome::Applied
+    );
+
+    scratch.drop().await;
+}
+
+#[tokio::test]
+async fn index_rows_project_only_what_the_summary_reads() {
+    let Some(scratch) = setup_db().await else {
+        return;
+    };
+    let wc = WorldsComponent::new(scratch.pool.clone());
+    let owner = "0x1111111111111111111111111111111111111111";
+    let contents_dir = scratch_contents_dir("index");
+    std::fs::write(contents_dir.join("bafythumb"), PNG_MAGIC).unwrap();
+    let mut entity = deploy_entity("Indexed", "bafythumb");
+    entity["metadata"]["runtimeVersion"] = json!("7");
+    entity["content"] = json!([
+        { "file": "game.js", "hash": "bafygame" },
+        { "file": "thumb.png", "hash": "bafythumb" }
+    ]);
+    wc.deploy_scene(
+        "idx.dcl.eth",
+        Some(owner),
+        "bafyidx",
+        owner,
+        &json!([{ "type": "SIGNER", "payload": owner }]),
+        &entity,
+        &["0,0".to_string(), "0,1".to_string()],
+        1,
+        &contents_dir,
+        &SceneReplacement::UnrestrictedOwner,
+    )
+    .await
+    .unwrap();
+
+    let rows = wc.list_index_scenes(100, 0).await.unwrap();
+    let (world, scene) = rows
+        .iter()
+        .find(|(w, _)| w == "idx.dcl.eth")
+        .expect("indexed world");
+    assert_eq!(world, "idx.dcl.eth");
+    assert_eq!(scene.entity_id, "bafyidx");
+    assert_eq!(scene.parcels, vec!["0,0".to_string(), "0,1".to_string()]);
+    assert_eq!(scene.entity["timestamp"], json!(1000));
+    assert_eq!(
+        scene.entity["metadata"]["display"]["title"],
+        json!("Indexed")
+    );
+    assert_eq!(scene.entity["metadata"]["runtimeVersion"], json!("7"));
+    assert_eq!(
+        scene.entity["content"],
+        json!([{ "file": "thumb.png", "hash": "bafythumb" }])
+    );
+    assert!(scene.entity["metadata"].get("scene").is_none());
+
+    let (page, total) = wc.admin_list_worlds_page(10, 0).await.unwrap();
+    let row = page.iter().find(|w| w.name == "idx.dcl.eth").unwrap();
+    assert_eq!(row.scene_count, 1);
+    assert_eq!(total, page.len() as i64);
+    let (empty, total_past_end) = wc.admin_list_worlds_page(10, 1000).await.unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(total_past_end, total);
 
     scratch.drop().await;
 }

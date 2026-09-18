@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ComponentProps } from "react";
+import { expect, within } from "storybook/test";
 import StBlogHome from "./StBlogHome";
 import type { BlogPost } from "./StBlogHome";
 
@@ -95,7 +96,14 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {};
+export const Default: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("heading", { name: POSTS[0]!.title })).toBeVisible();
+    const page = canvasElement.ownerDocument.documentElement;
+    await expect(page.scrollWidth).toBeLessThanOrEqual(page.clientWidth);
+  },
+};
 
 export const Empty: Story = { args: { postSet: "empty" } };
 

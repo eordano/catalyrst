@@ -16,7 +16,7 @@ export type UpsertFn = (args: {
   signal?: AbortSignal;
 }) => Promise<UpsertResult>;
 
-export type FriendInput = {
+type FriendInput = {
   trackCtx: TrackContext;
   upsert?: UpsertFn;
   track?: TrackFn;
@@ -24,7 +24,7 @@ export type FriendInput = {
   address?: string;
 };
 
-export type FriendContext = {
+type FriendContext = {
   trackCtx: TrackContext;
   upsert: UpsertFn;
   track: TrackFn;
@@ -34,7 +34,7 @@ export type FriendContext = {
   error?: string;
 };
 
-export type FriendEvent =
+type FriendEvent =
   | { type: "START"; action: FriendAction; address: string }
   | { type: "CONFIRM" }
   | { type: "CANCEL" }
@@ -83,7 +83,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type FriendStateId = keyof typeof STATE_TO_SLUG;
-export type FriendStepSlug = (typeof STATE_TO_SLUG)[FriendStateId];
+type FriendStepSlug = (typeof STATE_TO_SLUG)[FriendStateId];
 
 export const FIRST_STEP_SLUG: FriendStepSlug = STATE_TO_SLUG.panel;
 
@@ -116,7 +116,7 @@ export function parseAction(
   }
 }
 
-export const simulateUpsert: UpsertFn = async ({ action, address, signal }) => {
+const simulateUpsert: UpsertFn = async ({ action, address, signal }) => {
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, 350);
     signal?.addEventListener("abort", () => {
@@ -259,8 +259,6 @@ export const friendMachine = setup({
     },
   },
 });
-
-export type FriendMachine = typeof friendMachine;
 
 export function resolveFriendSnapshot(args: {
   step: FriendStateId;

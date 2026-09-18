@@ -117,12 +117,21 @@ impl CreditsComponent {
         &self,
         usage_grants_pool: Option<&sqlx::PgPool>,
     ) -> Result<ReconcileReport, ApiError> {
-        let ledger_balance_mismatches = self.reconcile_ledger_balance().await?;
-        let earned_balance_mismatches = self.reconcile_earned_balance().await?;
-        let purchase_grant_mismatches = self.reconcile_purchase_grant().await?;
-        let checkout_fulfillment_mismatches = self.reconcile_checkout_fulfillment().await?;
-        let escrow_holdings = reconcile_escrow_holdings(usage_grants_pool).await?;
-        let escrow_grant_mismatches = self.reconcile_escrow_grants(usage_grants_pool).await?;
+        let (
+            ledger_balance_mismatches,
+            earned_balance_mismatches,
+            purchase_grant_mismatches,
+            checkout_fulfillment_mismatches,
+            escrow_holdings,
+            escrow_grant_mismatches,
+        ) = tokio::try_join!(
+            self.reconcile_ledger_balance(),
+            self.reconcile_earned_balance(),
+            self.reconcile_purchase_grant(),
+            self.reconcile_checkout_fulfillment(),
+            reconcile_escrow_holdings(usage_grants_pool),
+            self.reconcile_escrow_grants(usage_grants_pool),
+        )?;
         let credit_usages_reconciled = self.reconcile_credit_authorizations().await?;
 
         if !ledger_balance_mismatches.is_empty() {
@@ -242,23 +251,22 @@ impl CreditsComponent {
         for (credit_id, address, usd_cents) in candidates {
             let mut tx = self.pool.begin().await?;
 
-            let status: Option<String> = sqlx::query_scalar(
-                "SELECT status FROM credit_authorizations WHERE id = $1 FOR UPDATE",
+            // The guarded UPDATE is the lock: a concurrent consumer leaves 0 rows.
+            let flipped = sqlx::query(
+                "UPDATE credit_authorizations SET status = 'consumed' \
+                 WHERE id = $1 AND status = 'authorized'",
             )
             .bind(&credit_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-            if status.as_deref() != Some("authorized") {
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+            if flipped == 0 {
                 tx.rollback().await?;
                 continue;
             }
 
             let amount = format!("{}.{:02}", usd_cents / 100, usd_cents % 100);
             let key = format!("credit-used:{credit_id}");
-            sqlx::query("UPDATE credit_authorizations SET status = 'consumed' WHERE id = $1")
-                .bind(&credit_id)
-                .execute(&mut *tx)
-                .await?;
             match self
                 .spend_in_tx(&mut tx, &address, &amount, &key, Some(&key))
                 .await

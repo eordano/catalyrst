@@ -22,6 +22,16 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "item content bucket base URL (REQUIRED; no default)",
     ),
     (
+        "BUILDER_CATALOG_DIR",
+        "optional \u{2014} directory holding catalog.json + content files by CID \
+         (written by `catalyrst-builder catalog`); unset disables /v1/assetPacks and /contents/{hash}",
+    ),
+    (
+        "BUILDER_CATALOG_PULL_CACHE_BYTES",
+        "optional \u{2014} byte budget for content pulled from BUILDER_CONTENT_BUCKET_URL into \
+         BUILDER_CATALOG_DIR/pulled (LRU-evicted); unset or 0 disables pull-through",
+    ),
+    (
         "BUILDER_ADMIN_ADDRESSES",
         "comma-separated admin wallet addresses (lowercased)",
     ),
@@ -58,6 +68,17 @@ async fn main() -> Result<()> {
             .get(3)
             .context("usage: catalyrst-builder catalog <packs-dir> <out-dir>")?;
         return catalyrst_builder::catalog_build::run(packs, out);
+    }
+    if args.get(1).map(String::as_str) == Some("seed") {
+        let usage = "usage: catalyrst-builder seed <out-dir> <contents-base-url> <cid>...";
+        let out = args.get(2).context(usage)?;
+        let base = args.get(3).context(usage)?;
+        let hashes: Vec<String> = args.iter().skip(4).cloned().collect();
+        if hashes.is_empty() {
+            anyhow::bail!("{usage}");
+        }
+        catalyrst_builder::catalog_store::seed(std::path::Path::new(out), base, &hashes).await?;
+        return Ok(());
     }
 
     catalyrst_envcfg::handle_standard_args("catalyrst-builder", ENV_DOCS);

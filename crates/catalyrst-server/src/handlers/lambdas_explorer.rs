@@ -42,6 +42,7 @@ fn explorer_cache() -> &'static Arc<TtlMap<ExplorerKey, Value>> {
 }
 
 const MAX_PAGE_SIZE: i64 = SHARED_MAX_PAGE_SIZE as i64;
+const OWNED_ROW_CAP: i64 = MAX_PAGE_SIZE * 100;
 
 const VALID_COLLECTION_TYPES: [&str; 3] = ["base-wearable", "on-chain", "third-party"];
 
@@ -176,7 +177,8 @@ async fn fetch_owned_items(state: &AppState, owner: &str, category: &str) -> Vec
                AND n.owner_address = lower($2) \
            {grant_leg} \
          ) owned \
-         ORDER BY transferred_at::bigint DESC"
+         ORDER BY transferred_at::bigint DESC \
+         LIMIT $3"
     );
     let rows: Vec<(
         String,
@@ -188,6 +190,7 @@ async fn fetch_owned_items(state: &AppState, owner: &str, category: &str) -> Vec
     )> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(category)
         .bind(owner)
+        .bind(OWNED_ROW_CAP)
         .fetch_all(pool)
         .await
         .unwrap_or_default();
@@ -503,19 +506,19 @@ fn item_to_trimmed_value(item: &OwnedItem) -> Value {
 }
 
 async fn fetch_base_items(state: &AppState) -> Vec<OwnedItem> {
-    let base = crate::handlers::base_wearables::fetch_base_wearables(state).await;
-    base.into_iter()
+    let base = crate::handlers::lambdas_catalog::cached_base_wearables(state).await;
+    base.iter()
         .map(|bw| OwnedItem {
             individual_data: vec![json!({ "id": bw.urn })],
-            urn: bw.urn,
+            urn: bw.urn.clone(),
             rarity: String::new(),
             item_type: None,
             amount: 1,
-            name: bw.name,
-            category: bw.category,
+            name: bw.name.clone(),
+            category: bw.category.clone(),
             min_transferred_at: 0.0,
             max_transferred_at: 0.0,
-            entity: bw.entity,
+            entity: bw.entity.clone(),
             is_base: true,
             is_third_party: false,
             has_date: false,
@@ -642,16 +645,30 @@ async fn compute_explorer_items(
     let third_party_allowed = valid_collection_types.contains(&"third-party")
         && (q.collection_types.is_empty() || q.collection_types.iter().any(|t| t == "third-party"));
 
-    let mut items: Vec<OwnedItem> = Vec::new();
-    if base_allowed {
-        items.extend(fetch_base_items(state).await);
-    }
-    if on_chain_allowed {
-        items.extend(fetch_owned_items(state, addr, category).await);
-    }
-    if third_party_allowed {
-        items.extend(fetch_third_party_items(state, addr).await);
-    }
+    let base_leg = async {
+        if base_allowed {
+            fetch_base_items(state).await
+        } else {
+            Vec::new()
+        }
+    };
+    let owned_leg = async {
+        if on_chain_allowed {
+            fetch_owned_items(state, addr, category).await
+        } else {
+            Vec::new()
+        }
+    };
+    let third_party_leg = async {
+        if third_party_allowed {
+            fetch_third_party_items(state, addr).await
+        } else {
+            Vec::new()
+        }
+    };
+    let (mut items, owned, third_party) = tokio::join!(base_leg, owned_leg, third_party_leg);
+    items.extend(owned);
+    items.extend(third_party);
 
     items.retain(|it| passes_filters(it, &q));
     sort_items(&mut items, &q.sort, &q.direction);

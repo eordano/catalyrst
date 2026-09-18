@@ -7,6 +7,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 use crate::modules::{json_response, ErrorMessage};
 use crate::AppState;
@@ -65,19 +66,52 @@ struct PendingNudgesResponse {
     nudges: Vec<PendingNudge>,
 }
 
+/// Rows are append-only and unique per (user_id, checkpoint); `by_key` finds the one row
+/// an upsert touches, `by_wallet` the rows a wallet-only checkpoint resolves through, and
+/// `latest` each user's highest checkpoint, the only row a nudge can target.
 #[derive(Default)]
 struct OnboardingStore {
     checkpoints: Vec<CheckpointRow>,
-    sent_nudges: std::collections::HashSet<(String, i64, i64)>,
+    by_key: HashMap<(String, i64), usize>,
+    by_wallet: HashMap<String, Vec<usize>>,
+    latest: HashMap<String, usize>,
+    sent_nudges: HashSet<(String, i64, i64)>,
 }
 
 impl OnboardingStore {
     fn resolve_wallet_identity(&self, wallet_address: &str) -> Option<(String, String)> {
-        self.checkpoints
+        self.by_wallet
+            .get(wallet_address)?
             .iter()
-            .filter(|r| r.wallet.as_deref() == Some(wallet_address) && r.email.is_some())
-            .min_by_key(|r| r.checkpoint)
-            .map(|r| (r.user_id.clone(), r.email.clone().unwrap_or_default()))
+            .map(|&i| (i, &self.checkpoints[i]))
+            .filter(|(_, r)| r.wallet.as_deref() == Some(wallet_address) && r.email.is_some())
+            .min_by_key(|(i, r)| (r.checkpoint, *i))
+            .map(|(_, r)| (r.user_id.clone(), r.email.clone().unwrap_or_default()))
+    }
+
+    fn set_wallet(&mut self, i: usize, wallet: &Option<String>) {
+        let Some(w) = wallet else { return };
+        let row = &mut self.checkpoints[i];
+        let changed = row.wallet.as_deref() != Some(w.as_str());
+        row.wallet = Some(w.clone());
+        if changed {
+            self.by_wallet.entry(w.clone()).or_default().push(i);
+        }
+    }
+
+    fn push_row(&mut self, row: CheckpointRow) {
+        let i = self.checkpoints.len();
+        self.by_key.insert((row.user_id.clone(), row.checkpoint), i);
+        if let Some(w) = &row.wallet {
+            self.by_wallet.entry(w.clone()).or_default().push(i);
+        }
+        match self.latest.get(&row.user_id) {
+            Some(&latest) if self.checkpoints[latest].checkpoint >= row.checkpoint => {}
+            _ => {
+                self.latest.insert(row.user_id.clone(), i);
+            }
+        }
+        self.checkpoints.push(row);
     }
 
     fn record_checkpoint(&mut self, payload: CheckpointPayload, now: DateTime<Utc>) {
@@ -108,39 +142,30 @@ impl OnboardingStore {
             }
         }
 
+        let key = (user_identifier.clone(), checkpoint_id);
         if action == "completed" {
-            if let Some(row) = self.checkpoints.iter_mut().find(|r| {
-                r.user_id == user_identifier
-                    && r.checkpoint == checkpoint_id
-                    && r.completed_at.is_none()
-            }) {
-                row.completed_at = Some(now);
-                if email.is_some() {
-                    row.email = email.clone();
-                }
-                if wallet.is_some() {
-                    row.wallet = wallet.clone();
+            if let Some(&i) = self.by_key.get(&key) {
+                if self.checkpoints[i].completed_at.is_none() {
+                    self.checkpoints[i].completed_at = Some(now);
+                    if email.is_some() {
+                        self.checkpoints[i].email = email.clone();
+                    }
+                    self.set_wallet(i, &wallet);
                 }
             }
             return;
         }
 
-        if let Some(row) = self
-            .checkpoints
-            .iter_mut()
-            .find(|r| r.user_id == user_identifier && r.checkpoint == checkpoint_id)
-        {
+        if let Some(&i) = self.by_key.get(&key) {
             if email.is_some() {
-                row.email = email.clone();
+                self.checkpoints[i].email = email.clone();
             }
-            if wallet.is_some() {
-                row.wallet = wallet.clone();
-            }
+            self.set_wallet(i, &wallet);
             if metadata.is_some() {
-                row.metadata = metadata.clone();
+                self.checkpoints[i].metadata = metadata.clone();
             }
         } else {
-            self.checkpoints.push(CheckpointRow {
+            self.push_row(CheckpointRow {
                 user_id: user_identifier.clone(),
                 id_type: identifier_type.clone(),
                 email: email.clone(),
@@ -154,12 +179,10 @@ impl OnboardingStore {
         }
 
         if checkpoint_id > 1 {
-            if let Some(row) = self.checkpoints.iter_mut().find(|r| {
-                r.user_id == user_identifier
-                    && r.checkpoint == checkpoint_id - 1
-                    && r.completed_at.is_none()
-            }) {
-                row.completed_at = Some(now);
+            if let Some(&i) = self.by_key.get(&(user_identifier, checkpoint_id - 1)) {
+                if self.checkpoints[i].completed_at.is_none() {
+                    self.checkpoints[i].completed_at = Some(now);
+                }
             }
         }
     }
@@ -168,18 +191,12 @@ impl OnboardingStore {
         let hours = SEQUENCE_HOURS[sequence as usize];
         let threshold = now - Duration::hours(hours);
 
-        let mut max_cp: std::collections::HashMap<&str, i64> =
-            std::collections::HashMap::with_capacity(self.checkpoints.len());
-        for r in &self.checkpoints {
-            max_cp
-                .entry(r.user_id.as_str())
-                .and_modify(|m| *m = (*m).max(r.checkpoint))
-                .or_insert(r.checkpoint);
-        }
-
-        self.checkpoints
-            .iter()
-            .filter_map(|oc| {
+        let mut latest: Vec<usize> = self.latest.values().copied().collect();
+        latest.sort_unstable();
+        latest
+            .into_iter()
+            .filter_map(|i| {
+                let oc = &self.checkpoints[i];
                 let email = oc.email.as_ref()?;
                 if oc.completed_at.is_some() {
                     return None;
@@ -191,12 +208,6 @@ impl OnboardingStore {
                     .sent_nudges
                     .contains(&(oc.user_id.clone(), oc.checkpoint, sequence))
                 {
-                    return None;
-                }
-                let has_later = max_cp
-                    .get(oc.user_id.as_str())
-                    .is_some_and(|m| *m > oc.checkpoint);
-                if has_later {
                     return None;
                 }
                 Some(PendingNudge {
@@ -538,26 +549,64 @@ mod tests {
     fn pending_nudges_is_linear_not_quadratic() {
         let mut store = OnboardingStore::default();
         for i in 0..20_000 {
-            store.checkpoints.push(CheckpointRow {
-                user_id: format!("user-{i:05}"),
-                id_type: "email".into(),
-                email: Some(format!("u{i}@example.com")),
-                wallet: None,
-                checkpoint: 1,
-                reached_at: t(0),
-                completed_at: None,
-                source: None,
-                metadata: None,
-            });
+            let user = format!("user-{i:05}");
+            let email = format!("u{i}@example.com");
+            store.record_checkpoint(reached(&user, "email", 1, Some(&email), None), t(0));
         }
         let start = std::time::Instant::now();
         let nudges = store.pending_nudges(1, t(13 * 3600));
         let elapsed = start.elapsed();
         assert_eq!(nudges.len(), 20_000);
+        assert_eq!(nudges[0].user_id, "user-00000", "insertion order is kept");
         assert!(
             elapsed < std::time::Duration::from_millis(500),
             "pending_nudges took {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn record_checkpoint_is_indexed_not_a_scan() {
+        let mut store = OnboardingStore::default();
+        for i in 0..20_000 {
+            let user = format!("user-{i:05}");
+            store.record_checkpoint(reached(&user, "email", 1, Some(&user), None), t(0));
+        }
+        let start = std::time::Instant::now();
+        for i in 0..20_000 {
+            let user = format!("user-{i:05}");
+            store.record_checkpoint(reached(&user, "email", 2, Some(&user), None), t(10));
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "20k upserts took {elapsed:?}"
+        );
+        assert_eq!(store.by_key.len(), 40_000);
+        let pending = store.pending_nudges(1, t(13 * 3600));
+        assert_eq!(pending.len(), 20_000);
+        assert!(pending.iter().all(|n| n.checkpoint_id == 2));
+    }
+
+    #[test]
+    fn wallet_learned_late_still_resolves_and_prefers_the_lowest_checkpoint() {
+        let mut store = OnboardingStore::default();
+        store.record_checkpoint(reached("b@b.com", "email", 3, Some("b@b.com"), None), t(0));
+        store.record_checkpoint(reached("a@b.com", "email", 2, Some("a@b.com"), None), t(1));
+        store.record_checkpoint(reached("b@b.com", "email", 3, None, Some("0xABC")), t(2));
+        store.record_checkpoint(reached("a@b.com", "email", 2, None, Some("0xabc")), t(3));
+
+        assert_eq!(
+            store.resolve_wallet_identity("0xabc"),
+            Some(("a@b.com".to_string(), "a@b.com".to_string()))
+        );
+        store.record_checkpoint(reached("0xABC", "wallet", 4, None, None), t(10));
+        let row = store
+            .checkpoints
+            .iter()
+            .find(|r| r.checkpoint == 4)
+            .unwrap();
+        assert_eq!(row.user_id, "a@b.com");
+        assert_eq!(row.email.as_deref(), Some("a@b.com"));
     }
 
     #[test]

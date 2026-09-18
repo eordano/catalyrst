@@ -174,3 +174,29 @@ fn webtransport_stream_and_datagram_roundtrip() {
     assert!(matches!(disc, Event::Disconnect { peer: p } if p as u32 == SLOT_BASE));
     drop(client);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn production_startup_can_initialize_webtransport_inside_tokio() {
+    let (cert_pem, key_pem, _) = dev_cert();
+    let config = WtConfig {
+        bind_addr: "127.0.0.1:0".parse().unwrap(),
+        cert_pem,
+        key_pem,
+        slot_base: SLOT_BASE,
+        slot_capacity: 8,
+        max_datagram_bytes: DEFAULT_MAX_DATAGRAM_BYTES,
+        max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
+        service_timeout_ms: DEFAULT_SERVICE_TIMEOUT_MS,
+        server_full_reason: 6,
+    };
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        catalyrst_pulse::PulseServer::new().run_with_webtransport(
+            "127.0.0.1:0".parse().unwrap(),
+            50,
+            Some(config),
+        ),
+    )
+    .await;
+    assert!(result.is_err(), "server unexpectedly stopped: {result:?}");
+}

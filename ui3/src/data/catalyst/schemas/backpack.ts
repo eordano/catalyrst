@@ -18,7 +18,7 @@ export const WearableSchema = z.object({
 
 export type WearableWire = z.infer<typeof WearableSchema>;
 
-export const CategorySchema = z.object({
+const CategorySchema = z.object({
   id: z.string(),
   label: z.string(),
   slot: z.string(),

@@ -90,3 +90,23 @@ fn print_item_feeds_sql() {
         build_catalog_items_query(&filters, &CatalogItemsParams::default(), "0.5");
     println!("=== CATALOG ITEMS SQL ===\n{catalog_sql}");
 }
+
+/// The last-seen refresh runs against the catalyst content DB, where only a printed statement can
+/// be EXPLAINed. The incremental shape is printed with the watermark an hour back from now.
+#[test]
+#[ignore]
+fn print_wearable_last_seen_sql() {
+    use catalyrst_market::ports::wearable_last_seen::{merge_sql, scan_sql, Pass, SAFETY_MARGIN};
+    let now = chrono::Utc::now();
+    let incremental = Pass::Incremental {
+        since: (now - SAFETY_MARGIN).naive_utc(),
+        last_full_at: now,
+    };
+    for (name, pass) in [("FULL", Pass::Full), ("INCREMENTAL", incremental)] {
+        println!(
+            "=== {name} SCAN ===\n{}\n=== {name} MERGE ===\n{}",
+            scan_sql(&pass),
+            merge_sql(&pass)
+        );
+    }
+}

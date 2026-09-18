@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -9,7 +11,7 @@ use serde_json::Value;
 use crate::auth_chain::verify_signed_fetch;
 use crate::http::{auth_error, service_unavailable, ApiError};
 use crate::livekit::is_world_realm_name;
-use crate::ports::extra_addresses;
+use crate::ports::extra_addresses::{self, PlaceLookup};
 use crate::room_metadata_sync::{self, RoomContext, PLACE_LOOKUP_UNAVAILABLE_MSG};
 use crate::AppState;
 
@@ -88,10 +90,9 @@ pub async fn list_bans(
     let place_id = resolve_listing_place_id(&state, q.place_id, &sf.metadata).await?;
 
     let (limit, offset) = pagination(q.limit, q.offset);
-    let total = state.scene_bans.count(&place_id).await?;
-    let addresses = state
+    let (addresses, total) = state
         .scene_bans
-        .list_addresses_page(&place_id, limit, offset)
+        .list_addresses_page_with_total(&place_id, limit, offset)
         .await?;
     let names = state.names.get_names_from_addresses(&addresses).await;
 
@@ -117,10 +118,9 @@ pub async fn list_ban_addresses(
     let place_id = resolve_listing_place_id(&state, q.place_id, &sf.metadata).await?;
 
     let (limit, offset) = pagination(q.limit, q.offset);
-    let total = state.scene_bans.count(&place_id).await?;
-    let addresses = state
+    let (addresses, total) = state
         .scene_bans
-        .list_addresses_page(&place_id, limit, offset)
+        .list_addresses_page_with_total(&place_id, limit, offset)
         .await?;
 
     Ok(Json(one_based_page(addresses, total, limit, offset)))
@@ -131,27 +131,42 @@ pub async fn ensure_target_not_protected(
     place_id: &str,
     target: &str,
 ) -> Result<(), ApiError> {
+    ensure_target_not_protected_for(state, &PlaceLookup::new(state, place_id), target).await
+}
+
+/// Same check over a place row shared with the caller's authz step; the two
+/// permission surfaces are fetched together.
+pub async fn ensure_target_not_protected_for(
+    state: &AppState,
+    place: &PlaceLookup<'_>,
+    target: &str,
+) -> Result<(), ApiError> {
     let target = target.to_lowercase();
-    if crate::scene_perms::is_scene_owner_or_admin(state, place_id, &target).await? {
+    if crate::scene_perms::is_scene_owner_or_admin_for(state, place, &target).await? {
         return Err(ApiError::bad_request("Cannot ban this address"));
     }
-    let place = extra_addresses::try_load_place_info(state, place_id)
-        .await
-        .map_err(|error| {
-            tracing::error!(
-                %error,
-                %place_id,
-                "places lookup failed while checking a ban target for protection"
-            );
-            service_unavailable(PLACE_LOOKUP_UNAVAILABLE_MSG)
-        })?;
+    let place_id = place.place_id();
+    let place = place.get().await.map_err(|error| {
+        tracing::error!(
+            error,
+            %place_id,
+            "places lookup failed while checking a ban target for protection"
+        );
+        service_unavailable(PLACE_LOOKUP_UNAVAILABLE_MSG)
+    })?;
     if let Some(place) = place {
-        let mut protected = extra_addresses::try_get_extra_addresses(state, &place).await?;
-        if !place.world {
-            protected.extend(
-                extra_addresses::get_lease_holders_for_parcels(state, &place.positions).await,
-            );
-        }
+        let (extra, leases) = tokio::join!(
+            extra_addresses::try_get_extra_addresses(state, place),
+            async {
+                if place.world {
+                    BTreeSet::new()
+                } else {
+                    extra_addresses::get_lease_holders_for_parcels(state, &place.positions).await
+                }
+            }
+        );
+        let mut protected = extra?;
+        protected.extend(leases);
         if protected.contains(&target) {
             return Err(ApiError::bad_request("Cannot ban this address"));
         }
@@ -167,16 +182,15 @@ pub async fn ban_user(
     let sf = verify_signed_fetch(&headers, "post", "/scene-bans", &[SCENE_SIGNER])
         .await
         .map_err(|e| auth_error(e.status, e.message))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &body.place_id, sf.signer.as_str())
-        .await?
-    {
+    let place = PlaceLookup::new(&state, &body.place_id);
+    if !crate::scene_perms::is_scene_owner_or_admin_for(&state, &place, sf.signer.as_str()).await? {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));
     }
-    ensure_target_not_protected(&state, &body.place_id, &body.banned_address).await?;
+    ensure_target_not_protected_for(&state, &place, &body.banned_address).await?;
     let ctx = RoomContext::from_metadata(&sf.metadata, &body.place_id);
-    let rooms = room_metadata_sync::resolve_rooms(&state, &ctx).await?;
+    let rooms = room_metadata_sync::resolve_rooms_for(&state, &ctx, &place).await?;
     state
         .scene_bans
         .ban(&body.place_id, &body.banned_address, sf.signer.as_str())
@@ -202,13 +216,14 @@ pub async fn unban_user(
     let banned_address = q
         .banned_address
         .ok_or_else(|| ApiError::bad_request("missing banned_address query"))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &place_id, sf.signer.as_str()).await? {
+    let place = PlaceLookup::new(&state, &place_id);
+    if !crate::scene_perms::is_scene_owner_or_admin_for(&state, &place, sf.signer.as_str()).await? {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));
     }
     let ctx = RoomContext::from_metadata(&sf.metadata, &place_id);
-    let rooms = room_metadata_sync::resolve_rooms(&state, &ctx).await?;
+    let rooms = room_metadata_sync::resolve_rooms_for(&state, &ctx, &place).await?;
     state.scene_bans.unban(&place_id, &banned_address).await?;
     room_metadata_sync::remove_ban(&state, &rooms, &banned_address).await;
     Ok(StatusCode::NO_CONTENT)

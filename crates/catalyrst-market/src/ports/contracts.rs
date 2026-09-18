@@ -34,6 +34,13 @@ pub struct DbCollection {
     pub network: String,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct PagedDbCollection {
+    #[sqlx(flatten)]
+    row: DbCollection,
+    total: i64,
+}
+
 pub struct ContractsComponent {
     pool: PgPool,
     cache: Arc<TtlMap<(), Vec<Contract>>>,
@@ -66,7 +73,8 @@ impl ContractsComponent {
         let where_sql = build_where(networks.is_some());
 
         let select_sql = format!(
-            "SELECT c.id, c.name, c.chain_id::int4 AS chain_id, c.network \
+            "SELECT c.id, c.name, c.chain_id::int4 AS chain_id, c.network, \
+                    COUNT(*) OVER() AS total \
              FROM {schema}.collection c \
              {where_} \
              ORDER BY c.name COLLATE \"C\" ASC \
@@ -75,7 +83,7 @@ impl ContractsComponent {
             where_ = where_sql,
         );
 
-        let mut q = sqlx::query_as::<_, DbCollection>(sqlx::AssertSqlSafe(select_sql))
+        let mut q = sqlx::query_as::<_, PagedDbCollection>(sqlx::AssertSqlSafe(select_sql))
             .bind(limit)
             .bind(offset);
         if let Some(ref nets) = networks {
@@ -83,18 +91,27 @@ impl ContractsComponent {
         }
         let rows = q.fetch_all(&self.pool).await?;
 
-        let count_sql = format!(
-            "SELECT COUNT(c.id) AS count FROM {schema}.collection c {where_}",
-            schema = MARKETPLACE_SQUID_SCHEMA,
-            where_ = build_where_count(networks.is_some()),
-        );
-        let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
-        if let Some(ref nets) = networks {
-            cq = cq.bind(nets);
-        }
-        let total = cq.fetch_one(&self.pool).await.unwrap_or(0);
+        let total = match rows.first() {
+            Some(r) => r.total,
+            None if offset > 0 => {
+                let count_sql = format!(
+                    "SELECT COUNT(c.id) AS count FROM {schema}.collection c {where_}",
+                    schema = MARKETPLACE_SQUID_SCHEMA,
+                    where_ = build_where_count(networks.is_some()),
+                );
+                let mut cq = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(count_sql));
+                if let Some(ref nets) = networks {
+                    cq = cq.bind(nets);
+                }
+                cq.fetch_one(&self.pool).await.unwrap_or(0)
+            }
+            None => 0,
+        };
 
-        let contracts: Vec<Contract> = rows.iter().map(from_db_collection_to_contract).collect();
+        let contracts: Vec<Contract> = rows
+            .iter()
+            .map(|r| from_db_collection_to_contract(&r.row))
+            .collect();
         Ok((contracts, total))
     }
 
@@ -243,4 +260,62 @@ pub fn parse_filters(
         category,
         network,
     })
+}
+
+#[cfg(test)]
+mod pg_tests {
+    use super::*;
+    use catalyrst_contract_gate::pg::ScratchDb;
+
+    #[tokio::test]
+    async fn page_total_rides_the_page_query() {
+        let Some(scratch) = ScratchDb::builder("CATALYRST_MARKET_TEST_PG", "contracts")
+            .schemas(["squid_marketplace"])
+            .build()
+            .await
+        else {
+            return;
+        };
+        scratch
+            .apply_sql(
+                "CREATE TABLE squid_marketplace.collection (id text, name text, chain_id int4, \
+                    network text, is_approved bool);
+                 INSERT INTO squid_marketplace.collection VALUES
+                    ('0x1', 'Alpha', 137, 'POLYGON', true), ('0x2', 'Beta', 137, 'POLYGON', true),
+                    ('0x3', 'Gamma', 1, 'ETHEREUM', true), ('0x4', 'Hidden', 137, 'POLYGON', false);",
+            )
+            .await;
+        let c = ContractsComponent::new(scratch.pool.clone());
+        let page = |first, skip, network| ContractFilters {
+            first: Some(first),
+            skip: Some(skip),
+            network,
+            ..Default::default()
+        };
+
+        let (rows, total) = c.get_collection_contracts(&page(2, 0, None)).await.unwrap();
+        assert_eq!((rows.len(), total), (2, 3), "unapproved rows never count");
+        assert_eq!(rows[0].address, "0x1");
+        let (rows, total) = c
+            .get_collection_contracts(&page(2, 10, None))
+            .await
+            .unwrap();
+        assert_eq!(
+            (rows.len(), total),
+            (0, 3),
+            "past the end: standalone count"
+        );
+        let (rows, total) = c
+            .get_collection_contracts(&page(5, 0, Some(Network::Ethereum)))
+            .await
+            .unwrap();
+        assert_eq!((rows.len(), total), (1, 1));
+        assert_eq!(rows[0].network, Network::Ethereum);
+        let (rows, total) = c
+            .get_collection_contracts(&page(5, 0, Some(Network::Matic)))
+            .await
+            .unwrap();
+        assert_eq!((rows.len(), total), (2, 2));
+        scratch.drop().await;
+    }
 }

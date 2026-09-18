@@ -9,6 +9,7 @@ pub struct Config {
     pub database_url: String,
     pub schema: String,
     pub refresh_interval_secs: u64,
+    pub force_rebuild_secs: u64,
     pub land_contract_address: String,
     pub estate_contract_address: String,
 
@@ -39,6 +40,10 @@ impl Config {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(60),
+            force_rebuild_secs: env::var("MAP_TILES_FORCE_REBUILD_SECONDS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(900),
             land_contract_address: env::var("LAND_CONTRACT_ADDRESS")
                 .unwrap_or_else(|_| "0xf87e31492faf9a91b02ee0deaad50d51d56d5d4d".to_string()),
             estate_contract_address: env::var("ESTATE_CONTRACT_ADDRESS")

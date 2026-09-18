@@ -10,9 +10,10 @@ import {
   MAX_NOTE_LENGTH,
   MODERATION_DECISIONS,
   decisionLabel,
+  decisionTone,
 } from "./AdReportTypes";
 
-export type ModerationDecisionBarProps = {
+type ModerationDecisionBarProps = {
   card: ReportCard;
   resolutions: Option[];
   decision: ModerationDecision;
@@ -46,32 +47,31 @@ export default function AdModerationDecisionBar({
   }
 
   return (
-    <div className="mdb" role="region" aria-label="Moderation decision">
-      <h2 className="mdb__title">Decide on report #{card.id}</h2>
+    <div className="adm-stack" role="region" aria-label="Moderation decision">
+      <h2 className="adm-card__title">Decide on report #{card.id}</h2>
 
-      <div className="mdb__decisions" role="radiogroup" aria-label="Decision">
+      <div className="adm-actions adm-actions--start" role="radiogroup" aria-label="Decision">
         {MODERATION_DECISIONS.map((d) => (
           <button
             key={d}
             type="button"
             role="radio"
             aria-checked={decision === d}
-            className={
-              "mdb-btn mdb-btn--" + d + (decision === d ? " is-selected" : "")
-            }
+            className={"adm-choice" + (decision === d ? " is-active" : "")}
+            data-tone={decisionTone(d)}
             onClick={() => pick(d)}
           >
             {decisionLabel(d)}
-            {d === "action" && <span className="mdb-btn__hint">+ disable place</span>}
+            {d === "action" && <span className="adm-choice__hint">+ disable place</span>}
           </button>
         ))}
       </div>
 
       {closing && (
-        <label className="mdb__field">
-          <span className="mdb__label">Resolution</span>
+        <label className="adm-field">
+          <span className="adm-field__label">Resolution</span>
           <select
-            className="mdb__select"
+            className="adm-input"
             value={resolution}
             onChange={(e) => {
               setResolution(e.target.value);
@@ -88,12 +88,12 @@ export default function AdModerationDecisionBar({
         </label>
       )}
 
-      <label className="mdb__field">
-        <span className="mdb__label">
+      <label className="adm-field">
+        <span className="adm-field__label">
           Resolution note {closing ? "" : "(reopen reason)"}
         </span>
         <textarea
-          className="mdb__note"
+          className="adm-input"
           rows={2}
           maxLength={MAX_NOTE_LENGTH}
           placeholder="Recorded in moderator_notes; the creator may be notified."
@@ -106,7 +106,7 @@ export default function AdModerationDecisionBar({
       </label>
 
       {canDisable && (
-        <label className="mdb__toggle">
+        <label className="adm-check">
           <input
             type="checkbox"
             checked={disablePlace}
@@ -120,12 +120,12 @@ export default function AdModerationDecisionBar({
       )}
 
       {error && (
-        <p className="mdb__error" role="alert">
+        <p className="adm-notice" data-tone="bad" role="alert">
           Commit failed: {error}. Please try again.
         </p>
       )}
 
-      <p className="mdb__contract">
+      <p className="adm-card__text adm-dim">
         Commits <code>PATCH /places/api/reports/{card.id}</code>
         {disablePlace && canDisable ? (
           <>
@@ -136,13 +136,13 @@ export default function AdModerationDecisionBar({
         <em>(admin-bearer gated &#x2014; fails closed 403 without a bearer)</em>.
       </p>
 
-      <div className="mdb__actions">
-        <Button variant="secondary" className="mdb-btn--cancel" onClick={onCancel}>
+      <div className="adm-actions">
+        <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
         <Button
           variant="primary"
-          className={"mdb-btn--confirm" + (decision === "action" ? " mdb-btn--danger" : "")}
+          tone={decision === "action" ? "danger" : undefined}
           onClick={onConfirm}
         >
           Confirm {decisionLabel(decision).toLowerCase()}

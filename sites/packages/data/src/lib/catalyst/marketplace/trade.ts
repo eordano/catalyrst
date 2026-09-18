@@ -2,16 +2,16 @@ import { isAddress, pad, toHex } from "viem";
 
 export type Hex = `0x${string}`;
 
-export const TRADE_ASSET_TYPE = {
+const TRADE_ASSET_TYPE = {
   erc20: 1,
   usdPeggedMana: 2,
   erc721: 3,
   collectionItem: 4,
 } as const;
 
-export type TradeNetwork = "ETHEREUM" | "MATIC";
+type TradeNetwork = "ETHEREUM" | "MATIC";
 
-export type OffchainMarketplace = {
+type OffchainMarketplace = {
   chainId: number;
   address: Hex;
   name: string;
@@ -70,16 +70,12 @@ export function offchainMarketplaceFor(chainId: number): OffchainMarketplace {
   return contract;
 }
 
-export function supportedListingChains(): number[] {
-  return Object.keys(OFFCHAIN_MARKETPLACES).map(Number);
-}
-
 const ESTATE_REGISTRIES: Record<number, string> = {
   1: "0x959e104e1a4db6317fa58f8295f586e1a978c297",
   11155111: "0x369a7fbe718c870c79f99fb423882e8dd8b20486",
 };
 
-export function isEstateRegistry(chainId: number, contractAddress: string): boolean {
+function isEstateRegistry(chainId: number, contractAddress: string): boolean {
   return ESTATE_REGISTRIES[chainId] === contractAddress.trim().toLowerCase();
 }
 
@@ -91,14 +87,14 @@ export function toAddress(value: string, what: string): Hex {
   return trimmed.toLowerCase() as Hex;
 }
 
-export type TradeExternalCheck = {
+type TradeExternalCheck = {
   contractAddress: string;
   selector: string;
   value: string;
   required: boolean;
 };
 
-export type TradeChecks = {
+type TradeChecks = {
   uses: number;
   expiration: number;
   effective: number;
@@ -109,14 +105,14 @@ export type TradeChecks = {
   externalChecks: TradeExternalCheck[];
 };
 
-export type SentAsset = {
+type SentAsset = {
   assetType: typeof TRADE_ASSET_TYPE.erc721;
   contractAddress: Hex;
   tokenId: string;
   extra: string;
 };
 
-export type ReceivedAsset = {
+type ReceivedAsset = {
   assetType: typeof TRADE_ASSET_TYPE.erc20;
   contractAddress: Hex;
   amount: string;
@@ -124,7 +120,7 @@ export type ReceivedAsset = {
   beneficiary: Hex;
 };
 
-export type ListingTrade = {
+type ListingTrade = {
   signer: Hex;
   network: TradeNetwork;
   chainId: number;
@@ -134,11 +130,9 @@ export type ListingTrade = {
   received: ReceivedAsset[];
 };
 
-export type SignedListingTrade = ListingTrade & { signature: string };
+type TypedDataField = { name: string; type: string };
 
-export type TypedDataField = { name: string; type: string };
-
-export const OFFCHAIN_MARKETPLACE_TYPES: Record<string, TypedDataField[]> = {
+const OFFCHAIN_MARKETPLACE_TYPES: Record<string, TypedDataField[]> = {
   Trade: [
     { name: "checks", type: "Checks" },
     { name: "sent", type: "AssetWithoutBeneficiary[]" },
@@ -190,7 +184,7 @@ function orEmptyBytes(extra: string): string {
   return extra ? extra : "0x";
 }
 
-export function tradeValues(trade: ListingTrade) {
+function tradeValues(trade: ListingTrade) {
   return {
     checks: {
       uses: trade.checks.uses,
@@ -245,7 +239,7 @@ export function tradeTypedData(trade: ListingTrade): TradeTypedData {
   };
 }
 
-export function randomSalt(): Hex {
+function randomSalt(): Hex {
   const source = globalThis.crypto;
   if (!source?.getRandomValues) {
     throw new Error(
@@ -255,7 +249,7 @@ export function randomSalt(): Hex {
   return toHex(source.getRandomValues(new Uint8Array(32)));
 }
 
-export type BuildListingTradeInput = {
+type BuildListingTradeInput = {
   signer: string;
   chainId: number;
   contractAddress: string;
@@ -269,7 +263,7 @@ export type BuildListingTradeInput = {
   salt?: Hex;
 };
 
-export type ListingTerms = {
+type ListingTerms = {
   tokenId: string;
   priceWei: string;
   expiresAt: number;

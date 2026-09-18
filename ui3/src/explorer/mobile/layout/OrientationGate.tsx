@@ -4,9 +4,9 @@ import { useOrientation } from "./OrientationProvider";
 import "./viewport.css";
 import "./layout.css";
 
-export type OrientationGateMode = "unmount" | "hide";
+type OrientationGateMode = "unmount" | "hide";
 
-export type OrientationGateProps = {
+type OrientationGateProps = {
   children: ReactNode;
   show: Orientation;
   mode?: OrientationGateMode;

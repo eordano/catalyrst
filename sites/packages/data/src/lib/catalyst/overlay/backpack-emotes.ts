@@ -13,13 +13,13 @@ export function isEthAddress(addr: string): boolean {
 }
 
 export const SLOT_ORDER = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0] as const;
-export type SlotNumber = (typeof SLOT_ORDER)[number];
+type SlotNumber = (typeof SLOT_ORDER)[number];
 
-export function isSlotNumber(n: number): n is SlotNumber {
+function isSlotNumber(n: number): n is SlotNumber {
   return Number.isInteger(n) && n >= 0 && n <= 9;
 }
 
-export const BASE_EMOTES_PREFIX = "urn:decentraland:off-chain:base-emotes";
+const BASE_EMOTES_PREFIX = "urn:decentraland:off-chain:base-emotes";
 
 export function itemUrn(urn: string): string {
   const parts = urn.split(":");
@@ -30,7 +30,7 @@ export function itemUrn(urn: string): string {
   return urn;
 }
 
-export function slugToName(urn: string): string {
+function slugToName(urn: string): string {
   const last = urn.split(":").pop() ?? "";
   if (!last || /^\d+$/.test(last)) return "";
   return last
@@ -39,7 +39,7 @@ export function slugToName(urn: string): string {
     .trim();
 }
 
-export const EMOTE_CATEGORIES = [
+const EMOTE_CATEGORIES = [
   "dance",
   "stunt",
   "greetings",
@@ -50,13 +50,22 @@ export const EMOTE_CATEGORIES = [
   "miscellaneous",
 ] as const;
 
-export const EmoteSchema = z
+const EmoteSchema = z
   .object({
     urn: z.string().min(1),
     name: z.string(),
-    description: z.string().nullish().transform((v) => v ?? null),
-    thumbnail: z.string().nullish().transform((v) => v ?? null),
-    rarity: z.string().nullish().transform((v) => v ?? null),
+    description: z
+      .string()
+      .nullish()
+      .transform((v) => v ?? null),
+    thumbnail: z
+      .string()
+      .nullish()
+      .transform((v) => v ?? null),
+    rarity: z
+      .string()
+      .nullish()
+      .transform((v) => v ?? null),
     category: z.string(),
     loop: z.boolean(),
   })
@@ -66,23 +75,26 @@ export const EmoteSchema = z
       ? e.category
       : "miscellaneous",
   }));
-export type Emote = z.infer<typeof EmoteSchema>;
+type Emote = z.infer<typeof EmoteSchema>;
 
-export const SlotBindingSchema = z.object({
+const SlotBindingSchema = z.object({
   slot: z.number().int().min(0).max(9),
   urn: z.string().min(1),
   name: z.string(),
 });
-export type SlotBinding = z.infer<typeof SlotBindingSchema>;
+type SlotBinding = z.infer<typeof SlotBindingSchema>;
 
-export const OwnedEmoteElementSchema = z
+const OwnedEmoteElementSchema = z
   .object({
     urn: z.string(),
-    amount: z.number().nullish().transform((v) => v ?? null),
+    amount: z
+      .number()
+      .nullish()
+      .transform((v) => v ?? null),
   })
   .passthrough();
 
-export function projectRawEmote(raw: unknown): Emote | null {
+function projectRawEmote(raw: unknown): Emote | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const data = (o.emoteDataADR74 ?? {}) as Record<string, unknown>;
@@ -90,7 +102,11 @@ export function projectRawEmote(raw: unknown): Emote | null {
   const named = typeof o.name === "string" && o.name.trim() !== "";
   const candidate = {
     urn,
-    name: named ? o.name : typeof urn === "string" ? slugToName(urn) || urn : o.name,
+    name: named
+      ? o.name
+      : typeof urn === "string"
+        ? slugToName(urn) || urn
+        : o.name,
     description: o.description,
     thumbnail: o.thumbnail,
     rarity: o.rarity,
@@ -101,7 +117,7 @@ export function projectRawEmote(raw: unknown): Emote | null {
   return r.success ? r.data : null;
 }
 
-export function parseCatalog(raw: unknown): Emote[] {
+function parseCatalog(raw: unknown): Emote[] {
   if (!Array.isArray(raw)) return [];
   const out: Emote[] = [];
   for (const item of raw) {
@@ -111,7 +127,7 @@ export function parseCatalog(raw: unknown): Emote[] {
   return out;
 }
 
-export function parseOwnedUrns(raw: unknown): string[] {
+function parseOwnedUrns(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const out: string[] = [];
   for (const item of raw) {
@@ -148,17 +164,20 @@ export async function fetchEmoteDefs(
     (u) => u && !u.startsWith(BASE_EMOTES_PREFIX),
   );
   if (onChain.length === 0) return [];
-  const out: Emote[] = [];
-  for (let i = 0; i < onChain.length; i += 40) {
-    const chunk = onChain.slice(i, i + 40);
-    const qs = chunk.map((u) => `emoteId=${encodeURIComponent(u)}`).join("&");
-    try {
-      const raw = await getJSON<unknown>(`/lambdas/collections/emotes?${qs}`, opts);
-      out.push(...parseCatalog(extractEmoteDefs(raw)));
-    } catch {
-    }
-  }
-  return out;
+  const chunks: string[][] = [];
+  for (let i = 0; i < onChain.length; i += 40)
+    chunks.push(onChain.slice(i, i + 40));
+  const results = await Promise.allSettled(
+    chunks.map(async (chunk): Promise<Emote[]> => {
+      const qs = chunk.map((u) => `emoteId=${encodeURIComponent(u)}`).join("&");
+      const raw = await getJSON<unknown>(
+        `/lambdas/collections/emotes?${qs}`,
+        opts,
+      );
+      return parseCatalog(extractEmoteDefs(raw));
+    }),
+  );
+  return results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
 }
 
 const ProfileEmoteSchema = z.object({
@@ -173,7 +192,10 @@ export async function fetchProfileEmotes(
 ): Promise<ProfileEmote[]> {
   const prof = await getJSON<{
     avatars?: { avatar?: { emotes?: unknown } }[];
-  }>(`/lambdas/profiles/${encodeURIComponent(normalizeAddress(address))}`, opts);
+  }>(
+    `/lambdas/profiles/${encodeURIComponent(normalizeAddress(address))}`,
+    opts,
+  );
   const raw = prof.avatars?.[0]?.avatar?.emotes;
   if (!Array.isArray(raw)) return [];
   const out: ProfileEmote[] = [];
@@ -194,7 +216,7 @@ export type BackpackEmotesData = {
   error: boolean;
 };
 
-export function sortLoadout(loadout: SlotBinding[]): SlotBinding[] {
+function sortLoadout(loadout: SlotBinding[]): SlotBinding[] {
   const rank = (slot: number) => (slot === 0 ? 10 : slot);
   return [...loadout].sort((a, b) => rank(a.slot) - rank(b.slot));
 }
@@ -214,6 +236,3 @@ export function buildLoadout(
   return sortLoadout(out);
 }
 
-export function rarityLabel(rarity: string): string {
-  return rarity.charAt(0).toUpperCase() + rarity.slice(1);
-}

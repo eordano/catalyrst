@@ -6,7 +6,7 @@
     "license": {
       "name": ""
     },
-    "version": "0.24.1"
+    "version": "0.27.0"
   },
   "paths": {
     "/about": {
@@ -1433,6 +1433,9 @@
                 }
               }
             }
+          },
+          "304": {
+            "description": ""
           },
           "500": {
             "description": "",
@@ -3920,6 +3923,24 @@
           }
         }
       },
+      "PersonalWorldsStatus": {
+        "type": "object",
+        "required": [
+          "maxWorlds",
+          "maxSizeBytes"
+        ],
+        "properties": {
+          "maxSizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "maxWorlds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "RemoteWorldView": {
         "type": "object",
         "description": "One mirrored world, as published.\n\n**There is no `owner` key, and no field it could be renamed from.** There is no\n`access`, no `permissions`, no `blockedSince`, no `deployer`. `peerId` is\nmandatory: a mirrored world without the peer that reported it would be a claim\nabout a world, which is exactly what this slice refuses to make.",
@@ -4132,6 +4153,16 @@
           },
           "content": {
             "$ref": "#/components/schemas/ContentStatus"
+          },
+          "personalWorlds": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PersonalWorldsStatus"
+              }
+            ]
           }
         }
       },

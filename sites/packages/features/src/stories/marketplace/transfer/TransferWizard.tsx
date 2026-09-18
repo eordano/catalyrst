@@ -17,7 +17,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type TransferWizardProps = {
+type TransferWizardProps = {
   assets: TransferAsset[];
   source: "catalyst" | "fixture";
   trackCtx: TrackContext;

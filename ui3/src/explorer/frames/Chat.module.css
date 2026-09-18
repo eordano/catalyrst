@@ -402,6 +402,31 @@
   border-radius: 8px;
 }
 
+.consoleLine {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  font: var(--fs-xs) / 1.45 var(--font-mono, ui-monospace, monospace);
+  color: var(--text);
+}
+.consoleEcho {
+  color: rgba(255, 255, 255, 0.72);
+}
+.consolePrompt {
+  flex: none;
+  color: var(--green);
+  font-weight: 700;
+}
+.consoleText {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .ctrlBtn {
   display: inline-flex;
   align-items: center;

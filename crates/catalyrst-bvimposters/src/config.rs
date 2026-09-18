@@ -9,6 +9,7 @@ pub struct Config {
     pub store_root: PathBuf,
     pub quarantine_list: PathBuf,
     pub store_max_bytes: u64,
+    pub mem_cache_bytes: usize,
     pub cdn_base: String,
     pub cdn_realm_segment: String,
     pub readthrough_timeout_secs: u64,
@@ -43,6 +44,7 @@ impl Config {
             store_root,
             quarantine_list,
             store_max_bytes: get_u64("BVIMPOSTERS_STORE_MAX_BYTES", 21474836480)?,
+            mem_cache_bytes: get_u64("BVIMPOSTERS_MEM_CACHE_BYTES", 268435456)? as usize,
             cdn_base: required_endpoint("BVIMPOSTERS_CDN_BASE")?,
             cdn_realm_segment: get_str(
                 "BVIMPOSTERS_CDN_REALM_SEGMENT",

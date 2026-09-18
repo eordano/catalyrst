@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const ScenesSummarySchema = z.object({
+const ScenesSummarySchema = z.object({
   places: z.number().int().nonnegative(),
   visits30d: z.number().int().nonnegative(),
   liveNow: z.number().int().nonnegative(),
@@ -15,7 +15,7 @@ export type SceneVisitRow = {
   liveNow: number | null;
 };
 
-export const SummarySchema = z.object({
+const SummarySchema = z.object({
   publishedCollections: z.number().int().nonnegative().nullable(),
   onSaleItems: z.number().int().nonnegative().nullable(),
   sales7d: z.number().int().nonnegative().nullable(),

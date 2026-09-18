@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { SettingEntry } from "../generated/bridge/SettingEntry";
 import { attachBridge, sendBridge } from "./bridge";
 
-export type EngineVariant = { label: string; description: string | null };
+type EngineVariant = { label: string; description: string | null };
 
 export type EngineSetting = {
   name: string;

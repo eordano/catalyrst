@@ -11,15 +11,6 @@ import {
 } from "../generated-schemas/market";
 import { warnInvalid } from "../warn";
 
-export {
-  CatalogItemSchema,
-  CollectionSchema,
-  ItemSchema,
-  NftResultSchema,
-  NftSchema,
-  OrderSchema,
-};
-
 export type MarketEnvelope<T> = { data: T; total: number };
 
 type WireCatalogItem = z.infer<typeof CatalogItemSchema>;
@@ -54,7 +45,7 @@ export type CatalogItem = {
   data: Record<string, unknown>;
 };
 
-export function normalizeCatalogItem(w: WireCatalogItem): CatalogItem {
+function normalizeCatalogItem(w: WireCatalogItem): CatalogItem {
   return {
     id: w.id,
     itemId: w.itemId,
@@ -81,7 +72,7 @@ export function normalizeCatalogItem(w: WireCatalogItem): CatalogItem {
   };
 }
 
-export function normalizeItem(w: WireItem): CatalogItem {
+function normalizeItem(w: WireItem): CatalogItem {
   return {
     id: w.id,
     itemId: w.itemId,
@@ -125,9 +116,7 @@ export type Nft = {
   data: Record<string, unknown>;
 };
 
-export type OwnedNft = Nft;
-
-export function normalizeNft(w: WireNft): Nft {
+function normalizeNft(w: WireNft): Nft {
   return {
     id: w.id,
     category: w.category,
@@ -193,7 +182,7 @@ export type NftResult = {
 export type EnsResult = NftResult;
 export type OwnedAsset = NftResult;
 
-export function normalizeNftResult(w: WireNftResult): NftResult {
+function normalizeNftResult(w: WireNftResult): NftResult {
   return {
     nft: normalizeNft(w.nft),
     order: w.order ? normalizeOrder(w.order) : null,
@@ -216,7 +205,7 @@ export type Collection = {
   firstListedAt: number | null;
 };
 
-export function normalizeCollection(w: WireCollection): Collection {
+function normalizeCollection(w: WireCollection): Collection {
   return {
     urn: w.urn,
     contractAddress: w.contractAddress,
@@ -233,7 +222,7 @@ export function normalizeCollection(w: WireCollection): Collection {
   };
 }
 
-export const MarketEnvelopeSchema = dataTotalOf(z.unknown());
+const MarketEnvelopeSchema = dataTotalOf(z.unknown());
 
 export function parseMarketEnvelope(raw: unknown): MarketEnvelope<unknown[]> {
   const r = MarketEnvelopeSchema.safeParse(raw);
@@ -278,16 +267,7 @@ export function parseNftResult(raw: unknown): NftResult | null {
   return parseNftRow("NftResult", raw);
 }
 
-export function parseNftResults(raw: unknown[]): NftResult[] {
-  const out: NftResult[] = [];
-  for (const r of raw ?? []) {
-    const row = parseNftResult(r);
-    if (row) out.push(row);
-  }
-  return out;
-}
-
-export function parseEnsResult(raw: unknown): EnsResult | null {
+function parseEnsResult(raw: unknown): EnsResult | null {
   return parseNftRow("EnsResult", raw);
 }
 

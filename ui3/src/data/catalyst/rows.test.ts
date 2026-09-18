@@ -242,34 +242,20 @@ const SCHEMAS: Record<string, { safeParse: (v: unknown) => { success: boolean } 
   notification: NotificationSchema,
 };
 
-describe.each(CASES)("the $what guard", (c) => {
-  test("accepts every row its schema would have kept", () => {
-    for (const row of c.edges) {
-      expect(c.guard(row), `guard rejected an edge row: ${JSON.stringify(row)}`).toBe(true);
-    }
-  });
-
-  test("rejects rows the mapper could not survive or could only fake", () => {
-    for (const row of c.rejects) {
-      expect(c.guard(row), `guard accepted: ${JSON.stringify(row)}`).toBe(false);
-    }
-  });
-
-  test("the mapper survives the minimal row the guard admits", () => {
-    expect(() => c.map(c.minimal)).not.toThrow();
-  });
-
-  test("the minimal row is minimal: dropping any field of it fails the guard", () => {
-    for (const key of Object.keys(c.minimal)) {
-      const { [key]: _dropped, ...rest } = c.minimal;
-      expect(c.guard(rest), `the guard does not actually require ${key}`).toBe(false);
-    }
-  });
-});
-
-describe("the acceptance property, stated once more against the real schemas", () => {
-  test("a schema-valid edge row is never rejected by its guard", () => {
+describe("the row guards", () => {
+  test("accept every schema-valid edge row, reject what the mapper could not survive, and require exactly the minimal row", () => {
     for (const c of CASES) {
+      for (const row of c.edges) {
+        expect(c.guard(row), `${c.what} guard rejected an edge row: ${JSON.stringify(row)}`).toBe(true);
+      }
+      for (const row of c.rejects) {
+        expect(c.guard(row), `${c.what} guard accepted: ${JSON.stringify(row)}`).toBe(false);
+      }
+      expect(() => c.map(c.minimal), `${c.what} mapper threw on the minimal row`).not.toThrow();
+      for (const key of Object.keys(c.minimal)) {
+        const { [key]: _dropped, ...rest } = c.minimal;
+        expect(c.guard(rest), `the ${c.what} guard does not actually require ${key}`).toBe(false);
+      }
       const schema = SCHEMAS[c.what];
       for (const row of c.edges) {
         if (!schema?.safeParse(row).success) continue;
@@ -286,30 +272,21 @@ describe("the acceptance property, stated once more against the real schemas", (
 });
 
 describe("the helpers a guard is built out of", () => {
-  test("isRecord admits objects and nothing that would throw on a property read", () => {
+  test("isRecord, field and listOf never throw on what a stub may have waved past", () => {
     expect(isRecord({})).toBe(true);
     for (const v of [null, undefined, [], "s", 1, true]) expect(isRecord(v)).toBe(false);
-  });
-
-  test("field reads through anything a stub may have waved past", () => {
     expect(field({ data: 1 }, "data")).toBe(1);
     expect(field(null, "data")).toBeUndefined();
     expect(field("nope", "data")).toBeUndefined();
     expect(field({ error: "boom" }, "data")).toBeUndefined();
-  });
-
-  test("listOf answers an array or an empty one, never undefined", () => {
     expect(listOf([1, 2])).toEqual([1, 2]);
     for (const v of [null, undefined, {}, "ab"]) expect(listOf(v)).toEqual([]);
   });
 
-  test("keepRow applies the guard to what the schema handed back", () => {
+  test("keepRow and keepRows apply the guard and drop rather than throw", () => {
     expect(keepRow({ id: "p", extra: 1 }, CommunitySchema, hasId)).toBeNull();
     const ok = { name: "art", active: true, count: 0, i18n: { en: null } };
     expect(keepRow(ok, CategorySchema, isRenderablePlaceCategory)).toMatchObject({ name: "art" });
-  });
-
-  test("keepRows drops rather than throws, on rows and on the list itself", () => {
     const rows = [
       { name: "art", active: true, count: 1, i18n: { en: null } },
       { name: "", active: true, count: 1, i18n: { en: null } },
@@ -331,7 +308,7 @@ describe("the readers whose row semantics the guards changed", () => {
     expect(parseOwned("not a list")).toEqual([]);
   });
 
-  test("parseNotifications keeps the sort meaningful by dropping non-numeric timestamps", () => {
+  test("parseNotifications drops non-numeric timestamps and reads unknown envelopes as empty", () => {
     const rows = parseNotifications({
       notifications: [
         { id: "a", type: "item_sold", address: "", timestamp: 1, read: false, created_at: "", updated_at: "", metadata: {} },
@@ -340,9 +317,6 @@ describe("the readers whose row semantics the guards changed", () => {
       ],
     });
     expect(rows.map((n) => n.id)).toEqual(["b", "a"]);
-  });
-
-  test("parseNotifications reads an envelope it cannot recognise as empty", () => {
     expect(parseNotifications({ oops: 1 })).toEqual([]);
     expect(parseNotifications(null)).toEqual([]);
   });

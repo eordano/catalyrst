@@ -232,60 +232,72 @@ impl CouponsComponent {
         self.validate_creator(signer, &validated.collections, coupon.chain_id)
             .await?;
 
-        // Each manager keeps its own allow-list of coupon contracts, and an older one may never
-        // have learnt the current CollectionDiscountCoupon, so `applyCoupon` would revert on a
-        // coupon that verifies here.
-        let allowed = self
-            .chain
-            .read_coupon_allowed(
-                coupon.chain_id,
-                validated.contracts.coupon_manager.address,
-                &coupon.coupon_address,
-            )
-            .await
-            .map_err(|e| CouponError::Internal(e.to_string()))?;
-        if !allowed {
-            return Err(CouponError::NotAllowed);
-        }
-
-        // The contract rejects a coupon whose indexes lag the manager's, so a stale one is
-        // refused now rather than shown to buyers and failing at checkout.
-        let indexes = self
-            .chain
-            .read_indexes(
-                coupon.chain_id,
-                validated.contracts.coupon_manager.address,
-                signer,
-            )
-            .await
-            .map_err(|e| CouponError::Internal(e.to_string()))?;
-        if indexes.contract_signature_index != coupon.checks.contract_signature_index
-            || indexes.signer_signature_index != coupon.checks.signer_signature_index
-        {
-            return Err(CouponError::InvalidSignatureIndex);
-        }
-
         let state_key = to_hex32(validated.state_key);
-        let digest = coupon_signing_hash(
+        let digest_key = coupon_signing_hash(
             coupon.chain_id,
             &validated.contracts,
             &coupon.checks,
             &coupon.coupon_address,
             &validated.data,
         )
-        .map_err(|_| CouponError::InvalidSignature)?;
-        let digest_key = digest_coupon_state_key(signer, digest)
-            .map_err(|_| CouponError::InvalidSignature)
-            .map(to_hex32)?;
-        let chain_state = self
-            .chain
-            .read_state(
+        .map_err(|_| CouponError::InvalidSignature)
+        .and_then(|digest| {
+            digest_coupon_state_key(signer, digest)
+                .map_err(|_| CouponError::InvalidSignature)
+                .map(to_hex32)
+        });
+
+        // The three manager reads are independent; their results are checked in the original
+        // order so a coupon failing several checks still gets the same error as before.
+        let state_fut = async {
+            match &digest_key {
+                Ok(digest_key) => self
+                    .chain
+                    .read_state(
+                        coupon.chain_id,
+                        validated.contracts.coupon_manager.address,
+                        &[digest_key.clone(), state_key.clone()],
+                    )
+                    .await
+                    .map(Some),
+                Err(_) => Ok(None),
+            }
+        };
+        let (allowed, indexes, chain_state) = tokio::join!(
+            self.chain.read_coupon_allowed(
                 coupon.chain_id,
                 validated.contracts.coupon_manager.address,
-                &[digest_key, state_key.clone()],
-            )
-            .await
-            .map_err(|e| CouponError::Internal(e.to_string()))?;
+                &coupon.coupon_address,
+            ),
+            self.chain.read_indexes(
+                coupon.chain_id,
+                validated.contracts.coupon_manager.address,
+                signer,
+            ),
+            state_fut,
+        );
+
+        // Each manager keeps its own allow-list of coupon contracts, and an older one may never
+        // have learnt the current CollectionDiscountCoupon, so `applyCoupon` would revert on a
+        // coupon that verifies here.
+        let allowed = allowed.map_err(|e| CouponError::Internal(e.to_string()))?;
+        if !allowed {
+            return Err(CouponError::NotAllowed);
+        }
+
+        // The contract rejects a coupon whose indexes lag the manager's, so a stale one is
+        // refused now rather than shown to buyers and failing at checkout.
+        let indexes = indexes.map_err(|e| CouponError::Internal(e.to_string()))?;
+        if indexes.contract_signature_index != coupon.checks.contract_signature_index
+            || indexes.signer_signature_index != coupon.checks.signer_signature_index
+        {
+            return Err(CouponError::InvalidSignatureIndex);
+        }
+
+        digest_key?;
+        let chain_state = chain_state
+            .map_err(|e| CouponError::Internal(e.to_string()))?
+            .ok_or_else(|| CouponError::Internal("coupon state was not read".to_string()))?;
         if chain_state.cancelled {
             return Err(CouponError::AlreadyUnusable(ALREADY_CANCELLED.to_string()));
         }
@@ -308,8 +320,7 @@ impl CouponsComponent {
             CouponError::InvalidChecks(format!("unrepresentable time {}", coupon.checks.expiration))
         })?;
 
-        let mut tx = self.pool.begin().await?;
-        let inserted: (String, DateTime<Utc>) = sqlx::query_as(sql::INSERT_COUPON)
+        let inserted: (String, DateTime<Utc>) = sqlx::query_as(sql::INSERT_COUPON_WITH_STATE)
             .bind(&validated.network)
             .bind(coupon.chain_id as i32)
             .bind(coupon.signer.to_lowercase())
@@ -325,7 +336,10 @@ impl CouponsComponent {
             .bind(&validated.collections)
             .bind(effective_since)
             .bind(expires_at)
-            .fetch_one(&mut *tx)
+            .bind(state.uses as i32)
+            .bind(state.cancelled)
+            .bind(state.revoked)
+            .fetch_one(&self.pool)
             .await
             .map_err(|e| {
                 if is_unique_violation(&e) {
@@ -335,14 +349,6 @@ impl CouponsComponent {
                 }
             })?;
         let (id, created_at) = inserted;
-        sqlx::query(sql::UPSERT_COUPON_STATE)
-            .bind(&id)
-            .bind(state.uses as i32)
-            .bind(state.cancelled)
-            .bind(state.revoked)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
 
         tracing::info!(
             coupon = %id,

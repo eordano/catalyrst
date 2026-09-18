@@ -10,7 +10,7 @@ import {
   type Store,
 } from "./settings";
 
-export type StoreResult = {
+type StoreResult = {
   store: Store;
   source: "catalyst" | "empty" | "unavailable";
   reason?: string;

@@ -103,7 +103,7 @@ function TreeRow({ node, depth, expandAll = false, live = false, onSelect, onFoc
   );
 }
 
-export interface DeHierarchyPanelProps {
+interface DeHierarchyPanelProps {
   tree?: DeTreeNode[];
   title?: string;
   width?: number;
@@ -210,13 +210,13 @@ export function DeHierarchyPanel({
   );
 }
 
-export interface DeContextMenuProps {
+interface DeContextMenuProps {
   x?: number;
   y?: number;
   kids?: number;
 }
 
-export function DeContextMenu({ x = 96, y = 188, kids = 0 }: DeContextMenuProps) {
+function DeContextMenu({ x = 96, y = 188, kids = 0 }: DeContextMenuProps) {
   return (
     <div className="eui-ctx" style={{ left: x, top: y }}>
       <ContextMenu

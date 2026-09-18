@@ -8,7 +8,7 @@ import ManaMark from "../../atoms/ManaMark";
 import "../frames/assetactionlayout.css";
 import "./mkclaimnamewizardview.css";
 
-export type MkClaimNameWizardViewProps = {
+type MkClaimNameWizardViewProps = {
   value: string;
   step: string;
   activeName: string;

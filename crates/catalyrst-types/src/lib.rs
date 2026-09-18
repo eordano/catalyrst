@@ -3,6 +3,7 @@ pub mod deployment;
 pub mod duration_fmt;
 pub mod entity;
 pub mod error;
+pub mod item_schema;
 pub mod pagination;
 pub mod response;
 pub mod sanitize;

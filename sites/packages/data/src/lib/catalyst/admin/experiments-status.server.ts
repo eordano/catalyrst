@@ -21,9 +21,9 @@ const DashSchema = z.object({
   unreadable: z.array(ExperimentSchema),
 });
 
-export type ExperimentRow = z.infer<typeof ExperimentSchema>;
+type ExperimentRow = z.infer<typeof ExperimentSchema>;
 
-export type ExperimentsStatus = {
+type ExperimentsStatus = {
   readable: ExperimentRow[];
   unreadable: ExperimentRow[];
 };

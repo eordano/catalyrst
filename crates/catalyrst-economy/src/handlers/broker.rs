@@ -477,7 +477,6 @@ async fn confirm_buy(
                     ApiError::Internal("secondary buy confirmed without a tokenId".into())
                 })?,
             };
-            set_bought(state, key, &token_id.to_string()).await?;
             Ok(token_id)
         }
         ReceiptOutcome::Reverted | ReceiptOutcome::Pending => Err(reverted_or_pending_error(
@@ -506,7 +505,7 @@ async fn drive_forward(
 ) -> Result<BuyOutcome, ApiError> {
     let fwd = build_forward_to_escrow(collection, relayer, escrow, token_id, buyer);
     let fwd_tx = signer.send_direct_call(fwd.to, fwd.data).await?;
-    set_forwarding(state, key, &fwd_tx).await?;
+    set_forwarding(state, key, &fwd_tx, &token_id.to_string()).await?;
 
     let outcome = signer.await_receipt(&fwd_tx).await?;
     match outcome {
@@ -641,8 +640,7 @@ async fn resume_existing(
         }
         "bought" => {
             let token_id =
-                resume_token_id(state, signer, key, mode, collection, relayer, &row, trade)
-                    .await?;
+                resume_token_id(signer, key, mode, collection, relayer, &row, trade).await?;
             drive_forward(state, signer, key, collection, escrow, buyer, relayer, token_id).await
         }
         "forwarding" => {
@@ -682,7 +680,6 @@ async fn resume_existing(
 
 #[allow(clippy::too_many_arguments)]
 async fn resume_token_id(
-    state: &AppState,
     signer: &DirectSigner,
     key: &str,
     mode: PurchaseMode,
@@ -709,9 +706,7 @@ async fn resume_token_id(
                      confirmed on re-poll"
                 )));
             }
-            let token_id = trade_delivered_token_id(&logs, collection, relayer, trade, None)?;
-            set_bought(state, key, &token_id.to_string()).await?;
-            Ok(token_id)
+            trade_delivered_token_id(&logs, collection, relayer, trade, None)
         }
         PurchaseMode::Primary => {
             if let Some(t) = row.minted_token_id.as_deref() {
@@ -728,13 +723,12 @@ async fn resume_token_id(
                     "primary broker buy {key:?} 'bought' but buy receipt not confirmed on re-poll"
                 )));
             }
-            let token_id = minted_token_id_from_logs(&logs, collection, relayer).ok_or_else(|| {
+            minted_token_id_from_logs(&logs, collection, relayer).ok_or_else(|| {
                 ApiError::RelayerFailed(
-                    "primary buy confirmed but no Transfer-to-relayer log found to recover tokenId".into(),
+                    "primary buy confirmed but no Transfer-to-relayer log found to recover tokenId"
+                        .into(),
                 )
-            })?;
-            set_bought(state, key, &token_id.to_string()).await?;
-            Ok(token_id)
+            })
         }
         _ => {
             let t = row.token_id.as_deref().ok_or_else(|| {
@@ -772,25 +766,22 @@ pub(crate) async fn set_buy_sent(
     Ok(())
 }
 
-async fn set_bought(state: &AppState, key: &str, token_id: &str) -> Result<(), ApiError> {
+/// Records the forward leg together with the token it moves: the buy receipt is not
+/// written on its own ('bought' is left to the reconciler), so one write covers both.
+async fn set_forwarding(
+    state: &AppState,
+    key: &str,
+    fwd_tx: &str,
+    token_id: &str,
+) -> Result<(), ApiError> {
     sqlx::query(
-        "UPDATE broker_purchases SET status = 'bought', minted_token_id = $2, updated_at = NOW() \
-         WHERE idempotency_key = $1",
-    )
-    .bind(key)
-    .bind(token_id)
-    .execute(&state.pool)
-    .await?;
-    Ok(())
-}
-
-async fn set_forwarding(state: &AppState, key: &str, fwd_tx: &str) -> Result<(), ApiError> {
-    sqlx::query(
-        "UPDATE broker_purchases SET status = 'forwarding', forward_tx_hash = $2, updated_at = NOW() \
+        "UPDATE broker_purchases SET status = 'forwarding', forward_tx_hash = $2, \
+         minted_token_id = $3, updated_at = NOW() \
          WHERE idempotency_key = $1",
     )
     .bind(key)
     .bind(fwd_tx)
+    .bind(token_id)
     .execute(&state.pool)
     .await?;
     Ok(())

@@ -1,10 +1,7 @@
 import { z } from "zod";
 
-import fixture from "../../../fixtures/governance-edit-project-update.json";
 import { warnInvalid } from "../warn";
 import { governanceApiBase } from "./api-base";
-
-export { governanceApiBase };
 
 export type ProjectHealth = "onTrack" | "atRisk" | "offTrack";
 
@@ -17,7 +14,7 @@ export type FinancialRecord = {
   link?: string;
 };
 
-export type ProjectUpdate = {
+type ProjectUpdate = {
   id: string;
   proposalId: string;
   projectId: string;
@@ -31,7 +28,7 @@ export type ProjectUpdate = {
   financial_records: FinancialRecord[];
 };
 
-export type ProjectSummary = {
+type ProjectSummary = {
   id: string;
   proposalId: string;
   title: string;
@@ -49,52 +46,6 @@ export type EditUpdateData = {
   fundsReleasedLastTxDate: string;
 };
 
-type FixtureShape = {
-  _source: string;
-  project: {
-    id: string;
-    proposal_id: string;
-    title: string;
-    type: string;
-    category: string;
-  };
-  update: {
-    id: string;
-    proposal_id: string;
-    project_id: string;
-    health: ProjectHealth;
-    introduction: string;
-    highlights: string;
-    blockers: string;
-    next_steps: string;
-    additional_notes: string;
-    status: string;
-    financial_records: FinancialRecord[];
-  };
-  fundsReleasedSinceLastUpdate: number;
-  fundsReleasedTxCount: number;
-  fundsReleasedLastTxDate: string;
-};
-
-const FIXTURE = fixture as unknown as FixtureShape;
-
-function fixtureUpdate(): ProjectUpdate {
-  const u = FIXTURE.update;
-  return {
-    id: u.id,
-    proposalId: u.proposal_id,
-    projectId: u.project_id,
-    health: u.health,
-    introduction: u.introduction,
-    highlights: u.highlights,
-    blockers: u.blockers,
-    next_steps: u.next_steps,
-    additional_notes: u.additional_notes ?? "",
-    status: u.status,
-    financial_records: u.financial_records ?? [],
-  };
-}
-
 const EMPTY_UPDATE: ProjectUpdate = {
   id: "",
   proposalId: "",
@@ -109,7 +60,7 @@ const EMPTY_UPDATE: ProjectUpdate = {
   financial_records: [],
 };
 
-export function unavailableEditUpdate(reason: string): EditUpdateData {
+function unavailableEditUpdate(reason: string): EditUpdateData {
   return {
     source: "unavailable",
     reason,
@@ -118,23 +69,6 @@ export function unavailableEditUpdate(reason: string): EditUpdateData {
     fundsReleasedSinceLastUpdate: 0,
     fundsReleasedTxCount: 0,
     fundsReleasedLastTxDate: "",
-  };
-}
-
-export function fixtureEditUpdate(): EditUpdateData {
-  return {
-    source: "fixture",
-    project: {
-      id: FIXTURE.project.id,
-      proposalId: FIXTURE.project.proposal_id,
-      title: FIXTURE.project.title,
-      type: FIXTURE.project.type,
-      category: FIXTURE.project.category,
-    },
-    update: fixtureUpdate(),
-    fundsReleasedSinceLastUpdate: FIXTURE.fundsReleasedSinceLastUpdate,
-    fundsReleasedTxCount: FIXTURE.fundsReleasedTxCount,
-    fundsReleasedLastTxDate: FIXTURE.fundsReleasedLastTxDate,
   };
 }
 
@@ -235,7 +169,7 @@ const ProjectMetaSchema = z
   })
   .passthrough();
 
-const ProjectsMetaResponseSchema = z.object({
+z.object({
   data: z.array(ProjectMetaSchema),
 });
 
@@ -266,7 +200,7 @@ function fundsReleasedSince(
   return { amount, txCount: since.length, lastDate };
 }
 
-export type LoadEditUpdateOptions = {
+type LoadEditUpdateOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;

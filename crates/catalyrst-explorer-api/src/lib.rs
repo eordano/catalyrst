@@ -20,19 +20,37 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
     )
     .context("failed to build reqwest client")?;
 
-    let denylist = Arc::new(modules::blocklist::read_denylist(&cfg.blocklist_path).await);
+    let denylist = modules::blocklist::read_denylist(&cfg.blocklist_path).await;
 
-    Ok(Arc::new(AppStateInner {
+    let state = Arc::new(AppStateInner {
         cfg: cfg.clone(),
         http,
         auth_api: Default::default(),
         feature_flags: Default::default(),
         runtime_config: Default::default(),
         onboarding: Default::default(),
-        denylist: parking_lot::RwLock::new(denylist),
-        catalyst_status_cache: catalyrst_commons::cache::TtlCell::new("catalyst-status"),
-        hot_scenes_cache: catalyrst_commons::cache::TtlCell::new("hot-scenes"),
-    }))
+        denylist: parking_lot::RwLock::new(modules::blocklist::DenylistCache::new(denylist)),
+        denylist_write: tokio::sync::Mutex::new(()),
+        catalyst_status_cache: modules::swr::SwrCell::new("catalyst-status"),
+        external_catalyst_cache: catalyrst_commons::cache::TtlMap::bounded(
+            "external-catalyst",
+            modules::realm_provider::CATALYST_STATUS_TTL,
+            64,
+        ),
+        hot_scenes_cache: modules::swr::SwrCell::new("hot-scenes"),
+        world_doc_cache: catalyrst_commons::cache::TtlMap::bounded(
+            "world-docs",
+            modules::worlds_content_server::WORLD_DOC_TTL,
+            4096,
+        ),
+        contents_cache: catalyrst_commons::cache::TtlMap::bounded(
+            "worlds-contents",
+            modules::worlds_content_server::CONTENTS_TTL,
+            modules::worlds_content_server::CONTENTS_MAX_ENTRIES,
+        ),
+    });
+    modules::auth_api::spawn_identity_sweeper(Arc::downgrade(&state));
+    Ok(state)
 }
 
 pub fn api_router() -> Router<AppState> {

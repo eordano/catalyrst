@@ -189,42 +189,48 @@ async fn get_estate_inner(state: &AppState, id: String) -> Response {
 
     match build_estate_nft(state, &id).await {
         Ok(Some(nft)) => ok_nft(nft),
-        Ok(None) => match build_dissolved_estate(state, &id).await {
-            Ok(Some(nft)) => ok_nft(nft),
-            Ok(None) => not_found(),
-            Err(e) => internal_error(&e),
-        },
+        Ok(None) => not_found(),
         Err(e) => internal_error(&e),
     }
 }
 
-async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<NftMetadata>, sqlx::Error> {
-    let schema = &state.map_schema;
-    let full_id = format!("estate-{}-{}", state.map.estate_contract(), id);
-    let sql = format!(
+/// The estate row and its parcel coordinates in one statement; the two aggregates share
+/// an ORDER BY so they pair up by index.
+fn estate_sql(schema: &str) -> String {
+    format!(
         r#"
-        SELECT e.size AS size, n.name AS name, d.description AS description
+        SELECT e.size AS size, n.name AS name, d.description AS description,
+               COALESCE((SELECT array_agg(p.x::int4 ORDER BY p.x, p.y)
+                         FROM {schema}.parcel p WHERE p.estate_id = e.id), '{{}}') AS xs,
+               COALESCE((SELECT array_agg(p.y::int4 ORDER BY p.x, p.y)
+                         FROM {schema}.parcel p WHERE p.estate_id = e.id), '{{}}') AS ys
         FROM {schema}.estate e
         LEFT JOIN {schema}.nft n ON n.id = $1 AND n.category = 'estate'
         LEFT JOIN {schema}.data d ON d.id = e.data_id
         WHERE e.id = $1
         LIMIT 1
         "#
-    );
-    let row: Option<(Option<i32>, Option<String>, Option<String>)> =
-        sqlx::query_as(sqlx::AssertSqlSafe(sql))
-            .bind(&full_id)
-            .fetch_optional(&state.pool)
-            .await?;
-    let Some((size, name, description)) = row else {
+    )
+}
+
+type EstateRow = (
+    Option<i32>,
+    Option<String>,
+    Option<String>,
+    Vec<i32>,
+    Vec<i32>,
+);
+
+async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<NftMetadata>, sqlx::Error> {
+    let full_id = format!("estate-{}-{}", state.map.estate_contract(), id);
+    let row: Option<EstateRow> = sqlx::query_as(sqlx::AssertSqlSafe(estate_sql(&state.map_schema)))
+        .bind(&full_id)
+        .fetch_optional(&state.pool)
+        .await?;
+    let Some((size, name, description, xs, ys)) = row else {
         return Ok(None);
     };
-
-    let coords_sql = format!("SELECT x::int4, y::int4 FROM {schema}.parcel WHERE estate_id = $1");
-    let coords: Vec<(i32, i32)> = sqlx::query_as(sqlx::AssertSqlSafe(coords_sql))
-        .bind(&full_id)
-        .fetch_all(&state.pool)
-        .await?;
+    let coords: Vec<(i32, i32)> = xs.into_iter().zip(ys).collect();
 
     let mut attributes: Vec<NftAttribute> = vec![NftAttribute {
         trait_type: "Size".into(),
@@ -253,41 +259,7 @@ async fn build_estate_nft(state: &AppState, id: &str) -> Result<Option<NftMetada
     }))
 }
 
-async fn build_dissolved_estate(
-    state: &AppState,
-    id: &str,
-) -> Result<Option<NftMetadata>, sqlx::Error> {
-    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
-        return Ok(None);
-    }
-    let schema = &state.map_schema;
-    let full_id = format!("estate-{}-{}", state.map.estate_contract(), id);
-    let sql = format!(
-        r#"
-        SELECT n.name AS name, d.description AS description
-        FROM {schema}.estate e
-        LEFT JOIN {schema}.nft n ON n.id = $1 AND n.category = 'estate'
-        LEFT JOIN {schema}.data d ON d.id = e.data_id
-        WHERE e.id = $1 AND e.size = 0
-        LIMIT 1
-        "#
-    );
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
-        .bind(&full_id)
-        .fetch_optional(&state.pool)
-        .await?;
-    let Some((name, description)) = row else {
-        return Ok(None);
-    };
-
-    Ok(Some(dissolved_estate_nft(
-        id,
-        name.unwrap_or_default(),
-        description.unwrap_or_default(),
-        state.map.estate_contract(),
-    )))
-}
-
+#[cfg(test)]
 fn dissolved_estate_nft(
     id: &str,
     name: String,
@@ -360,11 +332,6 @@ async fn get_token_inner(state: &AppState, address: String, id: String) -> (Resp
     if addr == state.map.estate_contract().to_lowercase() {
         if id.parse::<i64>().is_ok() {
             match build_estate_nft(state, &id).await {
-                Ok(Some(nft)) => return (ok_nft(nft), false),
-                Ok(None) => {}
-                Err(e) => return (internal_error(&e), false),
-            }
-            match build_dissolved_estate(state, &id).await {
                 Ok(Some(nft)) => return (ok_nft(nft), false),
                 Ok(None) => {}
                 Err(e) => return (internal_error(&e), false),
@@ -446,6 +413,15 @@ mod tests {
             sql.contains("squid_marketplace.parcel"),
             "schema must be interpolated"
         );
+    }
+
+    #[test]
+    fn estate_sql_folds_parcel_coordinates_into_the_estate_row() {
+        let sql = estate_sql("squid_marketplace");
+        assert_eq!(sql.matches("array_agg(").count(), 2);
+        assert!(sql.contains("squid_marketplace.parcel p WHERE p.estate_id = e.id"));
+        assert!(sql.contains("n.name"), "must fetch the nft name");
+        assert!(sql.contains("d.description"));
     }
 
     #[test]

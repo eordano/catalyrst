@@ -10,9 +10,10 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 
 use catalyrst_archipelago::ban::{BanChecker, DenyList};
-use catalyrst_archipelago::cluster::{Cluster, ClusterEvent};
 use catalyrst_archipelago::config::{ClusterConfig, LivekitConfig};
 use catalyrst_archipelago::livekit::LivekitMinter;
+use catalyrst_archipelago::peers::PeerDirectory;
+use catalyrst_archipelago::registry::{PeersRegistry, SocketEvent};
 
 #[derive(Default)]
 struct Counters {
@@ -27,6 +28,11 @@ async fn bans_ok(State(c): State<Arc<Counters>>, Path(addr): Path<String>) -> Js
 }
 
 async fn bans_500() -> StatusCode {
+    StatusCode::INTERNAL_SERVER_ERROR
+}
+
+async fn bans_500_counted(State(c): State<Arc<Counters>>) -> StatusCode {
+    c.ban_hits.fetch_add(1, Ordering::SeqCst);
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
@@ -55,6 +61,7 @@ async fn start_mock() -> (u16, Arc<Counters>) {
     let app = Router::new()
         .route("/users/{addr}/bans", get(bans_ok))
         .route("/bad/users/{addr}/bans", get(bans_500))
+        .route("/counted-bad/users/{addr}/bans", get(bans_500_counted))
         .route("/malformed/users/{addr}/bans", get(bans_malformed))
         .route("/missing/users/{addr}/bans", get(bans_missing))
         .route("/denylist.json", get(denylist))
@@ -196,51 +203,56 @@ fn armed_minter() -> Arc<LivekitMinter> {
 }
 
 #[tokio::test]
-async fn recluster_evicts_banned_peer_and_assigns_clean_one() {
+async fn the_ban_sweep_evicts_the_banned_peer_and_leaves_the_clean_one() {
     let (port, _c) = start_mock().await;
     let ban = BanChecker::new(
         Some(format!("http://127.0.0.1:{port}")),
         reqwest::Client::new(),
     );
-    let cluster = Cluster::new(ClusterConfig::default(), armed_minter(), ban);
-
-    let mut rx = cluster.subscribe();
-    cluster.upsert_peer("0xbanneduser".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
-    cluster.upsert_peer("0xcleanuser".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
-
-    cluster.recluster_once().await;
-
-    assert!(
-        cluster.peer("0xbanneduser").is_none(),
-        "banned peer evicted"
+    let registry = PeersRegistry::new();
+    let peers = PeerDirectory::new(
+        ClusterConfig::default(),
+        armed_minter(),
+        ban,
+        Arc::clone(&registry),
     );
-    assert_eq!(cluster.peers_count(), 1);
-    let clean = cluster.peer("0xcleanuser").expect("clean peer survives");
-    assert!(clean.island_id.is_some(), "clean peer keeps an island");
+    let (_banned_link, mut banned_events, _) = registry.on_peer_connected("0xbanneduser", "0xs1");
+    let (_clean_link, mut clean_events, _) = registry.on_peer_connected("0xcleanuser", "0xs2");
 
-    let mut island_changed_addrs = Vec::new();
-    while let Ok(evt) = rx.try_recv() {
-        if let ClusterEvent::IslandChanged { address, .. } = evt {
-            island_changed_addrs.push(address);
-        }
-    }
-    assert_eq!(island_changed_addrs, vec!["0xcleanuser".to_string()]);
+    peers.upsert_peer("0xbanneduser".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
+    peers.upsert_peer("0xcleanuser".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
+
+    peers.ban_sweep_once().await;
+
+    assert!(peers.peer("0xbanneduser").is_none(), "banned peer evicted");
+    assert_eq!(peers.peers_count(), 1);
+    assert!(peers.peer("0xcleanuser").is_some(), "clean peer survives");
+    assert!(matches!(banned_events.try_recv(), Ok(SocketEvent::Kicked)));
+    assert!(
+        clean_events.try_recv().is_err(),
+        "the clean peer's socket is left alone"
+    );
 }
 
 #[tokio::test]
-async fn recluster_with_disarmed_ban_checker_keeps_everyone() {
+async fn the_ban_sweep_with_a_disarmed_checker_keeps_everyone() {
     let ban = BanChecker::new(None, reqwest::Client::new());
-    let cluster = Cluster::new(ClusterConfig::default(), armed_minter(), ban);
-    cluster.upsert_peer("0xbanneduser".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
-    cluster.recluster_once().await;
-    assert!(cluster.peer("0xbanneduser").is_some());
-    assert_eq!(cluster.peers_count(), 1);
+    let peers = PeerDirectory::new(
+        ClusterConfig::default(),
+        armed_minter(),
+        ban,
+        PeersRegistry::new(),
+    );
+    peers.upsert_peer("0xbanneduser".into(), [0.0, 0.0, 0.0], [0, 0], "r".into());
+    peers.ban_sweep_once().await;
+    assert!(peers.peer("0xbanneduser").is_some());
+    assert_eq!(peers.peers_count(), 1);
 }
 
 mod ws_deny {
     use super::*;
     use alloy::signers::{local::PrivateKeySigner, SignerSync};
-    use catalyrst_archipelago::config::{AuthConfig, Config, GossipConfig, ServerConfig};
+    use catalyrst_archipelago::config::{AuthConfig, Config, NatsConfig, ServerConfig};
     use catalyrst_archipelago::proto::archipelago::{
         client_packet, server_packet, ChallengeRequestMessage, ClientPacket, ServerPacket,
         SignedChallengeMessage,
@@ -265,9 +277,10 @@ mod ws_deny {
                 challenge_ttl_secs: 120,
                 signature_max_age_secs: 300,
                 deny_list_url,
+                ..AuthConfig::default()
             },
             livekit: LivekitConfig::default(),
-            gossip: GossipConfig::default(),
+            nats: NatsConfig::default(),
             content_database_url: None,
             content_base_url: String::new(),
             commit_hash: String::new(),
@@ -371,4 +384,45 @@ mod ws_deny {
             "a non-denied wallet must complete the handshake"
         );
     }
+}
+
+#[tokio::test]
+async fn ban_checker_memoizes_verdicts_and_a_fresh_check_refreshes_them() {
+    let (port, c) = start_mock().await;
+    let checker = BanChecker::new(
+        Some(format!("http://127.0.0.1:{port}")),
+        reqwest::Client::new(),
+    );
+    assert!(!checker.is_banned("0xcleanuser").await);
+    assert!(!checker.is_banned("0xcleanuser").await);
+    assert_eq!(
+        c.ban_hits.load(Ordering::SeqCst),
+        1,
+        "second check is served from the memo"
+    );
+    assert!(!checker.is_banned_fresh("0xcleanuser").await);
+    assert_eq!(
+        c.ban_hits.load(Ordering::SeqCst),
+        2,
+        "the sweep always asks"
+    );
+    assert!(checker.is_banned("0xbanneduser").await);
+    assert!(checker.is_banned("0xbanneduser").await);
+    assert_eq!(c.ban_hits.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn ban_checker_does_not_memoize_a_lookup_that_failed_open() {
+    let (port, c) = start_mock().await;
+    let checker = BanChecker::new(
+        Some(format!("http://127.0.0.1:{port}/counted-bad")),
+        reqwest::Client::new(),
+    );
+    assert!(!checker.is_banned("0xbanneduser").await);
+    assert!(!checker.is_banned("0xbanneduser").await);
+    assert_eq!(
+        c.ban_hits.load(Ordering::SeqCst),
+        2,
+        "a failed lookup is asked again"
+    );
 }

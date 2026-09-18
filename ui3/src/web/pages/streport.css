@@ -23,9 +23,6 @@
   font-family: var(--font-sans);
   box-sizing: border-box;
 }
-.streport--success {
-  justify-content: center;
-}
 
 .streport__bg {
   position: absolute;
@@ -57,10 +54,6 @@
   gap: 48px;
   box-sizing: border-box;
 }
-.streport__card--success {
-  padding: 56px 72px;
-  gap: 24px;
-}
 
 .streport__logowrap {
   display: flex;
@@ -68,9 +61,6 @@
   align-items: center;
   gap: 16px;
   margin-bottom: 16px;
-}
-.streport__card--success .streport__logowrap {
-  margin-bottom: 0;
 }
 .streport__logo {
   width: 64px;
@@ -83,16 +73,6 @@
   line-height: 1.167;
   font-weight: 600;
   text-align: center;
-}
-
-.streport__mismatch {
-  background: var(--streport-mismatch-bg);
-  border: 1px solid var(--streport-error);
-  border-radius: 4px;
-  padding: 12px 16px;
-  color: var(--streport-error);
-  font-size: 14px;
-  line-height: 1.43;
 }
 
 .streport__field {
@@ -111,9 +91,6 @@
 }
 .streport__required {
   color: var(--streport-error);
-}
-.streport__optional {
-  color: var(--streport-gray3);
 }
 
 .streport__helper {
@@ -438,34 +415,12 @@
   text-decoration: underline;
 }
 
-.streport__successtext {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  text-align: center;
-}
-.streport__successbody {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.5;
-}
-.streport__successdismiss {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.43;
-  color: var(--streport-text-secondary);
-}
-
 @media (max-width: 900px) {
   .streport {
     padding: 48px 32px 64px;
   }
   .streport__card {
     padding: 48px 32px;
-  }
-  .streport__card--success {
-    padding: 56px 32px;
   }
   .streport__title {
     font-size: 38px;

@@ -24,7 +24,7 @@ import {
   type HiringDraft,
 } from "./machine";
 
-export type GvSubmitHiringWizardProps = {
+type GvSubmitHiringWizardProps = {
   trackCtx: TrackContext;
   ctx: HiringSubmitContext;
   initialStep?: string;

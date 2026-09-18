@@ -86,7 +86,7 @@ function vpFor(variables: Record<string, string>): Response {
 }
 
 describe("loadDelegateData \u{2014} real reads only", () => {
-  it("reads the roster, live voting power and the on-chain delegation", async () => {
+  it("reads the roster, live voting power and the on-chain delegation, never listing the signed-in wallet as its own delegate", async () => {
     const fetchImpl = router({ hub: vpFor, rpc: () => json({ result: DELEGATE_WORD }) });
 
     const data = await loadDelegateData({
@@ -104,6 +104,7 @@ describe("loadDelegateData \u{2014} real reads only", () => {
       "0xc5f705ca8f70acc5f3d3db9636558102f528a475",
       "0x9dab43bc15bd29cfe3030ca1b7edb3eeb9f3b6c1",
     ]);
+    expect(data.candidates.some((c) => c.address === USER)).toBe(false);
     expect(data.candidates[0].vp).toBe(1000);
     expect(data.candidates[0].vpDistribution?.names).toBe(1000);
     expect(data.cards[0].activityLabel).toBe("25 votes in 180d");
@@ -114,37 +115,40 @@ describe("loadDelegateData \u{2014} real reads only", () => {
     expect(data.registry).toEqual(CONFIGURED.config);
   });
 
-  it("never lists the signed-in wallet as its own delegate", async () => {
-    const data = await loadDelegateData({
-      address: USER,
-      base: "http://governance.example",
-      hubUrl: "https://hub.example",
-      setup: CONFIGURED,
-      fetchImpl: router({ hub: vpFor }),
-    });
-    expect(data.candidates.some((c) => c.address === USER)).toBe(false);
-  });
-
-  it("keeps the read half working while the write config is missing", async () => {
-    const fetchImpl = router({ hub: vpFor });
-
-    const data = await loadDelegateData({
+  it("keeps the read half working while the write config is missing, and asks for a wallet (touching no RPC) before claiming any voting power", async () => {
+    const unconfigured = await loadDelegateData({
       address: USER,
       base: "http://governance.example",
       hubUrl: "https://hub.example",
       setup: UNCONFIGURED,
+      fetchImpl: router({ hub: vpFor }),
+    });
+
+    expect(unconfigured.registry).toBeNull();
+    expect(unconfigured.candidates).toHaveLength(2);
+    expect(unconfigured.delegatedTo).toBeNull();
+    expect(unconfigured.delegationScope).toBe("unknown");
+    expect(unconfigured.blockers).toEqual(UNCONFIGURED.blockers);
+
+    const fetchImpl = router({ hub: vpFor });
+    const anonymous = await loadDelegateData({
+      base: "http://governance.example",
+      hubUrl: "https://hub.example",
+      setup: CONFIGURED,
       fetchImpl,
     });
 
-    expect(data.registry).toBeNull();
-    expect(data.candidates).toHaveLength(2);
-    expect(data.delegatedTo).toBeNull();
-    expect(data.delegationScope).toBe("unknown");
-    expect(data.blockers).toEqual(UNCONFIGURED.blockers);
+    expect(anonymous.needsWallet).toBe(true);
+    expect(anonymous.userVp).toBeNull();
+    expect(anonymous.delegationScope).toBe("unknown");
+    const rpcCalls = vi
+      .mocked(fetchImpl)
+      .mock.calls.filter(([url]) => String(url).includes("rpc.example"));
+    expect(rpcCalls).toHaveLength(0);
   });
 
-  it("says so when the governance archive is down instead of inventing delegates", async () => {
-    const data = await loadDelegateData({
+  it("says so when the governance archive is down or snapshot voting power is unavailable, instead of inventing delegates or showing zero", async () => {
+    const down = await loadDelegateData({
       address: USER,
       base: "http://governance.example",
       hubUrl: "https://hub.example",
@@ -152,13 +156,11 @@ describe("loadDelegateData \u{2014} real reads only", () => {
       fetchImpl: router({ engagement: () => json({ error: "down" }, 503) }),
     });
 
-    expect(data.source).toBe("error");
-    expect(data.candidates).toEqual([]);
-    expect(data.blockers[0]).toMatch(/delegate roster unavailable: governance engagement returned 503/);
-  });
+    expect(down.source).toBe("error");
+    expect(down.candidates).toEqual([]);
+    expect(down.blockers[0]).toMatch(/delegate roster unavailable: governance engagement returned 503/);
 
-  it("says so when snapshot voting power is unavailable instead of showing zero", async () => {
-    const data = await loadDelegateData({
+    const noVp = await loadDelegateData({
       address: USER,
       base: "http://governance.example",
       hubUrl: "https://hub.example",
@@ -166,29 +168,10 @@ describe("loadDelegateData \u{2014} real reads only", () => {
       fetchImpl: router({ hub: () => json({ errors: [{ message: "rate limited" }] }) }),
     });
 
-    expect(data.userVp).toBeNull();
-    expect(data.userVpLabel).toBe("\u{2014}");
-    expect(data.candidates[0].vp).toBeNull();
-    expect(data.candidates[0].vpLabel).toBe("\u{2014}");
-    expect(data.blockers.some((b) => /voting power unavailable: .*rate limited/.test(b))).toBe(true);
-  });
-
-  it("asks for a wallet before claiming any voting power", async () => {
-    const fetchImpl = router({ hub: vpFor });
-
-    const data = await loadDelegateData({
-      base: "http://governance.example",
-      hubUrl: "https://hub.example",
-      setup: CONFIGURED,
-      fetchImpl,
-    });
-
-    expect(data.needsWallet).toBe(true);
-    expect(data.userVp).toBeNull();
-    expect(data.delegationScope).toBe("unknown");
-    const rpcCalls = vi
-      .mocked(fetchImpl)
-      .mock.calls.filter(([url]) => String(url).includes("rpc.example"));
-    expect(rpcCalls).toHaveLength(0);
+    expect(noVp.userVp).toBeNull();
+    expect(noVp.userVpLabel).toBe("\u{2014}");
+    expect(noVp.candidates[0].vp).toBeNull();
+    expect(noVp.candidates[0].vpLabel).toBe("\u{2014}");
+    expect(noVp.blockers.some((b) => /voting power unavailable: .*rate limited/.test(b))).toBe(true);
   });
 });

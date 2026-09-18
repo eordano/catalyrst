@@ -30,9 +30,6 @@ const RESULT: CreatedTender = {
 };
 
 const okSubmit: SubmitFn = async () => RESULT;
-const failSubmit: SubmitFn = async () => {
-  throw new Error("governance unreachable");
-};
 
 const passSeed: TenderSeed = { votingPower: 12480, threshold: 1000, linkedProposalId: LINKED };
 const gateSeed: TenderSeed = { votingPower: 300, threshold: 1000, linkedProposalId: LINKED };
@@ -81,97 +78,72 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
-describe("tenderMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(tenderMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
+describe("tenderMachine \u{2014} URL ?step slug map", () => {
+  it("maps every state to a unique round-tripping slug and falls back to parent", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(tenderMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.parent);
-    expect(slugToState(null)).toBe("parent");
-    expect(slugToState(undefined)).toBe("parent");
-    expect(slugToState("")).toBe("parent");
-    expect(slugToState("nope")).toBe("parent");
-    expect(slugToState("details")).toBe("details");
-    expect(slugToState("coauthors")).toBe("coauthors");
-    expect(slugToState("review")).toBe("review");
-    expect(slugToState("submitting")).toBe("submitting");
-    expect(slugToState("success")).toBe("success");
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("parent");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("tenderMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveTenderSnapshot({
-      step: "parent",
-      trackCtx: inputFor(passSeed, okSubmit, () => {}).trackCtx,
-      seed: passSeed,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submitting does NOT fire telemetry and does NOT auto-submit", async () => {
+  it("boots parent without a snapshot, hydrates submitting silently, and only real transitions track", async () => {
     const track = vi.fn();
     const submit = vi.fn(okSubmit);
-    const snapshot = resolveTenderSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(passSeed, submit, track).trackCtx,
-      seed: passSeed,
-      form: { linked_proposal_id: LINKED },
-      submit,
-      track,
-    });
-    const actor = createActor(tenderMachine, {
+    const trackCtx = inputFor(passSeed, submit, track).trackCtx;
+    expect(resolveTenderSnapshot({ step: "parent", trackCtx, seed: passSeed })).toBeUndefined();
+
+    const submitting = createActor(tenderMachine, {
       input: inputFor(passSeed, submit, track),
-      snapshot,
+      snapshot: resolveTenderSnapshot({
+        step: "submitting",
+        trackCtx,
+        seed: passSeed,
+        form: { linked_proposal_id: LINKED },
+        submit,
+        track,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(submit).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveTenderSnapshot({
-      step: "details",
-      trackCtx: inputFor(passSeed, okSubmit, track).trackCtx,
-      seed: passSeed,
-      form: FILLED,
-      track,
-    });
-    const actor = createActor(tenderMachine, {
+    const details = createActor(tenderMachine, {
       input: inputFor(passSeed, okSubmit, track),
-      snapshot,
+      snapshot: resolveTenderSnapshot({
+        step: "details",
+        trackCtx,
+        seed: passSeed,
+        form: FILLED,
+        track,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("details")).toBe(true);
+    expect(details.getSnapshot().matches("details")).toBe(true);
     expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "NEXT" });
-    expect(actor.getSnapshot().matches("coauthors")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(TENDER_EVENTS.detailsFilled);
+    details.send({ type: "NEXT" });
+    expect(details.getSnapshot().matches("coauthors")).toBe(true);
+    expect(names(track)).toContain(TENDER_EVENTS.detailsFilled);
   });
 });
 
 describe("tenderMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state (gate met)", () => {
+  it("every event-reachable path ends in an expected state; below-threshold VP routes START to gated", () => {
     const paths = getShortestPaths(tenderMachine, {
       input: inputFor(passSeed, okSubmit, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -183,34 +155,20 @@ describe("tenderMachine \u{2014} model-based path coverage (@xstate/graph)", () 
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("details")).toBe(true);
-    expect(ends.has("coauthors")).toBe(true);
-    expect(ends.has("review")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-    expect(ends.has("gated")).toBe(true);
-  });
-
-  it("reaching review passes through START, NEXT, NEXT", () => {
-    const paths = getShortestPaths(tenderMachine, {
-      input: inputFor(passSeed, okSubmit, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["details", "coauthors", "review", "submitting", "gated"]) {
+      expect(ends.has(s)).toBe(true);
+    }
     const review = paths.find((p) => (p.state.value as string) === "review");
-    expect(review).toBeDefined();
     const events = review!.steps.map((s) => s.event.type);
     expect(events).toContain("START");
     expect(events.filter((e) => e === "NEXT").length).toBeGreaterThanOrEqual(2);
-  });
 
-  it("below-threshold VP routes START to gated", () => {
-    const paths = getShortestPaths(tenderMachine, {
+    const gated = getShortestPaths(tenderMachine, {
       input: inputFor(gateSeed, okSubmit, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-    const reachedDetails = paths.some((p) => (p.state.value as string) === "details");
-    expect(reachedDetails).toBe(false);
-    const reachedGated = paths.some((p) => (p.state.value as string) === "gated");
-    expect(reachedGated).toBe(true);
+    expect(gated.some((p) => (p.state.value as string) === "details")).toBe(false);
+    expect(gated.some((p) => (p.state.value as string) === "gated")).toBe(true);
   });
 });
 
@@ -224,28 +182,27 @@ describe("tenderMachine \u{2014} telemetry events (happy path)", () => {
     actor.send({ type: "SET_FORM", patch: FILLED });
     actor.send({ type: "START" });
     expect(actor.getSnapshot().matches("details")).toBe(true);
-
     actor.send({ type: "NEXT" });
     expect(actor.getSnapshot().matches("coauthors")).toBe(true);
-
     actor.send({ type: "NEXT" });
     expect(actor.getSnapshot().matches("review")).toBe(true);
-
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("success"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(TENDER_EVENTS.started);
-    expect(events).toContain(TENDER_EVENTS.detailsFilled);
-    expect(events).toContain(TENDER_EVENTS.coauthorsSet);
-    expect(events).toContain(TENDER_EVENTS.reviewReached);
-    expect(events).toContain(TENDER_EVENTS.submitting);
-    expect(events).toContain(TENDER_EVENTS.submitted);
-
+    const events = names(track);
+    for (const e of [
+      TENDER_EVENTS.started,
+      TENDER_EVENTS.detailsFilled,
+      TENDER_EVENTS.coauthorsSet,
+      TENDER_EVENTS.reviewReached,
+      TENDER_EVENTS.submitting,
+      TENDER_EVENTS.submitted,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(TENDER_EVENTS.reviewReached)).toBeLessThan(
       events.indexOf(TENDER_EVENTS.submitted),
     );
-
     const startedCall = track.mock.calls.find((c) => c[0] === TENDER_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
@@ -268,16 +225,14 @@ describe("tenderMachine \u{2014} VP gate", () => {
 
     actor.send({ type: "START" });
     expect(actor.getSnapshot().matches("gated")).toBe(true);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(TENDER_EVENTS.vpGated);
-    expect(events).not.toContain(TENDER_EVENTS.started);
+    expect(names(track)).toContain(TENDER_EVENTS.vpGated);
+    expect(names(track)).not.toContain(TENDER_EVENTS.started);
     expect(submit).not.toHaveBeenCalled();
   });
 });
 
-describe("tenderMachine \u{2014} submit failure + retry", () => {
-  it("submit error fires gv_tender_submit_error, RETRY recovers to success", async () => {
+describe("tenderMachine \u{2014} submit failure", () => {
+  it("an error fires gv_tender_submit_error, RETRY recovers, and the shipped default fails closed", async () => {
     const track = vi.fn();
     let calls = 0;
     const submit: SubmitFn = async (args) => {
@@ -285,7 +240,6 @@ describe("tenderMachine \u{2014} submit failure + retry", () => {
       if (calls === 1) throw new Error("governance unreachable");
       return okSubmit(args);
     };
-
     const actor = createActor(tenderMachine, {
       input: inputFor(passSeed, submit, track),
     }).start();
@@ -300,17 +254,9 @@ describe("tenderMachine \u{2014} submit failure + retry", () => {
 
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("success"));
+    expect(names(track)).toContain(TENDER_EVENTS.submitError);
+    expect(names(track)).toContain(TENDER_EVENTS.submitted);
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(TENDER_EVENTS.submitError);
-    expect(events).toContain(TENDER_EVENTS.submitted);
-  });
-
-  it("failSubmit always errors (sanity)", async () => {
-    await expect(failSubmit({ form: {} as never })).rejects.toThrow("governance unreachable");
-  });
-
-  it("the shipped default fails closed instead of fabricating a tender id", async () => {
     await expect(failClosedCreateTender({ form: {} as never })).rejects.toThrow(
       "tender submission unavailable: DAO governance signer not configured",
     );

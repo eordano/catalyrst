@@ -47,6 +47,7 @@ async fn apply_envelope(state: &AppState, env: &GossipEnvelope) -> Result<(), St
             apply::apply_schedule(&state.pool, &signed, &signer, origin)
                 .await
                 .map_err(|e| e.to_string())?;
+            state.schedules.invalidate();
         }
         other => return Err(format!("unknown primary_type '{other}'")),
     }

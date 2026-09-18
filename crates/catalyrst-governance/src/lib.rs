@@ -1,6 +1,7 @@
 pub mod client;
 pub mod config;
 pub mod handlers;
+pub mod memo;
 pub mod parse;
 pub mod ports;
 pub mod rows;
@@ -19,12 +20,29 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::GovernanceClient;
 use crate::config::Config;
-use crate::ports::store::Store;
+use crate::memo::TtlMemo;
+use crate::ports::archives::{ActivityPayload, EngagementPayload};
+use crate::ports::store::{ProposalRefs, Store};
 use crate::snapshot::SnapshotGate;
 
 pub struct AppStateInner {
     pub store: Store,
     pub archives: crate::ports::archives::Archives,
+    pub refs_memo: TtlMemo<String, ProposalRefs>,
+    pub engagement_memo: TtlMemo<(i64, i64), EngagementPayload>,
+    pub activity_memo: TtlMemo<i64, ActivityPayload>,
+}
+
+impl AppStateInner {
+    pub fn new(store: Store, archives: crate::ports::archives::Archives) -> Self {
+        Self {
+            store,
+            archives,
+            refs_memo: TtlMemo::new(Duration::from_secs(300), 4096),
+            engagement_memo: TtlMemo::new(Duration::from_secs(60), 256),
+            activity_memo: TtlMemo::new(Duration::from_secs(30), 128),
+        }
+    }
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -61,10 +79,7 @@ pub fn build_snapshot_gate(cfg: &Config) -> Arc<SnapshotGate> {
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
     let pool = build_pool(cfg).await?;
     let archives = crate::ports::archives::Archives::from_env().await;
-    Ok(Arc::new(AppStateInner {
-        store: Store::new(pool),
-        archives,
-    }))
+    Ok(Arc::new(AppStateInner::new(Store::new(pool), archives)))
 }
 
 async fn build_pool(cfg: &Config) -> Result<sqlx::PgPool> {

@@ -9,6 +9,12 @@
   display: flex; flex-direction: column;
   box-shadow: 0 6px 20px rgba(0, 0, 0, .38);
 }
+.fr--floating {
+  position: static; width: auto; height: 360px; max-height: none;
+  flex: 1 1 auto; min-height: 0;
+  background: none; backdrop-filter: none; border: none; border-radius: 0; box-shadow: none;
+}
+.fr--floating .fr__tabs { background: none; padding: 0 8px; }
 
 .fr__tabs {
   display: flex; align-items: stretch; gap: 2px;

@@ -19,15 +19,15 @@ export type SetupAnswers = {
 
 export type SetupIssue = { field: keyof SetupAnswers; message: string };
 
-export type SetupFile = { path: string; body: string };
+type SetupFile = { path: string; body: string };
 
-export type SetupOutput = {
+type SetupOutput = {
   hostNix: SetupFile;
   secrets: SetupFile[];
   checklist: string[];
 };
 
-export type SetupChange = <K extends keyof SetupAnswers>(
+type SetupChange = <K extends keyof SetupAnswers>(
   field: K,
   value: SetupAnswers[K],
 ) => void;

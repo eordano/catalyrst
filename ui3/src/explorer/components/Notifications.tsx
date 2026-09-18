@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { useHideMinimapWhileMounted } from "../../overlay/minimapVisibility";
 import { requestFriendAction, FRIEND_ACTIONS } from "../../data/hooks/friendActions";
+import { FLOATING_PANEL_TITLES } from "./FloatingPanel";
 import "./notifications.css";
 
 function Name({ name, tag }: { name: string; tag: string }) {
@@ -95,11 +96,12 @@ const ITEMS: NotifItem[] = [
 
 type PanelProps = {
   items?: NotifItem[];
+  floating?: boolean;
   onMarkRead?: (id: string) => void;
   onMarkAllRead?: () => void;
 };
 
-function Panel({ items: itemsProp, onMarkRead, onMarkAllRead }: PanelProps) {
+function Panel({ items: itemsProp, floating = false, onMarkRead, onMarkAllRead }: PanelProps) {
   const source = itemsProp ?? ITEMS;
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -119,12 +121,14 @@ function Panel({ items: itemsProp, onMarkRead, onMarkAllRead }: PanelProps) {
     });
 
   return (
-    <div className="nf">
+    <div className={"nf" + (floating ? " nf--floating" : "")}>
       <div className="nf__header">
-        <span className="nf__titlewrap">
-          <span className="nf__title">NOTIFICATIONS</span>
-          {unread > 0 && <span className="nf__unread-badge">{unread > 99 ? "99+" : unread}</span>}
-        </span>
+        {floating ? null : (
+          <span className="nf__titlewrap">
+            <span className="nf__title">{FLOATING_PANEL_TITLES.notifications}</span>
+            {unread > 0 && <span className="nf__unread-badge">{unread > 99 ? "99+" : unread}</span>}
+          </span>
+        )}
         <div className="nf__headeractions">
           {unread > 0 && onMarkAllRead && (
             <button type="button" className="nf__markread" onClick={onMarkAllRead}>Mark all read</button>
@@ -153,7 +157,7 @@ function Panel({ items: itemsProp, onMarkRead, onMarkAllRead }: PanelProps) {
                 key={it.id}
                 onClick={isUnread ? () => onMarkRead?.(it.id) : undefined}
               >
-                {isUnread && <span className="nf__unread-dot" aria-label="unread" />}
+                {isUnread && <span className="nf__unread-dot" role="img" aria-label="unread" />}
                 {it.avatar ? (
                   <span className="nf__avatar" aria-hidden="true" style={{ background: it.avatar }} />
                 ) : it.thumb ? (
@@ -242,9 +246,12 @@ export default function Notifications({
 }: NotificationsProps) {
   useHideMinimapWhileMounted(floating);
 
+  if (floating) {
+    return <Panel floating items={items} onMarkRead={onMarkRead} onMarkAllRead={onMarkAllRead} />;
+  }
   if (bare) {
     return (
-      <div className={"nf__bare" + (floating ? " nf__bare--floating" : "")}>
+      <div className="nf__bare">
         <Panel items={items} onMarkRead={onMarkRead} onMarkAllRead={onMarkAllRead} />
       </div>
     );

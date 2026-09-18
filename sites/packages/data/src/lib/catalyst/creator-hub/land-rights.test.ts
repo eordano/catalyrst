@@ -37,25 +37,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("parseParcel", () => {
-  it("parses signed coordinates and rejects non-parcels", () => {
+describe("parseParcel + grantsDeploy", () => {
+  it("parses signed coordinates, rejects non-parcels, and grants only on the validator's five legs", () => {
     expect(parseParcel("52,-52")).toEqual({ x: 52, y: -52 });
     expect(parseParcel(" -1 , 8 ")).toEqual({ x: -1, y: 8 });
     expect(parseParcel("myworld.dcl.eth")).toBeNull();
     expect(parseParcel("52")).toBeNull();
     expect(parseParcel("")).toBeNull();
-  });
-});
 
-describe("grantsDeploy", () => {
-  it("denies with no legs and grants on each server-exported granting leg", () => {
     expect(grantsDeploy(NO_RIGHTS)).toBe(false);
     for (const leg of DEPLOY_GRANTING_LEGS) {
       expect(grantsDeploy({ ...NO_RIGHTS, [leg]: true })).toBe(true);
     }
-  });
-
-  it("mirrors the validator's five legs", () => {
     expect([...DEPLOY_GRANTING_LEGS].sort()).toEqual(
       Object.keys(NO_RIGHTS).sort(),
     );
@@ -63,22 +56,17 @@ describe("grantsDeploy", () => {
 });
 
 describe("fetchParcelPermissions", () => {
-  it("hits the lambdas permissions route with lowercased address", async () => {
+  it("hits the lambdas route with a lowercased address, treats a 404 as no rights, and throws on a 500", async () => {
     const fn = mockFetch(() => jsonResponse({ ...NO_RIGHTS, operator: true }));
     const flags = await fetchParcelPermissions(WALLET.toUpperCase(), "52,-52");
     expect(flags).toEqual({ ...NO_RIGHTS, operator: true });
     expect(fn.mock.calls[0][0]).toContain(
       `/lambdas/users/${WALLET}/parcels/52/-52/permissions`,
     );
-  });
 
-  it("treats a 404 (no parcel/estate) as no rights", async () => {
     mockFetch(() => jsonResponse({ error: "not found" }, 404));
-    const flags = await fetchParcelPermissions(WALLET, "52,-52");
-    expect(flags).toEqual(NO_RIGHTS);
-  });
+    expect(await fetchParcelPermissions(WALLET, "52,-52")).toEqual(NO_RIGHTS);
 
-  it("throws on a 500 so callers can fail closed", async () => {
     mockFetch(() => jsonResponse({}, 500));
     await expect(fetchParcelPermissions(WALLET, "52,-52")).rejects.toThrow();
   });
@@ -96,29 +84,32 @@ describe("fetchParcelOwner", () => {
 });
 
 describe("probeLandRights", () => {
-  it("grants only when every parcel grants", async () => {
+  it("grants only when every parcel grants and denies with the owning address otherwise", async () => {
     mockFetch(() => jsonResponse({ ...NO_RIGHTS, owner: true }));
-    const rights = await probeLandRights(WALLET, ["52,-52", "53,-52", "52,-52"]);
-    expect(rights).toEqual({ status: "granted", parcels: ["52,-52", "53,-52"] });
-  });
+    expect(await probeLandRights(WALLET, ["52,-52", "53,-52", "52,-52"])).toEqual({
+      status: "granted",
+      parcels: ["52,-52", "53,-52"],
+    });
 
-  it("denies with the owning address when one parcel has no rights", async () => {
     mockFetch((url) => {
       if (url.includes("/operators")) return jsonResponse({ owner: OWNER });
       if (url.includes("/53/")) return jsonResponse(NO_RIGHTS);
       return jsonResponse({ ...NO_RIGHTS, owner: true });
     });
-    const rights = await probeLandRights(WALLET, ["52,-52", "53,-52"]);
-    expect(rights).toEqual({ status: "denied", parcel: "53,-52", owner: OWNER });
+    expect(await probeLandRights(WALLET, ["52,-52", "53,-52"])).toEqual({
+      status: "denied",
+      parcel: "53,-52",
+      owner: OWNER,
+    });
   });
 
-  it("fails closed to unknown on probe errors", async () => {
+  it("fails closed to unknown on probe errors, world pointers, empty input, and a blank wallet", async () => {
     mockFetch(() => jsonResponse({}, 500));
-    const rights = await probeLandRights(WALLET, ["52,-52"]);
-    expect(rights).toEqual({ status: "unknown", parcel: "52,-52" });
-  });
+    expect(await probeLandRights(WALLET, ["52,-52"])).toEqual({
+      status: "unknown",
+      parcel: "52,-52",
+    });
 
-  it("is unknown for world pointers and empty input", async () => {
     mockFetch(() => jsonResponse(NO_RIGHTS));
     expect(await probeLandRights(WALLET, ["myworld.dcl.eth"])).toEqual({
       status: "unknown",

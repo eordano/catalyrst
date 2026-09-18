@@ -140,6 +140,7 @@ mod tests {
             challenge_ttl_secs: 120,
             signature_max_age_secs: 300,
             deny_list_url: None,
+            ..AuthConfig::default()
         }
     }
 

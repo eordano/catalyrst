@@ -8,7 +8,6 @@
   --gsc-error-surface: color-mix(in srgb, var(--error) 5%, var(--panel));
   --gsc-green-900: var(--success);
 
-
   min-height: 100%;
   padding: 32px 24px;
   color: var(--gsc-ink);
@@ -137,8 +136,6 @@
   line-height: 24px;
 }
 .gsc__statusline { display: block; }
-.gsc__statusline--loading { color: var(--gsc-muted); }
-.gsc__statusline--error { color: var(--gsc-red-800); }
 .gsc__statusline--ok { color: var(--gsc-green-900); }
 
 .gsc__md {

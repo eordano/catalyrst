@@ -4,8 +4,9 @@ mod types;
 
 pub use component::WorldsComponent;
 pub use types::{
-    canonicalize_parcel, AccessLogRow, BlockedRow, OrderDirection, PermissionRecordFull,
-    SceneReplacement, WorldAdminRow, WorldInfoRow, WorldManifest, WorldRecord, WorldScene,
-    WorldSceneRow, WorldSettingsRow, WorldSettingsUpdate, WorldsCount, WorldsListFilters,
-    WorldsListOptions, WorldsOrderBy,
+    canonicalize_parcel, AccessLogRow, AllowListEdit, AllowListEditOutcome, BlockedRow,
+    OrderDirection, PermissionRecordFull, SceneReplacement, WorldAbout, WorldAdminRow,
+    WorldInfoRow, WorldLookup, WorldManifest, WorldProbe, WorldRecord, WorldScene, WorldSceneRow,
+    WorldSettingsRow, WorldSettingsUpdate, WorldsCount, WorldsListFilters, WorldsListOptions,
+    WorldsOrderBy,
 };

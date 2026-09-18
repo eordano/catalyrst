@@ -8,7 +8,7 @@ import {
   unavailable,
 } from "../catalyst/admin/availability";
 
-export type OperatorEnvEntry = { name: string; value: string };
+type OperatorEnvEntry = { name: string; value: string };
 
 export type OperatorEnvFile = {
   path: string;
@@ -16,7 +16,7 @@ export type OperatorEnvFile = {
   preservedLines: number;
 };
 
-export const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
+const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const VALUE_MAX = 4096;
 
 export function envFilePath(): string | undefined {

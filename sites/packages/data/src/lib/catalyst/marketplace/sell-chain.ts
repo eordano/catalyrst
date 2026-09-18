@@ -26,7 +26,7 @@ export const APPROVAL_FOR_ALL_ABI = [
   },
 ] as const;
 
-export const SIGNATURE_INDEX_ABI = [
+const SIGNATURE_INDEX_ABI = [
   {
     type: "function",
     name: "contractSignatureIndex",
@@ -67,13 +67,13 @@ export async function readChainId(provider: Eip1193Provider): Promise<number> {
   return Number(BigInt(asHex(raw, "chain id")));
 }
 
-export type ApprovalTarget = {
+type ApprovalTarget = {
   contractAddress: string;
   owner: string;
   operator: string;
 };
 
-export async function readIsApprovedForAll(
+async function readIsApprovedForAll(
   provider: Eip1193Provider,
   target: ApprovalTarget,
 ): Promise<boolean> {
@@ -97,7 +97,7 @@ export async function readIsApprovedForAll(
   });
 }
 
-export async function sendSetApprovalForAll(
+async function sendSetApprovalForAll(
   provider: Eip1193Provider,
   target: ApprovalTarget,
 ): Promise<Hex> {
@@ -119,7 +119,7 @@ export async function sendSetApprovalForAll(
   return asHex(raw, "transaction hash");
 }
 
-export type TransactionReceipt = { txHash: Hex; blockNumber: number };
+type TransactionReceipt = { txHash: Hex; blockNumber: number };
 
 export type WaitOptions = {
   pollIntervalMs?: number;
@@ -138,7 +138,7 @@ function defaultSleep(ms: number): Promise<void> {
 
 type RawReceipt = { status?: string; blockNumber?: string } | null;
 
-export async function waitForTransaction(
+async function waitForTransaction(
   provider: Eip1193Provider,
   txHash: Hex,
   opts: WaitOptions = {},
@@ -177,7 +177,7 @@ export async function waitForTransaction(
   }
 }
 
-export type EnsureApprovalResult = { txHash: Hex | null };
+type EnsureApprovalResult = { txHash: Hex | null };
 
 export async function ensureApprovalForAll(
   provider: Eip1193Provider,
@@ -197,7 +197,7 @@ export async function ensureApprovalForAll(
   return { txHash };
 }
 
-export type SignatureIndexes = {
+type SignatureIndexes = {
   contractSignatureIndex: number;
   signerSignatureIndex: number;
 };

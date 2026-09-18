@@ -20,7 +20,11 @@ import {
 } from "@data/lib/catalyst/marketplace/index";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { experimentActive } from "@core/lib/experiments/flags";
-import { parseVariantOverride, storyLoader } from "@core/lib/experiments/story-loader";
+import {
+  parseVariantOverride,
+  sidLoader,
+  storyLoader,
+} from "@core/lib/experiments/story-loader";
 import {
   HOME_SHOP_RAIL_ARMS,
   HOME_SHOP_RAIL_EXPERIMENT_KEY,
@@ -65,24 +69,23 @@ function forcedShopArm(url: URL): HomeShopRailArm | undefined {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  const shop = await storyLoader(request, SHOP_STORY, HOME_SHOP_RAIL_FALLBACK, {
-    skipExposure: true,
-  });
-  const shopActive = await experimentActive(HOME_SHOP_RAIL_EXPERIMENT_KEY, {
-    envActive:
-      activeHomeShopRailExperiment(
-        typeof process !== "undefined"
-          ? process.env?.HOME_SHOP_RAIL_EXPERIMENT
-          : undefined,
-      ) !== null,
-    user: shop.userKey,
-  });
+  const { userKey } = sidLoader(request);
+  const [{ sid, wrap }, shop, shopActive, { content, live }] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    storyLoader(request, SHOP_STORY, HOME_SHOP_RAIL_FALLBACK, {
+      skipExposure: true,
+    }),
+    experimentActive(HOME_SHOP_RAIL_EXPERIMENT_KEY, {
+      envActive:
+        activeHomeShopRailExperiment(
+          typeof process !== "undefined"
+            ? process.env?.HOME_SHOP_RAIL_EXPERIMENT
+            : undefined,
+        ) !== null,
+      user: userKey,
+    }),
+    loadHome(),
+  ]);
   let shopAssignment = shopActive ? shop.assignment : HOME_SHOP_RAIL_FALLBACK;
   const forcedShop = forcedShopArm(url);
   if (forcedShop) {
@@ -95,10 +98,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const shopArm: HomeShopRailArm =
     homeShopRailFromFlags(shopAssignment.flags) ?? "base";
 
-  const [{ content, live }, railItems] = await Promise.all([
-    loadHome(),
+  const railItems =
     shopArm === "rail"
-      ? fetchCatalog({ first: 12, isOnSale: true, sortBy: "recently_listed" })
+      ? await fetchCatalog({ first: 12, isOnSale: true, sortBy: "recently_listed" })
           .then((r) =>
             r.data
               .filter(isCatalogItemBuyable)
@@ -106,8 +108,7 @@ export async function loader({ request }: Route.LoaderArgs) {
               .map((it) => toCollectibleCard(it)),
           )
           .catch(() => null)
-      : Promise.resolve(null),
-  ]);
+      : null;
 
   if (shopActive && !forcedShop) {
     trackExposure({

@@ -3,7 +3,7 @@ import type { GetOptions } from "../client";
 import { signedFetch } from "../../auth/signer";
 import type { AuthIdentity } from "../../auth/types";
 
-export type ParcelsPermission = { parcels: string[]; total: number };
+type ParcelsPermission = { parcels: string[]; total: number };
 
 export async function fetchParcelsPermission(
   worldName: string,
@@ -22,7 +22,7 @@ export async function fetchParcelsPermission(
   }
 }
 
-export type UnpublishOptions = {
+type UnpublishOptions = {
   identity: AuthIdentity;
   base?: string;
   signal?: AbortSignal;

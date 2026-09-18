@@ -9,7 +9,7 @@ const COLORS = {
 };
 
 describe("buildJumpInAvatarPayload", () => {
-  test("merges base and equip into one payload with the typed name", () => {
+  test("merges base and equip with the typed name, falling back to the given then a generated name, never empty", () => {
     const payload = buildJumpInAvatarPayload({
       name: "Alice",
       fallbackName: "RandomKoda",
@@ -29,27 +29,23 @@ describe("buildJumpInAvatarPayload", () => {
         forceRender: [],
       },
     });
-  });
 
-  test("empty typed name falls back (engine requires a non-empty base.name)", () => {
-    const payload = buildJumpInAvatarPayload({
+    const fallback = buildJumpInAvatarPayload({
       name: "",
       fallbackName: "RandomKoda",
       bodyShapeUrn: "urn:body",
       ...COLORS,
       wearables: null,
     });
-    expect(payload.base.name).toBe("RandomKoda");
-    expect(payload.equip).toBeUndefined();
-  });
+    expect(fallback.base.name).toBe("RandomKoda");
+    expect(fallback.equip).toBeUndefined();
 
-  test("no fallback either: a random name is generated, never empty", () => {
-    const payload = buildJumpInAvatarPayload({
+    const generated = buildJumpInAvatarPayload({
       bodyShapeUrn: "urn:body",
       ...COLORS,
       wearables: [],
     });
-    expect(typeof payload.base.name).toBe("string");
-    expect((payload.base.name as string).length).toBeGreaterThan(0);
+    expect(typeof generated.base.name).toBe("string");
+    expect((generated.base.name as string).length).toBeGreaterThan(0);
   });
 });

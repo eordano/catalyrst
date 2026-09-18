@@ -4,7 +4,7 @@ import { catalystBase } from "../catalyst/client";
 import { fetchProfile } from "../catalyst/overlay/profile";
 import { isProfileOfAddress, profileDisplayName } from "./profile-label";
 
-export type ProfileIdentity = {
+type ProfileIdentity = {
   name: string;
   avatarUrl: string;
 };

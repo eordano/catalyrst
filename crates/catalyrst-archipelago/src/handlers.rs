@@ -1,10 +1,10 @@
-use crate::cluster::{to_parcel, Address, Island, PeerState};
-use crate::gossip::GossipBatch;
+use crate::feed::IslandReport;
 use crate::livekit::LivekitGrant;
+use crate::peers::{to_parcel, Address, PeerState};
 use crate::state::AppState;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -42,8 +42,6 @@ pub fn api_routes() -> Router<AppState> {
         .route("/heartbeat", post(heartbeat))
         .route("/auth/challenge", post(auth_challenge))
         .route("/auth/livekit-token", post(livekit_token))
-        .route("/gossip/heartbeat", post(gossip_heartbeat))
-        .route("/gossip/info", get(gossip_info))
 }
 
 async fn ping() -> &'static str {
@@ -78,24 +76,38 @@ async fn status(State(s): State<AppState>) -> impl IntoResponse {
     })
 }
 
+/// The feed counters are appended, never reordered: the byte-exact shape assertions upstream
+/// parity keeps are written against the first four fields.
 #[derive(Serialize)]
 struct HealthResp {
     healthy: bool,
     uptime_secs: i64,
     peers_total: usize,
     islands_total: usize,
+    feed_connected: bool,
+    feed_delivered: u64,
+    feed_no_session_socket: u64,
+    feed_deduplicated: u64,
+    feed_undecodable: u64,
+    feed_publish_dropped: u64,
 }
 
 async fn stats_health(State(s): State<AppState>) -> Json<HealthResp> {
     let uptime = Utc::now()
-        .signed_duration_since(s.cluster.started_at())
+        .signed_duration_since(s.peers.started_at())
         .num_seconds()
         .max(0);
     Json(HealthResp {
         healthy: true,
         uptime_secs: uptime,
-        peers_total: s.cluster.peers_count(),
-        islands_total: s.cluster.islands_count(),
+        peers_total: s.peers.peers_count(),
+        islands_total: s.feed.islands_count(),
+        feed_connected: s.publisher.is_connected(),
+        feed_delivered: s.feed.delivered_count(),
+        feed_no_session_socket: s.feed.no_session_socket_count(),
+        feed_deduplicated: s.feed.deduplicated_count(),
+        feed_undecodable: s.feed.undecodable_count(),
+        feed_publish_dropped: s.publisher.dropped(),
     })
 }
 
@@ -106,10 +118,13 @@ struct CoreStatusResp {
     user_count: usize,
 }
 
+/// Reports what the clustering engine last announced on the discovery subject, not what this
+/// replica happens to hold: the engine is a service of its own now, and a stale or missing
+/// heartbeat is exactly the condition this endpoint exists to surface.
 async fn core_status(State(s): State<AppState>) -> Json<CoreStatusResp> {
     Json(CoreStatusResp {
-        healthy: true,
-        user_count: s.cluster.peers_count(),
+        healthy: s.feed.is_core_healthy(Utc::now().timestamp_millis()),
+        user_count: s.feed.core_user_count() as usize,
     })
 }
 
@@ -133,7 +148,7 @@ struct ParcelsResp {
 
 async fn parcels(State(s): State<AppState>) -> Json<ParcelsResp> {
     let mut by_tile: HashMap<(i32, i32), u32> = HashMap::new();
-    for p in s.cluster.peers_snapshot().iter() {
+    for p in s.peers.peers_snapshot().iter() {
         let [px, _py, pz] = p.position;
         let [x, y] = to_parcel(px, pz);
         *by_tile.entry((x, y)).or_insert(0) += 1;
@@ -180,7 +195,7 @@ struct PeersResp {
 async fn peers(State(s): State<AppState>, RawQuery(q): RawQuery) -> Json<PeersResp> {
     let filter = parse_id_filter(q.as_deref());
     let peers: Vec<PeerResult> = s
-        .cluster
+        .peers
         .peers_snapshot()
         .iter()
         .filter(|p| {
@@ -198,7 +213,7 @@ struct PeerResp {
 }
 
 async fn peer_by_id(State(s): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
-    match s.cluster.peer(&id.to_lowercase()) {
+    match s.peers.peer(&id.to_lowercase()) {
         Some(p) => (
             StatusCode::OK,
             Json(PeerResp {
@@ -226,7 +241,9 @@ struct IslandResult {
     radius: f32,
 }
 
-fn process_island(island: &Island, lookup: &HashMap<Address, PeerState>) -> IslandResult {
+/// A member this replica has never heard a heartbeat from is left out rather than invented: the
+/// shape carries positions, and the replica holding that socket reports it with real ones.
+fn process_island(island: &IslandReport, lookup: &HashMap<Address, PeerState>) -> IslandResult {
     let peers: Vec<PeerResult> = island
         .peers
         .iter()
@@ -236,7 +253,7 @@ fn process_island(island: &Island, lookup: &HashMap<Address, PeerState>) -> Isla
     IslandResult {
         id: island.id.clone(),
         peers,
-        max_peers: island.max_peers,
+        max_peers: island.max_peers as usize,
         center: island.center,
         radius: island.radius,
     }
@@ -249,10 +266,10 @@ struct IslandsResp {
 }
 
 async fn islands(State(s): State<AppState>) -> Json<IslandsResp> {
-    let lookup = s.cluster.peers_by_address();
+    let lookup = s.peers.peers_by_address();
     let islands = s
-        .cluster
-        .islands_snapshot()
+        .feed
+        .islands()
         .iter()
         .map(|i| process_island(i, &lookup))
         .collect();
@@ -260,9 +277,9 @@ async fn islands(State(s): State<AppState>) -> Json<IslandsResp> {
 }
 
 async fn island_by_id(State(s): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
-    match s.cluster.island(&id) {
+    match s.feed.island(&id) {
         Some(island) => {
-            let lookup = s.cluster.peers_by_address();
+            let lookup = s.peers.peers_by_address();
             (StatusCode::OK, Json(process_island(&island, &lookup))).into_response()
         }
         None => StatusCode::NOT_FOUND.into_response(),
@@ -293,7 +310,7 @@ const HOT_SCENES_LIMIT: usize = 100;
 
 async fn hot_scenes(State(s): State<AppState>) -> impl IntoResponse {
     let mut count_per_tile: HashMap<String, u32> = HashMap::new();
-    for p in s.cluster.peers_snapshot().iter() {
+    for p in s.peers.peers_snapshot().iter() {
         let [px, _py, pz] = p.position;
         let [x, y] = to_parcel(px, pz);
         *count_per_tile.entry(format!("{x},{y}")).or_insert(0) += 1;
@@ -397,7 +414,7 @@ async fn heartbeat(State(s): State<AppState>, body: Bytes) -> impl IntoResponse 
         )
             .into_response();
     }
-    s.cluster.upsert_peer(
+    s.peers.upsert_peer(
         req.address,
         req.position,
         req.parcel,
@@ -467,7 +484,7 @@ async fn livekit_token(State(s): State<AppState>, body: Bytes) -> impl IntoRespo
             .into_response();
     }
     if s.ban_checker.is_banned(&req.address).await {
-        s.cluster
+        s.peers
             .kick_peer(&req.address.to_ascii_lowercase(), "banned");
         return (
             StatusCode::FORBIDDEN,
@@ -487,7 +504,7 @@ async fn livekit_token(State(s): State<AppState>, body: Bytes) -> impl IntoRespo
             .into_response();
     }
     let addr = req.address.to_ascii_lowercase();
-    let Some((island_id, _)) = s.cluster.island_of(&addr) else {
+    let Some(island_id) = s.peers.island_of(&addr) else {
         return (
             StatusCode::FORBIDDEN,
             Json(ErrorResp {
@@ -507,109 +524,4 @@ async fn livekit_token(State(s): State<AppState>, body: Bytes) -> impl IntoRespo
     }
     let grant: LivekitGrant = s.livekit.mint(&addr, &island_id);
     Json(grant).into_response()
-}
-
-#[derive(Serialize)]
-struct GossipInfoResp {
-    node_id: String,
-    armed: bool,
-    peers: usize,
-}
-
-async fn gossip_info(State(s): State<AppState>) -> Json<GossipInfoResp> {
-    Json(GossipInfoResp {
-        node_id: s.gossip.node_id().to_string(),
-        armed: s.gossip.is_armed(),
-        peers: s.gossip.peers_count(),
-    })
-}
-
-#[derive(Serialize)]
-struct GossipApplyResp {
-    ok: bool,
-    applied: usize,
-}
-
-async fn gossip_heartbeat(
-    State(s): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> impl IntoResponse {
-    let from_node = match headers
-        .get("X-Archipelago-Node")
-        .and_then(|v| v.to_str().ok())
-    {
-        Some(v) if !v.is_empty() => v.to_string(),
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResp {
-                    error: "missing X-Archipelago-Node".into(),
-                }),
-            )
-                .into_response();
-        }
-    };
-    let sig = match headers
-        .get("X-Archipelago-Sig")
-        .and_then(|v| v.to_str().ok())
-    {
-        Some(v) if !v.is_empty() => v.to_string(),
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResp {
-                    error: "missing X-Archipelago-Sig".into(),
-                }),
-            )
-                .into_response();
-        }
-    };
-    let ts = match headers
-        .get("X-Archipelago-Ts")
-        .and_then(|v| v.to_str().ok())
-    {
-        Some(v) if !v.is_empty() => v.to_string(),
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResp {
-                    error: "missing X-Archipelago-Ts".into(),
-                }),
-            )
-                .into_response();
-        }
-    };
-    if let Err(e) = s.gossip.verify(&body, &ts, &sig, &from_node) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResp {
-                error: e.to_string(),
-            }),
-        )
-            .into_response();
-    }
-    let batch: GossipBatch = match serde_json::from_slice(&body) {
-        Ok(b) => b,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResp {
-                    error: format!("bad json: {e}"),
-                }),
-            )
-                .into_response();
-        }
-    };
-    if batch.from_node != from_node {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResp {
-                error: "header/body node mismatch".into(),
-            }),
-        )
-            .into_response();
-    }
-    let applied = s.gossip.apply(&s.cluster, batch);
-    Json(GossipApplyResp { ok: true, applied }).into_response()
 }

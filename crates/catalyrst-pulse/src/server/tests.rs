@@ -500,10 +500,15 @@ async fn valid_handshake_authenticates_and_binds_wallet() {
     match srv.dispatch(1, channel::RELIABLE, &bytes, now_ms, 0) {
         Action::Authenticated {
             wallet: w,
+            session,
             duplicate_of,
             initial_state,
             features,
         } => {
+            assert_ne!(
+                session, w,
+                "a delegated chain names its ephemeral as the session"
+            );
             assert_eq!(w, wallet);
             assert_eq!(duplicate_of, None);
             assert_eq!(features, 0, "nothing offered negotiates the baseline");

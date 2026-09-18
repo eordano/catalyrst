@@ -20,7 +20,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type GvSubmitLinkedWearablesWizardProps = {
+type GvSubmitLinkedWearablesWizardProps = {
   trackCtx: TrackContext;
   data: LinkedWearablesData;
   initialStep?: string;

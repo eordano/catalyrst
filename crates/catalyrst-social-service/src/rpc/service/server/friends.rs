@@ -23,13 +23,7 @@ impl SocialServiceImpl {
         let me = Self::caller(&context)?;
         let db = context.server_context.db();
         let (limit, offset) = page_friends(&request.pagination);
-        let result = async {
-            let friends = db.get_friends(&me, limit, offset).await?;
-            let total = db.count_friends(&me).await?;
-            Ok::<_, crate::rpc::db::DbError>((friends, total))
-        }
-        .await;
-        let (friends, total) = match result {
+        let (friends, total) = match db.get_friends(&me, limit, offset).await {
             Ok(v) => v,
             Err(_) => return Ok(empty_friends_profiles()),
         };
@@ -59,13 +53,7 @@ impl SocialServiceImpl {
         };
         let db = context.server_context.db();
         let (limit, offset) = page_friends(&request.pagination);
-        let result = async {
-            let friends = db.get_mutual_friends(&me, &other, limit, offset).await?;
-            let total = db.count_mutual_friends(&me, &other).await?;
-            Ok::<_, crate::rpc::db::DbError>((friends, total))
-        }
-        .await;
-        let (friends, total) = match result {
+        let (friends, total) = match db.get_mutual_friends(&me, &other, limit, offset).await {
             Ok(v) => v,
             Err(_) => return Ok(empty_friends_profiles()),
         };
@@ -124,28 +112,21 @@ impl SocialServiceImpl {
         };
         let db = context.server_context.db();
 
-        let resolved = async {
-            let action = db
-                .last_friendship_action(&me, &other)
-                .await?
-                .and_then(|last| friendship_action_status(&last, &me));
-            let status = match action {
-                Some(s) => s,
-                None => {
-                    if db.is_blocked(&me, &other).await? {
+        match db.friendship_probe(&me, &other).await {
+            Ok(probe) => {
+                let status = probe
+                    .last
+                    .as_ref()
+                    .and_then(|last| friendship_action_status(last, &me))
+                    .unwrap_or(if probe.blocked {
                         FriendshipStatus::Blocked
-                    } else if db.is_blocked(&other, &me).await? {
+                    } else if probe.blocked_by {
                         FriendshipStatus::BlockedBy
                     } else {
                         FriendshipStatus::None
-                    }
-                }
-            };
-            Ok::<_, crate::rpc::db::DbError>(status)
-        }
-        .await;
-        match resolved {
-            Ok(status) => Ok(status_ok(status)),
+                    });
+                Ok(status_ok(status))
+            }
             Err(e) => Ok(GetFriendshipStatusResponse {
                 response: Some(
                     get_friendship_status_response::Response::InternalServerError(internal_err(
@@ -220,11 +201,11 @@ impl SocialServiceImpl {
             });
         }
 
-        let blocked = match db.is_friendship_blocked(&me, &other).await {
+        let probe = match db.friendship_probe(&me, &other).await {
             Ok(v) => v,
             Err(e) => return Ok(upsert_internal_error(e.to_string())),
         };
-        if blocked {
+        if probe.blocked || probe.blocked_by {
             return Ok(UpsertFriendshipResponse {
                 response: Some(
                     upsert_friendship_response::Response::InvalidFriendshipAction(
@@ -239,10 +220,7 @@ impl SocialServiceImpl {
             });
         }
 
-        let last = match db.last_friendship_action(&me, &other).await {
-            Ok(v) => v,
-            Err(e) => return Ok(upsert_internal_error(e.to_string())),
-        };
+        let last = probe.last;
         if !user_action_valid(&me, action, &other, last.as_ref()) {
             return Ok(UpsertFriendshipResponse {
                 response: Some(
@@ -278,8 +256,16 @@ impl SocialServiceImpl {
         };
         let created_ms = created_at.timestamp_millis();
 
-        let profiles = context.server_context.profiles();
-        let my_profile = profiles.friend_profile(&me).await;
+        let mut pair = context
+            .server_context
+            .profiles()
+            .friend_profiles(&[me.clone(), other.clone()])
+            .await
+            .into_iter();
+        let (my_profile, other_profile) = match (pair.next(), pair.next()) {
+            (Some(mine), Some(theirs)) => (mine, theirs),
+            _ => return Ok(upsert_internal_error("profile batch returned short")),
+        };
         let update =
             friendship_update_for(action, &me, &id, created_ms, message.as_deref(), my_profile);
         context
@@ -287,7 +273,6 @@ impl SocialServiceImpl {
             .pubsub()
             .publish(&other, SocialEvent::Friendship(update));
 
-        let other_profile = profiles.friend_profile(&other).await;
         Ok(UpsertFriendshipResponse {
             response: Some(upsert_friendship_response::Response::Accepted(
                 upsert_friendship_response::Accepted {

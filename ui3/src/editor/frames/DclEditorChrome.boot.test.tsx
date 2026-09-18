@@ -12,18 +12,18 @@ afterEach(() => {
 describe("DclEditorChrome boot curtain", () => {
   const boot = (): HTMLElement | null => document.querySelector(".eui-boot");
 
-  it("shows the curtain while loading, with no leave state", () => {
-    render(<DclEditorChrome loading viewportSrc={null} />);
-    const el = boot();
-    expect(el).not.toBeNull();
-    expect(el?.classList.contains("is-leaving")).toBe(false);
-    expect(el?.getAttribute("role")).toBe("status");
-  });
-
-  it("plays a leave animation, then unmounts", () => {
+  it("shows the curtain while loading, plays a leave animation once loaded, then unmounts; a curtain never shown never leaves", () => {
     vi.useFakeTimers();
+    const fresh = render(<DclEditorChrome loading={false} viewportSrc={null} />);
+    const never = boot();
+    expect(never === null || !never.classList.contains("is-leaving")).toBe(true);
+    fresh.unmount();
+
     const { rerender } = render(<DclEditorChrome loading viewportSrc={null} />);
-    expect(boot()).not.toBeNull();
+    const shown = boot();
+    expect(shown).not.toBeNull();
+    expect(shown?.classList.contains("is-leaving")).toBe(false);
+    expect(shown?.getAttribute("role")).toBe("status");
 
     rerender(<DclEditorChrome loading={false} viewportSrc={null} />);
     const leaving = boot();
@@ -35,11 +35,5 @@ describe("DclEditorChrome boot curtain", () => {
       vi.advanceTimersByTime(BOOT_LEAVE_MS + 20);
     });
     expect(boot()).toBeNull();
-  });
-
-  it("never plays a leave animation for a curtain that was never shown", () => {
-    render(<DclEditorChrome loading={false} viewportSrc={null} />);
-    const el = boot();
-    expect(el === null || !el.classList.contains("is-leaving")).toBe(true);
   });
 });

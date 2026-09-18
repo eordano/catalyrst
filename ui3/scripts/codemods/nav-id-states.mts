@@ -18,7 +18,6 @@ const JOBS = [
   ["governance/pages/GvTransparency.tsx", "tab", ...GOV],
   ["governance/pages/GvProjectUpdateDetail.tsx", "tab", ...GOV],
   ["governance/pages/GvProposalDetail.tsx", "tab", ...GOV],
-  ["governance/pages/GvDebugAdmin.tsx", "tab", ...GOV],
   ["governance/pages/GvHomeLanding.tsx", "chromeTab", ...GOV],
   ["governance/workflows/GvBidVotingFlow.tsx", "active", ...GOV],
   ["marketplace/pages/MkAccountPage.tsx", "tab", ...MKT],

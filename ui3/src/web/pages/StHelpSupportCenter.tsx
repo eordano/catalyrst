@@ -4,7 +4,6 @@ import { SitesChromeMaybe } from "../frames/SitesChrome";
 import { asset } from "../../asset";
 import "./sthelpsupportcenter.css";
 
-
 const SITE_HOST = siteHost();
 const HelpTab = { FAQ: "faq", SUPPORT_UPDATES: "support updates" } as const;
 type HelpTabValue = (typeof HelpTab)[keyof typeof HelpTab];
@@ -368,4 +367,4 @@ export default function StHelpSupportCenter({
 }
 
 export { HelpTab, Status, SERVICES };
-export type { Service, StatusValue };
+export type { Service };

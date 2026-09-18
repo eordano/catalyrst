@@ -16,19 +16,17 @@ afterEach(() => {
   delete (window as unknown as WinWithBridge).dclBridge;
 });
 
-test("Backpack: equipping a wearable pushes SetAvatar to the engine bridge", async () => {
-  const { container } = render(<EquipWearable />);
-  await EquipWearable.play?.({ canvasElement: container });
-
+test("Backpack: equipping a wearable pushes SetAvatar to the engine bridge, and the category rail filters the grid", async () => {
+  const equip = render(<EquipWearable />);
+  await EquipWearable.play?.({ canvasElement: equip.container });
   expect(send).toHaveBeenCalledWith(
     "SetAvatar",
     expect.objectContaining({
       equip: expect.objectContaining({ wearableUrns: ["urn:test:hat:1"] }),
     }),
   );
-});
+  equip.unmount();
 
-test("Backpack: category rail filters the grid to the selected category", async () => {
-  const { container } = render(<FilterByCategory />);
-  await FilterByCategory.play?.({ canvasElement: container });
+  const filter = render(<FilterByCategory />);
+  await FilterByCategory.play?.({ canvasElement: filter.container });
 });

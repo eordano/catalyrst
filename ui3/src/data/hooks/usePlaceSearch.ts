@@ -11,7 +11,7 @@ export function isEnsQuery(query: string): boolean {
   return ENS_RE.test(query.trim());
 }
 
-export type PlaceSearchResult = {
+type PlaceSearchResult = {
   placeHits: PlaceView[];
   worldHits: PlaceView[];
   loading: boolean;

@@ -18,6 +18,7 @@ import {
   type Wearable,
 } from "./Backpack.types";
 import "./backpack.css";
+import { docsUrl } from "../../data/docs";
 
 type DclBridge = { send?: (action: string, payload: unknown) => void };
 function dclBridge(): DclBridge | undefined {
@@ -511,7 +512,7 @@ export default function Backpack({
             <button
               className="bp__marketplace"
               type="button"
-              onClick={() => openExternal(siteUrl("/shop"))}
+              data-sb-linkto="Explorer/Pages/Marketplace"
             >
               <span className="bp__mkticon" aria-hidden>&#x1F6CD;</span> Marketplace
             </button>
@@ -531,7 +532,7 @@ export default function Backpack({
               className="bp__help"
               type="button"
               aria-label="Help"
-              onClick={() => window.open("https://docs.decentraland.org/player/", "_blank", "noopener,noreferrer")}
+              onClick={() => window.open(docsUrl("player"), "_blank", "noopener,noreferrer")}
             >
               ?
             </button>

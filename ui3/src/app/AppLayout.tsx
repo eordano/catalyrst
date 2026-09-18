@@ -15,10 +15,11 @@ import Minimap from "../explorer/frames/Minimap";
 import Chat from "../explorer/frames/ChatBridge";
 import { useNotifications } from "../data/hooks/useNotifications";
 import { useOwnedEmotes } from "../data/hooks/useOwnedItems";
-import VoiceChat from "../explorer/components/VoiceChat";
+import { VoiceControls } from "../explorer/components/VoiceChat";
 import EmoteWheel from "../explorer/components/EmoteWheel";
+import FloatingPanel from "../explorer/components/FloatingPanel";
 import JumpLoading, { usePanelJumpActive } from "../explorer/components/JumpLoading";
-import SkyboxHUD from "../explorer/components/SkyboxHUD";
+import { SkyboxControls } from "../explorer/components/SkyboxHUD";
 import ProfileWidget from "../explorer/components/ProfileWidget";
 import ConnectionStatus from "../explorer/components/ConnectionStatus";
 import EngineToasts from "../explorer/components/EngineToasts";
@@ -61,6 +62,8 @@ const LINK_TO_ID: Record<string, string> = {
   "Explorer/Pages/BackpackEmotes": "backpack",
   "Explorer/Pages/BadgesDetails": "passport",
   "Explorer/Components/CommunityStream": "communities",
+  "Explorer/Pages/Marketplace": "marketplace",
+  "Explorer/Pages/Help": "help",
 };
 for (const t of EXPLORE_TABS) {
   if (t.to) LINK_TO_ID[t.to] = t.id;
@@ -221,7 +224,10 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
     if (!(t instanceof Element)) return;
     if (!t.closest(".ui3-overlay")) return;
     if (isTextEntry(t) || t.closest("input, textarea, select")) return;
-    setTimeout(() => focusWorldCanvas(), 0);
+    setTimeout(() => {
+      if (document.activeElement?.closest('[role="menu"]')) return;
+      focusWorldCanvas();
+    }, 0);
   }, []);
 
   useEffect(() => {
@@ -430,31 +436,41 @@ export default function AppLayout({ prefetchPanel }: AppLayoutProps) {
               {notifOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__notifications">
                   <Suspense fallback={<PanelFallback />}>
-                    <NotificationsPanel floating />
+                    <FloatingPanel id="notifications" onClose={closeOverlays} flush>
+                      <NotificationsPanel floating />
+                    </FloatingPanel>
                   </Suspense>
                 </div>
               )}
               {voiceOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__voice">
-                  <VoiceChat bare />
+                  <FloatingPanel id="voice" onClose={closeOverlays}>
+                    <VoiceControls />
+                  </FloatingPanel>
                 </div>
               )}
               {skyboxOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__skybox">
-                  <SkyboxHUD />
+                  <FloatingPanel id="skybox" onClose={closeOverlays}>
+                    <SkyboxControls />
+                  </FloatingPanel>
                 </div>
               )}
               {portablesOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__portables">
                   <Suspense fallback={<PanelFallback />}>
-                    <SmartWearablesPanel floating onClose={() => setLeftPanel(null)} />
+                    <FloatingPanel id="portables" onClose={closeOverlays}>
+                      <SmartWearablesPanel floating />
+                    </FloatingPanel>
                   </Suspense>
                 </div>
               )}
               {friendsOpen && (
                 <div className="ui3-overlay__widget ui3-overlay__friends">
                   <Suspense fallback={<PanelFallback />}>
-                    <FriendsPanel floating onClose={() => setLeftPanel(null)} />
+                    <FloatingPanel id="friends" onClose={closeOverlays} flush>
+                      <FriendsPanel floating />
+                    </FloatingPanel>
                   </Suspense>
                 </div>
               )}

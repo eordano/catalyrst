@@ -17,7 +17,7 @@ recovery is what keeps a forged payload from ever consuming a victim's quota or 
 
 ## POST /v1/transactions pipeline
 
-`checkData` runs in upstream order: `schema -> selector -> from/userAddress bind -> self-relay -> contractAddress -> signature -> quota -> salePrice -> gasPrice -> simulate`.
+`checkData` runs `schema -> selector -> from/userAddress bind -> self-relay -> contractAddress -> salePrice -> (signature || gasPrice || simulate)`; the three RPC checks run concurrently and the quota is enforced by the reservation insert itself (one advisory-locked round trip).
 
 - **from/userAddress bind** decodes `params[1]` and refuses unless `from` equals the `userAddress` signed into the calldata (both overloads), so quota is only ever keyed on the signed address.
 - **self-relay** refuses a `userAddress` equal to this node's own direct-signer EOA (mirrors the upstream `relayerAddresses.size > 0` guard; the OZ relayer's EOAs are not known locally).

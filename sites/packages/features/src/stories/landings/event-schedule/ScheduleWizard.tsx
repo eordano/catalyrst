@@ -27,14 +27,14 @@ import {
   type TrackFn,
 } from "./machine";
 
-export const BACKGROUND_PRESETS: string[][] = [
+const BACKGROUND_PRESETS: string[][] = [
   ["#FF2D55", "#FF6B00"],
   ["#7B61FF", "#16141A"],
   ["#00D6CE", "#0B6E99"],
   ["#FFB800", "#FF2D78"],
 ];
 
-export type ScheduleWizardProps = {
+type ScheduleWizardProps = {
   trackCtx: TrackContext;
   schedules: Schedule[];
   source: "live" | "empty" | "error";

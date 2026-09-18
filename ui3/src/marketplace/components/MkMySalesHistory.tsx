@@ -1,13 +1,13 @@
 import EmptyState from "../../components/EmptyState";
 
-export type MkMySalesEntry = {
+type MkMySalesEntry = {
   id: string;
   rawType: string;
   to: string;
   price: string | null;
 };
 
-export type MkMySalesHistoryProps = {
+type MkMySalesHistoryProps = {
   me?: string;
   mine?: MkMySalesEntry[];
   manaEarned?: string;

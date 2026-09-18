@@ -34,18 +34,15 @@ function fmtNum(n: number) {
   return n.toLocaleString("en-US");
 }
 
-export type GvProfileProposal = Proposal;
-export type GvProfileProject = Project;
-export type GvProfileDelegator = Delegator;
-export type GvProfileVp = { total: number; own: number; delegated: number };
-export type GvProfileVpSegment = { id: string; label: string; value: number; tone: string };
-export type GvProfileVotingStats = {
+type GvProfileVp = { total: number; own: number; delegated: number };
+type GvProfileVpSegment = { id: string; label: string; value: number; tone: string };
+type GvProfileVotingStats = {
   participationTotal: number;
   participationPercentage: string;
   personalMatchPercentage: number;
   outcomeMatchPercentage: number;
 };
-export type GvProfileBadge = { id: string | number; label: string; hue: number };
+type GvProfileBadge = { id: string | number; label: string; hue: number };
 
 const CATEGORY_LABELS: Record<string, LabelInfo> = {
   catalyst: { label: "Catalyst Node", tone: "blue" },

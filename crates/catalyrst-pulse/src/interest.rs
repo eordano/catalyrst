@@ -1,4 +1,5 @@
 use crate::decentraland::common::Vector3;
+use crate::realm_grids::RealmSpatialGrids;
 use crate::snapshot::SnapshotBoard;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,8 +133,11 @@ pub const AOI_MAX_RADIUS_CEILING: f32 = 4.0 * DEFAULT_AOI_MAX_RADIUS;
 /// advancing one parcel moves the cell coordinate by at most one.
 ///
 /// The closed max corner may over-cover one neighbouring cell when a parcel edge lands exactly on
-/// a cell boundary, and realms share one grid coordinate space so their cells overlap outright;
-/// both are harmless, the simulation filters candidates realm- and parcel-exact.
+/// a cell boundary -- harmless, the simulation filters candidates parcel-exact.
+///
+/// Cell keys carry no realm, deliberately: every realm numbers its cells in the same coordinate
+/// space, so one covering set serves a multi-realm announcement. Probing it against a single
+/// realm's grid is what keeps the realms apart.
 #[derive(Debug, Clone, Copy)]
 pub struct SceneListenerCellMapper {
     parcel_size: i32,
@@ -141,10 +145,10 @@ pub struct SceneListenerCellMapper {
 }
 
 impl SceneListenerCellMapper {
-    pub fn new(grid: &SpatialGrid, encoder: &ParcelEncoder) -> Self {
+    pub fn new(grids: &RealmSpatialGrids, encoder: &ParcelEncoder) -> Self {
         Self {
             parcel_size: encoder.parcel_size(),
-            inverse_cell_size: grid.inverse_cell_size,
+            inverse_cell_size: grids.inverse_cell_size(),
         }
     }
 
@@ -184,10 +188,10 @@ impl SceneListenerCellMapper {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SceneListenerState {
     pub parcels_by_realm: std::collections::HashMap<String, std::collections::HashSet<i32>>,
-    /// Deduped, sorted `SpatialGrid` cell keys covering every announced realm's parcels. The
-    /// grid is one global coordinate space, so realms overlap in it; that only ever over-covers,
-    /// and candidates are filtered realm- and parcel-exact, so the cost is a lookup, never
-    /// correctness.
+    /// Deduped, sorted `SpatialGrid` cell keys covering every announced realm's parcels, in the
+    /// realm-independent cell coordinate space. Probed against one realm's grid at a time, so a
+    /// realm may be probed with cells only another realm announced: that over-covers and never
+    /// mis-covers, since an extra cell can only surface a peer the parcel filter still tests.
     cell_keys: Vec<i64>,
 }
 
@@ -232,33 +236,39 @@ impl SceneListenerState {
     }
 
     /// Fills the collector with every subject standing inside the AoI, all at TIER_0 (a parcel
-    /// set has no distance to tier by): the occupants of the precomputed covering cells, filtered
-    /// on (realm, parcel) exactly. Neither filter is redundant: the cover over-approximates (a
-    /// 100-unit cell holds ~6x6 parcels), and every realm numbers its parcels from 0,0, so two
-    /// cohosted worlds share both cells and parcel indices. A peer occupies exactly one grid cell
-    /// and the keys are deduped, so a subject can never be collected twice.
+    /// set has no distance to tier by): for each announced realm, the occupants of the covering
+    /// cells in that realm's grid, filtered parcel-exact because the cover over-approximates (a
+    /// 100-unit cell holds ~6x6 parcels). The realm needs no test of its own -- resolving one
+    /// realm's grid already excludes every other realm's peers, which is what lets two cohosted
+    /// worlds share both cell keys and parcel indices. A peer occupies exactly one cell of one
+    /// grid and the keys are deduped, so a subject can never be collected twice.
     pub fn get_visible_subjects(
         &self,
         board: &SnapshotBoard,
-        grid: &SpatialGrid,
+        grids: &RealmSpatialGrids,
         observer: u32,
         collector: &mut InterestCollector,
     ) {
-        for &key in &self.cell_keys {
-            for &subject in grid.peers_in_cell(key) {
-                #[cfg(test)]
-                SCENE_LISTENER_EXAMINED.with(|c| c.set(c.get() + 1));
+        for (realm, parcels) in &self.parcels_by_realm {
+            let Some(grid) = grids.grid(Some(realm.as_str())) else {
+                continue;
+            };
+            for &key in &self.cell_keys {
+                for &subject in grid.peers_in_cell(key) {
+                    #[cfg(test)]
+                    SCENE_LISTENER_EXAMINED.with(|c| c.set(c.get() + 1));
 
-                if subject == observer {
-                    continue;
+                    if subject == observer {
+                        continue;
+                    }
+                    let Some(s) = board.try_read(subject) else {
+                        continue;
+                    };
+                    if !parcels.contains(&s.parcel) {
+                        continue;
+                    }
+                    collector.add(subject, PeerViewSimulationTier::TIER_0);
                 }
-                let Some(s) = board.try_read(subject) else {
-                    continue;
-                };
-                if !self.observes(s.realm.as_deref(), s.parcel) {
-                    continue;
-                }
-                collector.add(subject, PeerViewSimulationTier::TIER_0);
             }
         }
     }
@@ -339,9 +349,25 @@ impl SpatialGrid {
         Self::pack_key(self.cell_coord(position.x), self.cell_coord(position.z))
     }
 
-    /// Membership only: callers still apply the active/realm/self filters per candidate.
+    /// Whether the grid holds no peer at all: a realm nobody occupies keeps no grid, because
+    /// realm names are client-supplied and retaining one per name ever seen would grow unbounded.
+    pub fn is_empty(&self) -> bool {
+        self.peer_cell.is_empty()
+    }
+
+    /// Membership only: callers still apply the active/self filters per candidate.
     pub fn peers_in_cell(&self, key: i64) -> &[u32] {
         self.cells.get(&key).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    /// Every cell holding at least one peer, with its occupants: the cluster pass walks these
+    /// rather than the peer list, so its cost is O(peers + occupied cells) with no peer-pair test.
+    pub fn occupied_cells(&self) -> impl Iterator<Item = (i64, &[u32])> {
+        self.cells.iter().map(|(k, v)| (*k, v.as_slice()))
+    }
+
+    pub fn unpack_key(key: i64) -> (i32, i32) {
+        ((key >> 32) as i32, key as u32 as i32)
     }
 
     pub fn set(&mut self, peer: u32, position: Vector3) {
@@ -501,16 +527,20 @@ impl SpatialAreaOfInterest {
         }
     }
 
+    /// Realm partitioning is structural, not a predicate: resolving the observer's grid is the
+    /// whole of it, and no candidate is ever tested for realm equality. A peer whose latest
+    /// snapshot has no realm occupies no grid, so it is invisible to every observer and sees
+    /// nobody.
     pub fn get_visible_subjects(
         &self,
         board: &SnapshotBoard,
-        grid: &SpatialGrid,
+        grids: &RealmSpatialGrids,
         observer: u32,
         observer_realm: Option<&str>,
         observer_pos: Vector3,
         collector: &mut InterestCollector,
     ) {
-        let Some(observer_realm) = observer_realm else {
+        let Some(grid) = grids.grid(observer_realm) else {
             return;
         };
 
@@ -525,9 +555,6 @@ impl SpatialAreaOfInterest {
             let Some(subject_snapshot) = board.try_read(subject) else {
                 return;
             };
-            if subject_snapshot.realm.as_deref() != Some(observer_realm) {
-                return;
-            }
 
             let dx = subject_snapshot.global_position.x - observer_pos.x;
             let dz = subject_snapshot.global_position.z - observer_pos.z;
@@ -580,6 +607,7 @@ thread_local! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::realm_grids::RealmSpatialGrids;
     use crate::snapshot::PeerSnapshot;
 
     const UPSTREAM_SCAN_CELL_RADIUS: i32 = 2;
@@ -590,7 +618,7 @@ mod tests {
 
     fn place(
         board: &mut SnapshotBoard,
-        grid: &mut SpatialGrid,
+        grids: &mut RealmSpatialGrids,
         id: u32,
         pos: Vector3,
         realm: &str,
@@ -605,7 +633,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        grid.set(id, pos);
+        grids.set(id, realm, pos);
     }
 
     #[test]
@@ -727,42 +755,42 @@ mod tests {
     #[test]
     fn observer_without_realm_sees_nobody() {
         let mut board = SnapshotBoard::new(8, 8);
-        let mut grid = SpatialGrid::new(SPATIAL_GRID_CELL_SIZE);
-        place(&mut board, &mut grid, 1, v3(0.0, 0.0), "r");
+        let mut grids = RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, 8);
+        place(&mut board, &mut grids, 1, v3(0.0, 0.0), "r");
         let aoi = SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default());
         let mut c = InterestCollector::default();
-        aoi.get_visible_subjects(&board, &grid, 0, None, v3(0.0, 0.0), &mut c);
+        aoi.get_visible_subjects(&board, &grids, 0, None, v3(0.0, 0.0), &mut c);
         assert_eq!(c.count(), 0);
     }
 
     #[test]
     fn different_realm_is_invisible() {
         let mut board = SnapshotBoard::new(8, 8);
-        let mut grid = SpatialGrid::new(SPATIAL_GRID_CELL_SIZE);
-        place(&mut board, &mut grid, 0, v3(0.0, 0.0), "realm-a");
-        place(&mut board, &mut grid, 1, v3(1.0, 1.0), "realm-b");
+        let mut grids = RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, 8);
+        place(&mut board, &mut grids, 0, v3(0.0, 0.0), "realm-a");
+        place(&mut board, &mut grids, 1, v3(1.0, 1.0), "realm-b");
         let aoi = SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default());
         let mut c = InterestCollector::default();
-        aoi.get_visible_subjects(&board, &grid, 0, Some("realm-a"), v3(0.0, 0.0), &mut c);
+        aoi.get_visible_subjects(&board, &grids, 0, Some("realm-a"), v3(0.0, 0.0), &mut c);
         assert_eq!(c.count(), 0);
     }
 
     #[test]
     fn distance_tiers_and_max_radius_cutoff() {
         let mut board = SnapshotBoard::new(8, 8);
-        let mut grid = SpatialGrid::new(SPATIAL_GRID_CELL_SIZE);
-        place(&mut board, &mut grid, 0, v3(0.0, 0.0), "r");
-        place(&mut board, &mut grid, 1, v3(10.0, 0.0), "r");
-        place(&mut board, &mut grid, 2, v3(30.0, 0.0), "r");
-        place(&mut board, &mut grid, 3, v3(45.0, 0.0), "r");
-        place(&mut board, &mut grid, 4, v3(60.0, 0.0), "r");
-        place(&mut board, &mut grid, 5, v3(150.0, 0.0), "r");
-        place(&mut board, &mut grid, 6, v3(200.0, 0.0), "r");
-        place(&mut board, &mut grid, 7, v3(201.0, 0.0), "r");
+        let mut grids = RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, 8);
+        place(&mut board, &mut grids, 0, v3(0.0, 0.0), "r");
+        place(&mut board, &mut grids, 1, v3(10.0, 0.0), "r");
+        place(&mut board, &mut grids, 2, v3(30.0, 0.0), "r");
+        place(&mut board, &mut grids, 3, v3(45.0, 0.0), "r");
+        place(&mut board, &mut grids, 4, v3(60.0, 0.0), "r");
+        place(&mut board, &mut grids, 5, v3(150.0, 0.0), "r");
+        place(&mut board, &mut grids, 6, v3(200.0, 0.0), "r");
+        place(&mut board, &mut grids, 7, v3(201.0, 0.0), "r");
 
         let aoi = SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default());
         let mut c = InterestCollector::default();
-        aoi.get_visible_subjects(&board, &grid, 0, Some("r"), v3(0.0, 0.0), &mut c);
+        aoi.get_visible_subjects(&board, &grids, 0, Some("r"), v3(0.0, 0.0), &mut c);
 
         let mut got: Vec<(u32, u8)> = c
             .entries
@@ -780,7 +808,7 @@ mod tests {
     #[test]
     fn grid_query_matches_linear_scan() {
         let mut board = SnapshotBoard::new(600, 8);
-        let mut placed: Vec<(u32, Vector3)> = Vec::new();
+        let mut placed: Vec<(u32, Vector3, &str)> = Vec::new();
         let mut seed: u64 = 0x1234_5678_9abc_def0;
         let mut rng = || {
             seed = seed
@@ -802,17 +830,17 @@ mod tests {
                     ..Default::default()
                 },
             );
-            placed.push((id, v3(x, z)));
+            placed.push((id, v3(x, z), realm));
         }
         let aoi = SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default());
         for cell_size in [SPATIAL_GRID_CELL_SIZE, 48.0] {
-            let mut grid = SpatialGrid::new(cell_size);
-            for &(id, pos) in &placed {
-                grid.set(id, pos);
+            let mut grids = RealmSpatialGrids::new(cell_size, 600);
+            for &(id, pos, realm) in &placed {
+                grids.set(id, realm, pos);
             }
             for &(ox, oz, realm) in &[(0.0f32, 0.0f32, "realm-a"), (500.0, -300.0, "realm-b")] {
                 let mut grid_c = InterestCollector::default();
-                aoi.get_visible_subjects(&board, &grid, 999, Some(realm), v3(ox, oz), &mut grid_c);
+                aoi.get_visible_subjects(&board, &grids, 999, Some(realm), v3(ox, oz), &mut grid_c);
                 let mut lin_c = InterestCollector::default();
                 aoi.get_visible_subjects_linear(&board, 999, Some(realm), v3(ox, oz), &mut lin_c);
 
@@ -843,19 +871,19 @@ mod tests {
 
         fn examined_for(n: u32) -> usize {
             let mut board = SnapshotBoard::new((n + 1) as usize, 8);
-            let mut grid = SpatialGrid::new(SPATIAL_GRID_CELL_SIZE);
+            let mut grids = RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, (n + 1) as usize);
             for id in 0..n {
                 let cluster = id / C;
                 let off = (id % C) as f32;
                 let cx = cluster as f32 * 1000.0;
-                place(&mut board, &mut grid, id, v3(cx + off, off), "r");
+                place(&mut board, &mut grids, id, v3(cx + off, off), "r");
             }
             let aoi = SpatialAreaOfInterest::new(SpatialAreaOfInterestOptions::default());
             CANDIDATES_EXAMINED.with(|c| c.set(0));
             for observer in 0..n {
                 let pos = board.try_read(observer).unwrap().global_position;
                 let mut c = InterestCollector::default();
-                aoi.get_visible_subjects(&board, &grid, observer, Some("r"), pos, &mut c);
+                aoi.get_visible_subjects(&board, &grids, observer, Some("r"), pos, &mut c);
             }
             CANDIDATES_EXAMINED.with(|c| c.get())
         }
@@ -884,13 +912,13 @@ mod tests {
 
     const PARCEL_SIZE: f32 = 16.0;
 
-    fn mapper_fixture() -> (SpatialGrid, SceneListenerCellMapper) {
-        let grid = SpatialGrid::new(SPATIAL_GRID_CELL_SIZE);
+    fn mapper_fixture() -> (RealmSpatialGrids, SceneListenerCellMapper) {
+        let grids = RealmSpatialGrids::new(SPATIAL_GRID_CELL_SIZE, 8);
         let mapper = SceneListenerCellMapper::new(
-            &grid,
+            &grids,
             &ParcelEncoder::new(ParcelEncoderOptions::default()),
         );
-        (grid, mapper)
+        (grids, mapper)
     }
 
     fn cover(
@@ -905,29 +933,36 @@ mod tests {
         keys
     }
 
-    fn reachable(grid: &SpatialGrid, keys: &std::collections::HashSet<i64>, peer: u32) -> bool {
+    fn reachable(
+        grids: &RealmSpatialGrids,
+        keys: &std::collections::HashSet<i64>,
+        peer: u32,
+    ) -> bool {
+        let Some(grid) = grids.grid(Some("r")) else {
+            return false;
+        };
         keys.iter().any(|&k| grid.peers_in_cell(k).contains(&peer))
     }
 
     #[test]
     fn single_parcel_inside_one_cell_covers_that_cell() {
-        let (mut grid, mapper) = mapper_fixture();
+        let (mut grids, mapper) = mapper_fixture();
         let keys = cover(&mapper, 1, 1, 1, 1);
-        grid.set(7, v3(20.0, 20.0));
+        grids.set(7, "r", v3(20.0, 20.0));
         assert!(
-            reachable(&grid, &keys, 7),
+            reachable(&grids, &keys, 7),
             "a peer standing inside the parcel must be reachable through the covering cell keys"
         );
     }
 
     #[test]
     fn parcel_straddling_cell_boundary_covers_both_cells() {
-        let (mut grid, mapper) = mapper_fixture();
+        let (mut grids, mapper) = mapper_fixture();
         let keys = cover(&mapper, 6, 0, 6, 0);
-        grid.set(1, v3(97.0, 5.0));
-        grid.set(2, v3(105.0, 5.0));
-        assert!(reachable(&grid, &keys, 1));
-        assert!(reachable(&grid, &keys, 2));
+        grids.set(1, "r", v3(97.0, 5.0));
+        grids.set(2, "r", v3(105.0, 5.0));
+        assert!(reachable(&grids, &keys, 1));
+        assert!(reachable(&grids, &keys, 2));
     }
 
     #[test]
@@ -943,17 +978,17 @@ mod tests {
 
     #[test]
     fn rect_cover_matches_every_parcel_inside_it() {
-        let (grid, mapper) = mapper_fixture();
+        let (grids, mapper) = mapper_fixture();
         let from_rect = cover(&mapper, 0, 0, 7, 7);
         let mut from_parcels = std::collections::HashSet::new();
         for z in 0..=7 {
             for x in 0..=7 {
                 let min_x = x as f32 * PARCEL_SIZE;
                 let min_z = z as f32 * PARCEL_SIZE;
-                from_parcels.insert(grid.key(v3(min_x, min_z)));
-                from_parcels.insert(grid.key(v3(min_x + PARCEL_SIZE, min_z)));
-                from_parcels.insert(grid.key(v3(min_x, min_z + PARCEL_SIZE)));
-                from_parcels.insert(grid.key(v3(min_x + PARCEL_SIZE, min_z + PARCEL_SIZE)));
+                from_parcels.insert(grids.cell_key(min_x, min_z));
+                from_parcels.insert(grids.cell_key(min_x + PARCEL_SIZE, min_z));
+                from_parcels.insert(grids.cell_key(min_x, min_z + PARCEL_SIZE));
+                from_parcels.insert(grids.cell_key(min_x + PARCEL_SIZE, min_z + PARCEL_SIZE));
             }
         }
         assert_eq!(from_rect, from_parcels);

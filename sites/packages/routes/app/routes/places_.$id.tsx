@@ -6,7 +6,7 @@ import { type Place } from "@data/lib/catalyst/places/index";
 import { loadPlace } from "@data/lib/catalyst/places/index.server";
 import type { AgentMarkdownHandle } from "@data/lib/agent/markdown";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { trackExposure } from "@core/lib/telemetry/track";
 import JumpIn from "@features/stories/misc/jump-in/JumpIn";
 
@@ -23,22 +23,25 @@ const FALLBACK: Assignment = {
 export async function loader({ request, params }: Route.LoaderArgs) {
   const { id } = params;
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data } = await storyLoaderWith(
     request,
     "misc/jump-in",
     FALLBACK,
+    async () => {
+      let place: Place | null = null;
+      let unavailable = false;
+      try {
+        place = await loadPlace(id, { signal: request.signal });
+      } catch (err) {
+        if (!(err instanceof CatalystError && err.status === 404)) {
+          unavailable = true;
+        }
+      }
+      return { place, unavailable };
+    },
     { skipExposure: true },
   );
-
-  let place: Place | null = null;
-  let unavailable = false;
-  try {
-    place = await loadPlace(id, { signal: request.signal });
-  } catch (err) {
-    if (!(err instanceof CatalystError && err.status === 404)) {
-      unavailable = true;
-    }
-  }
+  const { place, unavailable } = data;
 
   trackExposure({
     sid,

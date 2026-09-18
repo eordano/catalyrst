@@ -9,7 +9,7 @@ import type { TrackContext } from "@core/lib/telemetry/track";
 
 type ManageAction = "sell" | "transfer" | "cancel";
 
-export type ManageAssetViewProps = {
+type ManageAssetViewProps = {
   asset: ManageAsset;
   actionHub: boolean;
   trackCtx: TrackContext;

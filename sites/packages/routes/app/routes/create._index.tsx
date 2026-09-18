@@ -106,25 +106,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const { sid, wrap } = sidLoader(request);
 
-  let scenes: CreatorScene[] = [];
-  let scenesError = false;
-  const [scenesResult, network, happeningEvents] = await Promise.all([
-    loadCreatorScenes({ creator: creator || undefined, limit: 6 }).catch(() => null),
-    loadNetworkStrip(request.signal).catch(() => [] as ChNetworkScene[]),
-    loadHappeningEvents(request.signal),
-  ]);
-  if (scenesResult === null) {
-    scenesError = true;
-  } else {
-    scenes = scenesResult;
-  }
-  const happenings = [...happeningEvents, ...loadHappeningPosts()];
-
-  let entry: CreateEntryConfig | null = null;
   const experiment = activeCreateExperiment(
     typeof process !== "undefined" ? process.env?.CREATE_EXPERIMENT : undefined,
   );
-  if (experiment) {
+  const entryP = (async (): Promise<CreateEntryConfig | null> => {
+    if (!experiment) return null;
     try {
       const story = parseStory(
         path.join(process.cwd(), "packages", "features", "src", "stories", "create", experiment),
@@ -151,7 +137,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         experimentKey: assignment.experimentKey,
       });
 
-      entry = {
+      return {
         story: storyTag,
         experimentKey: assignment.experimentKey,
         variant: assignment.variant,
@@ -159,9 +145,24 @@ export async function loader({ request }: Route.LoaderArgs) {
         webHubIfCapable: webHubIfCapable(assignment.flags),
       };
     } catch {
-      entry = null;
+      return null;
     }
+  })();
+
+  let scenes: CreatorScene[] = [];
+  let scenesError = false;
+  const [scenesResult, network, happeningEvents, entry] = await Promise.all([
+    loadCreatorScenes({ creator: creator || undefined, limit: 6 }).catch(() => null),
+    loadNetworkStrip(request.signal).catch(() => [] as ChNetworkScene[]),
+    loadHappeningEvents(request.signal),
+    entryP,
+  ]);
+  if (scenesResult === null) {
+    scenesError = true;
+  } else {
+    scenes = scenesResult;
   }
+  const happenings = [...happeningEvents, ...loadHappeningPosts()];
 
   const payload = { sid, creator, scenes, scenesError, entry, network, happenings };
   return wrap(payload);

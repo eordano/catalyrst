@@ -1,4 +1,8 @@
-import "./sceneadmins.css";
+import type { CSSProperties } from "react";
+
+import EmptyState from "../../components/EmptyState";
+import "../../admin/admin.css";
+import "../operator.css";
 
 export type OpPickablePlace = {
   id: string;
@@ -17,6 +21,8 @@ type OpPlacePickerProps = {
   compact?: boolean;
 };
 
+const GRID: CSSProperties = { "--adm-col": "220px" } as CSSProperties;
+
 function label(p: OpPickablePlace): string {
   return p.title || p.base_position || p.id;
 }
@@ -30,21 +36,23 @@ export default function OpPlacePicker({
 }: OpPlacePickerProps) {
   if (places.length === 0) {
     return (
-      <p className="sa__empty">
-        No places are registered to this address.
-      </p>
+      <EmptyState
+        variant="inline"
+        titleAs="p"
+        title="No places are registered to this address."
+      />
     );
   }
 
   if (compact) {
     return (
-      <div className="sa-picker sa-picker--compact">
-        <label className="sa-picker__label" htmlFor="op-place">
+      <div className="adm-field">
+        <label className="adm-field__label" htmlFor="op-place">
           Place
         </label>
         <select
           id="op-place"
-          className="sa-picker__select"
+          className="adm-input"
           value={selectedId ?? ""}
           onChange={(e) => onSelect(e.target.value)}
         >
@@ -64,15 +72,14 @@ export default function OpPlacePicker({
   }
 
   return (
-    <div className="op-picker">
-      <div className="op-picker__head">
-        <span className="op-picker__title">
-          Places registered to this address (public data)
-        </span>
-        {owner && <span className="op-picker__owner">{owner}</span>}
+    <section className="adm-stack adm-stack--lg">
+      <div className="adm__head">
+        <h2 className="adm__h2">Places registered to this address (public data)</h2>
+        {owner && <span className="adm-mono adm-dim">{owner}</span>}
       </div>
       <div
-        className="op-picker__grid"
+        className="adm-grid"
+        style={GRID}
         role="listbox"
         aria-label="Places registered to this address"
       >
@@ -84,26 +91,28 @@ export default function OpPlacePicker({
               type="button"
               role="option"
               aria-selected={selected}
-              className={"op-picker__card" + (selected ? " is-selected" : "")}
+              className={"adm-card adm-card--link" + (selected ? " is-active" : "")}
               onClick={() => onSelect(p.id)}
             >
               {p.image ? (
-                <img className="op-picker__img" src={p.image} alt="" loading="lazy" />
+                <span className="adm-thumb" style={{ backgroundImage: `url("${p.image}")` }} />
               ) : null}
-              <span className="op-picker__name">{label(p)}</span>
-              <span className="op-picker__coords">
+              <span className="adm-card__title">{label(p)}</span>
+              <span className="adm-mono adm-dim">
                 {p.base_position ?? ""}
                 {typeof p.user_count === "number" && p.user_count > 0
                   ? ` \u{B7} ${p.user_count} online`
                   : ""}
               </span>
               {p.moderationHint && (
-                <span className="op-picker__hint">{p.moderationHint}</span>
+                <span className="adm-status" data-tone="bad">
+                  {p.moderationHint}
+                </span>
               )}
             </button>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }

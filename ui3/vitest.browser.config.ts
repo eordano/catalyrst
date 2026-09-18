@@ -20,7 +20,12 @@ export default defineConfig({
     storybookTest({ configDir: ".storybook", tags: { exclude: ["no-test"] } }),
   ],
   optimizeDeps: {
+    exclude: [
+      "monaco-editor/esm/vs/editor/editor.worker?worker&url",
+      "monaco-editor/esm/vs/language/typescript/ts.worker?worker&url",
+    ],
     include: [
+      "monaco-editor",
       "@storybook/addon-a11y/preview",
       "@storybook/addon-links",
       "@storybook/react",

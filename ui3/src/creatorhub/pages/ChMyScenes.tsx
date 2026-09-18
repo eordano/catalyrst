@@ -18,7 +18,7 @@ export type MySceneVM = {
   syncState?: "local" | "local-ahead";
 };
 
-export type MySceneTab = { id: string; label: string; active?: boolean };
+type MySceneTab = { id: string; label: string; active?: boolean };
 
 type SyncState = NonNullable<MySceneVM["syncState"]>;
 

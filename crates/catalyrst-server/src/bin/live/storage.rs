@@ -70,7 +70,7 @@ impl ContentStorage for LiveContentStorage {
         let Some((file, size)) = miss_on_invalid_id(self.inner.open_for_read(hash).await)? else {
             return Ok(None);
         };
-        let stream = ReaderStream::new(file);
+        let stream = ReaderStream::with_capacity(file, 64 * 1024);
         let body = Body::from_stream(stream);
         Ok(Some((body, size)))
     }
@@ -106,5 +106,20 @@ impl ContentStorage for LiveContentStorage {
         let refs: Vec<&str> = hashes.iter().map(|s| s.as_str()).collect();
         let results = self.inner.exist_multiple(&refs).await?;
         Ok(results.into_iter().collect())
+    }
+
+    async fn open(
+        &self,
+        hash: &str,
+    ) -> Result<Option<OpenedContent>, catalyrst_storage::StorageError> {
+        Ok(
+            miss_on_invalid_id(self.inner.open_for_read(hash).await)?.map(|(file, size)| {
+                OpenedContent {
+                    size,
+                    encoding: None,
+                    reader: Box::new(file),
+                }
+            }),
+        )
     }
 }

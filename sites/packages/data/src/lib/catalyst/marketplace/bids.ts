@@ -9,7 +9,7 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export type BidAsset = {
+type BidAsset = {
   id: string;
   name: string;
   issuedId: number;
@@ -60,7 +60,7 @@ function timeLeftLabel(expiresAtMs: number, now: number): string {
   return `${days} ${days === 1 ? "day" : "days"}`;
 }
 
-export function normalizeBid(row: WireBid, now = Date.now()): Bid {
+function normalizeBid(row: WireBid, now = Date.now()): Bid {
   const token = row.tokenId ?? row.itemId ?? null;
   const assetName = token ? `Token #${shortHex(token)}` : shortHex(row.contractAddress);
   return {
@@ -96,7 +96,7 @@ export function normalizeBid(row: WireBid, now = Date.now()): Bid {
   };
 }
 
-export type ReceivedBids = {
+type ReceivedBids = {
   bids: Bid[];
   source: "live" | "empty" | "unavailable";
   reason?: string;

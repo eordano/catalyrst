@@ -12,9 +12,9 @@ import {
   type CollectionDetail,
 } from "./collection-detail";
 
-export type CollectionSource = "catalyst" | "empty";
+type CollectionSource = "catalyst" | "empty";
 
-export type LoadCollectionResult = {
+type LoadCollectionResult = {
   collection: CollectionDetail;
   source: CollectionSource;
   itemCount: number;

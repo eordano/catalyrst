@@ -101,9 +101,18 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
                          role; apply it out of band (the deployment's places bootstrap)"
                     );
                 }
+                crate::fed::replay::spawn_sweep(writer_pool.clone());
                 places = places.with_writer(writer_pool);
                 if let Err(e) = places.ensure_local_schema().await {
                     tracing::warn!(error = %e, "could not ensure local interaction tables; favorites/likes/report writes may degrade");
+                }
+                match places.probe_interactions().await {
+                    Ok(true) => {}
+                    Ok(false) => tracing::info!(
+                        "reader role cannot read user_favorites/user_likes on the writer's primary; \
+                         interactions stay a second statement per authenticated read"
+                    ),
+                    Err(e) => tracing::warn!(error = %e, "interaction table probe failed; interactions stay a second statement"),
                 }
             }
             Err(catalyrst_db::PoolError::InvalidUrl(e)) => {

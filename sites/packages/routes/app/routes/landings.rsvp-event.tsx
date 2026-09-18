@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 
 import LdRsvpEventView from "@ui/landings/pages/LdRsvpEventView";
 
@@ -10,8 +9,11 @@ import {
 import { loadRsvp } from "@data/lib/catalyst/landings/rsvp.server";
 import { buildRsvpCommit } from "@data/lib/catalyst/landings/rsvp";
 import { useAuth } from "@data/lib/auth/context";
+import { getIdentity } from "@data/lib/auth/session";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoader } from "@core/lib/experiments/story-loader";
+
+import { openSignIn } from "@features/components/auth/signin-store";
 
 import RsvpWizard, {
   type RsvpEventView,
@@ -66,8 +68,8 @@ export default function LandingsRsvpEvent({ loaderData }: Route.ComponentProps) 
   const { sid, step, eventId, assignment, rsvp } = loaderData as LoaderData;
   const e = rsvp.event;
 
-  const { identity } = useAuth();
-  const commit = useMemo(() => buildRsvpCommit(identity), [identity]);
+  const auth = useAuth();
+  const commit = buildRsvpCommit(getIdentity);
 
   const view: RsvpEventView = {
     id: eventId,
@@ -96,6 +98,8 @@ export default function LandingsRsvpEvent({ loaderData }: Route.ComponentProps) 
         count={rsvp.count}
         initialStep={step ?? undefined}
         commit={commit}
+        signedIn={auth.isConnected}
+        onSignIn={openSignIn}
       />
     </LdRsvpEventView>
   );

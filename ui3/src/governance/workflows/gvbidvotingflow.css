@@ -108,7 +108,8 @@
 .gvbv__card.is-disabled {
   pointer-events: none;
   text-decoration: none;
-  opacity: 0.55;
+  border-style: dashed;
+  cursor: default;
 }
 
 .gvbv__card-body {

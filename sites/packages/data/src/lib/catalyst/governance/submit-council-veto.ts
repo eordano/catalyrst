@@ -3,7 +3,7 @@ import { z } from "zod";
 import fixture from "../../../fixtures/governance-submit-council-veto.json";
 import { submitProposal } from "./submit-client";
 import type { AuthIdentity } from "../../auth/types";
-import { validateCoAuthors as sharedValidateCoAuthors, type FieldErrors } from "./co-authors";
+import { type FieldErrors } from "./co-authors";
 
 const FieldErrorsSchema = z
   .object({
@@ -190,7 +190,7 @@ export const COUNCIL_VETO_SCHEMA = {
   coAuthors: { max: 5, addressLength: 42 },
 } as const;
 
-export type DecisionRef = {
+type DecisionRef = {
   url: string;
   snapshotId: string;
   space: string;
@@ -235,8 +235,6 @@ export function parseDecisionUrl(raw: string, councilSpace?: string): DecisionRe
   }
 }
 
-export type { FieldErrors };
-
 export function validateDecisionUrl(url: string): FieldErrors {
   const f = parse().fields.decision_snapshot_id;
   const errors: FieldErrors = {};
@@ -275,11 +273,7 @@ export function validateSuggestions(suggestions: string): FieldErrors {
   return errors;
 }
 
-export function validateCoAuthors(coAuthors: string[]): FieldErrors {
-  return sharedValidateCoAuthors(coAuthors, COUNCIL_VETO_SCHEMA.coAuthors.max);
-}
-
-export type NewProposalCouncilVeto = {
+type NewProposalCouncilVeto = {
   type: "council_decision_veto";
   decision_snapshot_id: string;
   reasons: string;

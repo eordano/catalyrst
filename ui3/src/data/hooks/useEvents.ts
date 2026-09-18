@@ -34,7 +34,7 @@ export function useEventCategories() {
   });
 }
 
-export const INTERESTED_ERROR_MESSAGE =
+const INTERESTED_ERROR_MESSAGE =
   "There was an error changing your interest on the event. Please try again.";
 
 type EventsPage = { data: DclEvent[]; total: number };

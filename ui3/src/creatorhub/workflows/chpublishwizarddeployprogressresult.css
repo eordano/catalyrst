@@ -385,17 +385,6 @@
   background: transparent;
   cursor: pointer;
 }
-
-.cpd__success-content {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 16px;
-  min-height: 380px;
-  padding-bottom: 80px;
-}
 .cpd__success-icon { width: 80px; height: 80px; }
 .cpd__success-message {
   color: var(--ink-6);

@@ -16,7 +16,11 @@ import {
   normalizeAddress,
   type ProfileVM,
 } from "@data/lib/catalyst/overlay/profile";
-import { fetchCreations, type Creations } from "@data/lib/catalyst/marketplace/index";
+import {
+  fetchCreations,
+  withCreatorName,
+  type Creations,
+} from "@data/lib/catalyst/marketplace/index";
 import {
   fetchOwnedWearables,
   fetchOwnedNames,
@@ -28,6 +32,11 @@ import {
   type ProfileCommunity,
 } from "@data/lib/catalyst/overlay/profile-communities";
 import { fetchUserPhotos, type GalleryImage } from "@data/lib/catalyst/overlay/passport";
+import {
+  fetchProfilePlaces,
+  withContactName,
+  type ProfilePlace,
+} from "@data/lib/catalyst/places/index";
 import { useAuth } from "@data/lib/auth/context";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoader } from "@core/lib/experiments/story-loader";
@@ -162,48 +171,44 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     url.searchParams.get("own") === "1" || (!explicitAddress && cookieWallet !== "");
   const tab = readTab(url.searchParams, own);
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
   const wantAssets = tab === "assets";
   const wantCreations = tab === "creations";
   const wantPhotos = tab === "photos";
+  const wantPlaces = tab === "places";
   const ethAddr = isEthAddress(address);
 
-  const [profileChain, assets, photosRes] = await Promise.all([
-    (async (): Promise<{
-      liveProfile: ProfileVM | null;
-      creations: Creations;
-      creationsFallback: boolean;
-    }> => {
-      let liveProfile: ProfileVM | null = null;
-      if (ethAddr) {
+  const [{ sid, wrap }, liveProfile, creationsRes, rawPlaces, assets, photosRes] =
+    await Promise.all([
+      storyLoader(request, STORY, FALLBACK),
+      (async (): Promise<ProfileVM | null> => {
+        if (!ethAddr) return null;
         try {
           const avatar = await fetchProfile(address, { signal: request.signal });
-          if (avatar) liveProfile = mapProfile(avatar, address);
+          return avatar ? mapProfile(avatar, address) : null;
         } catch {
-          liveProfile = null;
+          return null;
         }
-      }
-      let creations: Creations = { wearables: [], emotes: [] };
-      let creationsFallback = !ethAddr;
-      if (wantCreations && ethAddr) {
+      })(),
+      (async (): Promise<{ creations: Creations; creationsFallback: boolean }> => {
+        if (!(wantCreations && ethAddr)) {
+          return { creations: { wearables: [], emotes: [] }, creationsFallback: !ethAddr };
+        }
         try {
-          creations = await fetchCreations(
+          const creations = await fetchCreations(
             address,
-            { first: 48, creatorName: liveProfile?.name },
+            { first: 48 },
             { signal: request.signal },
           );
+          return { creations, creationsFallback: false };
         } catch {
-          creations = { wearables: [], emotes: [] };
-          creationsFallback = true;
+          return { creations: { wearables: [], emotes: [] }, creationsFallback: true };
         }
-      }
-      return { liveProfile, creations, creationsFallback };
-    })(),
+      })(),
+      wantPlaces && ethAddr
+        ? fetchProfilePlaces(address, { limit: 100 }, { signal: request.signal }).catch(
+            () => [] as ProfilePlace[],
+          )
+        : Promise.resolve([] as ProfilePlace[]),
     (async (): Promise<{ wearables: unknown[]; names: unknown[] }> => {
       if (!wantAssets || !ethAddr) return { wearables: [], names: [] };
       const [ownedW, ownedN] = await Promise.all([
@@ -244,7 +249,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     })(),
   ]);
 
-  const { liveProfile, creations, creationsFallback } = profileChain;
+  const creations = withCreatorName(creationsRes.creations, liveProfile?.name);
+  const { creationsFallback } = creationsRes;
+  const places = withContactName(rawPlaces, liveProfile?.name);
   const { photos, photosFallback } = photosRes;
 
   const profileFallback = liveProfile === null;
@@ -262,7 +269,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     profile,
     creations,
     creationsFallback,
-    places: [],
+    places,
     photos,
     photosFallback,
     assets,
@@ -282,7 +289,7 @@ type LoaderData = {
   profile: ProfileVM;
   creations: Creations;
   creationsFallback: boolean;
-  places: unknown[];
+  places: ProfilePlace[];
   photos: PhotoVM[];
   photosFallback: boolean;
   assets: { wearables: unknown[]; names: unknown[] };
@@ -358,7 +365,6 @@ function ActiveTab({
   d,
   profile,
   tabs,
-  onCardClick,
 }: {
   d: LoaderData;
   profile: never;
@@ -381,7 +387,7 @@ function ActiveTab({
         <StProfilePlacesTab
           profile={profile}
           isOwnProfile={d.own}
-          places={d.places as React.ComponentProps<typeof StProfilePlacesTab>["places"]}
+          places={d.places}
         />
       );
     case "photos":

@@ -9,47 +9,6 @@
 .acconvertmanamodal__shellfill { padding: 40px 32px; }
 .acconvertmanamodal__shellhint { margin: 0; font-size: 14px; color: var(--ink-45); }
 
-.acconvertmanamodal__states {
-  position: fixed;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: calc(var(--z-modal) + 1);
-  display: flex;
-  gap: 6px;
-  padding: 5px;
-  border-radius: var(--r-pill);
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid var(--line);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-}
-.acconvertmanamodal__statebtn {
-  border: none;
-  background: transparent;
-  color: var(--ink-7);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 13px;
-  border-radius: var(--r-pill);
-  cursor: pointer;
-}
-.acconvertmanamodal__statebtn:hover { color: #fff; }
-.acconvertmanamodal__statebtn.is-active { background: var(--brand); color: #fff; }
-
-.acconvertmanamodal__scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  overflow: auto;
-  background: var(--scrim);
-}
-
 .acconvertmanamodal__card {
   position: relative;
   width: 520px;

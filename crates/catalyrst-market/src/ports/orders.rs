@@ -1,3 +1,6 @@
+use std::time::Duration;
+
+use catalyrst_commons::cache::TtlMap;
 use serde::Serialize;
 use sqlx::PgPool;
 use sqlx::Row;
@@ -74,11 +77,27 @@ pub struct Order {
 
 pub struct OrdersComponent {
     pool: PgPool,
+    totals: TtlMap<(String, Vec<String>), i64>,
 }
+
+/// Paged totals are memoized per predicate for as long as the HTTP response cache would
+/// serve the page anyway (`CATALYRST_MARKET_HTTP_CACHE_TTL_SECS`, 0 disables both).
+pub(crate) fn totals_ttl() -> Duration {
+    let secs = std::env::var("CATALYRST_MARKET_HTTP_CACHE_TTL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(30);
+    Duration::from_secs(secs)
+}
+
+pub(crate) const TOTALS_MAX_ENTRIES: usize = 256;
 
 impl OrdersComponent {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            totals: TtlMap::bounded("market.order_totals", totals_ttl(), TOTALS_MAX_ENTRIES),
+        }
     }
 
     pub async fn get_orders(&self, filters: &OrderFilters) -> Result<(Vec<Order>, i64), ApiError> {
@@ -95,6 +114,7 @@ impl OrdersComponent {
         };
 
         let mut where_parts: Vec<String> = Vec::new();
+        let mut pushdown = BranchPushdown::default();
         let mut bind_strings: Vec<String> = Vec::new();
         let mut bind_idx: usize = 0;
         let mut next_param = || {
@@ -121,13 +141,19 @@ impl OrdersComponent {
         let contract_param = if let Some(ref v) = filters.contract_address {
             let p = next_param();
             where_parts.push(format!("LOWER(nft_address) = LOWER({p})"));
-            bind_strings.push(v.clone());
+            pushdown.push(
+                format!("contract_address_sent = {p}"),
+                format!("ord.nft_address = {p}"),
+            );
+            bind_strings.push(v.to_lowercase());
             Some(p)
         } else {
             None
         };
         if let Some(ref v) = filters.status {
-            where_parts.push(format!("status = {}", next_param()));
+            let p = next_param();
+            where_parts.push(format!("status = {p}"));
+            pushdown.push_legacy(format!("ord.status = {p}"));
             bind_strings.push(v.clone());
         }
         if let Some(ref v) = filters.item_id {
@@ -163,48 +189,97 @@ impl OrdersComponent {
         let limit_param = next_param();
         let offset_param = next_param();
 
-        let page_sql =
-            build_combined_orders_page_sql(&where_clause, order_by, &limit_param, &offset_param);
-        let count_sql = build_combined_orders_count_sql(&where_clause);
+        let page_sql = build_combined_orders_page_sql(
+            &where_clause,
+            &pushdown,
+            order_by,
+            &limit_param,
+            &offset_param,
+        );
+        let count_sql = build_combined_orders_count_sql(&where_clause, &pushdown);
 
-        let page_binds = bind_strings.clone();
-        let count_binds = bind_strings.clone();
-        let page_pool = self.pool.clone();
-        let count_pool = self.pool.clone();
-
-        let page_fut = async move {
-            let mut tx = page_pool.begin().await?;
-            sqlx::query("SET LOCAL random_page_cost = 1.1")
-                .execute(&mut *tx)
-                .await?;
+        let page_fut = async {
             let mut q = sqlx::query(sqlx::AssertSqlSafe(page_sql));
-            for s in &page_binds {
+            for s in &bind_strings {
                 q = q.bind(s);
             }
-            q = q.bind(limit).bind(offset);
-            let rows = q.fetch_all(&mut *tx).await?;
-            tx.commit().await?;
-            Ok::<_, sqlx::Error>(rows)
+            q.bind(limit).bind(offset).fetch_all(&self.pool).await
         };
-        let count_fut = async move {
-            let mut tx = count_pool.begin().await?;
-            sqlx::query("SET LOCAL random_page_cost = 1.1")
-                .execute(&mut *tx)
-                .await?;
-            let mut q = sqlx::query(sqlx::AssertSqlSafe(count_sql));
-            for s in &count_binds {
-                q = q.bind(s);
-            }
-            let row = q.fetch_one(&mut *tx).await?;
-            tx.commit().await?;
-            Ok::<_, sqlx::Error>(row.try_get::<i64, _>("count").unwrap_or(0))
-        };
+        let count_fut =
+            self.totals
+                .get_or_fetch((count_sql.clone(), bind_strings.clone()), || async {
+                    let mut q = sqlx::query(sqlx::AssertSqlSafe(count_sql));
+                    for s in &bind_strings {
+                        q = q.bind(s);
+                    }
+                    let row = q.fetch_one(&self.pool).await?;
+                    Ok::<_, sqlx::Error>(row.try_get::<i64, _>("count").unwrap_or(0))
+                });
 
         let (rows, total) = tokio::try_join!(page_fut, count_fut)?;
         let orders: Vec<Order> = rows.iter().map(row_to_order).collect();
         Ok((orders, total))
     }
+
+    /// Open orders for several `(contract, item)` pairs in one round trip. For every contract
+    /// named, the open orders are ranked cheapest-first (`sort_price, sort_id`, the order the
+    /// `cheapest` page sort uses) and only the first `per_contract` of them are considered, so
+    /// the result is exactly what paging that contract's cheapest orders up to `per_contract`
+    /// rows would have shown; of those, the rows whose token id encodes one of the wanted item
+    /// ids (`token_id >> 216`, the collection-v2 layout) come back. Contracts are lowercased;
+    /// item ids must be decimal.
+    pub async fn get_open_orders_by_items(
+        &self,
+        items: &[(String, String)],
+        per_contract: i64,
+    ) -> Result<Vec<Order>, ApiError> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let contracts: Vec<String> = items.iter().map(|(c, _)| c.to_lowercase()).collect();
+        let item_ids: Vec<String> = items.iter().map(|(_, i)| i.clone()).collect();
+        let sql = build_open_orders_by_items_sql();
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(&contracts)
+            .bind(&item_ids)
+            .bind(per_contract)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.iter().map(row_to_order).collect())
+    }
 }
+
+/// Predicates the outer `WHERE` already applies, restated on each UNION ALL branch's own
+/// columns so the planner filters `mv_trades` and `"order"` before the union instead of after.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct BranchPushdown {
+    trades: Vec<String>,
+    legacy: Vec<String>,
+}
+
+impl BranchPushdown {
+    pub(crate) fn push(&mut self, trades: String, legacy: String) {
+        self.trades.push(trades);
+        self.legacy.push(legacy);
+    }
+
+    /// The trades branch only ever holds open listings, so a status predicate has nothing to
+    /// cut there.
+    pub(crate) fn push_legacy(&mut self, legacy: String) {
+        self.legacy.push(legacy);
+    }
+
+    fn trades_sql(&self) -> String {
+        self.trades.iter().map(|p| format!(" AND {p}")).collect()
+    }
+
+    fn legacy_sql(&self) -> String {
+        self.legacy.iter().map(|p| format!(" AND {p}")).collect()
+    }
+}
+
+/// 2^216: a collection-v2 token id is `item_id << 216 | issued_id`.
+const ITEM_ID_SHIFT: &str = "105312291668557186697918027683670432318895095400549111254310977536";
 
 /// A bare item id resolves through the item table (upstream dfc17f9): an L1 order's item_id
 /// is `<collection>-<name_key>`, not `<collection>-<blockchain_id>`, so composing the id from
@@ -230,8 +305,9 @@ fn orders_trades_cte() -> &'static str {
     " WITH unified_trades AS ( SELECT * FROM marketplace.mv_trades ) "
 }
 
-fn orders_trades_branch() -> &'static str {
-    r#"
+fn orders_trades_branch(pushdown: &str) -> String {
+    format!(
+        r#"
   SELECT
     trades.id::text                                              AS id,
     trades.id::text                                              AS trade_id,
@@ -259,13 +335,14 @@ fn orders_trades_branch() -> &'static str {
     (trades.sent_token_id)::numeric(78)                         AS sort_token_id,
     trades.id::text                                            AS sort_id
   FROM (
-    SELECT * FROM unified_trades WHERE type = 'public_nft_order' AND status = 'open'
+    SELECT * FROM unified_trades WHERE type = 'public_nft_order' AND status = 'open'{pushdown}
   ) AS trades
   WHERE trades.signer = trades.assets -> 'sent' ->> 'owner'
 "#
+    )
 }
 
-fn orders_legacy_branch() -> String {
+fn orders_legacy_branch(pushdown: &str) -> String {
     format!(
         r#"
   SELECT
@@ -296,9 +373,17 @@ fn orders_legacy_branch() -> String {
     ord.id::text                  AS sort_id
   FROM {schema}."order" ord
   JOIN {schema}."nft" nft ON ord.nft_id = nft.id AND nft.owner_address = ord.owner
-  WHERE ord.expires_at_normalized > NOW()
+  WHERE ord.expires_at_normalized > NOW(){pushdown}
 "#,
         schema = MARKETPLACE_SQUID_SCHEMA,
+    )
+}
+
+fn combined_orders_union(pushdown: &BranchPushdown) -> String {
+    format!(
+        "( ({trades}) UNION ALL ({legacy}) ) AS combined_orders",
+        trades = orders_trades_branch(&pushdown.trades_sql()),
+        legacy = orders_legacy_branch(&pushdown.legacy_sql()),
     )
 }
 
@@ -309,33 +394,54 @@ pub(crate) fn build_open_orders_by_nft_ids_sql(with_owner: bool) -> String {
         ""
     };
     format!(
-        "{cte}SELECT combined_orders.* FROM ( ({trades}) UNION ALL ({legacy}) ) AS combined_orders WHERE combined_orders.status = 'open' AND combined_orders.nft_id = ANY($1){owner_clause} ORDER BY sort_created_at DESC, sort_id ASC",
+        "{cte}SELECT combined_orders.* FROM {union} WHERE combined_orders.status = 'open' AND combined_orders.nft_id = ANY($1){owner_clause} ORDER BY sort_created_at DESC, sort_id ASC",
         cte = orders_trades_cte(),
-        trades = orders_trades_branch(),
-        legacy = orders_legacy_branch(),
+        union = combined_orders_union(&BranchPushdown::default()),
+    )
+}
+
+/// `$1` contracts (text[]), `$2` item ids (text[], decimal, paired with `$1` by position),
+/// `$3` the per-contract cheapest-first window. See [`OrdersComponent::get_open_orders_by_items`].
+pub(crate) fn build_open_orders_by_items_sql() -> String {
+    let mut pushdown = BranchPushdown::default();
+    pushdown.push(
+        "contract_address_sent = ANY($1)".to_string(),
+        "ord.nft_address = ANY($1) AND ord.status = 'open'".to_string(),
+    );
+    format!(
+        "{cte}, wanted AS ( SELECT DISTINCT w.contract, w.item::numeric AS item FROM unnest($1::text[], $2::text[]) AS w(contract, item) ) \
+         SELECT ranked.* FROM ( SELECT combined_orders.*, row_number() OVER (PARTITION BY nft_address ORDER BY sort_price ASC, sort_id ASC) AS contract_rank \
+         FROM {union} WHERE combined_orders.status = 'open' AND combined_orders.nft_address = ANY($1) ) AS ranked \
+         WHERE ranked.contract_rank <= $3 AND EXISTS ( SELECT 1 FROM wanted WHERE wanted.contract = ranked.nft_address AND wanted.item = div(ranked.sort_token_id, {shift}::numeric) ) \
+         ORDER BY ranked.nft_address ASC, ranked.sort_price ASC, ranked.sort_id ASC",
+        cte = orders_trades_cte(),
+        union = combined_orders_union(&pushdown),
+        shift = ITEM_ID_SHIFT,
     )
 }
 
 pub(crate) fn build_combined_orders_page_sql(
     where_clause: &str,
+    pushdown: &BranchPushdown,
     order_by: &str,
     limit_param: &str,
     offset_param: &str,
 ) -> String {
     format!(
-        "{cte}SELECT combined_orders.* FROM ( ({trades}) UNION ALL ({legacy}) ) AS combined_orders{where_clause} ORDER BY {order_by} LIMIT {limit_param} OFFSET {offset_param}",
+        "{cte}SELECT combined_orders.* FROM {union}{where_clause} ORDER BY {order_by} LIMIT {limit_param} OFFSET {offset_param}",
         cte = orders_trades_cte(),
-        trades = orders_trades_branch(),
-        legacy = orders_legacy_branch(),
+        union = combined_orders_union(pushdown),
     )
 }
 
-pub(crate) fn build_combined_orders_count_sql(where_clause: &str) -> String {
+pub(crate) fn build_combined_orders_count_sql(
+    where_clause: &str,
+    pushdown: &BranchPushdown,
+) -> String {
     format!(
-        "{cte}SELECT COUNT(*)::int8 AS count FROM ( ({trades}) UNION ALL ({legacy}) ) AS combined_orders{where_clause}",
+        "{cte}SELECT COUNT(*)::int8 AS count FROM {union}{where_clause}",
         cte = orders_trades_cte(),
-        trades = orders_trades_branch(),
-        legacy = orders_legacy_branch(),
+        union = combined_orders_union(pushdown),
     )
 }
 
@@ -461,17 +567,34 @@ mod ms_tests {
 #[cfg(test)]
 mod query_tests {
     use super::{
-        build_combined_orders_count_sql, build_combined_orders_page_sql, item_id_predicate_sql,
+        build_combined_orders_count_sql, build_combined_orders_page_sql,
+        build_open_orders_by_items_sql, item_id_predicate_sql, BranchPushdown,
     };
 
     fn count_occurrences(haystack: &str, needle: &str) -> usize {
         haystack.matches(needle).count()
     }
 
+    fn no_pushdown() -> BranchPushdown {
+        BranchPushdown::default()
+    }
+
+    /// The pushdown `get_orders` builds for `contractAddress=$1&status=$2`.
+    fn contract_status_pushdown() -> BranchPushdown {
+        let mut p = BranchPushdown::default();
+        p.push(
+            "contract_address_sent = $1".to_string(),
+            "ord.nft_address = $1".to_string(),
+        );
+        p.push_legacy("ord.status = $2".to_string());
+        p
+    }
+
     #[test]
     fn page_query_unions_offchain_trades_with_legacy_orders() {
         let sql = build_combined_orders_page_sql(
             " WHERE owner = $1",
+            &no_pushdown(),
             "sort_created_at DESC, sort_id ASC",
             "$2",
             "$3",
@@ -486,7 +609,7 @@ mod query_tests {
             "off-chain trades CTE must be present: {sql}"
         );
         assert!(
-            sql.contains("WHERE type = 'public_nft_order' AND status = 'open'"),
+            sql.contains("WHERE type = 'public_nft_order' AND status = 'open'\n"),
             "trades branch must select public_nft_order open listings: {sql}"
         );
         assert!(
@@ -502,12 +625,54 @@ mod query_tests {
             sql.contains("ORDER BY sort_created_at DESC, sort_id ASC LIMIT $2 OFFSET $3"),
             "outer sort + paginate: {sql}"
         );
+        assert!(
+            sql.contains("WHERE ord.expires_at_normalized > NOW()\n"),
+            "no pushdown, no extra branch predicate: {sql}"
+        );
+    }
+
+    #[test]
+    fn contract_and_status_are_pushed_into_both_branches() {
+        let clause = " WHERE LOWER(nft_address) = LOWER($1) AND status = $2";
+        let page = build_combined_orders_page_sql(
+            clause,
+            &contract_status_pushdown(),
+            "sort_price ASC, sort_id ASC",
+            "$3",
+            "$4",
+        );
+        let count = build_combined_orders_count_sql(clause, &contract_status_pushdown());
+        for sql in [&page, &count] {
+            assert!(
+                sql.contains(
+                    "WHERE type = 'public_nft_order' AND status = 'open' AND contract_address_sent = $1\n"
+                ),
+                "trades branch filters mv_trades before the union: {sql}"
+            );
+            assert!(
+                sql.contains(
+                    "WHERE ord.expires_at_normalized > NOW() AND ord.nft_address = $1 AND ord.status = $2\n"
+                ),
+                "legacy branch filters \"order\" before the union: {sql}"
+            );
+            assert!(
+                sql.contains(
+                    "AS combined_orders WHERE LOWER(nft_address) = LOWER($1) AND status = $2"
+                ),
+                "the outer WHERE stays: {sql}"
+            );
+        }
     }
 
     #[test]
     fn both_branches_expose_the_same_response_columns() {
-        let sql =
-            build_combined_orders_page_sql("", "sort_created_at DESC, sort_id ASC", "$1", "$2");
+        let sql = build_combined_orders_page_sql(
+            "",
+            &no_pushdown(),
+            "sort_created_at DESC, sort_id ASC",
+            "$1",
+            "$2",
+        );
         for col in [
             "AS trade_id",
             "AS marketplace_address",
@@ -602,11 +767,12 @@ mod query_tests {
         let clause = format!(" WHERE {}", item_id_predicate_sql("$1", None));
         let page = build_combined_orders_page_sql(
             &clause,
+            &no_pushdown(),
             "sort_created_at DESC, sort_id ASC",
             "$2",
             "$3",
         );
-        let count = build_combined_orders_count_sql(&clause);
+        let count = build_combined_orders_count_sql(&clause, &no_pushdown());
         for sql in [&page, &count] {
             assert!(
                 sql.contains("NULLIF(split_part($1, '-', 2), '')"),
@@ -642,8 +808,45 @@ mod query_tests {
     }
 
     #[test]
+    fn open_orders_by_items_windows_each_contract_cheapest_first() {
+        let sql = build_open_orders_by_items_sql();
+        assert!(sql.contains("UNION ALL"), "must span both branches: {sql}");
+        assert!(
+            sql.contains(
+                "WHERE type = 'public_nft_order' AND status = 'open' AND contract_address_sent = ANY($1)\n"
+            ),
+            "trades branch filters by the wanted contracts: {sql}"
+        );
+        assert!(
+            sql.contains(
+                "WHERE ord.expires_at_normalized > NOW() AND ord.nft_address = ANY($1) AND ord.status = 'open'\n"
+            ),
+            "legacy branch filters by the wanted contracts and open status: {sql}"
+        );
+        assert!(
+            sql.contains("row_number() OVER (PARTITION BY nft_address ORDER BY sort_price ASC, sort_id ASC) AS contract_rank"),
+            "the window is the `cheapest` page order, per contract: {sql}"
+        );
+        assert!(
+            sql.contains("WHERE ranked.contract_rank <= $3 AND EXISTS ( SELECT 1 FROM wanted WHERE wanted.contract = ranked.nft_address AND wanted.item = div(ranked.sort_token_id, 105312291668557186697918027683670432318895095400549111254310977536::numeric) )"),
+            "the window is cut before the item match, token_id >> 216 decides the item: {sql}"
+        );
+        assert!(
+            sql.contains("unnest($1::text[], $2::text[]) AS w(contract, item)"),
+            "contracts and item ids pair up by position: {sql}"
+        );
+        assert!(
+            sql.contains(
+                "ORDER BY ranked.nft_address ASC, ranked.sort_price ASC, ranked.sort_id ASC"
+            ),
+            "{sql}"
+        );
+        assert!(!sql.contains("$4"), "{sql}");
+    }
+
+    #[test]
     fn count_query_covers_the_same_union() {
-        let sql = build_combined_orders_count_sql(" WHERE status = $1");
+        let sql = build_combined_orders_count_sql(" WHERE status = $1", &no_pushdown());
         assert!(sql.contains("COUNT(*)::int8 AS count"), "{sql}");
         assert!(
             sql.contains("UNION ALL"),
@@ -662,5 +865,37 @@ mod query_tests {
             "count applies the same filter: {sql}"
         );
         assert!(!sql.contains("LIMIT"), "count must not paginate: {sql}");
+    }
+
+    /// Prints the SQL `get_orders` runs for the shop's per-card call, with the tour's
+    /// parameters inlined, so the harness can measure the real shape:
+    /// `cargo test -p catalyrst-market qorl_dump -- --nocapture`.
+    #[test]
+    fn qorl_dump_orders_by_contract_open() {
+        let clause = " WHERE LOWER(nft_address) = LOWER($1) AND status = $2";
+        let inline = |sql: String| {
+            sql.replace("$1", "'0x016a61feb6377239e34425b82e5c4b367e52457f'")
+                .replace("$2", "'open'")
+                .replace("$3", "24")
+                .replace("$4", "0")
+        };
+        let page = inline(build_combined_orders_page_sql(
+            clause,
+            &contract_status_pushdown(),
+            "sort_price ASC, sort_id ASC",
+            "$3",
+            "$4",
+        ));
+        let count = inline(build_combined_orders_count_sql(
+            clause,
+            &contract_status_pushdown(),
+        ));
+        assert!(!page.contains('$') && !count.contains('$'));
+        println!("-----BEGIN V-orders-page-----\n{page}\n-----END V-orders-page-----");
+        println!("-----BEGIN V-orders-count-----\n{count}\n-----END V-orders-count-----");
+        println!(
+            "-----BEGIN V-orders-by-items-----\n{}\n-----END V-orders-by-items-----",
+            build_open_orders_by_items_sql()
+        );
     }
 }

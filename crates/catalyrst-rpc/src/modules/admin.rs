@@ -337,6 +337,7 @@ mod tests {
             ),
             upstreams: RwLock::new(BTreeMap::new()),
             admin_token: token.map(|t| t.to_string()),
+            memo: Default::default(),
         })
     }
 

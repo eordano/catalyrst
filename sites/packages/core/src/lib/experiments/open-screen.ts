@@ -7,13 +7,6 @@ export const OPEN_SCREEN_ARMS = ["base", "genesis", "three-cards"] as const;
 
 export type OpenScreenArm = (typeof OPEN_SCREEN_ARMS)[number];
 
-export type OpenScreenConfig = {
-  story: string;
-  experimentKey: string;
-  variant: string;
-  arm: OpenScreenArm;
-};
-
 export function activeOpenScreenExperiment(
   raw: string | undefined | null,
 ): typeof OPEN_SCREEN_STORY_DIR | null {

@@ -12,7 +12,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type JumpInProps = {
+type JumpInProps = {
   place: JumpInPlace;
   variant: string;
   flags: Record<string, unknown>;

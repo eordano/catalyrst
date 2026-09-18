@@ -16,7 +16,7 @@ import {
   type Event,
 } from "@data/lib/catalyst/places/events";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import type { Route } from "./+types/whats-on_.$id";
@@ -35,21 +35,24 @@ const FALLBACK: Assignment = {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const { id } = params;
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap, data } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    async () => {
+      let event: Event | null = null;
+      let unavailable = false;
+      try {
+        event = await fetchEvent(id, { signal: request.signal });
+      } catch (err) {
+        if (!(err instanceof CatalystError && err.status === 404)) {
+          unavailable = true;
+        }
+      }
+      return { event, unavailable };
+    },
   );
-
-  let event: Event | null = null;
-  let unavailable = false;
-  try {
-    event = await fetchEvent(id, { signal: request.signal });
-  } catch (err) {
-    if (!(err instanceof CatalystError && err.status === 404)) {
-      unavailable = true;
-    }
-  }
+  const { event, unavailable } = data;
 
   return wrap(
     { id, event, sid, unavailable },

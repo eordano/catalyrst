@@ -34,11 +34,7 @@ const RESULT: TokenResult = {
 };
 
 const okResolve: ResolveTokenFn = async () => RESULT;
-const badResolve: ResolveTokenFn = async () => {
-  throw new Error("Streaming token has expired");
-};
 const grant: RequestPermissionsFn = async () => ({ granted: true });
-const deny: RequestPermissionsFn = async () => ({ granted: false });
 const endOk: EndCastFn = async () => {};
 
 function inputFor(
@@ -73,105 +69,6 @@ const EXPECTED_STATES = new Set([
   "invalid",
 ]);
 
-describe("castMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(castMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are the audit-spec step names, unique, and round-trip", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    expect(slugs).toEqual([
-      "token-check",
-      "device-select",
-      "permissions",
-      "preview",
-      "live",
-      "ending",
-      "ended",
-      "invalid",
-    ]);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.tokenCheck);
-    expect(slugToState(null)).toBe("tokenCheck");
-    expect(slugToState(undefined)).toBe("tokenCheck");
-    expect(slugToState("")).toBe("tokenCheck");
-    expect(slugToState("nope")).toBe("tokenCheck");
-    expect(slugToState("device-select")).toBe("deviceSelect");
-    expect(slugToState("permissions")).toBe("permissions");
-    expect(slugToState("live")).toBe("live");
-    expect(slugToState("invalid")).toBe("invalid");
-    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
-});
-
-describe("castMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveCastSnapshot({
-      step: "tokenCheck",
-      trackCtx: inputFor(okResolve, grant, () => {}).trackCtx,
-      token: "k",
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating a later step does NOT fire telemetry and does NOT auto-run actors", async () => {
-    const track = vi.fn();
-    const resolveToken = vi.fn(okResolve);
-    const requestPermissions = vi.fn(grant);
-    const snapshot = resolveCastSnapshot({
-      step: "preview",
-      trackCtx: inputFor(resolveToken, requestPermissions, track).trackCtx,
-      token: "k",
-      resolveToken,
-      requestPermissions,
-      track,
-    });
-    const actor = createActor(castMachine, {
-      input: inputFor(resolveToken, requestPermissions, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("preview")).toBe(true);
-    expect(actor.getSnapshot().context.info?.placeName).toBe("Genesis Plaza");
-
-    await Promise.resolve();
-    expect(track).not.toHaveBeenCalled();
-    expect(resolveToken).not.toHaveBeenCalled();
-    expect(requestPermissions).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("preview")).toBe(true);
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveCastSnapshot({
-      step: "live",
-      trackCtx: inputFor(okResolve, grant, track).trackCtx,
-      token: "k",
-      track,
-    });
-    const actor = createActor(castMachine, {
-      input: inputFor(okResolve, grant, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("live")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "LEAVE" });
-    expect(track.mock.calls.map((c) => c[0])).toContain(CAST_EVENTS.ending);
-  });
-});
-
 const TRAVERSAL_EVENTS = [
   { type: "SELECT_DEVICES" as const, devices: DEFAULT_DEVICES },
   { type: "GRANT" as const },
@@ -187,6 +84,86 @@ function topLevel(value: unknown): string {
   return typeof value === "string" ? value : Object.keys(value as object)[0];
 }
 
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
+
+async function toLive(track: TrackFn, shareScreen?: ShareScreenFn) {
+  const actor = createActor(castMachine, {
+    input: { ...inputFor(okResolve, grant, track), shareScreen },
+  }).start();
+  await waitFor(actor, (s) => s.matches("deviceSelect"));
+  actor.send({ type: "SELECT_DEVICES", devices: DEFAULT_DEVICES });
+  await waitFor(actor, (s) => s.matches("preview"));
+  actor.send({ type: "JOIN" });
+  await waitFor(actor, (s) => s.matches({ live: "idle" }));
+  return actor;
+}
+
+describe("castMachine \u{2014} URL ?step slug map", () => {
+  it("uses the audit-spec step names, unique and round-tripping, and falls back to token-check", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(castMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
+    expect(Object.values(STATE_TO_SLUG)).toEqual([
+      "token-check",
+      "device-select",
+      "permissions",
+      "preview",
+      "live",
+      "ending",
+      "ended",
+      "invalid",
+    ]);
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
+    }
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.tokenCheck);
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("tokenCheck");
+    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
+  });
+});
+
+describe("castMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
+  it("boots token-check without a snapshot, hydrates later steps silently, and only real transitions track", async () => {
+    const track = vi.fn();
+    const resolveToken = vi.fn(okResolve);
+    const requestPermissions = vi.fn(grant);
+    const trackCtx = inputFor(resolveToken, requestPermissions, track).trackCtx;
+    expect(resolveCastSnapshot({ step: "tokenCheck", trackCtx, token: "k" })).toBeUndefined();
+
+    const preview = createActor(castMachine, {
+      input: inputFor(resolveToken, requestPermissions, track),
+      snapshot: resolveCastSnapshot({
+        step: "preview",
+        trackCtx,
+        token: "k",
+        resolveToken,
+        requestPermissions,
+        track,
+      }),
+    }).start();
+    expect(preview.getSnapshot().matches("preview")).toBe(true);
+    expect(preview.getSnapshot().context.info?.placeName).toBe("Genesis Plaza");
+    await Promise.resolve();
+    expect(track).not.toHaveBeenCalled();
+    expect(resolveToken).not.toHaveBeenCalled();
+    expect(requestPermissions).not.toHaveBeenCalled();
+    expect(preview.getSnapshot().matches("preview")).toBe(true);
+
+    const live = createActor(castMachine, {
+      input: inputFor(okResolve, grant, track),
+      snapshot: resolveCastSnapshot({ step: "live", trackCtx, token: "k", track }),
+    }).start();
+    expect(live.getSnapshot().matches("live")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+    live.send({ type: "LEAVE" });
+    expect(names(track)).toContain(CAST_EVENTS.ending);
+  });
+});
+
 describe("castMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
   it("every event-reachable path ends in an expected (top-level) state", () => {
     const paths = getShortestPaths(castMachine, {
@@ -200,34 +177,34 @@ describe("castMachine \u{2014} model-based path coverage (@xstate/graph)", () =>
   });
 });
 
-describe("castMachine \u{2014} happy path (token -> devices -> permissions -> preview -> live)", () => {
-  it("fires the full funnel and reaches live", async () => {
+describe("castMachine \u{2014} happy path (token -> devices -> permissions -> preview -> live -> ended)", () => {
+  it("fires the full funnel through live, then LEAVE fires teardown telemetry through ended", async () => {
     const track = vi.fn();
     const actor = createActor(castMachine, {
       input: inputFor(okResolve, grant, track),
     }).start();
 
     await waitFor(actor, (s) => s.matches("deviceSelect"));
-
     actor.send({ type: "SELECT_DEVICES", devices: DEFAULT_DEVICES });
     await waitFor(actor, (s) => s.matches("preview"));
-
     actor.send({ type: "JOIN" });
     expect(actor.getSnapshot().matches("live")).toBe(true);
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CAST_EVENTS.tokenChecked);
-    expect(events).toContain(CAST_EVENTS.tokenValid);
-    expect(events).toContain(CAST_EVENTS.devicesSelected);
-    expect(events).toContain(CAST_EVENTS.permissionsGranted);
-    expect(events).toContain(CAST_EVENTS.previewReady);
-    expect(events).toContain(CAST_EVENTS.joinRequested);
-    expect(events).toContain(CAST_EVENTS.wentLive);
-
+    let events = names(track);
+    for (const e of [
+      CAST_EVENTS.tokenChecked,
+      CAST_EVENTS.tokenValid,
+      CAST_EVENTS.devicesSelected,
+      CAST_EVENTS.permissionsGranted,
+      CAST_EVENTS.previewReady,
+      CAST_EVENTS.joinRequested,
+      CAST_EVENTS.wentLive,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(CAST_EVENTS.tokenChecked)).toBeLessThan(
       events.indexOf(CAST_EVENTS.wentLive),
     );
-
     const liveCall = track.mock.calls.find((c) => c[0] === CAST_EVENTS.wentLive);
     expect(liveCall?.[1]).toMatchObject({ stub: true });
     expect(liveCall?.[2]).toMatchObject({
@@ -235,21 +212,10 @@ describe("castMachine \u{2014} happy path (token -> devices -> permissions -> pr
       experimentKey: "st_cast_console",
       variant: "console",
     });
-  });
 
-  it("live -> LEAVE -> ending -> ended fires teardown telemetry", async () => {
-    const track = vi.fn();
-    const actor = createActor(castMachine, {
-      input: inputFor(okResolve, grant, track),
-    }).start();
-    await waitFor(actor, (s) => s.matches("deviceSelect"));
-    actor.send({ type: "SELECT_DEVICES", devices: DEFAULT_DEVICES });
-    await waitFor(actor, (s) => s.matches("preview"));
-    actor.send({ type: "JOIN" });
     actor.send({ type: "LEAVE" });
     await waitFor(actor, (s) => s.matches("ended"));
-
-    const events = track.mock.calls.map((c) => c[0]);
+    events = names(track);
     expect(events).toContain(CAST_EVENTS.ending);
     expect(events).toContain(CAST_EVENTS.ended);
     const endedCall = track.mock.calls.find((c) => c[0] === CAST_EVENTS.ended);
@@ -258,30 +224,12 @@ describe("castMachine \u{2014} happy path (token -> devices -> permissions -> pr
 });
 
 describe("castMachine \u{2014} invalid token path", () => {
-  it("a bad/expired token routes to invalid and fires cast_invalid_token", async () => {
-    const track = vi.fn();
-    const actor = createActor(castMachine, {
-      input: inputFor(badResolve, grant, track),
-    }).start();
-
-    await waitFor(actor, (s) => s.matches("invalid"));
-    expect(actor.getSnapshot().context.invalidReason).toBe("Streaming token has expired");
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CAST_EVENTS.tokenChecked);
-    expect(events).toContain(CAST_EVENTS.invalidToken);
-    expect(events).not.toContain(CAST_EVENTS.tokenValid);
-
-    const invalidCall = track.mock.calls.find((c) => c[0] === CAST_EVENTS.invalidToken);
-    expect(invalidCall?.[1]).toMatchObject({ reason: "Streaming token has expired" });
-  });
-
-  it("invalid -> RETRY re-checks the token", async () => {
+  it("a bad/expired token routes to invalid with the reason, and RETRY re-checks it", async () => {
     const track = vi.fn();
     let calls = 0;
     const resolveToken: ResolveTokenFn = async (args) => {
       calls += 1;
-      if (calls === 1) throw new Error("Invalid streaming key");
+      if (calls === 1) throw new Error("Streaming token has expired");
       return okResolve(args);
     };
     const actor = createActor(castMachine, {
@@ -289,6 +237,14 @@ describe("castMachine \u{2014} invalid token path", () => {
     }).start();
 
     await waitFor(actor, (s) => s.matches("invalid"));
+    expect(actor.getSnapshot().context.invalidReason).toBe("Streaming token has expired");
+    const events = names(track);
+    expect(events).toContain(CAST_EVENTS.tokenChecked);
+    expect(events).toContain(CAST_EVENTS.invalidToken);
+    expect(events).not.toContain(CAST_EVENTS.tokenValid);
+    const invalidCall = track.mock.calls.find((c) => c[0] === CAST_EVENTS.invalidToken);
+    expect(invalidCall?.[1]).toMatchObject({ reason: "Streaming token has expired" });
+
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("deviceSelect"));
     expect(actor.getSnapshot().matches("deviceSelect")).toBe(true);
@@ -310,110 +266,70 @@ describe("castMachine \u{2014} permission denial path (guardrail)", () => {
 
     await waitFor(actor, (s) => s.matches("deviceSelect"));
     actor.send({ type: "SELECT_DEVICES", devices: DEFAULT_DEVICES });
-
     await waitFor(actor, (s) => s.matches("permissions") && s.context.permissionsDenied);
-    let events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CAST_EVENTS.permissionsDenied);
-    expect(events).not.toContain(CAST_EVENTS.permissionsGranted);
+    expect(names(track)).toContain(CAST_EVENTS.permissionsDenied);
+    expect(names(track)).not.toContain(CAST_EVENTS.permissionsGranted);
 
     actor.send({ type: "RETRY_PERMISSIONS" });
     await waitFor(actor, (s) => s.matches("preview"));
     expect(actor.getSnapshot().context.permissionsDenied).toBe(false);
-    events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CAST_EVENTS.permissionsGranted);
+    expect(names(track)).toContain(CAST_EVENTS.permissionsGranted);
   });
 });
 
 describe("castMachine \u{2014} screen-share in live (simulated LiveKit publish)", () => {
-  async function toLive(track: TrackFn, shareScreen?: ShareScreenFn) {
-    const actor = createActor(castMachine, {
-      input: { ...inputFor(okResolve, grant, track), shareScreen },
-    }).start();
-    await waitFor(actor, (s) => s.matches("deviceSelect"));
-    actor.send({ type: "SELECT_DEVICES", devices: DEFAULT_DEVICES });
-    await waitFor(actor, (s) => s.matches("preview"));
-    actor.send({ type: "JOIN" });
-    await waitFor(actor, (s) => s.matches({ live: "idle" }));
-    return actor;
-  }
+  it("TOGGLE_SCREENSHARE publishes then unpublishes; a failed or thrown publish stays live idle and is recoverable", async () => {
+    const okTrack = vi.fn();
+    const sharing = await toLive(okTrack, async () => ({ published: true }));
+    sharing.send({ type: "TOGGLE_SCREENSHARE" });
+    await waitFor(sharing, (s) => s.matches({ live: "sharing" }));
+    expect(sharing.getSnapshot().context.screenSharing).toBe(true);
+    expect(names(okTrack)).toContain(CAST_EVENTS.screenshareStarted);
+    const startedCall = okTrack.mock.calls.find((c) => c[0] === CAST_EVENTS.screenshareStarted);
+    expect(startedCall?.[1]).toMatchObject({ stub: true });
+    sharing.send({ type: "TOGGLE_SCREENSHARE" });
+    expect(sharing.getSnapshot().matches({ live: "idle" })).toBe(true);
+    expect(sharing.getSnapshot().context.screenSharing).toBe(false);
+    expect(sharing.getSnapshot().context.screenShareFailed).toBe(false);
 
-  it("TOGGLE_SCREENSHARE publishes a track and fires cast_screenshare_started", async () => {
-    const track = vi.fn();
-    const shareScreen: ShareScreenFn = async () => ({ published: true });
-    const actor = await toLive(track, shareScreen);
+    const failTrack = vi.fn();
+    const failed = await toLive(failTrack, async () => ({ published: false }));
+    failed.send({ type: "TOGGLE_SCREENSHARE" });
+    await waitFor(failed, (s) => s.context.screenShareFailed === true);
+    expect(failed.getSnapshot().matches({ live: "idle" })).toBe(true);
+    expect(failed.getSnapshot().context.screenSharing).toBe(false);
+    expect(names(failTrack)).toContain(CAST_EVENTS.screenshareFailed);
+    expect(names(failTrack)).not.toContain(CAST_EVENTS.screenshareStarted);
+    const failedCall = failTrack.mock.calls.find((c) => c[0] === CAST_EVENTS.screenshareFailed);
+    expect(failedCall?.[1]).toMatchObject({ stub: true });
 
-    actor.send({ type: "TOGGLE_SCREENSHARE" });
-    await waitFor(actor, (s) => s.matches({ live: "sharing" }));
-    expect(actor.getSnapshot().context.screenSharing).toBe(true);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CAST_EVENTS.screenshareStarted);
-    const call = track.mock.calls.find((c) => c[0] === CAST_EVENTS.screenshareStarted);
-    expect(call?.[1]).toMatchObject({ stub: true });
-
-    actor.send({ type: "TOGGLE_SCREENSHARE" });
-    expect(actor.getSnapshot().matches({ live: "idle" })).toBe(true);
-    expect(actor.getSnapshot().context.screenSharing).toBe(false);
-    expect(actor.getSnapshot().context.screenShareFailed).toBe(false);
-  });
-
-  it("a failed publish stays live (idle), flags failure, fires cast_screenshare_failed", async () => {
-    const track = vi.fn();
-    const shareScreen: ShareScreenFn = async () => ({ published: false });
-    const actor = await toLive(track, shareScreen);
-
-    actor.send({ type: "TOGGLE_SCREENSHARE" });
-    await waitFor(actor, (s) => s.context.screenShareFailed === true);
-    expect(actor.getSnapshot().matches({ live: "idle" })).toBe(true);
-    expect(actor.getSnapshot().context.screenSharing).toBe(false);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CAST_EVENTS.screenshareFailed);
-    expect(events).not.toContain(CAST_EVENTS.screenshareStarted);
-    const call = track.mock.calls.find((c) => c[0] === CAST_EVENTS.screenshareFailed);
-    expect(call?.[1]).toMatchObject({ stub: true });
-  });
-
-  it("a rejected publish (thrown) is recoverable and fires cast_screenshare_failed", async () => {
-    const track = vi.fn();
-    const shareScreen: ShareScreenFn = async () => {
+    const thrown = await toLive(vi.fn(), async () => {
       throw new Error("getDisplayMedia denied");
-    };
-    const actor = await toLive(track, shareScreen);
-
-    actor.send({ type: "TOGGLE_SCREENSHARE" });
-    await waitFor(actor, (s) => s.context.screenShareFailed === true);
-    expect(actor.getSnapshot().matches({ live: "idle" })).toBe(true);
-    actor.send({ type: "LEAVE" });
-    expect(actor.getSnapshot().matches("ending") || actor.getSnapshot().matches("ended")).toBe(
-      true,
-    );
-  });
-
-  it("simulateShareScreen publishes by default (no network)", async () => {
-    expect(await simulateShareScreen({})).toEqual({ published: true });
+    });
+    thrown.send({ type: "TOGGLE_SCREENSHARE" });
+    await waitFor(thrown, (s) => s.context.screenShareFailed === true);
+    expect(thrown.getSnapshot().matches({ live: "idle" })).toBe(true);
+    thrown.send({ type: "LEAVE" });
+    expect(
+      thrown.getSnapshot().matches("ending") || thrown.getSnapshot().matches("ended"),
+    ).toBe(true);
   });
 });
 
-describe("simulateResolveToken / simulateGrant", () => {
-  it("resolves faithful upstream shapes for a non-blank token (no network)", async () => {
+describe("simulateResolveToken / simulateGrant / simulateShareScreen", () => {
+  it("resolve faithful upstream shapes, reject blank or expired tokens, and grant/publish by default", async () => {
     const r = await simulateResolveToken({ token: "abc", identity: "Eve" });
     expect(r.info.placeName).toBe("Genesis Plaza");
     expect(r.credentials.url).toMatch(/^wss:/);
     expect(r.credentials.token).toContain("SIMULATED.");
     expect(r.credentials.identity).toBe("Eve");
-  });
-
-  it("rejects a blank token (=> invalid) and an 'expired' sentinel", async () => {
     await expect(simulateResolveToken({ token: "   ", identity: "" })).rejects.toThrow(
       /Invalid streaming key/,
     );
     await expect(simulateResolveToken({ token: "expired", identity: "" })).rejects.toThrow(
       /expired/,
     );
-  });
-
-  it("simulateGrant grants by default", async () => {
     expect(await simulateGrant({ devices: DEFAULT_DEVICES })).toEqual({ granted: true });
+    expect(await simulateShareScreen({})).toEqual({ published: true });
   });
 });

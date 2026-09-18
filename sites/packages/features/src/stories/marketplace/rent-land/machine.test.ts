@@ -25,9 +25,6 @@ const PERIOD: SelectedPeriod = {
 };
 
 const okCommit: CommitPhaseFn = async () => {};
-const failCommit: CommitPhaseFn = async () => {
-  throw new Error("wallet rejected");
-};
 
 function inputFor(commit: CommitPhaseFn, track: TrackFn) {
   return {
@@ -55,24 +52,24 @@ const EXPECTED_STATES = new Set([
   "error",
 ]);
 
+const TRAVERSAL_EVENTS = [
+  { type: "START" as const },
+  { type: "SELECT_PERIOD" as const, period: PERIOD },
+  { type: "SET_DAYS" as const, days: 3 },
+  { type: "ACCEPT" as const },
+  { type: "BACK" as const },
+  { type: "RETRY" as const },
+];
+
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
+
 describe("rentMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(rentMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("slugs match the audit-spec step ids", () => {
+  it("uses the audit-spec step ids, unique and round-tripping, falling back to review-land", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(rentMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
     expect(Object.values(STATE_TO_SLUG)).toEqual([
       "review-land",
       "select-period",
@@ -83,92 +80,53 @@ describe("rentMachine \u{2014} URL ?step slug map", () => {
       "success",
       "error",
     ]);
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
+    }
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.review);
-    expect(slugToState(null)).toBe("review");
-    expect(slugToState(undefined)).toBe("review");
-    expect(slugToState("")).toBe("review");
-    expect(slugToState("nope")).toBe("review");
-    expect(slugToState("select-period")).toBe("period");
-    expect(slugToState("approve-mana")).toBe("approve");
-    expect(slugToState("sign-rental")).toBe("sign");
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("review");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("rentMachine \u{2014} deep-link hydration", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveRentSnapshot({
-      step: "review",
-      trackCtx: inputFor(okCommit, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating a later step does NOT fire telemetry and does NOT auto-commit", async () => {
+  it("boots review without a snapshot, hydrates sign silently, and only real transitions track", async () => {
     const track = vi.fn();
     const commit = vi.fn(okCommit);
-    const snapshot = resolveRentSnapshot({
-      step: "sign",
-      trackCtx: inputFor(commit, track).trackCtx,
-      commit,
-      track,
-      period: PERIOD,
-      days: 3,
-    });
-    const actor = createActor(rentMachine, {
+    const trackCtx = inputFor(commit, track).trackCtx;
+    expect(resolveRentSnapshot({ step: "review", trackCtx })).toBeUndefined();
+
+    const sign = createActor(rentMachine, {
       input: inputFor(commit, track),
-      snapshot,
+      snapshot: resolveRentSnapshot({ step: "sign", trackCtx, commit, track, period: PERIOD, days: 3 }),
     }).start();
-
-    expect(actor.getSnapshot().matches("sign")).toBe(true);
-    expect(actor.getSnapshot().context.period?.index).toBe(0);
-
+    expect(sign.getSnapshot().matches("sign")).toBe(true);
+    expect(sign.getSnapshot().context.period?.index).toBe(0);
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(commit).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("sign")).toBe(true);
-  });
+    expect(sign.getSnapshot().matches("sign")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveRentSnapshot({
-      step: "period",
-      trackCtx: inputFor(okCommit, track).trackCtx,
-      track,
-    });
-    const actor = createActor(rentMachine, {
+    const period = createActor(rentMachine, {
       input: inputFor(okCommit, track),
-      snapshot,
+      snapshot: resolveRentSnapshot({ step: "period", trackCtx, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("period")).toBe(true);
+    expect(period.getSnapshot().matches("period")).toBe(true);
     expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "SELECT_PERIOD", period: PERIOD });
-    expect(actor.getSnapshot().matches("price")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(RENT_EVENTS.periodSelected);
+    period.send({ type: "SELECT_PERIOD", period: PERIOD });
+    expect(period.getSnapshot().matches("price")).toBe(true);
+    expect(names(track)).toContain(RENT_EVENTS.periodSelected);
   });
 });
 
-const TRAVERSAL_EVENTS = [
-  { type: "START" as const },
-  { type: "SELECT_PERIOD" as const, period: PERIOD },
-  { type: "SET_DAYS" as const, days: 3 },
-  { type: "ACCEPT" as const },
-  { type: "BACK" as const },
-  { type: "RETRY" as const },
-];
-
 describe("rentMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and approve needs START, SELECT_PERIOD, ACCEPT", () => {
     const paths = getShortestPaths(rentMachine, {
       input: inputFor(okCommit, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
@@ -176,62 +134,46 @@ describe("rentMachine \u{2014} model-based path coverage (@xstate/graph)", () =>
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("period")).toBe(true);
-    expect(ends.has("price")).toBe(true);
-    expect(ends.has("approve")).toBe(true);
-  });
-
-  it("reaching approve passes through START, SELECT_PERIOD and ACCEPT", () => {
-    const paths = getShortestPaths(rentMachine, {
-      input: inputFor(okCommit, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["period", "price", "approve"]) expect(ends.has(s)).toBe(true);
     const approve = paths.find((p) => (p.state.value as string) === "approve");
-    expect(approve).toBeDefined();
     const events = approve!.steps.map((s) => s.event.type);
-    expect(events).toContain("START");
-    expect(events).toContain("SELECT_PERIOD");
-    expect(events).toContain("ACCEPT");
+    for (const e of ["START", "SELECT_PERIOD", "ACCEPT"]) expect(events).toContain(e);
   });
 });
 
 describe("rentMachine \u{2014} telemetry events (happy path)", () => {
   it("review -> period -> price -> approve -> sign -> confirm -> success fires the full funnel", async () => {
     const track = vi.fn();
-    const actor = createActor(rentMachine, {
-      input: inputFor(okCommit, track),
-    }).start();
+    const actor = createActor(rentMachine, { input: inputFor(okCommit, track) }).start();
 
     actor.send({ type: "START" });
     expect(actor.getSnapshot().matches("period")).toBe(true);
-
     actor.send({ type: "SELECT_PERIOD", period: PERIOD });
     expect(actor.getSnapshot().matches("price")).toBe(true);
-
     actor.send({ type: "SET_DAYS", days: 4 });
     expect(actor.getSnapshot().context.days).toBe(4);
     actor.send({ type: "ACCEPT" });
-
     await waitFor(actor, (s) => s.matches("success"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(RENT_EVENTS.started);
-    expect(events).toContain(RENT_EVENTS.periodSelected);
-    expect(events).toContain(RENT_EVENTS.priceSet);
-    expect(events).toContain(RENT_EVENTS.manaApproved);
-    expect(events).toContain(RENT_EVENTS.signReached);
-    expect(events).toContain(RENT_EVENTS.signed);
-    expect(events).toContain(RENT_EVENTS.completed);
-
+    const events = names(track);
+    for (const e of [
+      RENT_EVENTS.started,
+      RENT_EVENTS.periodSelected,
+      RENT_EVENTS.priceSet,
+      RENT_EVENTS.manaApproved,
+      RENT_EVENTS.signReached,
+      RENT_EVENTS.signed,
+      RENT_EVENTS.completed,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(RENT_EVENTS.started)).toBeLessThan(
       events.indexOf(RENT_EVENTS.signReached),
     );
     expect(events.indexOf(RENT_EVENTS.signReached)).toBeLessThan(
       events.indexOf(RENT_EVENTS.completed),
     );
-
     expect(actor.getSnapshot().context.totalMana).toBe(400);
-
     const startedCall = track.mock.calls.find((c) => c[0] === RENT_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
@@ -242,49 +184,32 @@ describe("rentMachine \u{2014} telemetry events (happy path)", () => {
     expect(actor.getSnapshot().context.result?.txHash).toContain("0xsimulated");
   });
 
-  it("ACCEPT without SET_DAYS uses the period minimum and fires price_set", async () => {
+  it("days default to the period minimum, clamp to its bounds, and BACK from review abandons without starting", async () => {
     const track = vi.fn();
-    const actor = createActor(rentMachine, {
-      input: inputFor(okCommit, track),
-    }).start();
+    const defaulted = createActor(rentMachine, { input: inputFor(okCommit, track) }).start();
+    defaulted.send({ type: "START" });
+    defaulted.send({ type: "SELECT_PERIOD", period: PERIOD });
+    defaulted.send({ type: "ACCEPT" });
+    await waitFor(defaulted, (s) => s.matches("success"));
+    expect(defaulted.getSnapshot().context.days).toBe(PERIOD.minDays);
+    expect(defaulted.getSnapshot().context.totalMana).toBe(100);
+    expect(names(track)).toContain(RENT_EVENTS.priceSet);
 
-    actor.send({ type: "START" });
-    actor.send({ type: "SELECT_PERIOD", period: PERIOD });
-    actor.send({ type: "ACCEPT" });
-    await waitFor(actor, (s) => s.matches("success"));
+    const clamped = createActor(rentMachine, { input: inputFor(okCommit, vi.fn()) }).start();
+    clamped.send({ type: "START" });
+    clamped.send({ type: "SELECT_PERIOD", period: PERIOD });
+    clamped.send({ type: "SET_DAYS", days: 999 });
+    expect(clamped.getSnapshot().context.days).toBe(PERIOD.maxDays);
+    clamped.send({ type: "SET_DAYS", days: -5 });
+    expect(clamped.getSnapshot().context.days).toBe(PERIOD.minDays);
 
-    expect(actor.getSnapshot().context.days).toBe(PERIOD.minDays);
-    expect(actor.getSnapshot().context.totalMana).toBe(100);
-    expect(track.mock.calls.map((c) => c[0])).toContain(RENT_EVENTS.priceSet);
-  });
-
-  it("SET_DAYS clamps to the selected period bounds", () => {
-    const track = vi.fn();
-    const actor = createActor(rentMachine, {
-      input: inputFor(okCommit, track),
-    }).start();
-
-    actor.send({ type: "START" });
-    actor.send({ type: "SELECT_PERIOD", period: PERIOD });
-    actor.send({ type: "SET_DAYS", days: 999 });
-    expect(actor.getSnapshot().context.days).toBe(PERIOD.maxDays);
-    actor.send({ type: "SET_DAYS", days: -5 });
-    expect(actor.getSnapshot().context.days).toBe(PERIOD.minDays);
-  });
-
-  it("abandoning the flow from review fires mk_rent_abandoned and does not start", () => {
-    const track = vi.fn();
+    const abandonTrack = vi.fn();
     const commit = vi.fn(okCommit);
-    const actor = createActor(rentMachine, {
-      input: inputFor(commit, track),
-    }).start();
-
-    actor.send({ type: "BACK" });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(RENT_EVENTS.abandoned);
-    expect(events).not.toContain(RENT_EVENTS.started);
+    const abandoned = createActor(rentMachine, { input: inputFor(commit, abandonTrack) }).start();
+    abandoned.send({ type: "BACK" });
+    expect(abandoned.getSnapshot().matches("review")).toBe(true);
+    expect(names(abandonTrack)).toContain(RENT_EVENTS.abandoned);
+    expect(names(abandonTrack)).not.toContain(RENT_EVENTS.started);
     expect(commit).not.toHaveBeenCalled();
   });
 });
@@ -298,10 +223,7 @@ describe("rentMachine \u{2014} commit failure + retry", () => {
       if (calls === 1) throw new Error("wallet rejected");
       return okCommit(args);
     };
-
-    const actor = createActor(rentMachine, {
-      input: inputFor(commit, track),
-    }).start();
+    const actor = createActor(rentMachine, { input: inputFor(commit, track) }).start();
 
     actor.send({ type: "START" });
     actor.send({ type: "SELECT_PERIOD", period: PERIOD });
@@ -311,8 +233,7 @@ describe("rentMachine \u{2014} commit failure + retry", () => {
 
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("success"));
-
-    const events = track.mock.calls.map((c) => c[0]);
+    const events = names(track);
     expect(events).toContain(RENT_EVENTS.failed);
     expect(events).toContain(RENT_EVENTS.retried);
     expect(events).toContain(RENT_EVENTS.completed);
@@ -320,13 +241,10 @@ describe("rentMachine \u{2014} commit failure + retry", () => {
 });
 
 describe("simulatePhase", () => {
-  it("resolves for each phase (no network)", async () => {
+  it("resolves for each phase (no network) and rejects when aborted", async () => {
     await expect(simulatePhase({ phase: "approve" })).resolves.toBeUndefined();
     await expect(simulatePhase({ phase: "sign" })).resolves.toBeUndefined();
     await expect(simulatePhase({ phase: "submit" })).resolves.toBeUndefined();
-  });
-
-  it("rejects when aborted", async () => {
     const ac = new AbortController();
     const p = simulatePhase({ phase: "approve", signal: ac.signal });
     ac.abort();

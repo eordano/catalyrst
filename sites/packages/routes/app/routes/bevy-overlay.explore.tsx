@@ -17,18 +17,18 @@ import {
 } from "@data/lib/catalyst/places/index";
 import { loadPlaces } from "@data/lib/catalyst/places/index.server";
 import {
-  fetchCatalog,
   isCatalogItemBuyable,
   toCollectibleCard,
   type CollectibleCard,
 } from "@data/lib/catalyst/marketplace/index";
+import { loadCatalogRail } from "@data/lib/catalyst/marketplace/catalog-rails.server";
 import {
   seasonsToShellVM,
   type CreditsHubVM,
 } from "@data/lib/catalyst/marketplace/credits";
 import { loadSeasons } from "@data/lib/catalyst/marketplace/credits.server";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 import { sendBridge } from "@features/components/bevy-overlay/bridge";
 import { collectibleToShopCard } from "@features/lib/marketplace/favorites";
@@ -73,41 +73,44 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const tab = parseTab(url.searchParams.get("tab"));
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    async () => {
+      let places: TabItems<Place> = { items: [], failed: false };
+      let collectibles: TabItems<CollectibleCard> = { items: [], failed: false };
+      let credits: { hub: CreditsHubVM | null; failed: boolean } = {
+        hub: null,
+        failed: false,
+      };
+
+      if (tab === "places") {
+        places = await loadPlaces({ limit: PLACES_LIMIT })
+          .then((r) => ({ items: r.data, failed: false }))
+          .catch(() => ({ items: [], failed: true }));
+      } else if (tab === "marketplace") {
+        collectibles = await loadCatalogRail({ first: CATALOG_LIMIT, isOnSale: true })
+          .then((r) => ({
+            items: r.data
+              .filter(isCatalogItemBuyable)
+              .map((it) => toCollectibleCard(it)),
+            failed: false,
+          }))
+          .catch(() => ({ items: [], failed: true }));
+      } else if (tab === "credits") {
+        const seasons = await loadSeasons();
+        credits = {
+          hub: seasons ? seasonsToShellVM(seasons) : null,
+          failed: seasons === null,
+        };
+      }
+
+      return { places, collectibles, credits };
+    },
   );
 
-  let places: TabItems<Place> = { items: [], failed: false };
-  let collectibles: TabItems<CollectibleCard> = { items: [], failed: false };
-  let credits: { hub: CreditsHubVM | null; failed: boolean } = {
-    hub: null,
-    failed: false,
-  };
-
-  if (tab === "places") {
-    places = await loadPlaces({ limit: PLACES_LIMIT })
-      .then((r) => ({ items: r.data, failed: false }))
-      .catch(() => ({ items: [], failed: true }));
-  } else if (tab === "marketplace") {
-    collectibles = await fetchCatalog({ first: CATALOG_LIMIT, isOnSale: true })
-      .then((r) => ({
-        items: r.data
-          .filter(isCatalogItemBuyable)
-          .map((it) => toCollectibleCard(it)),
-        failed: false,
-      }))
-      .catch(() => ({ items: [], failed: true }));
-  } else if (tab === "credits") {
-    const seasons = await loadSeasons(request.signal);
-    credits = {
-      hub: seasons ? seasonsToShellVM(seasons) : null,
-      failed: seasons === null,
-    };
-  }
-
-  return wrap({ sid, tab, assignment, places, collectibles, credits });
+  return wrap({ sid, tab, assignment, ...data });
 }
 
 export function shouldRevalidate({

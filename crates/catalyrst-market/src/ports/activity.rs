@@ -106,13 +106,22 @@ impl ActivityComponent {
             first: Some(per),
             ..Default::default()
         };
-        let (sales_buyer, sales_seller, bids_bidder, bids_seller, orders_owner, orders_buyer) = tokio::join!(
+        let (
+            sales_buyer,
+            sales_seller,
+            bids_bidder,
+            bids_seller,
+            orders_owner,
+            orders_buyer,
+            user_trades,
+        ) = tokio::join!(
             self.sales.get_sales(&f_sales_buyer),
             self.sales.get_sales(&f_sales_seller),
             self.bids.get_bids(&f_bids_bidder),
             self.bids.get_bids(&f_bids_seller),
             self.orders.get_orders(&f_orders_owner),
             self.orders.get_orders(&f_orders_buyer),
+            self.trades.get_trades_by_address(&lower, per, 0),
         );
         let (sales_buyer, _) = sales_buyer.unwrap_or_default();
         let (sales_seller, _) = sales_seller.unwrap_or_default();
@@ -120,11 +129,7 @@ impl ActivityComponent {
         let (bids_seller, _) = bids_seller.unwrap_or_default();
         let (orders_owner, _) = orders_owner.unwrap_or_default();
         let (orders_buyer, _) = orders_buyer.unwrap_or_default();
-        let user_trades = self
-            .trades
-            .get_trades_by_address(&lower, per, 0)
-            .await
-            .unwrap_or_default();
+        let user_trades = user_trades.unwrap_or_default();
 
         let mut events: Vec<ActivityEvent> = Vec::new();
         for s in &sales_buyer {

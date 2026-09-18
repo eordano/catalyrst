@@ -1,0 +1,26 @@
+.mkf {
+  position: relative;
+  height: 100%;
+  min-height: 100%;
+  background: #0f0d14;
+}
+
+.mkf__frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.mkf__frame.is-loaded { opacity: 1; }
+
+.mkf__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}

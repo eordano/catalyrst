@@ -1,15 +1,7 @@
 import { siteUrl } from "../../data/site";
 import { getJSON, catalystBase, type RequestOpts } from "./client";
 import { field, isRecord, listOf } from "./rows";
-import {
-  AvatarSchema,
-  BadgeDataSchema,
-  CategoriesEnvelopeSchema,
-  GalleryEnvelopeSchema,
-  GalleryImageSchema,
-  ProfileEnvelopeSchema,
-  UserBadgesEnvelopeSchema,
-} from "./schemas/profile";
+import { AvatarSchema, GalleryEnvelopeSchema, ProfileEnvelopeSchema, UserBadgesEnvelopeSchema } from "./schemas/profile";
 import type {
   AvatarInfoWire,
   AvatarWire,
@@ -19,22 +11,17 @@ import type {
   ProfileLinkWire,
 } from "./schemas/profile";
 
-export { AvatarSchema, BadgeDataSchema, GalleryImageSchema, ProfileEnvelopeSchema };
-export type { BadgeData, GalleryImage };
+export { AvatarSchema };
 
 export function normalizeAddress(addr?: string | null): string {
   return (addr ?? "").trim().toLowerCase();
 }
 
-export function isEthAddress(addr?: string | null): boolean {
-  return /^0x[0-9a-fA-F]{40}$/.test((addr ?? "").trim());
-}
+type ProfileLink = { title: string | null; url: string | null };
 
-export type ProfileLink = { title: string | null; url: string | null };
+type AvatarInfo = AvatarInfoWire & { wearables: string[] | null };
 
-export type AvatarInfo = AvatarInfoWire & { wearables: string[] | null };
-
-export type Avatar = AvatarWire & {
+type Avatar = AvatarWire & {
   name: string | null;
   hasClaimedName: boolean | null;
   description: string | null;
@@ -42,7 +29,7 @@ export type Avatar = AvatarWire & {
   avatar?: AvatarInfo;
 };
 
-export type ProfileEnvelope = ProfileEnvelopeWire & { avatars: Avatar[] };
+type ProfileEnvelope = ProfileEnvelopeWire & { avatars: Avatar[] };
 
 function normalizeProfileLink(l: ProfileLinkWire): ProfileLink {
   return { title: l.title ?? null, url: l.url ?? null };
@@ -154,12 +141,6 @@ export function profileFaceUrl(
   return `${catalystBase(opts.base)}/content/contents/${snap}`;
 }
 
-export async function fetchBadgeCategories(opts: RequestOpts = {}): Promise<string[]> {
-  const raw = await getJSON("/categories", { service: "badges", ...opts });
-  const env = CategoriesEnvelopeSchema.parse(raw);
-  return listOf<string>(field(field(env, "data"), "categories"));
-}
-
 function assetColor(assets: unknown): string | null {
   if (!assets || typeof assets !== "object") return null;
   const two = (assets as Record<string, unknown>)["2d"];
@@ -169,13 +150,13 @@ function assetColor(assets: unknown): string | null {
   return typeof flat === "string" && flat.trim() ? flat : null;
 }
 
-export function badgeImage(b: BadgeData | null | undefined): string | null {
+function badgeImage(b: BadgeData | null | undefined): string | null {
   const tier = b?.progress?.lastCompletedTierImage;
   if (typeof tier === "string" && tier.trim()) return tier;
   return assetColor(b?.assets);
 }
 
-export function mapBadge(b: BadgeData) {
+function mapBadge(b: BadgeData) {
   return {
     id: b.id,
     name: b.name,

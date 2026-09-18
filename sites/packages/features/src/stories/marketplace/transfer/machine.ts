@@ -24,13 +24,13 @@ export type TransferFn = (args: {
   signal?: AbortSignal;
 }) => Promise<TransferResult>;
 
-export type TransferInput = {
+type TransferInput = {
   trackCtx: TrackContext;
   transfer?: TransferFn;
   track?: TrackFn;
 };
 
-export type TransferContext = {
+type TransferContext = {
   trackCtx: TrackContext;
   transfer: TransferFn;
   track: TrackFn;
@@ -40,7 +40,7 @@ export type TransferContext = {
   error?: string;
 };
 
-export type TransferEvent =
+type TransferEvent =
   | { type: "SELECT_ASSET"; asset: TransferTarget }
   | { type: "SUBMIT_RECIPIENT"; recipient: string }
   | { type: "CONFIRM" }
@@ -69,8 +69,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type TransferStateId = keyof typeof STATE_TO_SLUG;
-export type TransferStepSlug = (typeof STATE_TO_SLUG)[TransferStateId];
+type TransferStateId = keyof typeof STATE_TO_SLUG;
+type TransferStepSlug = (typeof STATE_TO_SLUG)[TransferStateId];
 
 export const FIRST_STEP_SLUG: TransferStepSlug = STATE_TO_SLUG.selecting;
 
@@ -259,8 +259,6 @@ export const transferMachine = setup({
     },
   },
 });
-
-export type TransferMachine = typeof transferMachine;
 
 export function resolveTransferSnapshot(args: {
   step: TransferStateId;

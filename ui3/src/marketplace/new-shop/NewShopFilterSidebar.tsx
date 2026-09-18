@@ -4,7 +4,7 @@ import Checkbox from "../../atoms/Checkbox";
 import Toggle from "../../atoms/Toggle";
 import "./newshopfiltersidebar.css";
 
-export type FilterOption = { id: string; label: ReactNode; count?: number; checked?: boolean };
+type FilterOption = { id: string; label: ReactNode; count?: number; checked?: boolean };
 export type FilterGroup = { id: string; label: ReactNode; options: FilterOption[] };
 
 type NewShopFilterSidebarProps = {

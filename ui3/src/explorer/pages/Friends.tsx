@@ -173,7 +173,9 @@ export default function Friends({
             </button>
           ))}
         </div>
-        <button className="fr__close" aria-label="Close" onClick={onClose}>&#xD7;</button>
+        {floating ? null : (
+          <button className="fr__close" aria-label="Close" onClick={onClose}>&#xD7;</button>
+        )}
       </header>
 
       <div className="fr__body">

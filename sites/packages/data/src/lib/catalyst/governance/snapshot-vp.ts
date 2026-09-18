@@ -13,8 +13,8 @@ export type VpDistribution = {
   rental: number;
 };
 
-export const DEFAULT_SNAPSHOT_HUB = "https://hub.snapshot.org";
-export const SNAPSHOT_HUB_ENV = "SNAPSHOT_API";
+const DEFAULT_SNAPSHOT_HUB = "https://hub.snapshot.org";
+const SNAPSHOT_HUB_ENV = "SNAPSHOT_API";
 
 const STRATEGY = {
   wrappedMana: 0,
@@ -34,7 +34,7 @@ function processEnv(): Env {
   return typeof process !== "undefined" && process.env ? process.env : {};
 }
 
-export function snapshotHubUrl(override?: string, env: Env = processEnv()): string {
+function snapshotHubUrl(override?: string, env: Env = processEnv()): string {
   const base = override ?? env[SNAPSHOT_HUB_ENV] ?? DEFAULT_SNAPSHOT_HUB;
   return base.trim().replace(/\/$/, "");
 }
@@ -124,7 +124,7 @@ async function fetchBatch(args: {
   return out;
 }
 
-export const VP_CACHE_TTL_MS = 5 * 60_000;
+const VP_CACHE_TTL_MS = 5 * 60_000;
 
 const cache = new Map<string, { at: number; vp: VpDistribution }>();
 

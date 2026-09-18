@@ -13,7 +13,7 @@ import type { LiveSceneInfo } from "../../generated/editor-bus";
 
 const hydratedComposites = new Set<string>();
 
-export interface LiveSelection {
+interface LiveSelection {
   selected: string[];
   active: string | null;
 }
@@ -39,7 +39,7 @@ interface EditorBusBridgeOptions {
   snapRef: RefObject<SnapState>;
 }
 
-export interface EditorCameraPose {
+interface EditorCameraPose {
   x: number;
   y: number;
   z: number;

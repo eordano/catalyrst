@@ -5,7 +5,7 @@ use alloy::primitives::{Address, U256};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::types::chrono::NaiveDateTime;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 
 use crate::admin::{RuntimeConfig, SignerPreference};
 use crate::config::Config;
@@ -20,6 +20,7 @@ use crate::ports::meta_tx::{
 };
 use crate::ports::relayer::Relayer;
 use crate::ports::signer::DirectSigner;
+use crate::ports::transfer_shortfall;
 use crate::ports::upstream::UpstreamForwarder;
 
 #[derive(Debug, Clone)]
@@ -400,37 +401,42 @@ impl TransactionComponent {
         sender: &MetaTxSender,
         session_id: &str,
     ) -> Result<(), ApiError> {
-        let user_address = sender.as_str().to_string();
+        let user_address = sender.as_str();
+        if !is_hex_address(user_address) || !is_session_id(session_id) {
+            return Err(ApiError::Internal(
+                "reserve_quota: reservation keys are not in their canonical form".into(),
+            ));
+        }
 
-        let mut db_tx = self.pool.begin().await?;
-
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
-            .bind(&user_address)
-            .execute(&mut *db_tx)
+        // One simple-protocol round trip; the lock stays its own statement so the
+        // count runs on a snapshot taken after the lock is held.
+        let sql = format!(
+            "SELECT pg_advisory_xact_lock(hashtext('{user_address}')); \
+             WITH used AS (\
+               SELECT COUNT(*) AS n FROM transactions \
+               WHERE user_address = '{user_address}' AND created_at >= NOW() - INTERVAL '1 day'\
+             ), ins AS (\
+               INSERT INTO transactions (user_address, session_id) \
+               SELECT '{user_address}', '{session_id}' FROM used \
+               WHERE used.n < {max_transactions_per_day} \
+               RETURNING id\
+             ) \
+             SELECT used.n AS n, EXISTS (SELECT 1 FROM ins) AS reserved FROM used"
+        );
+        let rows = sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+            .fetch_all(&self.pool)
             .await?;
+        let row = rows
+            .last()
+            .ok_or_else(|| ApiError::Internal("reserve_quota returned no row".into()))?;
+        let count: i64 = row.try_get("n")?;
+        let reserved: bool = row.try_get("reserved")?;
 
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM transactions \
-             WHERE user_address = $1 AND created_at >= NOW() - INTERVAL '1 day'",
-        )
-        .bind(&user_address)
-        .fetch_one(&mut *db_tx)
-        .await?;
-
-        if count >= max_transactions_per_day {
-            db_tx.rollback().await?;
+        if !reserved {
             return Err(ApiError::QuotaReached(format!(
                 "Max amount of transactions reached for address. Quota: {count}"
             )));
         }
-
-        sqlx::query("INSERT INTO transactions (user_address, session_id) VALUES ($1, $2)")
-            .bind(&user_address)
-            .bind(session_id)
-            .execute(&mut *db_tx)
-            .await?;
-
-        db_tx.commit().await?;
         Ok(())
     }
 
@@ -481,12 +487,15 @@ impl TransactionComponent {
         let sender = MetaTxSender::from_meta_tx_calldata(&tx.from, &tx.params[1])?;
         self.check_self_relay(&sender)?;
         self.check_contract_address(contracts, tx).await?;
-        self.check_meta_tx_signature(tx).await?;
-        self.check_quota(cfg, &sender).await?;
         check_sale_price(cfg, tx)?;
         if cfg.has_rpc() {
-            self.check_gas_price(cfg, tx).await?;
-            self.check_transaction(cfg, tx).await?;
+            tokio::try_join!(
+                self.check_meta_tx_signature(tx),
+                self.check_gas_price(cfg, tx),
+                self.check_transaction(cfg, tx),
+            )?;
+        } else {
+            self.check_meta_tx_signature(tx).await?;
         }
         Ok(sender)
     }
@@ -552,21 +561,27 @@ impl TransactionComponent {
             )
         })?;
 
-        let nonce = chain
-            .get_meta_transaction_nonce(contract, decoded.user_address)
-            .await
-            .map_err(chain_unavailable)?
-            .ok_or_else(|| {
-                ApiError::InvalidContractAddress(format!(
-                    "The target does not implement meta-transactions. Contract address: {contract:#x}"
-                ))
-            })?;
+        let (nonce, reported_separator) = tokio::try_join!(
+            async {
+                chain
+                    .get_meta_transaction_nonce(contract, decoded.user_address)
+                    .await
+                    .map_err(chain_unavailable)
+            },
+            async {
+                chain
+                    .get_domain_separator(contract)
+                    .await
+                    .map_err(chain_unavailable)
+            },
+        )?;
+        let nonce = nonce.ok_or_else(|| {
+            ApiError::InvalidContractAddress(format!(
+                "The target does not implement meta-transactions. Contract address: {contract:#x}"
+            ))
+        })?;
 
-        let (domain_separator, struct_kind) = match chain
-            .get_domain_separator(contract)
-            .await
-            .map_err(chain_unavailable)?
-        {
+        let (domain_separator, struct_kind) = match reported_separator {
             Some(reported) => (reported, MetaTxStruct::FunctionSignature),
             None => {
                 let chain_id = chain.get_chain_id().await.map_err(chain_unavailable)?;
@@ -634,23 +649,6 @@ impl TransactionComponent {
         Ok(())
     }
 
-    async fn check_quota(&self, cfg: &Config, sender: &MetaTxSender) -> Result<(), ApiError> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM transactions \
-             WHERE user_address = $1 AND created_at >= NOW() - INTERVAL '1 day'",
-        )
-        .bind(sender.as_str())
-        .fetch_one(&self.pool)
-        .await?;
-
-        if count >= cfg.max_transactions_per_day {
-            return Err(ApiError::QuotaReached(format!(
-                "Max amount of transactions reached for address. Quota: {count}"
-            )));
-        }
-        Ok(())
-    }
-
     async fn check_transaction(&self, cfg: &Config, tx: &TransactionData) -> Result<(), ApiError> {
         let rpc_url = cfg.rpc_url.as_deref().expect("has_rpc gated");
         let body = json!({
@@ -667,12 +665,32 @@ impl TransactionComponent {
             ApiError::InvalidTransaction(format!("Error simulating transaction: {e}"))
         })?;
         if let Some(err) = resp.error {
+            let detail = self
+                .transfer_shortfall(rpc_url, tx)
+                .await
+                .unwrap_or(err.message);
             return Err(ApiError::InvalidTransaction(format!(
-                "Error simulating transaction: {}",
-                err.message
+                "Error simulating transaction: {detail}"
             )));
         }
         Ok(())
+    }
+
+    async fn transfer_shortfall(&self, rpc_url: &str, tx: &TransactionData) -> Option<String> {
+        let data = hex_to_bytes(&tx.params[1])?;
+        let intent = transfer_shortfall::transfer_intent(&data)?;
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_call",
+            "params": [{
+                "to": tx.params[0].to_lowercase(),
+                "data": transfer_shortfall::balance_of_calldata(intent.user),
+            }, "latest"]
+        });
+        let resp = self.rpc_call(rpc_url, body).await.ok()?;
+        let balance = transfer_shortfall::decode_balance(resp.result.as_ref()?.as_str()?)?;
+        transfer_shortfall::shortfall_message(&intent, balance)
     }
 
     async fn check_gas_price(&self, cfg: &Config, _tx: &TransactionData) -> Result<(), ApiError> {
@@ -810,6 +828,10 @@ fn is_hex_data(s: &str) -> bool {
         Some(rest) => !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_hexdigit()),
         None => false,
     }
+}
+
+fn is_session_id(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
 fn hex_to_bytes(s: &str) -> Option<Vec<u8>> {

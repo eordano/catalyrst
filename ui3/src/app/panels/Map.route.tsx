@@ -17,7 +17,7 @@ import { useFriendPins, type FriendPin } from "../../data/hooks/useFriendPins";
 import { usePlaceSearch } from "../../data/hooks/usePlaceSearch";
 import { serviceBase } from "../../data/catalyst/client";
 import { safeCssUrl } from "../../data/cssUrl";
-import { toPlaceDetail, coordsToPercent } from "../../data/catalyst/places";
+import { toPlaceDetail, coordsToPercent, parcelRectPercent } from "../../data/catalyst/places";
 import { fetchPlaces, fetchCategories } from "../../data/catalyst/placesSchema";
 import type { PlaceView } from "../../data/catalyst/places";
 import { qk, STALE } from "../../data/queryKeys";
@@ -253,8 +253,9 @@ export default function MapPanel() {
   const [confirmWorld, setConfirmWorld] = useState<{ realm: string; title?: string } | null>(null);
   const { placeHits: searchPlaceHits, worldHits: searchWorldHits } = usePlaceSearch(search);
 
-  const ZOOM_MAX = 4;
+  const ZOOM_MAX = 8;
   const ZOOM_STEP = 0.25;
+  const PARCEL_FOCUS_ZOOM = 8;
   const coverZoom = (m?: ViewMetrics | Metrics | null): number => {
     const mm = m ?? box;
     if (!mm || !mm.square) return 1;
@@ -461,35 +462,42 @@ export default function MapPanel() {
     filtered.find((p) => p.id === selectedId) ?? selectedFromList ?? null;
 
   const player = useMemo(() => coordsToPercent(sceneCoords), [sceneCoords]);
+  const parcelCell = useMemo(() => parcelRectPercent(sceneCoords), [sceneCoords]);
   const friendPins = useFriendPins();
   const selectedFriend = useMemo(
     () => friendPins.find((f) => f.address === selFriendAddr) ?? null,
     [friendPins, selFriendAddr],
   );
 
-  const centerOnPercent = (leftPct: number, topPct: number, m?: Metrics | null) => {
+  const centerOnPercent = (
+    leftPct: number,
+    topPct: number,
+    m?: Metrics | null,
+    zoomTarget?: number,
+  ) => {
     const mm = m || metrics();
     if (!mm) return;
-    const cover = coverZoom(mm);
+    const z = zoomTarget == null ? coverZoom(mm) : clampZoom(zoomTarget, mm);
     applyView(
-      cover,
+      z,
       clampPan(
-        -(leftPct / 100 - 0.5) * mm.square * cover,
-        -(topPct / 100 - 0.5) * mm.square * cover,
-        cover,
+        -(leftPct / 100 - 0.5) * mm.square * z,
+        -(topPct / 100 - 0.5) * mm.square * z,
+        z,
         mm,
       ),
     );
   };
 
-  const centerOnPlayer = (m?: Metrics | null) => centerOnPercent(player.left, player.top, m);
+  const centerOnPlayer = (zoomTarget?: number) =>
+    centerOnPercent(player.left, player.top, undefined, zoomTarget);
 
   const didInitRef = useRef(false);
   useEffect(() => {
     if (!box) return;
     if (!didInitRef.current) {
       didInitRef.current = true;
-      centerOnPlayer();
+      centerOnPlayer(sceneCoords ? PARCEL_FOCUS_ZOOM : undefined);
       return;
     }
     const z = clampZoom(zoomRef.current, box);
@@ -608,12 +616,13 @@ export default function MapPanel() {
         onPointerMove={onTilesPointerMove}
         onPointerUp={onTilesPointerUp}
         onPointerCancel={onTilesPointerUp}
-        style={{
+        style={cssVars({
           ...(box ? { width: box.square, height: box.square } : null),
           transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: "center center",
           transition: animate ? "transform 0.15s ease" : "none",
-        }}
+          "--inv": 1 / zoom,
+        })}
       >
         <div className="map__grid" />
         <div className="map__roads" />
@@ -637,6 +646,18 @@ export default function MapPanel() {
           />
         ))}
 
+        {sceneCoords && (
+          <div
+            className="map__parcel"
+            style={{
+              left: parcelCell.left + "%",
+              top: parcelCell.top + "%",
+              width: parcelCell.size + "%",
+              height: parcelCell.size + "%",
+            }}
+            aria-label={`Current parcel ${sceneCoords}`}
+          />
+        )}
         <div
           className="map__player"
           style={{ left: player.left + "%", top: player.top + "%" }}
@@ -782,7 +803,7 @@ export default function MapPanel() {
           aria-label="Recenter"
           onClick={() => {
             clearSel();
-            centerOnPlayer();
+            centerOnPlayer(zoomRef.current);
           }}
         >
           &#x2295;

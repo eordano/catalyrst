@@ -1,18 +1,17 @@
-import { getJSON } from "../client";
 import type { GetOptions } from "../client";
 import { z } from "zod";
 import { NameColorSchema } from "../generated-schemas/communities";
 
-export const FREE_SLOTS = 5;
-export const TOTAL_SLOTS = 10;
+const FREE_SLOTS = 5;
+const TOTAL_SLOTS = 10;
 
-export function normalizeAddress(addr: string | null | undefined): string {
+function normalizeAddress(addr: string | null | undefined): string {
   return (addr ?? "").trim().toLowerCase();
 }
 
 const Color3Schema = NameColorSchema.passthrough();
 
-export const OutfitSchema = z
+const OutfitSchema = z
   .object({
     bodyShape: z.string(),
     eyes: z.object({ color: Color3Schema }).passthrough().optional(),
@@ -22,21 +21,20 @@ export const OutfitSchema = z
     forceRender: z.array(z.string()).optional(),
   })
   .passthrough();
-export type Outfit = z.infer<typeof OutfitSchema>;
+type Outfit = z.infer<typeof OutfitSchema>;
 
-export const OutfitSlotSchema = z.object({
+const OutfitSlotSchema = z.object({
   slot: z.number().int().nonnegative(),
   outfit: OutfitSchema,
 });
-export type OutfitSlot = z.infer<typeof OutfitSlotSchema>;
+type OutfitSlot = z.infer<typeof OutfitSlotSchema>;
 
-export const OutfitsSchema = z
+const OutfitsSchema = z
   .object({
     outfits: z.array(OutfitSlotSchema),
     namesForExtraSlots: z.array(z.string()),
   })
   .passthrough();
-export type Outfits = z.infer<typeof OutfitsSchema>;
 
 const AvatarInfoSchema = z
   .object({
@@ -59,7 +57,7 @@ const AvatarSchema = z
 
 const ProfileSchema = z.object({ avatars: z.array(AvatarSchema) }).passthrough();
 
-export const ProfilesBatchSchema = z.array(ProfileSchema);
+const ProfilesBatchSchema = z.array(ProfileSchema);
 
 export type EquippedSet = Outfit;
 

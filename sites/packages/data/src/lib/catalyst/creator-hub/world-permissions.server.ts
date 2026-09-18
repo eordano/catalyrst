@@ -16,8 +16,6 @@ import {
   type WorldPermissions,
 } from "./world-permissions";
 
-export { worldsBase };
-
 export type LoadWorldPermissionsResult = {
   permissions: WorldPermissions;
   source: "catalyst" | "empty";

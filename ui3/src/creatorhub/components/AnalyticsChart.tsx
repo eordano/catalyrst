@@ -15,7 +15,7 @@ const HEIGHT = 260;
 const PADDING = { top: 20, right: 16, bottom: 30, left: 52 };
 const PLOT_HEIGHT = HEIGHT - PADDING.top - PADDING.bottom;
 
-export type AnalyticsChartProps = {
+type AnalyticsChartProps = {
   series: ChartSeries[];
   ariaLabel: string;
   unit?: "" | "%";

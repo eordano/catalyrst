@@ -6,8 +6,6 @@ import { ListEnvelopeSchema, NotificationSchema } from "./schemas/notifications"
 
 export * from "./notificationsView";
 
-export { NotificationSchema };
-
 export function isUsableNotification(row: unknown): boolean {
   return (
     isRecord(row) &&

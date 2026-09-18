@@ -47,6 +47,7 @@ fn test_config(database_url: String) -> Config {
         moderator_addresses: Vec::new(),
         gatekeeper_auth_token: None,
         fed_peer_id: None,
+        cluster: Default::default(),
     }
 }
 

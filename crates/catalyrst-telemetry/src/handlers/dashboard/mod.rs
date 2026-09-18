@@ -283,47 +283,19 @@ pub async fn stats(
     let win = "received_at > now() - make_interval(hours => $1::int) \
                AND ($2::text IS NULL OR fingerprint = $2) \
                AND ($3::text IS NULL OR source = $3)";
-
-    let group_count = |col: &str| {
-        format!("SELECT {col} AS k, count(*) AS c FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 2 DESC")
-    };
-    async fn counts(
-        pool: &sqlx::PgPool,
-        sql: &str,
-        hours: i64,
-        fp: &Option<String>,
-        src: &Option<String>,
-    ) -> Result<Vec<(Option<String>, i64)>, sqlx::Error> {
-        sqlx::query_as::<_, (Option<String>, i64)>(sqlx::AssertSqlSafe(sql))
-            .bind(hours)
-            .bind(fp)
-            .bind(src)
-            .fetch_all(pool)
-            .await
-    }
-    let by_level = counts(
-        &st.pool,
-        &group_count("COALESCE(body->>'level','(none)')"),
-        hours,
-        &fp,
-        &src,
-    )
-    .await
-    .map_err(|e| db_err("telemetry dashboard", e))?;
-    let by_kind = counts(&st.pool, &group_count("event_kind"), hours, &fp, &src)
-        .await
-        .map_err(|e| db_err("telemetry dashboard", e))?;
-    let by_source = counts(&st.pool, &group_count("source"), hours, &fp, &src)
-        .await
-        .map_err(|e| db_err("telemetry dashboard", e))?;
-
-    let by_env = counts(&st.pool, &format!("SELECT body->>'environment' AS k, count(*) AS c FROM telemetry.telemetry_events WHERE {win} AND body->>'environment' IS NOT NULL GROUP BY 1 ORDER BY 2 DESC"), hours, &fp, &src).await.map_err(|e| db_err("telemetry dashboard", e))?;
-    let by_release = counts(&st.pool, &format!("SELECT body->>'release' AS k, count(*) AS c FROM telemetry.telemetry_events WHERE {win} AND body->>'release' IS NOT NULL GROUP BY 1 ORDER BY 2 DESC"), hours, &fp, &src).await.map_err(|e| db_err("telemetry dashboard", e))?;
-
     let bucket = if hours <= 48 { "hour" } else { "day" };
-    let series = sqlx::query_as::<_, (String, i64)>(sqlx::AssertSqlSafe(format!(
-        "SELECT to_char(date_trunc('{bucket}', received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD\"T\"HH24:MI') AS b, \
-           count(*) AS c FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 1"
+    let rows = sqlx::query_as::<_, (String, Option<String>, i64)>(sqlx::AssertSqlSafe(format!(
+        "WITH w AS (SELECT event_kind, source, body->>'level' AS level, body->>'environment' AS env, \
+                      body->>'release' AS rel, received_at \
+                    FROM telemetry.telemetry_events WHERE {win}) \
+         SELECT dim, k, c FROM ( \
+           SELECT 'level' AS dim, COALESCE(level,'(none)') AS k, count(*) AS c FROM w GROUP BY 2 \
+           UNION ALL SELECT 'kind', event_kind, count(*) FROM w GROUP BY 2 \
+           UNION ALL SELECT 'source', source, count(*) FROM w GROUP BY 2 \
+           UNION ALL SELECT 'env', env, count(*) FROM w WHERE env IS NOT NULL GROUP BY 2 \
+           UNION ALL SELECT 'release', rel, count(*) FROM w WHERE rel IS NOT NULL GROUP BY 2 \
+           UNION ALL SELECT 'series', to_char(date_trunc('{bucket}', received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD\"T\"HH24:MI'), count(*) FROM w GROUP BY 2 \
+         ) x ORDER BY dim, CASE WHEN dim = 'series' THEN k END, c DESC"
     )))
     .bind(hours)
     .bind(&fp)
@@ -331,6 +303,24 @@ pub async fn stats(
     .fetch_all(&st.pool)
     .await
     .map_err(|e| db_err("telemetry dashboard", e))?;
+
+    let mut by_level = Vec::new();
+    let mut by_kind = Vec::new();
+    let mut by_source = Vec::new();
+    let mut by_env = Vec::new();
+    let mut by_release = Vec::new();
+    let mut series = Vec::new();
+    for (dim, k, c) in rows {
+        match dim.as_str() {
+            "level" => by_level.push((k, c)),
+            "kind" => by_kind.push((k, c)),
+            "source" => by_source.push((k, c)),
+            "env" => by_env.push((k, c)),
+            "release" => by_release.push((k, c)),
+            "series" => series.push((k.unwrap_or_default(), c)),
+            _ => {}
+        }
+    }
 
     let total: i64 = by_kind.iter().map(|(_, c)| c).sum();
     let pair = |v: Vec<(Option<String>, i64)>| -> Vec<Value> {
@@ -367,15 +357,37 @@ pub async fn health(
     let win = "source='sentry' AND event_kind='session' \
                AND received_at > now() - make_interval(hours => $1::int) \
                AND ($2::text IS NULL OR body->'attrs'->>'release' = $2)";
-    let by_status = sqlx::query_as::<_, (Option<String>, i64)>(sqlx::AssertSqlSafe(format!(
-        "SELECT COALESCE(NULLIF(body->>'status',''),'ok') AS k, count(*) c \
-         FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 2 DESC"
+    let bucket = if hours <= 48 { "hour" } else { "day" };
+    let rows = sqlx::query_as::<_, (String, Option<String>, i64, i64)>(sqlx::AssertSqlSafe(format!(
+        "WITH w AS (SELECT body->>'status' AS status, body->>'did' AS did, \
+                      body->'attrs'->>'release' AS rel, received_at \
+                    FROM telemetry.telemetry_events WHERE {win}) \
+         SELECT dim, k, c, c2 FROM ( \
+           SELECT 'status' AS dim, COALESCE(NULLIF(status,''),'ok') AS k, count(*) AS c, 0::bigint AS c2 FROM w GROUP BY 2 \
+           UNION ALL SELECT 'users', NULL, count(DISTINCT did), count(DISTINCT did) FILTER (WHERE status = 'crashed') FROM w \
+           UNION ALL (SELECT 'release', rel, count(*), count(*) FILTER (WHERE status = 'crashed') FROM w GROUP BY 2 ORDER BY 3 DESC LIMIT 30) \
+           UNION ALL SELECT 'series', to_char(date_trunc('{bucket}', received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD\"T\"HH24:MI'), count(*), 0 FROM w GROUP BY 2 \
+         ) x ORDER BY dim, CASE WHEN dim = 'series' THEN k END, c DESC"
     )))
     .bind(hours)
     .bind(&rel)
     .fetch_all(&st.pool)
     .await
     .map_err(|e| db_err("telemetry dashboard", e))?;
+
+    let mut by_status: Vec<(Option<String>, i64)> = Vec::new();
+    let mut by_release: Vec<(Option<String>, i64, i64)> = Vec::new();
+    let mut series: Vec<(String, i64)> = Vec::new();
+    let (mut total_users, mut crashed_users) = (0i64, 0i64);
+    for (dim, k, c, c2) in rows {
+        match dim.as_str() {
+            "status" => by_status.push((k, c)),
+            "users" => (total_users, crashed_users) = (c, c2),
+            "release" => by_release.push((k, c, c2)),
+            "series" => series.push((k.unwrap_or_default(), c)),
+            _ => {}
+        }
+    }
     let total: i64 = by_status.iter().map(|(_, c)| c).sum();
     let unhealthy: i64 = by_status
         .iter()
@@ -402,32 +414,11 @@ pub async fn health(
     } else {
         100.0
     };
-
-    let (total_users, crashed_users) = sqlx::query_as::<_, (i64, i64)>(sqlx::AssertSqlSafe(format!(
-        "SELECT count(DISTINCT body->>'did') AS total_users, \
-           count(DISTINCT body->>'did') FILTER (WHERE body->>'status' = 'crashed') AS crashed_users \
-         FROM telemetry.telemetry_events WHERE {win}")))
-        .bind(hours).bind(&rel).fetch_one(&st.pool).await.map_err(|e| db_err("telemetry dashboard", e))?;
     let crash_free_users = if total_users > 0 {
         (1.0 - crashed_users as f64 / total_users as f64) * 100.0
     } else {
         100.0
     };
-    let by_release = sqlx::query_as::<_, (Option<String>, i64, i64)>(sqlx::AssertSqlSafe(format!(
-        "SELECT body->'attrs'->>'release' AS rel, count(*) total, \
-           count(*) FILTER (WHERE body->>'status' = 'crashed') bad \
-         FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 2 DESC LIMIT 30"
-    )))
-    .bind(hours)
-    .bind(&rel)
-    .fetch_all(&st.pool)
-    .await
-    .map_err(|e| db_err("telemetry dashboard", e))?;
-    let bucket = if hours <= 48 { "hour" } else { "day" };
-    let series = sqlx::query_as::<_, (String, i64)>(sqlx::AssertSqlSafe(format!(
-        "SELECT to_char(date_trunc('{bucket}', received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD\"T\"HH24:MI') b, count(*) c \
-         FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 1")))
-        .bind(hours).bind(&rel).fetch_all(&st.pool).await.map_err(|e| db_err("telemetry dashboard", e))?;
     Ok(Json(json!({
         "total": total, "crash_free_rate": crash_free, "healthy_rate": healthy_rate,
         "crashed": crashed, "unhealthy": unhealthy, "hours": hours,
@@ -568,7 +559,7 @@ pub async fn breakdown(
 const USERKEY: &str =
     "COALESCE(body->'user'->>'id', body->'user'->>'username', body->>'userId', body->>'anonymousId')";
 
-#[derive(sqlx::FromRow, Serialize)]
+#[derive(sqlx::FromRow, Serialize, Deserialize)]
 struct StoryRow {
     id: i64,
     received_at: String,
@@ -583,48 +574,38 @@ pub async fn story(
     State(st): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let anchor: Option<(String,)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT {USERKEY} FROM telemetry.telemetry_events WHERE id = $1"
-    )))
-    .bind(id)
-    .fetch_optional(&st.pool)
-    .await
-    .map_err(|e| db_err("telemetry dashboard", e))?;
-    let user_key = match anchor {
-        None => return Err((StatusCode::NOT_FOUND, "no such event".into())),
-        Some((uk,)) if !uk.is_empty() => uk,
-        Some(_) => return Ok(Json(json!({ "user": null, "utm": null, "events": [] }))),
-    };
     let uk_t = USERKEY.replace("body", "t.body");
     let title_t = TITLE1.replace("body", "t.body");
-    let events = sqlx::query_as::<_, StoryRow>(sqlx::AssertSqlSafe(format!(
-        "SELECT t.id, \
-           to_char(t.received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS received_at, \
-           t.source, t.event_kind AS kind, t.body->>'level' AS level, {title_t} AS title, \
-           (t.id = $2) AS current \
-         FROM telemetry.telemetry_events t, \
-              (SELECT received_at AS ts FROM telemetry.telemetry_events WHERE id = $2) a \
-         WHERE {uk_t} = $1 \
-           AND t.received_at BETWEEN a.ts - interval '6 hours' AND a.ts + interval '1 hour' \
-         ORDER BY t.received_at LIMIT 200"
+    let row: Option<(Option<String>, Value, Option<Value>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "WITH a AS (SELECT {USERKEY} AS uk, received_at AS ts FROM telemetry.telemetry_events WHERE id = $1), \
+         ev AS (SELECT t.id, t.received_at AS ts, t.source, t.event_kind AS kind, t.body->>'level' AS level, \
+                  {title_t} AS title, (t.id = $1) AS current \
+                FROM telemetry.telemetry_events t, a \
+                WHERE a.uk <> '' AND {uk_t} = a.uk \
+                  AND t.received_at BETWEEN a.ts - interval '6 hours' AND a.ts + interval '1 hour' \
+                ORDER BY t.received_at LIMIT 200) \
+         SELECT a.uk, \
+           (SELECT COALESCE(jsonb_agg(jsonb_build_object( \
+              'id', id, 'received_at', to_char(ts AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), \
+              'source', source, 'kind', kind, 'level', level, 'title', title, 'current', current) \
+              ORDER BY ts), '[]'::jsonb) FROM ev) AS events, \
+           (SELECT COALESCE(body->'context'->'campaign', body->'properties'->'campaign') \
+            FROM telemetry.telemetry_events WHERE a.uk <> '' AND {USERKEY} = a.uk \
+              AND COALESCE(body->'context'->'campaign', body->'properties'->'campaign') IS NOT NULL \
+            ORDER BY received_at DESC LIMIT 1) AS utm \
+         FROM a"
     )))
-    .bind(&user_key)
     .bind(id)
-    .fetch_all(&st.pool)
-    .await
-    .map_err(|e| db_err("telemetry dashboard", e))?;
-
-    let utm: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT COALESCE(body->'context'->'campaign', body->'properties'->'campaign') \
-         FROM telemetry.telemetry_events WHERE {USERKEY} = $1 \
-           AND COALESCE(body->'context'->'campaign', body->'properties'->'campaign') IS NOT NULL \
-         ORDER BY received_at DESC LIMIT 1"
-    )))
-    .bind(&user_key)
     .fetch_optional(&st.pool)
     .await
-    .map_err(|e| db_err("telemetry dashboard", e))?
-    .flatten();
+    .map_err(|e| db_err("telemetry dashboard", e))?;
+    let (user_key, events, utm) = match row {
+        None => return Err((StatusCode::NOT_FOUND, "no such event".into())),
+        Some((Some(uk), events, utm)) if !uk.is_empty() => (uk, events, utm),
+        Some(_) => return Ok(Json(json!({ "user": null, "utm": null, "events": [] }))),
+    };
+    let events: Vec<StoryRow> = serde_json::from_value(events)
+        .map_err(|e| db_err("telemetry dashboard", sqlx::Error::decode(e)))?;
     Ok(Json(
         json!({ "user": user_key, "utm": utm, "count": events.len(), "events": events }),
     ))
@@ -636,42 +617,37 @@ pub async fn metrics(
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let hours = p.hours.clamp(1, 24 * 365);
     let win = "source = 'segment' AND received_at > now() - make_interval(hours => $1::int)";
-    async fn q(
-        pool: &sqlx::PgPool,
-        sql: &str,
-        hours: i64,
-    ) -> Result<Vec<(Option<String>, i64)>, sqlx::Error> {
-        sqlx::query_as::<_, (Option<String>, i64)>(sqlx::AssertSqlSafe(sql))
-            .bind(hours)
-            .fetch_all(pool)
-            .await
-    }
-    let by_event = q(
-        &st.pool,
-        &format!(
-            "SELECT body->>'event' AS k, count(*) AS c FROM telemetry.telemetry_events \
-         WHERE {win} AND body->>'event' IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 50"
-        ),
-        hours,
-    )
-    .await
-    .map_err(|e| db_err("telemetry dashboard", e))?;
-    let by_type = q(&st.pool, &format!(
-        "SELECT event_kind AS k, count(*) AS c FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 2 DESC"), hours).await.map_err(|e| db_err("telemetry dashboard", e))?;
-    let total: i64 = by_type.iter().map(|(_, c)| c).sum();
-    let users: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT count(DISTINCT COALESCE(body->>'userId', body->>'anonymousId')) \
-         FROM telemetry.telemetry_events WHERE {win}"
+    let bucket = if hours <= 48 { "hour" } else { "day" };
+    let rows = sqlx::query_as::<_, (String, Option<String>, i64)>(sqlx::AssertSqlSafe(format!(
+        "WITH w AS (SELECT body->>'event' AS ev, event_kind, \
+                      COALESCE(body->>'userId', body->>'anonymousId') AS uk, received_at \
+                    FROM telemetry.telemetry_events WHERE {win}) \
+         SELECT dim, k, c FROM ( \
+           SELECT 'type' AS dim, event_kind AS k, count(*) AS c FROM w GROUP BY 2 \
+           UNION ALL (SELECT 'event', ev, count(*) FROM w WHERE ev IS NOT NULL GROUP BY 2 ORDER BY 3 DESC LIMIT 50) \
+           UNION ALL SELECT 'users', NULL, count(DISTINCT uk) FROM w \
+           UNION ALL SELECT 'series', to_char(date_trunc('{bucket}', received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD\"T\"HH24:MI'), count(*) FROM w GROUP BY 2 \
+         ) x ORDER BY dim, CASE WHEN dim = 'series' THEN k END, c DESC"
     )))
     .bind(hours)
-    .fetch_one(&st.pool)
+    .fetch_all(&st.pool)
     .await
     .map_err(|e| db_err("telemetry dashboard", e))?;
-    let bucket = if hours <= 48 { "hour" } else { "day" };
-    let series = sqlx::query_as::<_, (String, i64)>(sqlx::AssertSqlSafe(format!(
-        "SELECT to_char(date_trunc('{bucket}', received_at AT TIME ZONE 'UTC'),'YYYY-MM-DD\"T\"HH24:MI') AS b, \
-           count(*) AS c FROM telemetry.telemetry_events WHERE {win} GROUP BY 1 ORDER BY 1")))
-        .bind(hours).fetch_all(&st.pool).await.map_err(|e| db_err("telemetry dashboard", e))?;
+
+    let mut by_event = Vec::new();
+    let mut by_type = Vec::new();
+    let mut series = Vec::new();
+    let mut users = 0i64;
+    for (dim, k, c) in rows {
+        match dim.as_str() {
+            "event" => by_event.push((k, c)),
+            "type" => by_type.push((k, c)),
+            "users" => users = c,
+            "series" => series.push((k.unwrap_or_default(), c)),
+            _ => {}
+        }
+    }
+    let total: i64 = by_type.iter().map(|(_, c)| c).sum();
     let pair = |v: Vec<(Option<String>, i64)>| -> Vec<Value> {
         v.into_iter()
             .map(|(k, c)| json!([k.unwrap_or_default(), c]))
@@ -684,7 +660,7 @@ pub async fn metrics(
     })))
 }
 
-#[derive(sqlx::FromRow, Serialize)]
+#[derive(sqlx::FromRow, Serialize, Deserialize)]
 struct SessEvent {
     id: i64,
     received_at: String,
@@ -693,55 +669,53 @@ struct SessEvent {
     kind: String,
 }
 
+type SessionRow = (
+    Option<String>,
+    Option<String>,
+    Value,
+    i64,
+    i64,
+    Option<String>,
+    Option<String>,
+    Value,
+);
+
 pub async fn session(
     State(st): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let anchor = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-        "SELECT body->'user'->>'id', body->'contexts'->'app'->>'app_start_time' \
-         FROM telemetry.telemetry_events WHERE id = $1",
-    )
+    let row: Option<SessionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "WITH a AS (SELECT body->'user'->>'id' AS uid, body->'contexts'->'app'->>'app_start_time' AS app_start \
+                    FROM telemetry.telemetry_events WHERE id = $1), \
+         s AS (SELECT id, received_at, body->>'level' AS level, {TITLE1} AS title, \
+                 COALESCE(NULLIF(body#>>'{{exception,values,0,type}}',''), event_kind) AS kind \
+               FROM telemetry.telemetry_events, a \
+               WHERE source='sentry' AND event_kind='event' AND body->'user'->>'id' = a.uid \
+                 AND (a.app_start IS NULL OR body->'contexts'->'app'->>'app_start_time' = a.app_start)) \
+         SELECT a.uid, a.app_start, \
+           (SELECT COALESCE(jsonb_agg(jsonb_build_object('id', e.id, 'received_at', {ts_e}, \
+              'level', e.level, 'title', e.title, 'kind', e.kind) ORDER BY e.received_at), '[]'::jsonb) \
+            FROM (SELECT * FROM s ORDER BY received_at ASC LIMIT 1000) e) AS events, \
+           (SELECT count(*) FROM s) AS total, \
+           (SELECT count(*) FILTER (WHERE level IN ('error','fatal')) FROM s) AS errors, \
+           (SELECT to_char(min(received_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM s) AS first, \
+           (SELECT to_char(max(received_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM s) AS last, \
+           (SELECT COALESCE(jsonb_agg(jsonb_build_array(k, c) ORDER BY c DESC), '[]'::jsonb) \
+            FROM (SELECT COALESCE(level,'(none)') AS k, count(*) AS c FROM s GROUP BY 1) g) AS by_level \
+         FROM a",
+        ts_e = TS.replace("received_at", "e.received_at"),
+    )))
     .bind(id)
     .fetch_optional(&st.pool)
     .await
     .map_err(|e| db_err("telemetry dashboard", e))?;
-    let Some((Some(user), app_start)) = anchor else {
+    let Some((Some(user), app_start, events, total, errors, first, last, by_level)) = row else {
         return Ok(Json(json!({ "user": null, "events": [] })));
     };
-
-    let cond = "source='sentry' AND event_kind='event' AND body->'user'->>'id' = $1 \
-                AND ($2::text IS NULL OR body->'contexts'->'app'->>'app_start_time' = $2)";
-    let events = sqlx::query_as::<_, SessEvent>(sqlx::AssertSqlSafe(format!(
-        "SELECT id, {TS} AS received_at, body->>'level' AS level, {TITLE1} AS title, \
-           COALESCE(NULLIF(body#>>'{{exception,values,0,type}}',''), event_kind) AS kind \
-         FROM telemetry.telemetry_events WHERE {cond} ORDER BY received_at ASC LIMIT 1000"
-    )))
-    .bind(&user)
-    .bind(&app_start)
-    .fetch_all(&st.pool)
-    .await
-    .map_err(|e| db_err("telemetry dashboard", e))?;
-    let (total, errors, first, last): (i64, i64, Option<String>, Option<String>) =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*), count(*) FILTER (WHERE body->>'level' IN ('error','fatal')), \
-               to_char(min(received_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), \
-               to_char(max(received_at) AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
-             FROM telemetry.telemetry_events WHERE {cond}"
-        )))
-        .bind(&user)
-        .bind(&app_start)
-        .fetch_one(&st.pool)
-        .await
-        .map_err(|e| db_err("telemetry dashboard", e))?;
-    let by_level = sqlx::query_as::<_, (Option<String>, i64)>(sqlx::AssertSqlSafe(format!(
-        "SELECT COALESCE(body->>'level','(none)'), count(*) FROM telemetry.telemetry_events \
-         WHERE {cond} GROUP BY 1 ORDER BY 2 DESC"
-    )))
-    .bind(&user)
-    .bind(&app_start)
-    .fetch_all(&st.pool)
-    .await
-    .map_err(|e| db_err("telemetry dashboard", e))?;
+    let events: Vec<SessEvent> = serde_json::from_value(events)
+        .map_err(|e| db_err("telemetry dashboard", sqlx::Error::decode(e)))?;
+    let by_level: Vec<(Option<String>, i64)> = serde_json::from_value(by_level)
+        .map_err(|e| db_err("telemetry dashboard", sqlx::Error::decode(e)))?;
     Ok(Json(json!({
         "user": user, "app_start": app_start, "anchor": id,
         "total": total, "errors": errors, "first": first, "last": last,

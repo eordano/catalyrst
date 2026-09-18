@@ -90,7 +90,6 @@ export function ResumeDoneCard() {
 }
 
 export function ProcessingCard({
-  items,
   checkoutId,
 }: {
   items: string;

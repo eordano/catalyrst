@@ -171,20 +171,6 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
-.mktransferpage__btn--secondary {
-  background: var(--fill-4);
-  color: #fff;
-}
-.mktransferpage__btn--secondary:not(:disabled):hover {
-  background: var(--fill-5);
-}
-.mktransferpage__btn--primary {
-  background: var(--brand-cta);
-  color: #fff;
-}
-.mktransferpage__btn--primary:not(:disabled):hover {
-  background: var(--brand-hover);
-}
 
 .mktransferpage__spinner {
   width: 15px;

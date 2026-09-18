@@ -13,18 +13,6 @@ body.camera-open .xc__body { background: transparent; }
 @keyframes cam-flash { from { opacity: 0.85; } to { opacity: 0; } }
 
 .cam__view { position: absolute; inset: 0; }
-.cam__sky {
-  position: absolute; inset: 0 0 38% 0;
-  background: linear-gradient(180deg, #2a3f6b 0%, #5b6f9e 55%, #c9a98a 100%);
-}
-.cam__ground {
-  position: absolute; inset: 62% 0 0 0;
-  background: linear-gradient(180deg, #3a5c3a 0%, #24381f 100%);
-}
-.cam__sun {
-  position: absolute; left: 64%; top: 24%; width: 90px; height: 90px; border-radius: 50%;
-  background: radial-gradient(circle, #fff6da, rgba(255,233,160,.5) 50%, transparent 72%);
-}
 
 .cam__guides { position: absolute; inset: 0; pointer-events: none; }
 .cam__gv { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.18); }

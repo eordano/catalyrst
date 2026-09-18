@@ -9,17 +9,12 @@ import {
   MockTopupOutSchema,
 } from "../generated-schemas/credits";
 import {
+  PaymentsBalanceOutSchema,
   PaymentsConfigSchema,
   PaymentsNonceOutSchema,
 } from "../generated-schemas/economy";
 
-export {
-  MockTopupOutSchema as MockTopupSchema,
-  ManaTopupQuoteOutSchema as ManaTopupQuoteSchema,
-  PaymentsConfigSchema,
-};
-
-export type MockTopup = z.infer<typeof MockTopupOutSchema>;
+type MockTopup = z.infer<typeof MockTopupOutSchema>;
 
 export async function mockCardTopup(
   identity: AuthIdentity,
@@ -49,7 +44,7 @@ export async function quoteManaTopup(
 
 const ManaTopupPendingSchema = z.object({ status: z.literal("pending") });
 
-export type ManaTopupResult =
+type ManaTopupResult =
   | { state: "granted"; creditsGranted: string; available: string }
   | { state: "pending" };
 
@@ -91,6 +86,30 @@ export async function fetchManaNonce(
     { signal },
   );
   return PaymentsNonceOutSchema.parse(raw).nonce;
+}
+
+const BALANCE_TIMEOUT_MS = 8000;
+
+function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
+  const timeout = AbortSignal.timeout(ms);
+  if (!signal) return timeout;
+  return typeof AbortSignal.any === "function"
+    ? AbortSignal.any([signal, timeout])
+    : timeout;
+}
+
+export async function fetchManaBalance(
+  address: string,
+  opts: { signal?: AbortSignal; timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+): Promise<bigint> {
+  const raw = await getJSON<unknown>(
+    `/v1/payments/balance/${encodeURIComponent(address.toLowerCase())}`,
+    {
+      signal: withTimeout(opts.signal, opts.timeoutMs ?? BALANCE_TIMEOUT_MS),
+      fetchImpl: opts.fetchImpl,
+    },
+  );
+  return BigInt(PaymentsBalanceOutSchema.parse(raw).balance);
 }
 
 export function isMockCardOff(err: unknown): boolean {

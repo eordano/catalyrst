@@ -1,9 +1,9 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 
-export const PAIR_TTL_MS = 5 * 60_000;
+const PAIR_TTL_MS = 5 * 60_000;
 const MAX_SESSIONS = 500;
 
-export type PairSession = {
+type PairSession = {
   id: string;
   pollToken: string;
   ephemeral: string;
@@ -14,14 +14,14 @@ export type PairSession = {
   completed: { signer: string; signature: string } | null;
 };
 
-export type PairPollResult =
+type PairPollResult =
   | { state: "missing" }
   | { state: "forbidden" }
   | { state: "expired" }
   | { state: "pending" }
   | { state: "completed"; signer: string; signature: string };
 
-export type PairCompleteResult = "ok" | "missing" | "expired" | "already";
+type PairCompleteResult = "ok" | "missing" | "expired" | "already";
 
 export type PairStore = {
   create(input: {

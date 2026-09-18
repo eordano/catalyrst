@@ -65,6 +65,15 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "drop the .dcl.eth suffix from the realm name of locally published worlds (default 1)",
     ),
     (
+        "WORLDS_PERSONAL_WORLDS_MAX",
+        "how many <address>.dcl.eth personal test worlds this realm hosts; 0 = none, a \
+         personal-label deploy is denied (default 0)",
+    ),
+    (
+        "WORLDS_PERSONAL_WORLD_MAX_SIZE_BYTES",
+        "size cap for one personal test world, 1..=314572800 (default 52428800)",
+    ),
+    (
         "WORLDS_CONTENT_DIR",
         "local contents directory (default ./data/worlds/contents)",
     ),

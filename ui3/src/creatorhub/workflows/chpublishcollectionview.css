@@ -252,14 +252,3 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
-
-.cwpc__btn--primary {
-  background: var(--brand-cta, #d80029);
-  border-color: var(--brand-cta, #d80029);
-  color: #fff;
-}
-
-.cwpc__btn--primary:hover:not(:disabled) {
-  background: #e62749;
-  border-color: #e62749;
-}

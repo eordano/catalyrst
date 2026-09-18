@@ -3,6 +3,7 @@ import Toggle from "../../atoms/Toggle";
 import Slider from "../../atoms/Slider";
 import { Mute } from "../../atoms/icons";
 import { useBridgeState, sendBridge } from "../../overlay/bridge";
+import { FLOATING_PANEL_TITLES } from "./FloatingPanel";
 import "./voicechat.css";
 
 type RailItem = { key: string; node: ReactNode; active?: boolean; stroke?: boolean };
@@ -37,14 +38,12 @@ function RailBtn({ item }: { item: RailItem }) {
   );
 }
 
-export function VoicePanel({ className = "" }: { className?: string }) {
+export function VoiceControls() {
   const mic = useBridgeState((s) => s.mic);
   const micOn = !!mic?.enabled;
   const toggleMic = () => sendBridge("SetMic", { enabled: !micOn });
   return (
-    <div className={"vc" + (className ? " " + className : "")}>
-      <div className="vc__head">NEARBY VOICE</div>
-
+    <div className="vc__controls">
       <div className="vc__row">
         <svg className="vc__icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
           <path d="M8 9a4 4 0 1 1 8 0c0 2.3-2 3.2-2.6 4.6-.5 1.1-.4 2-.4 2.7 0 1.6-1.2 2.7-2.7 2.7-1.7 0-2.9-1.3-2.9-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
@@ -79,6 +78,15 @@ export function VoicePanel({ className = "" }: { className?: string }) {
       </button>
 
       <div className="vc__hint">Click <b>Microphone</b> to talk to people nearby</div>
+    </div>
+  );
+}
+
+function VoicePanel({ className = "" }: { className?: string }) {
+  return (
+    <div className={"vc" + (className ? " " + className : "")}>
+      <div className="vc__head">{FLOATING_PANEL_TITLES.voice}</div>
+      <VoiceControls />
     </div>
   );
 }

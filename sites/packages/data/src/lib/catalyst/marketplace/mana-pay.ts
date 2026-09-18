@@ -32,7 +32,7 @@ export function transferCalldata(to: string, weiDecimal: string): string {
   )}`;
 }
 
-export type MetaTxTypedData = {
+type MetaTxTypedData = {
   types: Record<string, Array<{ name: string; type: string }>>;
   domain: {
     name: string;
@@ -146,35 +146,17 @@ export async function relayMetaTx(
   return body.txHash;
 }
 
-const POLYGON_RPCS = [
-  "https://polygon-bor-rpc.publicnode.com",
-  "https://polygon.llamarpc.com",
-];
-
-export async function fetchManaBalance(
-  address: string,
-  signal?: AbortSignal,
-): Promise<bigint | null> {
-  const data = `0x70a08231${to32Bytes(address)}`;
-  for (const rpc of POLYGON_RPCS) {
-    try {
-      const res = await fetch(rpc, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "eth_call",
-          params: [{ to: MANA_POLYGON.address, data }, "latest"],
-        }),
-        signal,
-      });
-      const j = (await res.json()) as { result?: string };
-      if (typeof j.result === "string" && j.result.startsWith("0x")) {
-        return BigInt(j.result);
-      }
-    } catch {
-    }
+export function manaShortfallWei(
+  balance: bigint | null,
+  weiNeeded: string,
+): bigint | null {
+  if (balance == null) return null;
+  let need: bigint;
+  try {
+    need = BigInt(weiNeeded);
+  } catch {
+    return null;
   }
-  return null;
+  if (need <= 0n) return null;
+  return balance >= need ? null : need - balance;
 }

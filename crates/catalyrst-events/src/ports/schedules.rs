@@ -1,3 +1,8 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Duration;
+
+use catalyrst_fed::cache::{cache_get, cache_put, Cached};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::PgPool;
@@ -7,7 +12,11 @@ use crate::schemas::ScheduleRecord;
 
 pub struct SchedulesComponent {
     pool: PgPool,
+    cache: Mutex<HashMap<String, Cached<Vec<ScheduleRecord>>>>,
 }
+
+/// Local writes call `invalidate`, so the memo only delays what other nodes wrote.
+const SCHEDULE_CACHE_TTL: Duration = Duration::from_secs(30);
 
 #[derive(sqlx::FromRow)]
 struct ScheduleLocalRow {
@@ -53,10 +62,20 @@ impl ScheduleLocalRow {
 
 impl SchedulesComponent {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn invalidate(&self) {
+        self.cache.lock().unwrap().clear();
     }
 
     pub async fn list(&self) -> Result<Vec<ScheduleRecord>, ApiError> {
+        if let Some(list) = cache_get(&self.cache, "all") {
+            return Ok(list);
+        }
         let rows: Vec<ScheduleLocalRow> = sqlx::query_as(
             "SELECT id, name, description, image, theme, background, active_since, active_until, \
                     active, created_at, updated_at \
@@ -64,22 +83,21 @@ impl SchedulesComponent {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows
+        let list: Vec<ScheduleRecord> = rows
             .into_iter()
             .map(ScheduleLocalRow::into_record)
-            .collect())
+            .collect();
+        cache_put(
+            &self.cache,
+            "all".to_string(),
+            list.clone(),
+            SCHEDULE_CACHE_TTL,
+        );
+        Ok(list)
     }
 
     pub async fn get(&self, schedule_id: &str) -> Result<Option<ScheduleRecord>, ApiError> {
-        let row: Option<ScheduleLocalRow> = sqlx::query_as(
-            "SELECT id, name, description, image, theme, background, active_since, active_until, \
-                    active, created_at, updated_at \
-             FROM schedules_local WHERE id = $1",
-        )
-        .bind(schedule_id)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.map(ScheduleLocalRow::into_record))
+        Ok(self.list().await?.into_iter().find(|s| s.id == schedule_id))
     }
 
     pub async fn sitemap_schedule_ids(&self) -> Result<Vec<String>, ApiError> {

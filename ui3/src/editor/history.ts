@@ -5,7 +5,7 @@ export interface HistoryEntry {
   after?: unknown;
 }
 
-export type HistoryWrite = (entity: string, name: string, value: unknown) => void;
+type HistoryWrite = (entity: string, name: string, value: unknown) => void;
 
 export interface HistoryEngine {
   push(batch: HistoryEntry[]): void;
@@ -17,7 +17,7 @@ export interface HistoryEngine {
   clear(): void;
 }
 
-export const HISTORY_MAX_STEPS = 100;
+const HISTORY_MAX_STEPS = 100;
 
 export function createHistory(
   write: HistoryWrite,

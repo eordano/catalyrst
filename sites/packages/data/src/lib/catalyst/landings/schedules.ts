@@ -4,22 +4,20 @@ import { getJSON } from "../client";
 import type { GetOptions } from "../client";
 import { apiOkOf, okDataTotalOf } from "../envelope";
 import { ScheduleRecordSchema } from "../generated-schemas/events";
-import type { ApiOk as RsApiOk } from "@ui/generated/catalyst/events/ApiOk";
-import type { ScheduleRecord as RsSchedule } from "@ui/generated/catalyst/events/ScheduleRecord";
 import { warnInvalid } from "../warn";
-
-export { ScheduleRecordSchema as ScheduleSchema };
+import type { ScheduleRecord as RsSchedule } from "@ui/generated/catalyst/events/ScheduleRecord";
+import type { ApiOk as RsApiOk } from "@ui/generated/catalyst/events/ApiOk";
 
 export type Schedule = z.infer<typeof ScheduleRecordSchema>;
 
-export function parseSchedule(raw: unknown): Schedule | null {
+function parseSchedule(raw: unknown): Schedule | null {
   const r = ScheduleRecordSchema.safeParse(raw);
   if (r.success) return r.data;
   warnInvalid("Schedule", r.error.issues);
   return null;
 }
 
-export function parseSchedules(raw: unknown[]): Schedule[] {
+function parseSchedules(raw: unknown[]): Schedule[] {
   const out: Schedule[] = [];
   for (const row of raw ?? []) {
     const schedule = parseSchedule(row);
@@ -29,14 +27,16 @@ export function parseSchedules(raw: unknown[]): Schedule[] {
 }
 
 const ScheduleListEnvelope = okDataTotalOf(z.array(z.unknown()));
-const ScheduleDetailEnvelope = apiOkOf(z.unknown());
 
 export type _DriftScheduleListEnvelope = Assert<
   AssignableTo<RsApiOk<RsSchedule[]>, z.input<typeof ScheduleListEnvelope>>
 >;
+
 export type _DriftScheduleDetailEnvelope = Assert<
   AssignableTo<RsApiOk<RsSchedule>, z.input<typeof ScheduleDetailEnvelope>>
 >;
+const ScheduleDetailEnvelope = apiOkOf(z.unknown());
+
 export async function fetchSchedules(
   opts: GetOptions = {},
 ): Promise<{ data: Schedule[]; total: number }> {
@@ -50,7 +50,7 @@ export async function fetchSchedules(
   return { data, total: env.data.total ?? data.length };
 }
 
-export const SCHEDULE_BOUNDS = {
+const SCHEDULE_BOUNDS = {
   nameMax: 50,
   descriptionMax: 255,
   imageMax: 255,
@@ -88,7 +88,7 @@ export function emptyDraft(): ScheduleDraft {
   };
 }
 
-export function isoToDateInput(iso: string | null): string {
+function isoToDateInput(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -109,7 +109,7 @@ export function scheduleToDraft(s: Schedule): ScheduleDraft {
   };
 }
 
-export type ScheduleUpsertBody = {
+type ScheduleUpsertBody = {
   schedule_id?: string;
   name: string;
   description: string | null;
@@ -122,7 +122,7 @@ export type ScheduleUpsertBody = {
   signed_at: number;
 };
 
-export function dateToEpochMs(date: string): number {
+function dateToEpochMs(date: string): number {
   if (!date) return 0;
   const d = new Date(`${date}T00:00:00.000Z`);
   return Number.isNaN(d.getTime()) ? 0 : d.getTime();
@@ -143,7 +143,7 @@ export function toUpsertBody(draft: ScheduleDraft, scheduleId?: string): Schedul
   };
 }
 
-export type DraftIssues = Partial<Record<keyof ScheduleDraft, string>>;
+type DraftIssues = Partial<Record<keyof ScheduleDraft, string>>;
 
 export function validateStep(step: string, draft: ScheduleDraft): DraftIssues {
   const issues: DraftIssues = {};
@@ -175,7 +175,7 @@ export function isStepValid(step: string, draft: ScheduleDraft): boolean {
   return Object.keys(validateStep(step, draft)).length === 0;
 }
 
-export const SubmitResultSchema = z.object({
+const SubmitResultSchema = z.object({
   id: z.string(),
   active: z.boolean(),
 });
@@ -209,5 +209,8 @@ function hashString(s: string): number {
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftSchedule = Assert<AssignableTo<RsSchedule, Schedule>>;
+

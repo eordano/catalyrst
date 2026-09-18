@@ -7,21 +7,9 @@ import StCastStreamer from "@ui/web/pages/StCastStreamer";
 import StCastNotFound from "@ui/web/pages/StCastNotFound";
 
 import type { TrackContext } from "@core/lib/telemetry/track";
-import {
-  castMachine,
-  resolveCastSnapshot,
-  slugToState,
-  stateToSlug,
-  DEFAULT_DEVICES,
-  type DeviceSelection,
-  type EndCastFn,
-  type RequestPermissionsFn,
-  type ResolveTokenFn,
-  type ShareScreenFn,
-  type TrackFn,
-} from "./machine";
+import { castMachine, resolveCastSnapshot, slugToState, stateToSlug, DEFAULT_DEVICES, type EndCastFn, type RequestPermissionsFn, type ResolveTokenFn, type ShareScreenFn, type TrackFn } from "./machine";
 
-export type CastConsoleProps = {
+type CastConsoleProps = {
   trackCtx: TrackContext;
   token: string;
   identity?: string;
@@ -353,4 +341,3 @@ function ConsoleControls({
   );
 }
 
-export type { DeviceSelection };

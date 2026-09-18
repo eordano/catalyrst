@@ -2,8 +2,8 @@ import { z } from "zod";
 
 import { getJSON } from "../client";
 import type { GetOptions, Query } from "../client";
-import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 import { governanceApiBase } from "./api-base";
+import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 
 export type BidCard = {
   id: string;
@@ -16,7 +16,7 @@ export type BidCard = {
   current: boolean;
 };
 
-export type Tender = {
+type Tender = {
   id: string;
   title: string;
   status: string;
@@ -35,7 +35,7 @@ export type BidVoteContext = {
   copy: BidVoteCopy;
 };
 
-export type BidVoteCopy = {
+type BidVoteCopy = {
   title: string;
   description_line1: string;
   description_line2: string;
@@ -95,7 +95,7 @@ const ProposalSchema = z.object({
   configuration: ConfigurationSchema,
 });
 
-export type LiveBidProposal = z.infer<typeof ProposalSchema>;
+type LiveBidProposal = z.infer<typeof ProposalSchema>;
 
 const EnvelopeSchema = z.object({
   data: z.array(z.unknown()).nullish(),
@@ -142,7 +142,7 @@ function toTender(
   };
 }
 
-export type FetchOptions = GetOptions;
+type FetchOptions = GetOptions;
 
 async function fetchProposals(
   query: Query,
@@ -224,14 +224,17 @@ export async function loadBidVoteContext(
   };
 }
 
-const USD = new Intl.NumberFormat("en-US", {
+type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
+type Assert<T extends true> = T;
+
+export type _DriftProposalsEnvelope = Assert<
+  AssignableTo<RsListEnvelope, z.input<typeof EnvelopeSchema>>
+>;
+
+new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
   maximumFractionDigits: 0,
 });
 
-type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
-type Assert<T extends true> = T;
-export type _DriftProposalsEnvelope = Assert<
-  AssignableTo<RsListEnvelope, z.input<typeof EnvelopeSchema>>
->;

@@ -6,7 +6,7 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type { TrackFn };
 
-export type CommitKind = "subscribe" | "unsubscribe";
+type CommitKind = "subscribe" | "unsubscribe";
 
 export type CommitResult = { kind: CommitKind; at: number };
 
@@ -18,14 +18,14 @@ export type CommitFn = (args: {
 
 export type Selection = Record<string, boolean>;
 
-export type SubscriptionInput = {
+type SubscriptionInput = {
   trackCtx: TrackContext;
   selection?: Selection;
   commit?: CommitFn;
   track?: TrackFn;
 };
 
-export type SubscriptionContext = {
+type SubscriptionContext = {
   trackCtx: TrackContext;
   commit: CommitFn;
   track: TrackFn;
@@ -35,7 +35,7 @@ export type SubscriptionContext = {
   error?: string;
 };
 
-export type SubscriptionEvent =
+type SubscriptionEvent =
   | { type: "START" }
   | { type: "SIGN_IN" }
   | { type: "TOGGLE"; notificationType: string; enabled: boolean }
@@ -69,8 +69,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type SubscriptionStateId = keyof typeof STATE_TO_SLUG;
-export type SubscriptionStepSlug = (typeof STATE_TO_SLUG)[SubscriptionStateId];
+type SubscriptionStateId = keyof typeof STATE_TO_SLUG;
+type SubscriptionStepSlug = (typeof STATE_TO_SLUG)[SubscriptionStateId];
 
 export const FIRST_STEP_SLUG: SubscriptionStepSlug = STATE_TO_SLUG.idle;
 
@@ -259,8 +259,6 @@ export const subscriptionMachine = setup({
     },
   },
 });
-
-export type SubscriptionMachine = typeof subscriptionMachine;
 
 export function enabledTypes(selection: Selection): string[] {
   return Object.entries(selection)

@@ -1,13 +1,3 @@
-.gpsuc {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  display: flex;
-  padding: 24px;
-  overflow: auto;
-  background: rgba(0, 0, 0, 0.85);
-  animation: u-fade-in 0.3s linear;
-}
 .gpsuc__card {
   position: relative;
   margin: auto;
@@ -179,33 +169,4 @@
   font-size: 13px;
   line-height: 18px;
   color: var(--gv-muted);
-}
-
-.gpsuc__picker {
-  position: fixed;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: calc(var(--z-modal) + 1);
-  display: flex;
-  gap: 6px;
-  padding: 6px;
-  background: var(--gv-surface);
-  border: 1px solid var(--gv-line);
-  border-radius: 999px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-}
-.gpsuc__picker button {
-  border: 0;
-  background: transparent;
-  color: var(--gv-muted);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.gpsuc__picker button.is-active {
-  background: var(--brand);
-  color: #fff;
 }

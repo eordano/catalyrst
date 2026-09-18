@@ -225,11 +225,6 @@
   letter-spacing: 1px;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
 }
-.ev__featuresub {
-  font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 1px;
-}
 .ev__featurebody {
   flex: 1 1 auto;
   padding: 14px 16px 16px;

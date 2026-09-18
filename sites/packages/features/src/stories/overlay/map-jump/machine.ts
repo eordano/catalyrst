@@ -14,7 +14,7 @@ export type JumpFn = (args: {
   signal?: AbortSignal;
 }) => Promise<JumpResult>;
 
-export type MapJumpInput = {
+type MapJumpInput = {
   trackCtx: TrackContext;
   filter?: PinCategory;
   pin?: MapPin | null;
@@ -22,7 +22,7 @@ export type MapJumpInput = {
   track?: TrackFn;
 };
 
-export type MapJumpContext = {
+type MapJumpContext = {
   trackCtx: TrackContext;
   filter: PinCategory;
   pin?: MapPin | null;
@@ -33,7 +33,7 @@ export type MapJumpContext = {
   error?: string;
 };
 
-export type MapJumpEvent =
+type MapJumpEvent =
   | { type: "FILTER"; filter: PinCategory }
   | { type: "SELECT_PIN"; pin: MapPin }
   | { type: "CLEAR" }
@@ -61,8 +61,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type MapJumpStateId = keyof typeof STATE_TO_SLUG;
-export type MapJumpStepSlug = (typeof STATE_TO_SLUG)[MapJumpStateId];
+type MapJumpStateId = keyof typeof STATE_TO_SLUG;
+type MapJumpStepSlug = (typeof STATE_TO_SLUG)[MapJumpStateId];
 
 export const FIRST_STEP_SLUG: MapJumpStepSlug = STATE_TO_SLUG.browsing;
 
@@ -214,8 +214,6 @@ export const mapJumpMachine = setup({
     },
   },
 });
-
-export type MapJumpMachine = typeof mapJumpMachine;
 
 export function resolveMapJumpSnapshot(args: {
   step: MapJumpStateId;

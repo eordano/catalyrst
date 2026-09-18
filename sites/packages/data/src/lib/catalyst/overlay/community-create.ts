@@ -1,23 +1,6 @@
-import {
-  COMMUNITY_BOUNDS,
-  CreateResultSchema,
-  simulateCreateCommunity,
-  toCreateCommunityBody,
-  type CommunityPrivacy,
-  type CommunityVisibility,
-  type CreateCommunityBody,
-  type CreateResult,
-} from "./create-community";
+import { COMMUNITY_BOUNDS, simulateCreateCommunity, type CommunityPrivacy, type CommunityVisibility, type CreateResult } from "./create-community";
 
-export {
-  COMMUNITY_BOUNDS,
-  CreateResultSchema,
-  toCreateCommunityBody,
-  type CommunityPrivacy,
-  type CommunityVisibility,
-  type CreateCommunityBody,
-  type CreateResult,
-};
+export { COMMUNITY_BOUNDS, type CommunityPrivacy, type CommunityVisibility, type CreateResult };
 
 export type CommunityDraft = {
   name: string;
@@ -39,7 +22,7 @@ export function emptyDraft(): CommunityDraft {
   };
 }
 
-export type DraftIssues = Partial<Record<keyof CommunityDraft, string>>;
+type DraftIssues = Partial<Record<keyof CommunityDraft, string>>;
 
 export function validateStep(step: string, draft: CommunityDraft): DraftIssues {
   const issues: DraftIssues = {};
@@ -89,7 +72,7 @@ export async function simulateCreate(
   );
 }
 
-export type NameGate = {
+type NameGate = {
   hasName: boolean;
   ownedNames: string[];
 };

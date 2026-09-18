@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { asset } from "../../asset";
 import { useChromeAuth } from "../../web/frames/chrome-auth";
+import AccountMenu from "../../web/frames/AccountMenu";
 import CreatorHubSyncChip from "../components/CreatorHubSyncChip";
 import "./creatorhubchrome.css";
 
@@ -30,7 +31,7 @@ type NavItem = {
   external?: boolean;
 };
 
-export const CREATORHUB_NAV: NavItem[] = [
+const CREATORHUB_NAV: NavItem[] = [
   {
     id: "home",
     group: "Create",
@@ -259,6 +260,7 @@ type CreatorHubChromeProps = {
   onSettings?: () => void;
   onAccount?: () => void;
   onSignIn?: () => void;
+  onSignOut?: () => void;
   accountHref?: string;
   settingsHref?: string;
 };
@@ -275,6 +277,7 @@ export default function CreatorHubChrome({
   onSettings,
   onAccount,
   onSignIn,
+  onSignOut,
   accountHref = "/marketplace/account",
   settingsHref = "/creator-hub/settings",
 }: CreatorHubChromeProps) {
@@ -297,6 +300,18 @@ export default function CreatorHubChrome({
   const displayName = name ?? auth.name;
   const face = avatarUrl ?? auth.avatarUrl;
   const doSignIn = onSignIn ?? auth.onSignIn;
+  const doSignOut = onSignOut ?? auth.onSignOut;
+  const switchAccount =
+    doSignOut && doSignIn
+      ? () => {
+          doSignOut();
+          doSignIn();
+        }
+      : undefined;
+  const accountLinks = [
+    { label: "My assets", href: accountHref },
+    { label: "Settings", href: settingsHref },
+  ];
   const accountInner = (
     <>
       <AccountAvatar key={face || "hue"} src={face} />
@@ -352,9 +367,18 @@ export default function CreatorHubChrome({
                 <AccountAvatar key={face || "hue"} src={face} />
               </button>
             ) : (
-              <a className="ch__topaccbtn" href={accountHref} aria-label={accountLabel}>
+              <AccountMenu
+                triggerClassName="ch__topaccbtn"
+                triggerLabel={accountLabel}
+                name={displayName}
+                account={acct}
+                links={accountLinks}
+                onSwitchAccount={switchAccount}
+                onSignOut={doSignOut}
+                align="right"
+              >
                 <AccountAvatar key={face || "hue"} src={face} />
-              </a>
+              </AccountMenu>
             )
           ) : showSignIn ? (
             doSignIn ? (
@@ -479,9 +503,20 @@ export default function CreatorHubChrome({
                   {accountInner}
                 </button>
               ) : (
-                <a className="ch__account" href={accountHref} aria-label={accountLabel}>
+                <AccountMenu
+                  className="ch__accountwrap"
+                  triggerClassName="ch__account"
+                  triggerLabel={accountLabel}
+                  name={displayName}
+                  account={acct}
+                  links={accountLinks}
+                  onSwitchAccount={switchAccount}
+                  onSignOut={doSignOut}
+                  align="left"
+                  placement="above"
+                >
                   {accountInner}
-                </a>
+                </AccountMenu>
               )
             ) : null}
             {showSignIn ? (

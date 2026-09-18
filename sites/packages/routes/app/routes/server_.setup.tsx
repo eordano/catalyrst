@@ -42,9 +42,13 @@ export default function ServerSetupRoute({ loaderData }: Route.ComponentProps) {
   if (!loaderData.authorized) {
     return (
       <SitesChrome>
-        <main style={{ maxWidth: 640, margin: "0 auto", padding: "48px 20px" }}>
-          <h1>Server setup</h1>
-          <p>{loaderData.reason}</p>
+        <main className="adm">
+          <div className="adm-gate">
+            <div className="adm-card">
+              <h1 className="adm__h2">Server setup</h1>
+              <p className="adm-card__text">{loaderData.reason}</p>
+            </div>
+          </div>
         </main>
       </SitesChrome>
     );

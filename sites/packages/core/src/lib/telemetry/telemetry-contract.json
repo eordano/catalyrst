@@ -2539,7 +2539,7 @@
           "optional": false
         },
         "stub": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         }
       }
@@ -4932,24 +4932,6 @@
       "loose": false,
       "props": {}
     },
-    "gv_profile_proposal_clicked": {
-      "loose": false,
-      "props": {
-        "proposal_id": {
-          "kind": "string",
-          "optional": false
-        },
-        "tab": {
-          "kind": "enum-string",
-          "values": [
-            "coauthoring",
-            "proposals",
-            "watchlist"
-          ],
-          "optional": false
-        }
-      }
-    },
     "gv_profile_tab_changed": {
       "loose": false,
       "props": {
@@ -5451,28 +5433,6 @@
         },
         "voting_power": {
           "kind": "number",
-          "optional": false
-        }
-      }
-    },
-    "gv_transparency_committee_expanded": {
-      "loose": false,
-      "props": {
-        "card": {
-          "kind": "enum-string",
-          "values": [
-            "expenses",
-            "income"
-          ],
-          "optional": false
-        }
-      }
-    },
-    "gv_transparency_dashboard_clicked": {
-      "loose": false,
-      "props": {
-        "href": {
-          "kind": "string",
           "optional": false
         }
       }
@@ -6002,27 +5962,6 @@
       "loose": false,
       "props": {}
     },
-    "lp_community_join_intent": {
-      "loose": false,
-      "props": {
-        "community_id": {
-          "kind": "string",
-          "optional": false
-        },
-        "intent": {
-          "kind": "string",
-          "optional": false
-        },
-        "privacy": {
-          "kind": "enum-string",
-          "values": [
-            "private",
-            "public"
-          ],
-          "optional": false
-        }
-      }
-    },
     "lp_community_private_gated": {
       "loose": false,
       "props": {
@@ -6061,39 +6000,6 @@
       "loose": false,
       "props": {}
     },
-    "lp_community_step_completed": {
-      "loose": false,
-      "props": {
-        "from": {
-          "kind": "enum-string",
-          "values": [
-            "basics",
-            "created",
-            "places",
-            "privacy",
-            "review",
-            "signinGate",
-            "submitting",
-            "thumbnail"
-          ],
-          "optional": false
-        },
-        "to": {
-          "kind": "enum-string",
-          "values": [
-            "basics",
-            "created",
-            "places",
-            "privacy",
-            "review",
-            "signinGate",
-            "submitting",
-            "thumbnail"
-          ],
-          "optional": false
-        }
-      }
-    },
     "lp_community_submit_attempted": {
       "loose": false,
       "props": {
@@ -6121,23 +6027,6 @@
         "error": {
           "kind": "string",
           "optional": true
-        }
-      }
-    },
-    "lp_community_tab_changed": {
-      "loose": false,
-      "props": {
-        "community_id": {
-          "kind": "string",
-          "optional": false
-        },
-        "tab": {
-          "kind": "enum-string",
-          "values": [
-            "events",
-            "members"
-          ],
-          "optional": false
         }
       }
     },
@@ -6550,7 +6439,7 @@
           "optional": false
         },
         "stub": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         }
       }
@@ -6598,7 +6487,7 @@
           "optional": false
         },
         "stub": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         }
       }
@@ -6611,7 +6500,7 @@
           "optional": false
         },
         "simulated": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         }
       }
@@ -8599,62 +8488,6 @@
         }
       }
     },
-    "operator_admin_action_failed": {
-      "loose": false,
-      "props": {
-        "action": {
-          "kind": "enum-string",
-          "values": [
-            "add",
-            "revoke"
-          ],
-          "optional": true
-        },
-        "place_id": {
-          "kind": "string",
-          "optional": true
-        }
-      }
-    },
-    "operator_admin_grant_committed": {
-      "loose": false,
-      "props": {
-        "place_id": {
-          "kind": "string",
-          "optional": true
-        }
-      }
-    },
-    "operator_admin_grant_started": {
-      "loose": false,
-      "props": {
-        "action": {
-          "kind": "enum-string",
-          "values": [
-            "add",
-            "revoke"
-          ],
-          "optional": true
-        },
-        "place_id": {
-          "kind": "string",
-          "optional": true
-        }
-      }
-    },
-    "operator_admin_revoke_committed": {
-      "loose": false,
-      "props": {
-        "can_be_removed": {
-          "kind": "boolean",
-          "optional": false
-        },
-        "place_id": {
-          "kind": "string",
-          "optional": true
-        }
-      }
-    },
     "operator_control_unavailable": {
       "loose": false,
       "props": {
@@ -8810,87 +8643,6 @@
             "land",
             "world"
           ],
-          "optional": false
-        }
-      }
-    },
-    "operator_scene_ban_committed": {
-      "loose": false,
-      "props": {
-        "address": {
-          "kind": "string",
-          "optional": true
-        },
-        "place_id": {
-          "kind": "string",
-          "optional": false
-        },
-        "simulated": {
-          "kind": "unknown",
-          "optional": false
-        }
-      }
-    },
-    "operator_scene_ban_failed": {
-      "loose": false,
-      "props": {
-        "action": {
-          "kind": "enum-string",
-          "values": [
-            "ban",
-            "unban"
-          ],
-          "optional": true
-        },
-        "place_id": {
-          "kind": "string",
-          "optional": false
-        }
-      }
-    },
-    "operator_scene_ban_started": {
-      "loose": false,
-      "props": {
-        "action": {
-          "kind": "enum-string",
-          "values": [
-            "ban",
-            "unban"
-          ],
-          "optional": true
-        },
-        "place_id": {
-          "kind": "string",
-          "optional": false
-        }
-      }
-    },
-    "operator_scene_bans_viewed": {
-      "loose": false,
-      "props": {
-        "place_id": {
-          "kind": "string",
-          "optional": false
-        },
-        "total": {
-          "kind": "number",
-          "optional": false
-        }
-      }
-    },
-    "operator_scene_unban_committed": {
-      "loose": false,
-      "props": {
-        "address": {
-          "kind": "string",
-          "optional": true
-        },
-        "place_id": {
-          "kind": "string",
-          "optional": false
-        },
-        "simulated": {
-          "kind": "unknown",
           "optional": false
         }
       }

@@ -8,7 +8,7 @@ import type { EngineSetting, EngineSettingInfo } from "../../overlay/engineSetti
 import type { SettingGroup, SettingModule, SettingsTab } from "../../data/settings/catalog";
 import "./settings.css";
 
-export type SettingsPanelProps = {
+type SettingsPanelProps = {
   tabs: SettingsTab[];
   tab: string;
   onTab: (id: string) => void;

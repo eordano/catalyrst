@@ -23,7 +23,7 @@ export type CommitFn = (args: {
   signal?: AbortSignal;
 }) => Promise<UserActionResult>;
 
-export type UserBanInput = {
+type UserBanInput = {
   trackCtx: TrackContext;
   moderator: string;
   activeAddresses: string[];
@@ -31,7 +31,7 @@ export type UserBanInput = {
   track?: TrackFn;
 };
 
-export type UserBanContext = {
+type UserBanContext = {
   trackCtx: TrackContext;
   moderator: string;
   activeAddresses: string[];
@@ -48,7 +48,7 @@ export type UserBanContext = {
   errorReason?: ActionFailureReason;
 };
 
-export type UserBanEvent =
+type UserBanEvent =
   | { type: "SIGN_IN" }
   | { type: "LOOKUP"; address: string; isBanned: boolean }
   | {
@@ -84,8 +84,8 @@ export const STATE_TO_SLUG = {
   done: "done",
 } as const;
 
-export type UserBanStateId = keyof typeof STATE_TO_SLUG;
-export type UserBanStepSlug = (typeof STATE_TO_SLUG)[UserBanStateId];
+type UserBanStateId = keyof typeof STATE_TO_SLUG;
+type UserBanStepSlug = (typeof STATE_TO_SLUG)[UserBanStateId];
 
 export const FIRST_STEP_SLUG: UserBanStepSlug = STATE_TO_SLUG.authGate;
 
@@ -275,8 +275,6 @@ export const userBanMachine = setup({
     },
   },
 });
-
-export type UserBanMachine = typeof userBanMachine;
 
 export function resolveUserBanSnapshot(args: {
   step: UserBanStateId;

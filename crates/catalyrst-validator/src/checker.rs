@@ -909,7 +909,7 @@ mod tests {
                             { "slot": 6, "urn": "urn:decentraland:off-chain:base-emotes:kiss" },
                             { "slot": 7, "urn": "urn:decentraland:off-chain:base-emotes:headexplode" },
                             { "slot": 8, "urn": "urn:decentraland:off-chain:base-emotes:shrug" },
-                            { "slot": 9, "urn": "urn:decentraland:off-chain:base-emotes:handsair" }
+                            { "slot": 9, "urn": "urn:decentraland:off-chain:base-scene-emotes:handsair" }
                         ]
                     }
                 }

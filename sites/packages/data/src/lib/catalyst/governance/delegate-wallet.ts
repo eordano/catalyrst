@@ -17,13 +17,13 @@ export class DelegationUnavailableError extends Error {
   }
 }
 
-export type DelegateTxRequest = {
+type DelegateTxRequest = {
   from: `0x${string}`;
   to: `0x${string}`;
   data: `0x${string}`;
 };
 
-export function buildDelegateTx(args: {
+function buildDelegateTx(args: {
   registry: DelegateRegistryConfig;
   space: string;
   from: string;
@@ -51,7 +51,7 @@ const ReceiptSchema = z
   })
   .nullable();
 
-export type DelegateWalletOptions = {
+type DelegateWalletOptions = {
   registry: DelegateRegistryConfig | null;
   provider?: Eip1193Provider;
   currentDelegate?: string | null;

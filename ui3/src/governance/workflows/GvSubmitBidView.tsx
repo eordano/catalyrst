@@ -14,7 +14,7 @@ const STEP_LABELS: { slug: string; label: string }[] = [
   { slug: "success", label: "Done" },
 ];
 
-export type GvBidParent = {
+type GvBidParent = {
   id: string;
   kind: string;
   title: string;

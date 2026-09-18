@@ -117,7 +117,7 @@ export default function ErrorPage({ title, message, detail, isDev }: ErrorPagePr
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: STYLE }} />
-      <main className="error-page" role="alert" aria-labelledby="ep-title">
+      <main className="error-page" aria-labelledby="ep-title">
         <div className="ep-card">
           <span className="ep-chip">
             <span className="dot" aria-hidden="true" />
@@ -129,7 +129,7 @@ export default function ErrorPage({ title, message, detail, isDev }: ErrorPagePr
             {title}
           </h1>
 
-          <div className="ep-block">
+          <div className="ep-block" role="alert">
             <p className="ep-label">An unexpected error happened:</p>
             <p className="ep-oneline" title={message}>
               {oneLine}

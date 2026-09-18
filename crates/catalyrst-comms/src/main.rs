@@ -1,9 +1,15 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use axum::routing::get;
 use axum::Router;
 use tokio_util::sync::CancellationToken;
 
-use catalyrst_comms::config::Config;
+use catalyrst_comms::cluster_gateway::StateGateway;
+use catalyrst_comms::cluster_subscriber::ClusterSubscriber;
+use catalyrst_comms::config::{ClusterConfig, Config};
+use catalyrst_comms::nats::NatsBus;
+use catalyrst_comms::peer_state::ClusterPeerState;
 use catalyrst_comms::{api_router, build_state, handlers};
 
 const ENV_DOCS: &[(&str, &str)] = &[
@@ -103,6 +109,46 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "community voice no-moderator TTL in ms (default 300000)",
     ),
     (
+        "NATS_URL",
+        "optional \u{2014} broker the Pulse cluster feed arrives on; unset leaves the subscriber inert (shared platform-wide with catalyrst-pulse)",
+    ),
+    (
+        "CLUSTER_SUBSCRIBER_ENABLED",
+        "bool string \u{2014} `true` subscribes to the Pulse cluster feed; anything else subscribes to nothing (default false)",
+    ),
+    (
+        "NATS_QUEUE_GROUP",
+        "queue group the minting and connect subscriptions share, so exactly one replica answers each event (default catalyrst-comms-cluster)",
+    ),
+    (
+        "CLUSTER_TAKEOVER_RETRY_DELAY_MS",
+        "base delay between the three displaced-session removal attempts, multiplied by the attempt; 0 is a real value meaning no sleep (default 100)",
+    ),
+    (
+        "CLUSTER_DRAIN_TIMEOUT_MS",
+        "ceiling on the shutdown drain of in-flight cluster work; 0 is a real value meaning do not wait at all (default 5000)",
+    ),
+    (
+        "CLUSTER_ISLAND_TOKEN_TTL_SECONDS",
+        "lifetime of an island room token; short on purpose, since a displaced token the eviction could not reach stays usable this long (default 60)",
+    ),
+    (
+        "CLUSTER_PEER_STATE_MAX",
+        "wallets held in the last-assignment store, whose only consumer is the next event's fromIslandId (default 20000)",
+    ),
+    (
+        "CLUSTER_PEER_STATE_TTL_MS",
+        "lifetime of a last-assignment entry; the feed carries no disconnect event, so this is the only reclamation path (default 3600000)",
+    ),
+    (
+        "CLUSTER_ASSIGNMENT_MIRROR_MAX",
+        "wallets held in the replica-wide assignment mirror the reconnect path reads (default 20000)",
+    ),
+    (
+        "CLUSTER_ASSIGNMENT_MIRROR_TTL_MS",
+        "lifetime of an assignment mirror entry (default 3600000)",
+    ),
+    (
         "RUST_LOG",
         "tracing filter (default catalyrst_comms=info,tower_http=info)",
     ),
@@ -114,20 +160,60 @@ async fn main() -> Result<()> {
 
     catalyrst_envcfg::init_tracing("catalyrst_comms=info,tower_http=info");
 
+    catalyrst_comms::metrics::install_recorder()?;
+
     let cfg = Config::from_env()?;
     let state = build_state(&cfg).await?;
 
     let shutdown = CancellationToken::new();
     catalyrst_comms::voice_logic::spawn_expiration_job(state.clone(), shutdown.clone());
 
+    let cluster = ClusterSubscriber::new(
+        cluster_bus(&cfg.cluster),
+        Arc::new(StateGateway::new(state.clone())),
+        Arc::new(ClusterPeerState::new(
+            cfg.cluster.peer_state_max,
+            cfg.cluster.peer_state_ttl_ms,
+            cfg.cluster.assignment_mirror_max,
+            cfg.cluster.assignment_mirror_ttl_ms,
+        )),
+        cfg.cluster.clone(),
+    );
+    cluster.start();
+
     let app = catalyrst_envcfg::service_scaffold::finish_app(
         Router::new()
             .route("/ping", get(handlers::ping::ping))
             .route("/status", get(handlers::status::status))
+            .route("/metrics", get(catalyrst_comms::metrics::metrics_handler))
             .merge(api_router(state.clone())),
         state,
         None,
     );
 
-    catalyrst_envcfg::run_service("catalyrst-comms", cfg.http_host, cfg.http_port, app).await
+    let served =
+        catalyrst_envcfg::run_service("catalyrst-comms", cfg.http_host, cfg.http_port, app).await;
+    cluster.stop().await;
+    served
+}
+
+#[cfg(feature = "nats")]
+fn cluster_bus(cfg: &ClusterConfig) -> Arc<dyn NatsBus> {
+    Arc::new(catalyrst_comms::nats::BrokerBus::new(
+        cfg.nats_url.clone(),
+        "catalyrst-comms",
+    ))
+}
+
+/// A build without a broker client still starts, and says so, rather than reporting itself as a
+/// subscriber that simply never receives anything.
+#[cfg(not(feature = "nats"))]
+fn cluster_bus(cfg: &ClusterConfig) -> Arc<dyn NatsBus> {
+    if cfg.nats_url.is_some() {
+        tracing::error!(
+            "NATS_URL is set but this binary was built without the `nats` feature; the Pulse \
+             cluster feed will never be consumed"
+        );
+    }
+    Arc::new(catalyrst_comms::nats::DisabledBus)
 }

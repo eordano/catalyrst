@@ -24,6 +24,8 @@ pub const MAX_UPLOAD_WIRE_SIZE_BYTES: usize = MAX_UPLOAD_SIZE_BYTES + 10 * 1024 
 
 const _: () = assert!(MAX_UPLOAD_WIRE_SIZE_BYTES >= MAX_UPLOAD_SIZE_BYTES);
 
+pub const MAX_WORLD_SIZE_BYTES: i64 = 300 * 1024 * 1024;
+
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
 #[serde(rename_all = "camelCase")]

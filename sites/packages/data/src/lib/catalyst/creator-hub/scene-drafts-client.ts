@@ -116,6 +116,21 @@ export async function fetchServerDraft(id: string): Promise<ServerDraft | null> 
   }
 }
 
+const knownVersions = new Map<string, number>();
+
+export function forgetServerDraftVersions(): void {
+  knownVersions.clear();
+}
+
+async function serverDraftVersion(id: string): Promise<number> {
+  const known = knownVersions.get(id);
+  if (known !== undefined) return known;
+  const metas = await listServerDrafts();
+  if (!metas) return 0;
+  for (const m of metas) knownVersions.set(m.id, m.version);
+  return knownVersions.get(id) ?? 0;
+}
+
 export async function pushServerDraft(
   id: string,
   blob: ServerDraftBlob,
@@ -142,8 +157,7 @@ export async function pushServerDraft(
     }
   };
 
-  const current = await fetchServerDraft(id);
-  let res = await putOnce(current?.version ?? 0);
+  let res = await putOnce(await serverDraftVersion(id));
   if (res?.status === 409) {
     const server = (await res.json().catch(() => null)) as
       | { server?: { version?: number } }
@@ -151,5 +165,15 @@ export async function pushServerDraft(
     const v = server?.server?.version;
     if (typeof v === "number") res = await putOnce(v);
   }
-  return res?.ok === true;
+  if (res?.ok !== true) {
+    knownVersions.delete(id);
+    return false;
+  }
+  const saved = (await res.json().catch(() => null)) as
+    | { meta?: { version?: number } }
+    | null;
+  const v = saved?.meta?.version;
+  if (typeof v === "number") knownVersions.set(id, v);
+  else knownVersions.delete(id);
+  return true;
 }

@@ -6,6 +6,7 @@ use axum::Json;
 use bytes::Bytes;
 use serde_json::Value;
 
+use crate::personal_world::{personal_world_owner, PersonalWorldDeny};
 use crate::ports::worlds::SceneReplacement;
 use crate::AppState;
 
@@ -16,9 +17,7 @@ use super::validate::{
     is_canonical_parcel_set, validate_navmap_thumbnail, validate_parcel_in_bounds,
     MAX_ENTITY_FILE_SIZE_BYTES,
 };
-use super::{err_one, err_response, forbidden, internal, DeploySuccess};
-
-const MAX_WORLD_SIZE_BYTES: i64 = 300 * 1024 * 1024;
+use super::{err_one, err_response, forbidden, internal, DeploySuccess, MAX_WORLD_SIZE_BYTES};
 
 const ENTITY_TTL_MS: i64 = 300_000;
 
@@ -26,9 +25,6 @@ const ENTITY_TTL_MS: i64 = 300_000;
 /// timestamp must not let an entity stay deployable/replayable indefinitely. Kept aligned
 /// with the Catalyst request TTL forwards guard.
 const MAX_DEPLOYMENT_FUTURE_SKEW_MS: i64 = 15 * 60 * 1000;
-
-/// Page size for pulling a permission's scoped parcel set; large enough to fetch every parcel in one call.
-const DEPLOY_PARCEL_PAGE: i64 = 100_000;
 
 const DCL_ETH_SUFFIX: &str = ".dcl.eth";
 
@@ -59,11 +55,9 @@ async fn write_atomic(dir: &std::path::Path, filename: &str, bytes: &[u8]) -> st
     }
 }
 
+/// Content is hash-addressed, so an existing file holds identical bytes and the atomic
+/// rename simply replaces it; no pre-check stat is needed.
 async fn store_blob(dir: &std::path::Path, hash: &str, bytes: &[u8]) -> std::io::Result<()> {
-    let dst = dir.join(hash);
-    if tokio::fs::try_exists(&dst).await.unwrap_or(false) {
-        return Ok(());
-    }
     write_atomic(dir, hash, bytes).await
 }
 
@@ -293,17 +287,17 @@ pub(super) async fn deploy_entity_inner(
                         total_content_size = total_content_size.saturating_add(blob.len() as i64);
                     }
                     None => {
-                        let already_stored =
-                            crate::handlers::contents::is_retrievable_content_key(hash)
-                                && matches!(
-                                    tokio::fs::metadata(state.cfg.contents_dir.join(hash)).await,
-                                    Ok(ref m) if m.is_file()
-                                );
-                        if already_stored {
-                            let size = tokio::fs::metadata(state.cfg.contents_dir.join(hash))
-                                .await
-                                .map(|m| m.len() as i64)
-                                .unwrap_or(0);
+                        let stored_len =
+                            if crate::handlers::contents::is_retrievable_content_key(hash) {
+                                tokio::fs::metadata(state.cfg.contents_dir.join(hash))
+                                    .await
+                                    .ok()
+                                    .filter(|m| m.is_file())
+                                    .map(|m| m.len() as i64)
+                            } else {
+                                None
+                            };
+                        if let Some(size) = stored_len {
                             total_content_size = total_content_size.saturating_add(size);
                         } else {
                             errors.push(format!(
@@ -318,10 +312,17 @@ pub(super) async fn deploy_entity_inner(
         Some(_) => errors.push("The entity content must be an array".to_string()),
     }
 
-    if total_content_size > MAX_WORLD_SIZE_BYTES {
+    let max_world_size = normalized_world_name
+        .as_deref()
+        .map_or(MAX_WORLD_SIZE_BYTES, |name| {
+            state
+                .cfg
+                .personal_worlds
+                .size_cap_for(name, MAX_WORLD_SIZE_BYTES)
+        });
+    if total_content_size > max_world_size {
         errors.push(format!(
-            "The deployment exceeds the maximum world size of {} bytes",
-            MAX_WORLD_SIZE_BYTES
+            "The deployment exceeds the maximum world size of {max_world_size} bytes"
         ));
     }
 
@@ -368,25 +369,61 @@ pub(super) async fn deploy_entity_inner(
         None => return err_one("Missing world name"),
     };
 
-    let squid = match state.squid_pool.as_ref() {
-        Some(p) => p,
-        None => {
-            tracing::warn!(
-                world = %world_name,
-                signer = %signer,
-                "deploy denied: squid pool unavailable, cannot resolve NAME ownership (fail-closed)"
-            );
-            return forbidden(
-                "Not authorized: NAME-ownership verification is unavailable (deploy denied)",
-            );
+    let owner_id: Option<String> = match personal_world_owner(&label) {
+        Some(owner) => {
+            let policy = &state.cfg.personal_worlds;
+            let deployed = if policy.enabled() {
+                match state.worlds.deployed_world_names().await {
+                    Ok(names) => names,
+                    Err(e) => {
+                        tracing::warn!(error = ?e, world = %world_name, "deploy denied: personal-world cap lookup failed (fail-closed)");
+                        return forbidden(
+                            "Not authorized: could not verify the personal test world cap (deploy denied)",
+                        );
+                    }
+                }
+            } else {
+                Vec::new()
+            };
+            match policy.admit(&world_name, &deployed) {
+                Ok(()) => Some(owner),
+                Err(PersonalWorldDeny::Disabled) => {
+                    tracing::info!(world = %world_name, signer = %signer, "deploy denied: personal test worlds are not enabled on this realm");
+                    return forbidden(
+                        "Not authorized: personal test worlds are not enabled on this realm (deploy denied)",
+                    );
+                }
+                Err(PersonalWorldDeny::RealmFull { max_worlds }) => {
+                    tracing::info!(world = %world_name, signer = %signer, max_worlds, "deploy denied: personal test world cap reached");
+                    return forbidden(format!(
+                        "Not authorized: this realm already hosts its maximum of {max_worlds} personal test worlds (deploy denied)"
+                    ));
+                }
+            }
         }
-    };
-
-    let owner_id: Option<String> = match resolve_name_owner_id(squid, &label).await {
-        Ok(o) => o,
-        Err(e) => {
-            tracing::warn!(error = %e, label = %label, "deploy denied: squid ENS lookup failed (fail-closed)");
-            return forbidden("Not authorized: could not verify NAME ownership (deploy denied)");
+        None => {
+            let squid = match state.squid_pool.as_ref() {
+                Some(p) => p,
+                None => {
+                    tracing::warn!(
+                        world = %world_name,
+                        signer = %signer,
+                        "deploy denied: squid pool unavailable, cannot resolve NAME ownership (fail-closed)"
+                    );
+                    return forbidden(
+                        "Not authorized: NAME-ownership verification is unavailable (deploy denied)",
+                    );
+                }
+            };
+            match resolve_name_owner_id(squid, &label).await {
+                Ok(o) => o,
+                Err(e) => {
+                    tracing::warn!(error = %e, label = %label, "deploy denied: squid ENS lookup failed (fail-closed)");
+                    return forbidden(
+                        "Not authorized: could not verify NAME ownership (deploy denied)",
+                    );
+                }
+            }
         }
     };
 
@@ -418,12 +455,13 @@ pub(super) async fn deploy_entity_inner(
             }
         }
 
-        let records = match state
+        let required: Vec<String> = required.into_iter().collect();
+        let authorized = match state
             .worlds
-            .get_world_permission_records_full(&world_name)
+            .has_deployment_permission_covering(&world_name, &signer, &required)
             .await
         {
-            Ok(records) => records,
+            Ok(v) => v,
             Err(e) => {
                 tracing::warn!(error = ?e, world = %world_name, "deploy denied: permission lookup failed (fail-closed)");
                 return forbidden(
@@ -431,33 +469,6 @@ pub(super) async fn deploy_entity_inner(
                 );
             }
         };
-        let mut authorized = false;
-        for r in records.iter().filter(|r| {
-            r.permission_type == "deployment" && r.address.eq_ignore_ascii_case(&signer)
-        }) {
-            if r.is_world_wide {
-                authorized = true;
-                break;
-            }
-            let (_total, granted) = match state
-                .worlds
-                .get_parcels_for_permission(r.id, DEPLOY_PARCEL_PAGE, 0, None)
-                .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::warn!(error = ?e, world = %world_name, "deploy denied: parcel-scope lookup failed (fail-closed)");
-                    return forbidden(
-                        "Not authorized: could not verify deployment permissions (deploy denied)",
-                    );
-                }
-            };
-            let granted: HashSet<String> = granted.iter().map(|p| canon_pointer(p)).collect();
-            if required.iter().all(|p| granted.contains(p)) {
-                authorized = true;
-                break;
-            }
-        }
 
         if !authorized {
             tracing::info!(

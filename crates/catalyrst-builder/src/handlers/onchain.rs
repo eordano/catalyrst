@@ -80,6 +80,7 @@ mod tests {
             newsletter: NewsletterComponent::new(dead_pool()),
             marketplace,
             content_bucket_url: "https://example.test".into(),
+            catalog: None,
             admin_addresses: Vec::new(),
             newsletter_service_url: None,
             newsletter_publication_id: None,

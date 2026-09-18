@@ -30,7 +30,7 @@ export type BidAsset = {
   image: string | null;
 };
 
-export type BidWizardProps = {
+type BidWizardProps = {
   asset: BidAsset;
   trackCtx: TrackContext;
   manaBalance?: number;

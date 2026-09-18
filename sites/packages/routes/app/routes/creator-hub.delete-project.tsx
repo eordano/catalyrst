@@ -61,7 +61,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const localFiles = url.searchParams.get("local")?.trim() || null;
   const creator = url.searchParams.get("creator")?.trim() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,

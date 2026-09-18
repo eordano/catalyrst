@@ -35,7 +35,7 @@ function stringArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
 }
 
-export function catalogItemToBuilderItem(item: CatalogItem): BuilderItem | null {
+function catalogItemToBuilderItem(item: CatalogItem): BuilderItem | null {
   const data = item.data as Record<string, unknown>;
   const wearable = data?.wearable as Record<string, unknown> | undefined;
   const emote = data?.emote as Record<string, unknown> | undefined;
@@ -94,7 +94,7 @@ export function catalogItemToBuilderItem(item: CatalogItem): BuilderItem | null 
   });
 }
 
-export type CreatorItemResult = {
+type CreatorItemResult = {
   item: BuilderItem | null;
   fallback: boolean;
   reason: string | null;

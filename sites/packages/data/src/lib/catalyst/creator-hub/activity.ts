@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import type { ManagedWorld } from "./manage-worlds";
-import type { BucketizedHistory } from "../places/presence-history";
 
 const strOrNull = z
   .string()
@@ -48,7 +47,7 @@ export const RealmAboutSchema = z.object({
 });
 export type RealmAbout = z.infer<typeof RealmAboutSchema>;
 
-export const PlacesWorldRowSchema = z.object({
+const PlacesWorldRowSchema = z.object({
   id: z.string(),
   world_name: strOrNull,
   title: strOrNull,
@@ -72,7 +71,7 @@ export const PlacesWorldRowSchema = z.object({
 });
 export type PlacesWorldRow = z.infer<typeof PlacesWorldRowSchema>;
 
-export const PlacesWorldsEnvelopeSchema = z.object({
+const PlacesWorldsEnvelopeSchema = z.object({
   data: z.array(z.unknown()),
   total: z.number(),
 });
@@ -130,17 +129,6 @@ export function worldRowKind(world: ManagedWorld): WorldRowKind {
   if (world.blockedSince) return "blocked";
   return world.deployedScenes > 0 ? "deployed" : "never-deployed";
 }
-
-export type SceneUrn = { urn: string; baseUrl: string | null };
-
-export function parseSceneUrn(raw: string): SceneUrn {
-  const [urn, qs] = raw.split("?");
-  if (!qs) return { urn: raw, baseUrl: null };
-  const params = new URLSearchParams(qs.replace(/^[?&]*/, ""));
-  return { urn: urn ?? raw, baseUrl: params.get("baseUrl") };
-}
-
-export type WorldHistoryView = BucketizedHistory;
 
 export const HISTORY_LIMIT_WORLD_PAGE = 5000;
 export const HISTORY_LIMIT_PEAK_7D = 2016;

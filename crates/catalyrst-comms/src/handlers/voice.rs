@@ -13,6 +13,7 @@ use crate::handlers::responses::{CommunityVoiceChatStatusResponse, VoiceChatStat
 use crate::http::{forbidden, service_unavailable, unauthorized, ApiError};
 use crate::livekit::{build_adapter_url, community_voice_chat_room_name, join_grants, AccessToken};
 use crate::ports::player_connection::UpsertPlayerConnection;
+use crate::ports::user_bans::{sent_device_id, CONNECTION_BAN_EXISTS};
 use crate::util::now_ms;
 use crate::AppState;
 
@@ -53,33 +54,32 @@ pub async fn private_messages_token(
 
     let ip_address = get_request_ip(&headers);
     let device_id = device_identifier(&sf.metadata);
-    if let Err(e) = state
-        .player_connection
-        .upsert(UpsertPlayerConnection {
-            address: identity.clone(),
-            ip_address,
-            device_id: device_id.clone(),
-        })
-        .await
-    {
-        tracing::warn!(error = %e, address = %identity, "failed to store player connection info");
-    }
-
-    let banned =
-        crate::access_gate::is_connection_banned(&state, &identity, device_id.as_deref()).await?;
+    let upsert = async {
+        if let Err(e) = state
+            .player_connection
+            .upsert(UpsertPlayerConnection {
+                address: identity.clone(),
+                ip_address,
+                device_id: device_id.clone(),
+            })
+            .await
+        {
+            tracing::warn!(error = %e, address = %identity, "failed to store player connection info");
+        }
+    };
+    let gate = sqlx::query_as::<_, (bool, Option<String>)>(sqlx::AssertSqlSafe(format!(
+        "SELECT {CONNECTION_BAN_EXISTS}, \
+                (SELECT private_messages_privacy FROM private_messages_privacy WHERE address = $1)"
+    )))
+    .bind(&identity)
+    .bind(sent_device_id(device_id.as_deref()))
+    .fetch_one(&state.pool);
+    let ((), gate) = tokio::join!(upsert, gate);
+    let (banned, privacy) = gate?;
     if banned {
         return Err(forbidden(crate::access_gate::PLATFORM_BANNED_MSG));
     }
-
-    let privacy = sqlx::query_scalar::<_, String>(
-        "SELECT private_messages_privacy FROM private_messages_privacy WHERE address = $1",
-    )
-    .bind(&identity)
-    .fetch_optional(&state.pool)
-    .await
-    .ok()
-    .flatten()
-    .unwrap_or_else(|| "all".to_string());
+    let privacy = privacy.unwrap_or_else(|| "all".to_string());
 
     let metadata = serde_json::json!({ "private_messages_privacy": privacy }).to_string();
 
@@ -758,31 +758,23 @@ pub async fn community_promote_speaker(
     )?;
     let room_name = community_voice_chat_room_name(&community_id);
 
-    state
-        .room_service()
-        .update_participant(
-            &room_name,
-            claimed_target.as_unverified_text(),
-            None,
-            Some(serde_json::json!({
-                "canPublish": true,
-                "canSubscribe": true,
-                "canPublishData": true,
-            })),
-        )
-        .await
-        .map_err(|e| ApiError::internal(format!("livekit update participant permissions: {e}")))?;
-
     let mut patch = serde_json::Map::new();
     patch.insert("isRequestingToSpeak".into(), serde_json::json!(false));
     patch.insert("isSpeaker".into(), serde_json::json!(true));
-    merge_metadata(
-        &state,
-        &room_name,
-        claimed_target.as_unverified_text(),
-        patch,
-    )
-    .await?;
+    state
+        .room_service()
+        .merge_participant_metadata_with_permission(
+            &room_name,
+            claimed_target.as_unverified_text(),
+            patch,
+            serde_json::json!({
+                "canPublish": true,
+                "canSubscribe": true,
+                "canPublishData": true,
+            }),
+        )
+        .await
+        .map_err(|e| ApiError::internal(format!("livekit update participant permissions: {e}")))?;
 
     Ok(Json(serde_json::json!({
         "message": "User promoted to speaker successfully"
@@ -800,31 +792,23 @@ pub async fn community_demote_speaker(
     )?;
     let room_name = community_voice_chat_room_name(&community_id);
 
-    state
-        .room_service()
-        .update_participant(
-            &room_name,
-            claimed_target.as_unverified_text(),
-            None,
-            Some(serde_json::json!({
-                "canPublish": false,
-                "canSubscribe": true,
-                "canPublishData": true,
-            })),
-        )
-        .await
-        .map_err(|e| ApiError::internal(format!("livekit update participant permissions: {e}")))?;
-
     let mut patch = serde_json::Map::new();
     patch.insert("isRequestingToSpeak".into(), serde_json::json!(false));
     patch.insert("isSpeaker".into(), serde_json::json!(false));
-    merge_metadata(
-        &state,
-        &room_name,
-        claimed_target.as_unverified_text(),
-        patch,
-    )
-    .await?;
+    state
+        .room_service()
+        .merge_participant_metadata_with_permission(
+            &room_name,
+            claimed_target.as_unverified_text(),
+            patch,
+            serde_json::json!({
+                "canPublish": false,
+                "canSubscribe": true,
+                "canPublishData": true,
+            }),
+        )
+        .await
+        .map_err(|e| ApiError::internal(format!("livekit update participant permissions: {e}")))?;
 
     Ok(Json(serde_json::json!({
         "message": "User demoted to listener successfully"
@@ -842,20 +826,17 @@ pub async fn community_kick_player(
     )?;
     let room_name = community_voice_chat_room_name(&community_id);
 
-    if let Err(e) = state
-        .room_service()
-        .remove_participant(&room_name, claimed_target.as_unverified_text())
-        .await
-    {
+    let room_service = state.room_service();
+    let (removed, _deleted) = tokio::join!(
+        room_service.remove_participant(&room_name, claimed_target.as_unverified_text()),
+        sqlx::query("DELETE FROM community_voice_chat_users WHERE address = $1 AND room_name = $2")
+            .bind(claimed_target.as_unverified_text())
+            .bind(&room_name)
+            .execute(&state.pool),
+    );
+    if let Err(e) = removed {
         tracing::warn!(error = %e, room = %room_name, addr = %claimed_target.as_unverified_text(), "failed to remove community voice participant");
     }
-
-    sqlx::query("DELETE FROM community_voice_chat_users WHERE address = $1 AND room_name = $2")
-        .bind(claimed_target.as_unverified_text())
-        .bind(&room_name)
-        .execute(&state.pool)
-        .await
-        .ok();
 
     Ok(Json(serde_json::json!({
         "message": "User kicked from voice chat successfully"

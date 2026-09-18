@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Link } from "react-router";
 
 import LdEventSubscriptionsView from "@ui/landings/pages/LdEventSubscriptionsView";
@@ -10,8 +9,11 @@ import {
   NOTIFICATION_GROUPS,
 } from "@data/lib/catalyst/landings/subscriptions";
 import { useAuth } from "@data/lib/auth/context";
+import { getIdentity } from "@data/lib/auth/session";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoader } from "@core/lib/experiments/story-loader";
+
+import { openSignIn } from "@features/components/auth/signin-store";
 
 import SubscriptionWizard, {
   type SubscriptionGroup,
@@ -74,13 +76,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function LandingsEventSubscriptions({
   loaderData,
 }: Route.ComponentProps) {
-  const { sid, step, assignment, view, usedLive } = loaderData;
+  const { sid, step, assignment, view } = loaderData;
 
-  const { identity } = useAuth();
-  const commit = useMemo(() => buildSubscriptionCommit(identity), [identity]);
+  const auth = useAuth();
+  const commit = buildSubscriptionCommit(getIdentity);
 
   return (
-    <LdEventSubscriptionsView signedOut={!usedLive} LinkComponent={Link}>
+    <LdEventSubscriptionsView signedOut={!auth.isConnected} LinkComponent={Link}>
       <SubscriptionWizard
         trackCtx={{
           sid,
@@ -94,6 +96,8 @@ export default function LandingsEventSubscriptions({
         groups={view.groups}
         initialStep={step ?? undefined}
         commit={commit}
+        signedIn={auth.isConnected}
+        onSignIn={openSignIn}
       />
     </LdEventSubscriptionsView>
   );

@@ -22,7 +22,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::config::Config;
-use crate::map::MapComponent;
+use crate::map::{MapComponent, RefreshOutcome};
 use crate::satellite::SatelliteState;
 
 pub struct AppStateInner {
@@ -52,7 +52,8 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         cfg.estate_contract_address.clone(),
         cfg.map_tiles_cache_entries,
         cfg.map_png_cache_entries,
-    );
+    )
+    .with_force_rebuild_after(Duration::from_secs(cfg.force_rebuild_secs));
 
     let satellite = SatelliteState::new(
         cfg.satellite_dir.clone(),
@@ -73,7 +74,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     tracing::info!("building initial tile grid...");
     match map.refresh().await {
-        Ok(()) => tracing::info!(
+        Ok(_) => tracing::info!(
             tiles = map.snapshot().map(|d| d.tiles.len()).unwrap_or(0),
             "tile grid ready"
         ),
@@ -91,7 +92,12 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
             loop {
                 tick.tick().await;
                 match map.refresh().await {
-                    Ok(()) => tracing::debug!("tile grid refreshed"),
+                    Ok(RefreshOutcome::Rebuilt(reason)) => {
+                        tracing::info!(?reason, "tile grid rebuilt")
+                    }
+                    Ok(RefreshOutcome::Skipped) => {
+                        tracing::debug!("tile grid inputs unchanged; rebuild skipped")
+                    }
                     Err(e) => tracing::warn!(error = %e, "tile grid refresh failed"),
                 }
             }

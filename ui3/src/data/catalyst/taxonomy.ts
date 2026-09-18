@@ -1,37 +1,6 @@
 
-export const RARITIES = [
-  "unique",
-  "mythic",
-  "exotic",
-  "legendary",
-  "epic",
-  "rare",
-  "uncommon",
-  "common",
-];
 
-export const WEARABLE_CATEGORIES = [
-  "body_shape",
-  "hair",
-  "eyebrows",
-  "eyes",
-  "mouth",
-  "facial_hair",
-  "upper_body",
-  "hands_wear",
-  "lower_body",
-  "feet",
-  "hat",
-  "eyewear",
-  "earring",
-  "mask",
-  "tiara",
-  "helmet",
-  "top_head",
-  "skin",
-];
-
-export const EMOTE_CATEGORIES = [
+const EMOTE_CATEGORIES = [
   "dance",
   "stunt",
   "greetings",

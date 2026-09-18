@@ -1,29 +1,13 @@
 import { z } from "zod";
 
-import {
-  CollectionCurationSchema,
-  CommitteeMemberSchema,
-  CURATION_STATUSES,
-  deriveDisplayState,
-  relativeTime,
-  type CommitteeMember,
-  type CurationStatus,
-  type DisplayState,
-} from "../builder/curation";
+import { CollectionCurationSchema, CommitteeMemberSchema, deriveDisplayState, relativeTime, type CommitteeMember, type DisplayState } from "../builder/curation";
 
-export {
-  CURATION_STATUSES,
-  deriveDisplayState,
-  relativeTime,
-  type CommitteeMember,
-  type CurationStatus,
-  type DisplayState,
-};
+export { deriveDisplayState, type CommitteeMember };
 
-export const COMMENT_DECISIONS = ["approved", "rejected"] as const;
+const COMMENT_DECISIONS = ["approved", "rejected"] as const;
 export type CommentDecision = (typeof COMMENT_DECISIONS)[number];
 
-export const CurationCommentSchema = z.object({
+const CurationCommentSchema = z.object({
   id: z.string(),
   collection_id: z.string(),
   author: z.string(),
@@ -33,9 +17,9 @@ export const CurationCommentSchema = z.object({
   topic_id: z.number().int().nullable(),
   created_at: z.string(),
 });
-export type CurationComment = z.infer<typeof CurationCommentSchema>;
+type CurationComment = z.infer<typeof CurationCommentSchema>;
 
-export const CommitteeRowSchema = z.object({
+const CommitteeRowSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: z.enum(["standard", "third_party"]),
@@ -67,7 +51,7 @@ export const CommitteeFixtureSchema = z.object({
   collections: z.array(CommitteeRowSchema),
 });
 
-export const STATUS_FILTERS = [
+const STATUS_FILTERS = [
   "ALL_STATUS",
   "to_review",
   "under_review",
@@ -76,7 +60,7 @@ export const STATUS_FILTERS = [
 ] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];
 
-export const TYPE_FILTERS = ["ALL_TYPES", "standard", "third_party"] as const;
+const TYPE_FILTERS = ["ALL_TYPES", "standard", "third_party"] as const;
 export type TypeFilter = (typeof TYPE_FILTERS)[number];
 
 export function readStatusFilter(raw: string | null | undefined): StatusFilter {

@@ -14,11 +14,21 @@ impl ImageStore {
         })
     }
 
+    pub fn hash(data: &[u8]) -> String {
+        hash_bytes_v1(data)
+    }
+
     pub async fn store(&self, data: Bytes) -> Result<String, StorageError> {
-        let hash = hash_bytes_v1(&data);
-        match self.storage.store(&hash, data).await {
-            Ok(()) => Ok(hash),
-            Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(hash),
+        let hash = Self::hash(&data);
+        self.store_as(&hash, data).await?;
+        Ok(hash)
+    }
+
+    /// `hash` must be `Self::hash(&data)`; an existing blob with that hash is the same bytes.
+    pub async fn store_as(&self, hash: &str, data: Bytes) -> Result<(), StorageError> {
+        match self.storage.store(hash, data).await {
+            Ok(()) => Ok(()),
+            Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
             Err(e) => Err(e),
         }
     }

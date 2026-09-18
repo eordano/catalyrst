@@ -7,7 +7,7 @@ import {
   unavailable,
 } from "./availability";
 
-export type DeployAction = {
+type DeployAction = {
   entityType: string;
   entityId: string;
   deployer: string;

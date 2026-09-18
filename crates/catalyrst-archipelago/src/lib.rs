@@ -2,13 +2,16 @@
 
 pub mod auth;
 pub mod ban;
-pub mod cluster;
 pub mod config;
 pub mod content;
-pub mod gossip;
+pub mod feed;
 pub mod handlers;
 pub mod livekit;
+pub mod nats;
+pub mod peers;
 pub mod proto;
+pub mod registry;
+pub mod session;
 pub mod state;
 pub mod ws;
 
@@ -24,12 +27,23 @@ use tower_http::cors::Any;
 
 use crate::auth::ChallengeStore;
 use crate::ban::{BanChecker, DenyList};
-use crate::cluster::Cluster;
 use crate::content::ContentResolver;
-use crate::gossip::GossipBus;
+use crate::feed::FeedCache;
 use crate::livekit::LivekitMinter;
+use crate::nats::{FeedPublisher, NatsBus};
+use crate::peers::PeerDirectory;
+use crate::registry::PeersRegistry;
 
 pub async fn build_state(cfg: &Config) -> Result<AppState> {
+    let bus = NatsBus::new(cfg.nats.clone());
+    let state = build_state_with(cfg, Arc::clone(&bus) as Arc<dyn FeedPublisher>).await?;
+    bus.start(Arc::clone(&state));
+    Ok(state)
+}
+
+/// Wires everything but the broker link, so a test can drive the socket layer through an
+/// in-process publisher and feed messages in by hand.
+pub async fn build_state_with(cfg: &Config, publisher: Arc<dyn FeedPublisher>) -> Result<AppState> {
     let http = reqwest::Client::builder()
         .user_agent(concat!("catalyrst-archipelago/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(5))
@@ -45,18 +59,17 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
              denylist; set DENY_LIST_URL to a list this deployment controls to re-arm it."
         );
     }
-    let cluster = Cluster::new(
+    let registry = PeersRegistry::new();
+    let peers = PeerDirectory::new(
         cfg.cluster.clone(),
         Arc::clone(&livekit),
         Arc::clone(&ban_checker),
+        Arc::clone(&registry),
     );
-    let _recluster_task = Arc::clone(&cluster).spawn_periodic();
-    let _ban_sweep_task = Arc::clone(&cluster).spawn_ban_sweep();
+    let _expiry_task = Arc::clone(&peers).spawn_expiry();
+    let _ban_sweep_task = Arc::clone(&peers).spawn_ban_sweep();
 
     let challenges = ChallengeStore::new(cfg.auth.clone());
-
-    let gossip = GossipBus::new(cfg.gossip.clone(), http);
-    let _gossip_task = Arc::clone(&gossip).spawn_periodic(Arc::clone(&cluster));
 
     let content_pool = match &cfg.content_database_url {
         Some(url) => {
@@ -88,7 +101,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         livekit_armed = livekit.is_armed(),
         ban_check_armed = ban_checker.is_armed(),
         deny_list_armed = deny_list.is_armed(),
-        gossip_armed = gossip.is_armed(),
+        feed_armed = publisher.is_enabled(),
         auth_required = challenges.required(),
         content_armed = content.is_armed(),
         "catalyrst-archipelago wired"
@@ -96,10 +109,12 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 
     Ok(Arc::new(AppStateInner {
         cfg: cfg.clone(),
-        cluster,
+        peers,
+        registry,
+        feed: Arc::new(FeedCache::default()),
+        publisher,
         challenges,
         livekit,
-        gossip,
         content,
         ban_checker,
         deny_list,

@@ -15,7 +15,7 @@ const SORT_OPTIONS: { id: string; label: string }[] = [
   { id: "recently_sold", label: "Recently sold" },
 ];
 
-export type MkCollectionStats = {
+type MkCollectionStats = {
   floor: string | null;
   floorCredits: string | null;
   creatorShort: string;
@@ -23,7 +23,7 @@ export type MkCollectionStats = {
   network: "ethereum" | "polygon";
 };
 
-export type MkCollectionViewProps = {
+type MkCollectionViewProps = {
   stats?: MkCollectionStats;
   sortBy?: string;
   collection?: MkCollectionPageProps["collection"];

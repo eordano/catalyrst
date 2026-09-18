@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+
+import Button from "../../atoms/Button";
 import Spinner from "../../atoms/Spinner";
 import AdCommunityModerationList from "./AdCommunityModerationList";
 import AdCommunityReviewCard from "./AdCommunityReviewCard";
@@ -8,10 +11,10 @@ import type {
   CommunityStatus,
   ModerateCommunitiesStateValue,
 } from "./AdCommunityTypes";
-import "../../web/pages/stwhatsonadminusers.css";
-import "./communitymoderation.css";
+import "../admin.css";
 
-export type AdCommunitiesModerationPageProps = {
+type AdCommunitiesModerationPageProps = {
+  nav?: ReactNode;
   step: string;
   value: ModerateCommunitiesStateValue;
   cards: CommunityModerationCard[];
@@ -34,6 +37,7 @@ export type AdCommunitiesModerationPageProps = {
 };
 
 export default function AdCommunitiesModerationPage({
+  nav = undefined,
   step,
   value,
   cards,
@@ -55,17 +59,22 @@ export default function AdCommunitiesModerationPage({
   onContinue,
 }: AdCommunitiesModerationPageProps) {
   return (
-    <main className="admin-communities-moderation-route">
-      <div className="cmw" data-step={step} data-state={value}>
+    <main className="adm" data-step={step} data-state={value}>
+      {nav ? (
+        <nav className="adm__nav" aria-label="Admin consoles">
+          {nav}
+        </nav>
+      ) : null}
+      <div className="adm__page">
         {value === "authGate" && (
           <div
-            className="cmw-gate"
+            className="adm-gate"
             role="region"
             aria-label="Community moderation notice"
           >
-            <div className="cmw-gate__panel">
-              <h2 className="cmw-gate__title">Community moderation</h2>
-              <p className="cmw-gate__text">
+            <div className="adm-card">
+              <h2 className="adm-card__title">Community moderation</h2>
+              <p className="adm-card__text">
                 Browsing the community list is public and unauthenticated
                 (<code>communities.rs:176</code>, <code>try_extract_signer</code>,
                 optional). <strong>Suspend / unsuspend performs a real moderation
@@ -78,13 +87,9 @@ export default function AdCommunitiesModerationPage({
                 nothing &#x2014; it is a notice, and continuing past it grants no
                 access.
               </p>
-              <button
-                type="button"
-                className="sdb__btn sdb__btn--primary"
-                onClick={onSignIn}
-              >
-                Continue to moderation list
-              </button>
+              <div className="adm-actions adm-actions--start">
+                <Button onClick={onSignIn}>Continue to moderation list</Button>
+              </div>
             </div>
           </div>
         )}
@@ -102,83 +107,75 @@ export default function AdCommunitiesModerationPage({
         )}
 
         {(value === "reviewCommunity" || value === "decision") && activeCard && (
-          <div className="au">
-            <div className="au__container cmw__reviewwrap">
-              <button type="button" className="cmw__back" onClick={onBack}>
-                &#x2190; Back to list
-              </button>
-              <AdCommunityReviewCard card={activeCard} />
+          <div className="adm__inner adm__inner--mid">
+            <button type="button" className="adm-back" onClick={onBack}>
+              &#x2190; Back to list
+            </button>
+            <AdCommunityReviewCard card={activeCard} />
 
-              {value === "reviewCommunity" && (
-                <div className="sdb__actions cmw__reviewactions">
-                  <button
-                    type="button"
-                    className="sdb__btn sdb__btn--unsuspend"
-                    onClick={() => onDecide("unsuspend")}
-                    disabled={activeCard.suspended !== true}
-                    title={
-                      activeCard.suspended === null
-                        ? "Suspension state was not reported for this community"
-                        : activeCard.suspended
-                          ? ""
-                          : "Community is not suspended"
-                    }
-                  >
-                    Unsuspend
-                  </button>
-                  <button
-                    type="button"
-                    className="sdb__btn sdb__btn--primary sdb__btn--danger"
-                    onClick={() => onDecide("suspend")}
-                    disabled={activeCard.suspended === true}
-                    title={activeCard.suspended ? "Community is already suspended" : ""}
-                  >
-                    Suspend&#x2026;
-                  </button>
-                </div>
-              )}
+            {value === "reviewCommunity" && (
+              <div className="adm-actions">
+                <Button
+                  variant="secondary"
+                  tone="success"
+                  onClick={() => onDecide("unsuspend")}
+                  disabled={activeCard.suspended !== true}
+                  title={
+                    activeCard.suspended === null
+                      ? "Suspension state was not reported for this community"
+                      : activeCard.suspended
+                        ? ""
+                        : "Community is not suspended"
+                  }
+                >
+                  Unsuspend
+                </Button>
+                <Button
+                  variant="primary"
+                  tone="danger"
+                  onClick={() => onDecide("suspend")}
+                  disabled={activeCard.suspended === true}
+                  title={activeCard.suspended ? "Community is already suspended" : ""}
+                >
+                  Suspend&#x2026;
+                </Button>
+              </div>
+            )}
 
-              {value === "decision" && (
-                <AdSuspendDecisionBar
-                  suspended={activeCard.suspended}
-                  decision={decision}
-                  error={error}
-                  onDecide={onDecide}
-                  onConfirm={onConfirm}
-                  onCancel={onCancel}
-                />
-              )}
-            </div>
+            {value === "decision" && (
+              <AdSuspendDecisionBar
+                suspended={activeCard.suspended}
+                decision={decision}
+                error={error}
+                onDecide={onDecide}
+                onConfirm={onConfirm}
+                onCancel={onCancel}
+              />
+            )}
           </div>
         )}
 
         {value === "submitting" && (
-          <div className="au">
-            <div className="au__container cmw__centered">
-              <div className="cmw-submitting" role="status">
+          <div className="adm-gate">
+            <div className="adm-card" role="status">
+              <div className="adm-actions adm-actions--start">
                 <Spinner size={22} aria-hidden="true" />
-                <p className="cmw-gate__text">Applying moderation&#x2026;</p>
+                <span className="adm-card__text">Applying moderation&#x2026;</span>
               </div>
             </div>
           </div>
         )}
 
         {value === "moderated" && activeCard && (
-          <div className="au">
-            <div className="au__container cmw__centered">
-              <div className="cmw-done" role="status" aria-live="polite">
-                <h2 className="cmw-gate__title">Moderation applied</h2>
-                <p className="cmw-gate__text">
-                  <strong>{activeCard.name}</strong> &middot;{" "}
-                  {resultSuspended ? "Suspended" : "Unsuspended"}.
-                </p>
-                <button
-                  type="button"
-                  className="sdb__btn sdb__btn--primary"
-                  onClick={onContinue}
-                >
-                  Back to list
-                </button>
+          <div className="adm-gate">
+            <div className="adm-card" role="status" aria-live="polite">
+              <h2 className="adm-card__title">Moderation applied</h2>
+              <p className="adm-card__text">
+                <strong>{activeCard.name}</strong> &middot;{" "}
+                {resultSuspended ? "Suspended" : "Unsuspended"}.
+              </p>
+              <div className="adm-actions adm-actions--start">
+                <Button onClick={onContinue}>Back to list</Button>
               </div>
             </div>
           </div>

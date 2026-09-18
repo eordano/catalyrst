@@ -3,7 +3,7 @@ import { z } from "zod";
 import { signedFetch } from "../../auth/signer";
 import type { AuthIdentity } from "../../auth/types";
 
-export const GOVERNANCE_PROPOSAL_KINDS = [
+const GOVERNANCE_PROPOSAL_KINDS = [
   "catalyst",
   "hiring",
   "tender",
@@ -13,9 +13,9 @@ export const GOVERNANCE_PROPOSAL_KINDS = [
   "council-decision-veto",
 ] as const;
 
-export type GovernanceProposalKind = (typeof GOVERNANCE_PROPOSAL_KINDS)[number];
+type GovernanceProposalKind = (typeof GOVERNANCE_PROPOSAL_KINDS)[number];
 
-export const GOVERNANCE_SUBMIT_MOUNT = "/api/governance/proposals";
+const GOVERNANCE_SUBMIT_MOUNT = "/api/governance/proposals";
 
 export function isGovernanceProposalKind(
   raw: string | null | undefined,
@@ -40,12 +40,12 @@ const CreatedProposalSchema = z.object({
   published: z.boolean().nullish(),
 });
 
-export type CreatedProposalRow = z.infer<typeof CreatedProposalSchema>;
+type CreatedProposalRow = z.infer<typeof CreatedProposalSchema>;
 
 const NOT_CONFIGURED_RE =
   /not[\s_-]?configured|is[\s_-]?unset|signer[\s_-]?unavailable|snapshot[\s_-]?private[\s_-]?key/i;
 
-export const SIGN_IN_REQUIRED =
+const SIGN_IN_REQUIRED =
   "Sign in with your Decentraland wallet to submit this proposal.";
 
 export class GovernanceSubmitUnavailableError extends Error {
@@ -70,7 +70,7 @@ function reportsSignerUnavailable(status: number, message: string): boolean {
   return status === 503 || NOT_CONFIGURED_RE.test(message);
 }
 
-export type SubmitProposalArgs = {
+type SubmitProposalArgs = {
   identity: AuthIdentity | null;
   kind: GovernanceProposalKind;
   body: unknown;

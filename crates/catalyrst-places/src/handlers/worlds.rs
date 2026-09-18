@@ -25,16 +25,13 @@ pub async fn get_world(
     headers: axum::http::HeaderMap,
     Path(world_id): Path<String>,
 ) -> Result<Json<ApiData<WorldRow>>, ApiError> {
-    match state.places.find_world_by_id(&world_id).await? {
-        Some(mut w) => {
-            let user =
-                crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
-            state
-                .places
-                .apply_user_interactions(user.as_deref(), std::slice::from_mut(&mut w))
-                .await;
-            Ok(Json(ApiData::ok(WorldRow::from(w))))
-        }
+    let user = crate::auth::auth_address_optional(&headers, method.as_str(), uri.path()).await;
+    match state
+        .places
+        .find_world_by_id_for(&world_id, user.as_deref())
+        .await?
+    {
+        Some(w) => Ok(Json(ApiData::ok(WorldRow::from(w)))),
         None => Err(ApiError::not_found(format!(
             "Not found world \"{}\"",
             world_id
@@ -85,16 +82,6 @@ pub async fn get_world_list(
             .unwrap_or(false)
     };
     let only_favorites = bool_q("only_favorites");
-    let mut favorite_ids: Vec<String> = Vec::new();
-    if only_favorites {
-        match &user {
-            None => return Ok(Json(ApiDataTotal::ok(vec![], 0))),
-            Some(addr) => match state.places.favorite_entity_ids(addr).await? {
-                Some(ids) if !ids.is_empty() => favorite_ids = ids,
-                _ => return Ok(Json(ApiDataTotal::ok(vec![], 0))),
-            },
-        }
-    }
     let limit = get("limit")
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(100)
@@ -103,7 +90,7 @@ pub async fn get_world_list(
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(0)
         .max(0);
-    let filters = PlaceListFilters {
+    let mut filters = PlaceListFilters {
         limit,
         offset,
         names: get_all("names"),
@@ -114,18 +101,17 @@ pub async fn get_world_list(
         only_highlighted: bool_q("only_highlighted"),
         only_excluded_from_ranking: bool_q("only_excluded_from_ranking"),
         only_worlds: true,
-        ids: favorite_ids,
         creator_address: get("owner").map(|s| s.to_lowercase()),
         ..Default::default()
     };
-    let (mut data, total) = tokio::try_join!(
-        state.places.find_list(&filters),
-        state.places.count_list(&filters),
-    )?;
-    state
+    if !state
         .places
-        .apply_user_interactions(user.as_deref(), &mut data)
-        .await;
+        .scope_to_viewer(&mut filters, user.as_deref(), only_favorites)
+        .await?
+    {
+        return Ok(Json(ApiDataTotal::ok(vec![], 0)));
+    }
+    let (data, total) = state.places.list_page(&filters).await?;
     let worlds: Vec<WorldRow> = data.into_iter().map(WorldRow::from).collect();
     Ok(Json(ApiDataTotal::ok(worlds, total)))
 }

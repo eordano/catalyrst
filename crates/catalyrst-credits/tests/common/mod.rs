@@ -122,13 +122,28 @@ pub fn test_state_with_market(
     market_base_url: &str,
     fulfillment_mode: &str,
 ) -> AppState {
+    test_state_full(pool, mock_card, market_base_url, fulfillment_mode, None)
+}
+
+#[allow(dead_code)]
+pub fn test_state_with_webhook_secret(pool: sqlx::PgPool, secret: &str) -> AppState {
+    test_state_full(pool, false, "http://127.0.0.1:1", "secondary", Some(secret))
+}
+
+fn test_state_full(
+    pool: sqlx::PgPool,
+    mock_card: bool,
+    market_base_url: &str,
+    fulfillment_mode: &str,
+    stripe_webhook_secret: Option<&str>,
+) -> AppState {
     let http = reqwest::Client::new();
     Arc::new(AppStateInner {
         credits: CreditsComponent::new(pool.clone()),
         admin_token: None,
         captcha_provider: None,
         stripe: None,
-        stripe_webhook_secret: None,
+        stripe_webhook_secret: stripe_webhook_secret.map(str::to_string),
         mock_card,
         credits_currency: "usd".into(),
         pricing: PricingClient::new(

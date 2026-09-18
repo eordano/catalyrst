@@ -16,7 +16,7 @@ import {
   type TrackFn,
 } from "../../stories/governance/submit-ban-name/machine";
 
-export type SubmitBanNameWizardProps = {
+type SubmitBanNameWizardProps = {
   trackCtx: TrackContext;
   ctx: BanNameSubmitContext;
   initialStep?: string;

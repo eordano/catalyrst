@@ -23,6 +23,11 @@ import type { DiscoveredScene } from "@data/lib/catalyst/creator-hub/discover-de
 import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoader } from "@core/lib/experiments/story-loader";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
+import {
+  NO_COMPOSITE_CODE_ONLY_HINT,
+  NO_COMPOSITE_HINT,
+  OPEN_FAILED_HINT,
+} from "@data/lib/fs/local-scene";
 import { track } from "@core/lib/telemetry/track";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
@@ -140,7 +145,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const devOverride = import.meta.env.DEV && WALLET_RE.test(asParam) ? asParam : "";
   const publishedAddress = devOverride || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,
@@ -537,8 +542,9 @@ function ScenesView({
     setImportError(null);
     setImportPhase("picking");
     try {
-      const { openLocalScene, stashLocalSeed, stashCompositeHandle, stashLocalComposite } =
-        await import("@data/lib/fs/local-scene");
+      const { openLocalScene, stageLocalSceneForEditor } = await import(
+        "@data/lib/fs/local-scene"
+      );
       const out = await openLocalScene({ onPhase: setImportPhase });
       if (out.status === "cancelled") {
         setImportPhase(null);
@@ -551,29 +557,11 @@ function ScenesView({
           { reason: "no_composite", has_scene_json: out.hasSceneJson, files: out.fileCount },
           { sid, story: STORY },
         );
-        setImportError(
-          out.hasSceneJson
-            ? "No main.composite found in that folder \u{2014} it looks like a code-only SDK project (scene.json but no saved scene). Pick the project folder that contains your saved scene, the one holding main.composite."
-            : "No main.composite found in that folder \u{2014} pick the project folder that contains your saved scene, the one holding main.composite.",
-        );
+        setImportError(out.hasSceneJson ? NO_COMPOSITE_CODE_ONLY_HINT : NO_COMPOSITE_HINT);
         return;
       }
-      const res = out.result;
       setImportPhase("opening");
-      stashLocalSeed(res.seed);
-      await stashCompositeHandle(res.compositeHandle);
-      stashLocalComposite(res.compositeText);
-      {
-        const { populateProjectRealm, clearProjectRealm } = await import(
-          "@data/lib/fs/project-realm"
-        );
-        if (res.files) {
-          const pr = await populateProjectRealm(res.files, res.sceneJsonText);
-          if (!pr.ok) await clearProjectRealm();
-        } else {
-          await clearProjectRealm();
-        }
-      }
+      await stageLocalSceneForEditor(out.result);
       if (typeof window !== "undefined") {
         window.location.assign("/creator-hub/scene-editor?source=local&from=scenes");
       } else {
@@ -582,9 +570,7 @@ function ScenesView({
     } catch {
       setImportPhase(null);
       track("ch_scenes_import_failed", { reason: "exception" }, { sid, story: STORY });
-      setImportError(
-        "Couldn't read that folder \u{2014} check that this site still has permission to access it, then try again.",
-      );
+      setImportError(OPEN_FAILED_HINT);
     }
   }
   function onRetry() {

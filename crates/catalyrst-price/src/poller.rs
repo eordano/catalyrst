@@ -10,6 +10,7 @@ use sqlx::postgres::PgPool;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
+use crate::ports::prices::{snapshot_columns, snapshot_from_row, PriceSnapshot, PricesComponent};
 
 const MANA_ID: &str = "decentraland";
 const MATIC_ID: &str = "matic-network";
@@ -103,8 +104,13 @@ fn validate_snapshot(row: &SnapshotRow) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn insert_snapshot(pool: &PgPool, row: &SnapshotRow) -> Result<i64, sqlx::Error> {
-    let rec = sqlx::query(
+// Returns the stored row (numeric-rounded, DB taken_at) so the published
+// snapshot is exactly what a DB read would serve.
+async fn insert_snapshot(
+    pool: &PgPool,
+    row: &SnapshotRow,
+) -> Result<(i64, PriceSnapshot), sqlx::Error> {
+    let rec = sqlx::query(concat!(
         "INSERT INTO price_snapshots \
             (source, source_updated_at, mana_usd, mana_eth, mana_btc, mana_matic, \
              matic_usd, mana_market_cap_usd, mana_volume_24h_usd, \
@@ -113,8 +119,9 @@ async fn insert_snapshot(pool: &PgPool, row: &SnapshotRow) -> Result<i64, sqlx::
              $3::double precision, $4::double precision, $5::double precision, \
              $6::double precision, $7::double precision, $8::double precision, \
              $9::double precision, $10::double precision) \
-         RETURNING id",
-    )
+         RETURNING id, ",
+        snapshot_columns!()
+    ))
     .bind(SOURCE)
     .bind(row.source_updated_at)
     .bind(row.mana_usd)
@@ -128,16 +135,22 @@ async fn insert_snapshot(pool: &PgPool, row: &SnapshotRow) -> Result<i64, sqlx::
     .fetch_one(pool)
     .await?;
     use sqlx::Row;
-    Ok(rec.get::<i64, _>("id"))
+    Ok((rec.get::<i64, _>("id"), snapshot_from_row(&rec)))
 }
 
-async fn run_pass(client: &reqwest::Client, pool: &PgPool, base: &str) -> anyhow::Result<()> {
+async fn run_pass(
+    client: &reqwest::Client,
+    pool: &PgPool,
+    base: &str,
+    prices: &PricesComponent,
+) -> anyhow::Result<()> {
     let row = fetch_snapshot(client, base)
         .await
         .context("coingecko fetch failed")?;
-    let id = insert_snapshot(pool, &row)
+    let (id, stored) = insert_snapshot(pool, &row)
         .await
         .context("failed to insert snapshot")?;
+    prices.publish(stored);
     tracing::info!(
         snapshot_id = id,
         mana_usd = ?row.mana_usd,
@@ -149,7 +162,7 @@ async fn run_pass(client: &reqwest::Client, pool: &PgPool, base: &str) -> anyhow
     Ok(())
 }
 
-pub fn spawn(pool: PgPool, cfg: &Config) {
+pub fn spawn(pool: PgPool, cfg: &Config, prices: PricesComponent) {
     let base = cfg.coingecko_url.clone();
     let interval = Duration::from_secs(cfg.price_poll_interval_secs.max(1));
 
@@ -176,7 +189,8 @@ pub fn spawn(pool: PgPool, cfg: &Config) {
             let client = client.clone();
             let pool = pool.clone();
             let base = base.clone();
-            async move { run_pass(&client, &pool, &base).await }
+            let prices = prices.clone();
+            async move { run_pass(&client, &pool, &base, &prices).await }
         },
     );
 }

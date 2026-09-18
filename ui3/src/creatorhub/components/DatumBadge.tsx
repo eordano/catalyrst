@@ -8,7 +8,7 @@ import {
 } from "../lib/datum";
 import "./datumbadge.css";
 
-export type DatumBadgeProps = {
+type DatumBadgeProps = {
   datum: Datum<unknown>;
   now?: number;
 };
@@ -30,7 +30,7 @@ export default function DatumBadge({ datum, now }: DatumBadgeProps) {
   );
 }
 
-export type DatumTallyProps = {
+type DatumTallyProps = {
   tally: readonly StateTally[];
 };
 

@@ -6,6 +6,7 @@
   max-width: 340px;
   color: #fff;
 }
+.swpanel--floating { padding: 0; max-width: none; }
 .swpanel__title {
   margin: 0;
   font-size: 13px;

@@ -40,7 +40,7 @@ function toUiBids(field: BidCard[]) {
   }));
 }
 
-export type BidVotingFlowProps = {
+type BidVotingFlowProps = {
   trackCtx: TrackContext;
   bidId: string;
   field: BidCard[];

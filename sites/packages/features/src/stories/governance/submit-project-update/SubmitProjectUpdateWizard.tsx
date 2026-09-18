@@ -19,7 +19,7 @@ import {
   type UpdateDraft,
 } from "./machine";
 
-export type SubmitProjectUpdateWizardProps = {
+type SubmitProjectUpdateWizardProps = {
   context: ProjectUpdateContext;
   trackCtx: TrackContext;
   initialStep?: string;

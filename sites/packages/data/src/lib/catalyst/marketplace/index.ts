@@ -276,6 +276,13 @@ export function toCreations(items: CatalogItem[], creatorName?: string): Creatio
   return { wearables, emotes };
 }
 
+export function withCreatorName(creations: Creations, creatorName?: string): Creations {
+  const name = creatorName?.trim();
+  if (!name) return creations;
+  const relabel = (c: CreationItem): CreationItem => ({ ...c, creator: name });
+  return { wearables: creations.wearables.map(relabel), emotes: creations.emotes.map(relabel) };
+}
+
 export async function fetchCreations(
   creator: string,
   params: { first?: number; creatorName?: string } = {},

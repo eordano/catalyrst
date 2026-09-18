@@ -3,20 +3,20 @@ import { z } from "zod";
 
 import { OPERATOR_EVENTS } from "@core/lib/telemetry/operator-events";
 
-export type MetricsSource = "live" | "unavailable";
+type MetricsSource = "live" | "unavailable";
 
-export type DeployFunnel = {
+type DeployFunnel = {
   stages: { event: string; label: string; count: number }[];
   conversion: number;
   source: MetricsSource;
 };
 
-export type AdminActivity = {
+type AdminActivity = {
   rows: { event: string; label: string; count: number }[];
   source: MetricsSource;
 };
 
-export type OperatorMetrics = { funnel: DeployFunnel; admin: AdminActivity };
+type OperatorMetrics = { funnel: DeployFunnel; admin: AdminActivity };
 
 const FUNNEL_STAGES: { event: string; label: string }[] = [
   { event: OPERATOR_EVENTS.deployStarted, label: "Deploy started" },

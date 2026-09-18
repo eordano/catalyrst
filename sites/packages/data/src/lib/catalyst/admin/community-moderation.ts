@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import { getJSON } from "../client";
 import type { GetOptions } from "../client";
-import { shortAddress } from "../format/address";
 import { warnInvalid } from "../warn";
 
 export const COMMUNITY_STATUSES = ["all", "active", "suspended", "inactive"] as const;
@@ -17,13 +16,13 @@ export function parseStatus(raw: string | null | undefined): CommunityStatus {
 
 const nullableStr = z.string().nullish().transform((v) => v ?? null);
 
-export const CommunityRowSchema = z.object({
+const CommunityRowSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
   ownerAddress: z.string(),
   privacy: z.enum(["public", "private"]),
-  visibility: z.enum(["all", "unlisted"]),
+  visibility: z.enum(["all", "unlisted"]).optional(),
   active: z.boolean(),
   unlisted: z.boolean(),
   suspended: z.boolean().nullish().transform((v) => v ?? null),
@@ -36,25 +35,21 @@ export const CommunityRowSchema = z.object({
   thumbnailUrl: nullableStr,
   flaggedReason: nullableStr,
 });
-export type CommunityRow = z.infer<typeof CommunityRowSchema>;
+type CommunityRow = z.infer<typeof CommunityRowSchema>;
 
-export function hueFor(id: string): number {
+function hueFor(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
   return h;
 }
 
-export function truncateAddress(value: string): string {
-  return shortAddress(value);
-}
-
-export type CommunityModerationStatus =
+type CommunityModerationStatus =
   | "Active"
   | "Suspended"
   | "Inactive"
   | "Unknown";
 
-export function statusLabel(row: CommunityRow): CommunityModerationStatus {
+function statusLabel(row: CommunityRow): CommunityModerationStatus {
   if (row.suspended) return "Suspended";
   if (!row.active) return "Inactive";
   return row.suspended === null ? "Unknown" : "Active";
@@ -79,7 +74,7 @@ function normalizeThumbnail(value: string | null): string {
   return value && value !== "N/A" ? value : "";
 }
 
-export function toCard(row: CommunityRow): CommunityModerationCard {
+function toCard(row: CommunityRow): CommunityModerationCard {
   return {
     id: row.id,
     name: row.name,
@@ -115,7 +110,7 @@ function unwrapResults(env: unknown): unknown[] {
   return Array.isArray(results) ? results : [];
 }
 
-export type ModerationListResult = {
+type ModerationListResult = {
   cards: CommunityModerationCard[];
   source: "live" | "empty" | "error";
 };
@@ -148,7 +143,7 @@ export async function loadModerationCommunities(
   }
 }
 
-export const COMMUNITY_DECISIONS = ["suspend", "unsuspend"] as const;
+const COMMUNITY_DECISIONS = ["suspend", "unsuspend"] as const;
 export type CommunityDecision = (typeof COMMUNITY_DECISIONS)[number];
 
 export const SuspendResultSchema = z.object({
@@ -160,7 +155,7 @@ export type SuspendResult = z.infer<typeof SuspendResultSchema>;
 
 const ActionErrorSchema = z.object({ error: z.string() });
 
-export const SUSPENSION_ACTION_PATH = "/admin/community-suspension";
+const SUSPENSION_ACTION_PATH = "/admin/community-suspension";
 
 export async function requestSuspension(
   args: { communityId: string; decision: CommunityDecision; reason?: string },

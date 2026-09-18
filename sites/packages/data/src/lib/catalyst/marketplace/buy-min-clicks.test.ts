@@ -14,7 +14,7 @@ import {
 describe("GUARD A \u{2014} checkout is one-step (single CONFIRM: review \u{2192} fulfilling)", () => {
   const neverSettles: FulfillFn = () => new Promise<never>(() => {});
 
-  it("reaches `fulfilling` from `review` on a SINGLE CONFIRM (behavioral)", () => {
+  it("reaches `fulfilling` from `review` on a SINGLE CONFIRM and has no intermediate confirm state", () => {
     const actor = createActor(checkoutMachine, {
       input: {
         totalCredits: "10",
@@ -33,9 +33,7 @@ describe("GUARD A \u{2014} checkout is one-step (single CONFIRM: review \u{2192}
     expect(actor.getSnapshot().value).toBe("fulfilling");
 
     actor.stop();
-  });
 
-  it("has NO intermediate confirm state and review\u{2192}CONFIRM targets `fulfilling` (structural)", () => {
     type ConfigView = {
       initial: string;
       states: Record<
@@ -93,18 +91,22 @@ describe("GUARD C \u{2014} every Buy handler navigates directly to express check
     throw new Error(`unbalanced braces in ${fn}`);
   }
 
-  for (const h of BUY_HANDLERS) {
-    it(`${h.path}: ${h.fn} \u{2192} /marketplace/checkout?express= with no cart step`, () => {
+  it("every Buy handler \u{2192} /marketplace/checkout?express= with no cart step", () => {
+    const offenders: string[] = [];
+    for (const h of BUY_HANDLERS) {
       const src = readFileSync(resolve(APP, h.file), "utf8");
       const body = handlerBody(src, h.fn);
-
-      expect(body).toContain("/marketplace/checkout?express=");
-
-      expect(body).not.toContain("/marketplace/cart");
-
       const navs = body.match(/navigate\(/g) ?? [];
-      expect(navs.length).toBeGreaterThanOrEqual(1);
-      expect(navs.length).toBeLessThanOrEqual(h.maxNavs);
-    });
-  }
+      if (!body.includes("/marketplace/checkout?express=")) {
+        offenders.push(`${h.path}: ${h.fn} does not navigate to express checkout`);
+      }
+      if (body.includes("/marketplace/cart")) {
+        offenders.push(`${h.path}: ${h.fn} hops through /marketplace/cart`);
+      }
+      if (navs.length < 1 || navs.length > h.maxNavs) {
+        offenders.push(`${h.path}: ${h.fn} calls navigate ${navs.length} times (max ${h.maxNavs})`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });

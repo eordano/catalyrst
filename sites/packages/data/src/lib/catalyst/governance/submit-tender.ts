@@ -3,15 +3,13 @@ import { z } from "zod";
 import config from "./submit-tender.data.json";
 import { submitProposal } from "./submit-client";
 import type { AuthIdentity } from "../../auth/types";
-import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 import { governanceApiBase } from "./api-base";
 import { ETH_ADDRESS_RE } from "../format/address";
 import {
   ProposalRowSchema as RsProposalRowSchema,
   ProposalsEnvelopeSchema,
 } from "../generated-schemas/governance";
-
-export { governanceApiBase };
+import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 
 const FieldSchema = z.object({
   label: z.string(),
@@ -68,7 +66,7 @@ const SubmitTenderSchema = z.object({
   submit_error: z.string(),
 });
 
-export type SubmitTenderField = z.infer<typeof FieldSchema>;
+type SubmitTenderField = z.infer<typeof FieldSchema>;
 export type Pitch = z.infer<typeof PitchSchema>;
 export type SubmitTenderData = z.infer<typeof SubmitTenderSchema>;
 
@@ -124,7 +122,7 @@ export function getSubmitTenderData(): SubmitTenderData {
   return parse();
 }
 
-export function getTenderVpThreshold(): number {
+function getTenderVpThreshold(): number {
   return parse().submission_threshold_tender;
 }
 
@@ -155,14 +153,14 @@ function toPitch(row: ProposalRow): Pitch {
   };
 }
 
-export type LoadPitchesOptions = {
+type LoadPitchesOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   limit?: number;
 };
 
-export type PitchList = {
+type PitchList = {
   source: "live" | "error";
   pitches: Pitch[];
 };
@@ -290,12 +288,12 @@ export type CreatedTender = {
   pending: boolean;
 };
 
-export type CreateTenderFn = (args: {
+type CreateTenderFn = (args: {
   form: TenderForm;
   signal?: AbortSignal;
 }) => Promise<CreatedTender>;
 
-export type NewProposalTender = {
+type NewProposalTender = {
   type: "tender";
   linked_proposal_id: string;
   project_name: string;
@@ -308,7 +306,7 @@ export type NewProposalTender = {
   coAuthors: string[];
 };
 
-export function buildTenderPayload(form: TenderForm): NewProposalTender {
+function buildTenderPayload(form: TenderForm): NewProposalTender {
   return {
     type: "tender",
     linked_proposal_id: form.linked_proposal_id.trim(),
@@ -350,7 +348,9 @@ export function buildCreateTender(identity: AuthIdentity | null): CreateTenderFn
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftProposalsEnvelope = Assert<
   AssignableTo<
     RsListEnvelope,
@@ -359,3 +359,4 @@ export type _DriftProposalsEnvelope = Assert<
     }
   >
 >;
+

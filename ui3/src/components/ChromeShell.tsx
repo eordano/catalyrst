@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import DappFooter from "./DappFooter";
+import { chromeLinkClick, chromeLinkProps, useChromeNav, type ChromeNavigate } from "../web/frames/chrome-nav";
 import "./chromeshell.css";
 
 type ChromeTab<Id extends string = string> = {
@@ -19,7 +20,7 @@ type ChromeShellProps<Id extends string = string> = {
   tabs?: readonly ChromeTab<Id>[];
   active?: NoInfer<Id>;
   onTab?: (id: NoInfer<Id>) => void;
-  onNavigate?: (href: string) => void;
+  onNavigate?: ChromeNavigate;
   tabsLabel?: string;
   right?: ReactNode;
   children?: ReactNode;
@@ -45,6 +46,8 @@ export default function ChromeShell<Id extends string = string>({
   const tabsRef = useRef<HTMLElement>(null);
   const menuId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
+  const nav = useChromeNav();
+  const go = onNavigate ?? nav.navigate;
 
   useEffect(() => {
     const nav = tabsRef.current;
@@ -81,16 +84,13 @@ export default function ChromeShell<Id extends string = string>({
     tab.href ? (
       <a
         key={tab.id}
-        href={tab.href}
+        {...chromeLinkProps(tab.href, go)}
         className={cls + (tab.id === active ? " is-active" : "")}
         aria-current={tab.id === active ? "page" : undefined}
         onClick={(e) => {
           onTab?.(tab.id);
           setMenuOpen(false);
-          if (!onNavigate || e.defaultPrevented) return;
-          if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-          e.preventDefault();
-          onNavigate(tab.href as string);
+          chromeLinkClick(e, tab.href as string, go);
         }}
       >
         {tab.icon ? <span className="cs__tabicon" aria-hidden="true">{tab.icon}</span> : null}
@@ -123,7 +123,7 @@ export default function ChromeShell<Id extends string = string>({
         <div className="cs__nav">
           {brand ? (
             brandHref ? (
-              <a className="cs__brand" href={brandHref}>
+              <a className="cs__brand" {...chromeLinkProps(brandHref, go)}>
                 {brand}
               </a>
             ) : (

@@ -2,7 +2,7 @@ import { getJSON } from "../client";
 import type { GetOptions } from "../client";
 import { parseNotifications, type Notification } from "./notifications";
 
-export type NotificationsData = {
+type NotificationsData = {
   address: string;
   notifications: Notification[];
   unavailable: string | null;

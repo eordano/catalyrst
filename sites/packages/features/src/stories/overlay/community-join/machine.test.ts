@@ -218,7 +218,7 @@ describe("communityJoinMachine \u{2014} public JOIN funnel", () => {
       experimentKey: "cl_community_join",
       variant: "guided",
     });
-    expect(joinedCall?.[1]).toMatchObject({ action: "join", pending: false, stub: true });
+    expect(joinedCall?.[1]).toMatchObject({ action: "join", pending: false, stub: false });
   });
 });
 
@@ -245,7 +245,7 @@ describe("communityJoinMachine \u{2014} private REQUEST funnel", () => {
     expect(snap.context.result?.pending).toBe(true);
     expect(snap.context.result?.role).toBeNull();
     const joinedCall = track.mock.calls.find((c) => c[0] === COMMUNITY_JOIN_EVENTS.joined);
-    expect(joinedCall?.[1]).toMatchObject({ action: "request", pending: true, stub: true });
+    expect(joinedCall?.[1]).toMatchObject({ action: "request", pending: true, stub: false });
   });
 });
 

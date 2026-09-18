@@ -29,7 +29,7 @@ export type GateInput = {
   hasVp: boolean;
 };
 
-export type GvSubmitPitchWizardProps = {
+type GvSubmitPitchWizardProps = {
   trackCtx: TrackContext;
   ctx: PitchSubmitContext;
   gate: GateInput;

@@ -1,19 +1,6 @@
-export const REDIRECT_TARGET = "/create/wearables";
+const REDIRECT_TARGET = "/create/wearables";
 
-export type RedirectRow = {
-  from: string;
-  to: string;
-  reason: string;
-  note: string;
-};
-
-export type RedirectMap = {
-  target: string;
-  redirects: RedirectRow[];
-  status: number;
-};
-
-export type RedirectResult = {
+type RedirectResult = {
   location: string;
   to: string;
   query: string;

@@ -11,7 +11,7 @@ export const DEMO_OWNER = "0x5188e308fee25ac49c10f9fd9270d953c4822ce5";
 const PLACES_PUBLIC_CHECK =
   "catalyrst-places/src/handlers/places.rs:66-73 (auth_address_optional, no gate)";
 
-export type SceneAdminsData = {
+type SceneAdminsData = {
   viewedAddress: string;
   isDemo: boolean;
   places: ControlResult<OperatedPlace[]>;
@@ -72,10 +72,3 @@ export async function loadSceneAdmins(
   };
 }
 
-export function grantSceneAdmin(): Unavailable {
-  return controlStatus("sceneAdmins.grant") as Unavailable;
-}
-
-export function revokeSceneAdmin(): Unavailable {
-  return controlStatus("sceneAdmins.revoke") as Unavailable;
-}

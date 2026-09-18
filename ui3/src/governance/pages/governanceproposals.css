@@ -198,13 +198,6 @@
   transition: background 0.12s ease;
 }
 .gp__submit:hover { background: var(--brand-hover); }
-.gp__submit--ghost {
-  margin-top: 14px;
-  background: var(--gv-surface);
-  color: var(--brand);
-  border: 1px solid var(--brand);
-}
-.gp__submit--ghost:hover { background: var(--gv-tint); }
 
 .gp__toolbar {
   display: flex;

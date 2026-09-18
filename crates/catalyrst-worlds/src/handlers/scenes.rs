@@ -12,9 +12,8 @@ use crate::fed::names::LocalWorldName;
 use crate::handlers::deploy::canon_pointer;
 use crate::handlers::permissions::{map_auth_error, resolve_world_owner};
 use crate::http::ApiError;
+use crate::ports::worlds::WorldProbe;
 use crate::AppState;
-
-const PARCEL_PAGE: i64 = 100_000;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "worlds/"))]
@@ -130,28 +129,11 @@ pub async fn delete_scene(
         }
         let entity_ids: Vec<String> = overlapping.iter().map(|s| s.entity_id.clone()).collect();
 
-        let records = state
+        let required: Vec<String> = required.into_iter().collect();
+        let allowed = state
             .worlds
-            .get_world_permission_records_full(&world_name)
+            .has_deployment_permission_covering(&world_name, &signer, &required)
             .await?;
-        let mut allowed = false;
-        for r in records.iter().filter(|r| {
-            r.permission_type == "deployment" && r.address.eq_ignore_ascii_case(&signer)
-        }) {
-            if r.is_world_wide {
-                allowed = true;
-                break;
-            }
-            let (_total, parcels) = state
-                .worlds
-                .get_parcels_for_permission(r.id, PARCEL_PAGE, 0, None)
-                .await?;
-            let granted: HashSet<String> = parcels.iter().map(|p| canon_pointer(p)).collect();
-            if required.iter().all(|p| granted.contains(p)) {
-                allowed = true;
-                break;
-            }
-        }
         if !allowed {
             return Err(ApiError::forbidden(format!(
                 "Your wallet can not unpublish scenes from \"{world_name}\"."
@@ -196,11 +178,20 @@ pub async fn undeploy_world(
         .map_err(map_auth_error)?;
     let signer = auth.signer.as_str().to_string();
 
-    let world = state.worlds.get_world(&world_name).await?;
+    let lookup = state
+        .worlds
+        .lookup_world(
+            &world_name,
+            WorldProbe {
+                world_wide_deployer: Some(&signer),
+                ..WorldProbe::default()
+            },
+        )
+        .await?;
     let owner = resolve_world_owner(
         &state,
         &LocalWorldName::from_request_path(&world_name),
-        world.and_then(|w| w.owner),
+        lookup.world.and_then(|w| w.owner),
     )
     .await;
     let is_owner = owner
@@ -208,21 +199,10 @@ pub async fn undeploy_world(
         .map(|o| o.eq_ignore_ascii_case(&signer))
         .unwrap_or(false);
 
-    if !is_owner {
-        let records = state
-            .worlds
-            .get_world_permission_records_full(&world_name)
-            .await?;
-        let has_world_wide = records.iter().any(|r| {
-            r.permission_type == "deployment"
-                && r.address.eq_ignore_ascii_case(&signer)
-                && r.is_world_wide
-        });
-        if !has_world_wide {
-            return Err(ApiError::forbidden(format!(
-                "You must have world-wide deployment permission to undeploy \"{world_name}\"."
-            )));
-        }
+    if !is_owner && !lookup.world_wide_deployer {
+        return Err(ApiError::forbidden(format!(
+            "You must have world-wide deployment permission to undeploy \"{world_name}\"."
+        )));
     }
 
     let removed = state.worlds.undeploy_world(&world_name).await?;

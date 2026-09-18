@@ -13,12 +13,9 @@ beforeEach(() => {
 });
 afterEach(() => resetValidationFailures());
 
-test("bridge/push validates what the engine sends", () => {
-  applyBridgePushForTest({ kind: "identity", address: 42 });
-  expect(validationFailures().get("bridge/push")).toBe(1);
-});
-
-test("bridge/push accepts a permission withdrawal the store has no state for", () => {
+test("bridge/push validates what the engine sends and accepts a permission withdrawal the store has no state for", () => {
   applyBridgePushForTest({ kind: "permissionWithdrawn", id: 3 });
   expect(validationFailures().get("bridge/push")).toBeUndefined();
+  applyBridgePushForTest({ kind: "identity", address: 42 });
+  expect(validationFailures().get("bridge/push")).toBe(1);
 });

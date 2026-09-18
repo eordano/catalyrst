@@ -9,8 +9,8 @@ use catalyrst_authenticated_principal::{AuthorityNotEstablished, VerifiedWalletA
 
 use crate::rest::auth_chain::require_signer;
 use crate::rest::community_membership_authority::{
-    load_standing_from_community_members, status_and_message_for_refusal,
-    CommunityMembershipStanding, CommunityMembershipTier,
+    load_standing_from_community_members, load_standings_pair_from_community_members,
+    status_and_message_for_refusal, CommunityMembershipStanding, CommunityMembershipTier,
 };
 use crate::rest::handlers::permissions::Permission;
 use crate::rest::ports::places_api::PlacesError;
@@ -244,6 +244,27 @@ async fn load_client_standing(
                 "Forbidden: authority could not be established".to_string()
             })
         })
+}
+
+/// Both standings from one read; refuses exactly as [`load_client_standing`] does.
+async fn load_client_standing_pair(
+    state: &AppState,
+    community_id: Uuid,
+    first_wallet: &str,
+    second_wallet: &str,
+) -> Result<(CommunityMembershipStanding, CommunityMembershipStanding), Response> {
+    load_standings_pair_from_community_members(
+        &state.pool,
+        community_id,
+        first_wallet,
+        second_wallet,
+    )
+    .await
+    .map_err(|refusal| {
+        refusal_response(&refusal, StatusCode::FORBIDDEN, || {
+            "Forbidden: authority could not be established".to_string()
+        })
+    })
 }
 
 /// SQL errors propagate (as a 500 via [`map_db`]) instead of reading as "not banned", so a

@@ -15,6 +15,10 @@ pub(crate) struct EntityCache {
     /// -- ~45k wearables meant ~1e9 string comparisons, the bulk of cache-load wall time. Nothing
     /// reads this index today; keeping it a set means the first reader inherits O(1).
     by_type: HashMap<&'static str, HashSet<String>>,
+    /// Bumped under the write lock by every mutation, so a reader that dropped its read guard
+    /// before hitting SQL can tell whether a deployment landed in between and skip filling the
+    /// side caches with what it read.
+    pub(crate) generation: u64,
 }
 
 impl EntityCache {
@@ -23,6 +27,7 @@ impl EntityCache {
             by_id: HashMap::new(),
             pointer_to_id: HashMap::new(),
             by_type: HashMap::new(),
+            generation: 0,
         }
     }
 
@@ -55,6 +60,7 @@ impl EntityCache {
     /// Folds a separately-loaded cache in, one `upsert` per entity so the
     /// pointer-reassignment rules are exactly those of a sequential load.
     pub(crate) fn absorb(&mut self, other: EntityCache) {
+        self.generation += 1;
         let mut pointers: HashMap<String, Vec<String>> = HashMap::new();
         for (pointer, id) in other.pointer_to_id {
             pointers.entry(id).or_default().push(pointer);
@@ -84,7 +90,7 @@ impl EntityCache {
 }
 
 pub(crate) struct ProfileLru {
-    map: HashMap<String, (Instant, Value)>,
+    map: HashMap<String, (Instant, Bytes)>,
     order: VecDeque<String>,
     max_entries: usize,
 }
@@ -98,11 +104,11 @@ impl ProfileLru {
         }
     }
 
-    pub(crate) fn get(&self, entity_id: &str) -> Option<&Value> {
+    pub(crate) fn get(&self, entity_id: &str) -> Option<&Bytes> {
         self.map.get(entity_id).map(|(_, v)| v)
     }
 
-    pub(crate) fn insert(&mut self, entity_id: String, value: Value) {
+    pub(crate) fn insert(&mut self, entity_id: String, value: Bytes) {
         if self.map.contains_key(&entity_id) {
             self.map.insert(entity_id.clone(), (Instant::now(), value));
             self.order.retain(|id| id != &entity_id);
@@ -234,33 +240,111 @@ pub(crate) async fn load_entity_type_into_cache(
     Ok(count)
 }
 
+const AFFECTED_DEPLOYMENTS: &str = "
+    SELECT entity_id, entity_pointers FROM deployments WHERE entity_id = $1
+    UNION ALL
+    SELECT old.entity_id, old.entity_pointers
+    FROM deployments old
+    INNER JOIN deployments incoming ON old.deleter_deployment = incoming.id
+    WHERE incoming.entity_id = $1";
+
+type RefreshScope = (HashSet<String>, Vec<String>);
+
+fn decode_refresh(
+    rows: Vec<sqlx::postgres::PgRow>,
+) -> Result<(RefreshScope, Vec<CachedEntityRow>), sqlx::Error> {
+    use sqlx::{FromRow, Row};
+    let mut scope = (HashSet::new(), Vec::new());
+    let mut entities = Vec::new();
+    for row in rows {
+        if let Some(ids) = row.try_get::<Option<Vec<String>>, _>("affected_ids")? {
+            scope = (ids.into_iter().collect(), row.try_get("affected_pointers")?);
+        }
+        if row.try_get::<Option<String>, _>("entity_id")?.is_some() {
+            entities.push(CachedEntityRow::from_row(&row)?);
+        }
+    }
+    Ok((scope, entities))
+}
+
 pub(crate) async fn invalidate_deployment_caches(
     pool: &PgPool,
     entity_cache: &Arc<RwLock<EntityCache>>,
     profile_lru: &Arc<Mutex<ProfileLru>>,
     prefix_ids_cache: &Arc<Mutex<PrefixIdsCache>>,
     entity_id: &str,
+    local_entities: bool,
 ) -> Result<(), sqlx::Error> {
-    // Cache reads hold this barrier through any database fetch and cache fill.
-    // Eviction therefore cannot race with a stale in-flight query refilling it.
+    // Hold the same barrier across the database snapshot and cache replacement.
     let mut cache = entity_cache.write().await;
-    let affected: Result<Vec<(String, Vec<String>)>, _> = sqlx::query_as(
+    cache.generation += 1;
+    let tombstone_filter = if local_entities {
+        "AND NOT EXISTS (SELECT 1 FROM local_entities le
+         WHERE le.entity_id = dep.entity_id AND le.tombstoned_at IS NOT NULL)"
+    } else {
+        ""
+    };
+    let snapshot = sqlx::query(sqlx::AssertSqlSafe(format!(
         r#"
-        SELECT entity_id, entity_pointers FROM deployments WHERE entity_id = $1
-        UNION ALL
-        SELECT old.entity_id, old.entity_pointers
-        FROM deployments old
-        INNER JOIN deployments incoming ON old.deleter_deployment = incoming.id
-        WHERE incoming.entity_id = $1
-        "#,
-    )
+        WITH affected AS MATERIALIZED ({AFFECTED_DEPLOYMENTS}),
+        pointers AS (SELECT DISTINCT lower(unnest(entity_pointers)) AS pointer FROM affected),
+        refreshed AS (
+            SELECT dep.entity_id, dep.entity_type, dep.entity_pointers, dep.entity_metadata,
+                   date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
+                   dep.version, dep.id,
+                   array_agg(ap.pointer::text) AS active_pointers,
+                   COALESCE(
+                       (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
+                        FROM content_files cf WHERE cf.deployment = dep.id),
+                       '[]'::json
+                   ) AS content_json
+            FROM deployments dep
+            INNER JOIN active_pointers ap ON ap.entity_id = dep.entity_id
+            WHERE dep.entity_id IN (
+                SELECT entity_id FROM active_pointers WHERE pointer IN (SELECT pointer FROM pointers)
+            )
+              AND dep.entity_type = ANY($2)
+              AND dep.deleter_deployment IS NULL
+              {tombstone_filter}
+            GROUP BY dep.id
+        )
+        SELECT CASE WHEN row_number() OVER () = 1
+                    THEN ARRAY(SELECT entity_id FROM affected) END AS affected_ids,
+               CASE WHEN row_number() OVER () = 1
+                    THEN ARRAY(SELECT pointer FROM pointers) END AS affected_pointers,
+               refreshed.*
+        FROM (SELECT 1) marker LEFT JOIN refreshed ON true
+        "#
+    )))
     .bind(entity_id)
+    .bind(CACHED_ENTITY_TYPES)
     .fetch_all(pool)
-    .await;
+    .await
+    .and_then(decode_refresh);
+    let (scope, refreshed, refresh_error) = match snapshot {
+        Ok((scope, rows)) => (Ok(scope), rows, None),
+        Err(error) => {
+            // A failed refill must still evict stale entries. The rare failure path
+            // keeps the narrower eviction when the affected-entity lookup still works.
+            let affected: Result<Vec<(String, Vec<String>)>, _> =
+                sqlx::query_as(AFFECTED_DEPLOYMENTS)
+                    .bind(entity_id)
+                    .fetch_all(pool)
+                    .await;
+            let scope = affected.map(|rows| {
+                let pointers = rows
+                    .iter()
+                    .flat_map(|(_, p)| p.iter().map(|p| p.to_lowercase()))
+                    .collect();
+                (rows.into_iter().map(|(id, _)| id).collect(), pointers)
+            });
+            (scope, Vec::new(), Some(error))
+        }
+    };
     let mut profiles = profile_lru.lock().await;
     let mut prefixes = prefix_ids_cache.lock().await;
-    let affected = match affected {
-        Ok(rows) => rows,
+    let (mut ids, pointers) = match scope {
+        Ok(scope) => scope,
         Err(error) => {
             cache.by_id.clear();
             cache.pointer_to_id.clear();
@@ -272,60 +356,24 @@ pub(crate) async fn invalidate_deployment_caches(
             return Err(error);
         }
     };
-    let pointers: Vec<String> = affected
-        .iter()
-        .flat_map(|(_, pointers)| pointers.iter().map(|p| p.to_lowercase()))
-        .collect();
-    let mut ids: HashSet<String> = affected.into_iter().map(|(id, _)| id).collect();
     ids.insert(entity_id.to_string());
     for pointer in &pointers {
         if let Some(id) = cache.pointer_to_id.get(pointer) {
             ids.insert(id.clone());
         }
     }
-    // Evict whole entities: replacing one parcel also clears any other parcels
-    // from the superseded scene.
     for id in ids {
         cache.remove(&id);
         profiles.remove(&id);
     }
     prefixes.remove_matching(&pointers);
-    let tombstone_filter = if catalyrst_server::land_publish::local_entities_present(pool).await {
-        "AND NOT EXISTS (SELECT 1 FROM local_entities le
-         WHERE le.entity_id = dep.entity_id AND le.tombstoned_at IS NOT NULL)"
-    } else {
-        ""
-    };
-    // Read current ownership under the same barrier. Even an old notification
-    // refreshes the latest database state, rather than its original deployment.
-    let refreshed: Vec<CachedEntityRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        r#"
-        SELECT dep.entity_id, dep.entity_type, dep.entity_pointers, dep.entity_metadata,
-               date_part('epoch', dep.entity_timestamp) * 1000 AS entity_timestamp,
-               dep.version, dep.id,
-               array_agg(ap.pointer::text) AS active_pointers,
-               COALESCE(
-                   (SELECT json_agg(json_build_object('key', cf.key, 'hash', cf.content_hash) ORDER BY cf.key)
-                    FROM content_files cf WHERE cf.deployment = dep.id),
-                   '[]'::json
-               ) AS content_json
-        FROM deployments dep
-        INNER JOIN active_pointers ap ON ap.entity_id = dep.entity_id
-        WHERE dep.entity_id IN (SELECT entity_id FROM active_pointers WHERE pointer = ANY($1))
-          AND dep.entity_type = ANY($2)
-          AND dep.deleter_deployment IS NULL
-          {tombstone_filter}
-        GROUP BY dep.id
-        "#
-    )))
-    .bind(&pointers)
-    .bind(CACHED_ENTITY_TYPES)
-    .fetch_all(pool)
-    .await?;
     for row in refreshed {
         cache.upsert(row_to_cached_entity(row.entity), row.active_pointers);
     }
-    Ok(())
+    match refresh_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 pub(crate) async fn install_notify_trigger(pool: &PgPool) -> Result<(), sqlx::Error> {
@@ -368,6 +416,7 @@ pub(crate) async fn listen_for_invalidations(
     entity_cache: Arc<RwLock<EntityCache>>,
     profile_lru: Arc<Mutex<ProfileLru>>,
     prefix_ids_cache: Arc<Mutex<PrefixIdsCache>>,
+    local_entities: bool,
 ) {
     let mut listener = match sqlx::postgres::PgListener::connect_with(&pool).await {
         Ok(l) => l,
@@ -406,6 +455,7 @@ pub(crate) async fn listen_for_invalidations(
                 &profile_lru,
                 &prefix_ids_cache,
                 entity_id,
+                local_entities,
             )
             .await
             {
@@ -496,8 +546,13 @@ mod tests {
                 .await
                 .unwrap();
         }
+        let deployment_schema =
+            catalyrst_server::schema_migrations::DeploymentSchema::detect(&pool)
+                .await
+                .unwrap();
         let db = LiveDatabase {
             pool,
+            deployment_schema,
             entity_cache: Arc::new(RwLock::new(EntityCache::new())),
             profile_lru: Arc::new(Mutex::new(ProfileLru::new(10))),
             prefix_ids_cache: Arc::new(Mutex::new(PrefixIdsCache::new(
@@ -653,10 +708,10 @@ mod tests {
                 .is_err(),
             "a database failure must not serve the evicted stale scene"
         );
-        db.profile_lru
-            .lock()
-            .await
-            .insert("profile".into(), json!({"id": "profile"}));
+        db.profile_lru.lock().await.insert(
+            "profile".into(),
+            Bytes::from_static(b"{\"id\":\"profile\"}"),
+        );
         db.prefix_ids_cache
             .lock()
             .await
@@ -691,7 +746,7 @@ mod tests {
         let pool = db.pool.clone();
         let read_guard = db.entity_cache.read().await;
         let task = tokio::spawn(async move {
-            invalidate_deployment_caches(&pool, &cache, &profile_lru, &prefix_cache, "new")
+            invalidate_deployment_caches(&pool, &cache, &profile_lru, &prefix_cache, "new", false)
                 .await
                 .unwrap();
         });
@@ -703,7 +758,7 @@ mod tests {
         db.profile_lru
             .lock()
             .await
-            .insert("old".into(), json!({"id": "old"}));
+            .insert("old".into(), Bytes::from_static(b"{\"id\":\"old\"}"));
         db.prefix_ids_cache.lock().await.insert(
             "urn:decentraland:matic:collections-v2:0xaaa".into(),
             ids(&["old"]),
@@ -727,8 +782,187 @@ mod tests {
         drop_visibility_fixture(db, schema).await;
     }
 
+    #[tokio::test]
+    async fn deployment_visibility_combines_multiple_successors_and_honors_tombstones() {
+        use super::*;
+        let Some((mut db, schema)) = visibility_fixture().await else {
+            return;
+        };
+        assert!(!db.deployment_schema.local_entities);
+        assert!(!db.deployment_schema.pointer_entity_type);
+        sqlx::query("INSERT INTO deployments (id, entity_id, entity_type, entity_pointers, deleter_deployment)
+                     VALUES (1, 'old', 'scene', ARRAY['0,0', '1,0', '2,0'], 2),
+                            (2, 'a', 'scene', ARRAY['0,0'], NULL),
+                            (3, 'b', 'scene', ARRAY['1,0'], NULL)")
+            .execute(&db.pool).await.unwrap();
+        sqlx::query("INSERT INTO active_pointers VALUES ('0,0', 'a'), ('1,0', 'b')")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.deployment_committed("old").await.unwrap();
+        {
+            let cache = db.entity_cache.read().await;
+            assert!(cache.by_id.contains_key("a") && cache.by_id.contains_key("b"));
+            assert_eq!(cache.pointer_to_id.len(), 2);
+            assert!(!cache.pointer_to_id.contains_key("2,0"));
+        }
+        sqlx::query(
+            "CREATE TABLE local_entities (entity_id text PRIMARY KEY, tombstoned_at timestamp)",
+        )
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        sqlx::query("ALTER TABLE active_pointers ADD COLUMN entity_type text")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.deployment_schema =
+            catalyrst_server::schema_migrations::DeploymentSchema::detect(&db.pool)
+                .await
+                .unwrap();
+        assert!(db.deployment_schema.local_entities && db.deployment_schema.pointer_entity_type);
+        sqlx::query("INSERT INTO local_entities VALUES ('a', now())")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.deployment_committed("old").await.unwrap();
+        {
+            let cache = db.entity_cache.read().await;
+            assert!(!cache.by_id.contains_key("a"));
+            assert!(!cache.pointer_to_id.contains_key("0,0"));
+            assert!(cache.by_id.contains_key("b"));
+        }
+        sqlx::query("INSERT INTO local_entities VALUES ('b', now())")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.deployment_committed("old").await.unwrap();
+        assert!(db.entity_cache.read().await.by_id.is_empty());
+        db.deployment_committed("absent").await.unwrap();
+        drop_visibility_fixture(db, schema).await;
+    }
+
     fn ids(v: &[&str]) -> Arc<Vec<String>> {
         Arc::new(v.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[tokio::test]
+    async fn prefix_page_cold_path_is_one_statement_and_memoizes_ids() {
+        use super::*;
+        let Some((db, schema)) = visibility_fixture().await else {
+            return;
+        };
+        let prefix = "urn:decentraland:matic:collections-v2:0xaaa";
+        sqlx::query(
+            "INSERT INTO deployments (id, entity_id, entity_type, entity_pointers, entity_metadata, deleter_deployment)
+             VALUES (1, 'w1', 'wearable', ARRAY[$1 || ':1'], '{\"v\":{\"name\":\"one\"}}', NULL),
+                    (2, 'w2', 'wearable', ARRAY[$1 || ':2'], NULL, NULL),
+                    (3, 'w3', 'wearable', ARRAY[$1 || ':3'], NULL, NULL),
+                    (4, 'other', 'wearable', ARRAY['urn:decentraland:matic:collections-v2:0xbbb:1'], NULL, NULL),
+                    (5, 'gone', 'wearable', ARRAY[$1 || ':4'], NULL, 6)",
+        )
+        .bind(prefix)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO active_pointers (pointer, entity_id)
+             VALUES ($1 || ':1', 'w1'), ($1 || ':2', 'w2'), ($1 || ':3', 'w3'), ($1 || ':4', 'gone'),
+                    ('urn:decentraland:matic:collections-v2:0xbbb:1', 'other')",
+        )
+        .bind(prefix)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO content_files (deployment, key, content_hash) VALUES (1, 'b.png', 'hb'), (1, 'a.png', 'ha')")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+
+        let cold = db.active_entity_docs_by_prefix(prefix, 0, 2).await.unwrap();
+        assert_eq!(cold.total, 4);
+        let memo = db.prefix_ids_cache.lock().await.get(prefix).unwrap();
+        assert_eq!(memo.len(), 4);
+        let page_ids: Vec<&str> = cold.entities.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(page_ids, &memo[..2]);
+        let by_ids = db.active_entities_by_ids(&memo[..2]).await.unwrap();
+        for doc in &cold.entities {
+            let value = doc.to_value().unwrap();
+            assert!(
+                by_ids.contains(&value),
+                "page row must match the by-id shape: {value}"
+            );
+        }
+        let w1 = cold
+            .entities
+            .iter()
+            .find(|d| d.id == "w1")
+            .map(|d| d.to_value().unwrap());
+        if let Some(w1) = w1 {
+            assert_eq!(w1["metadata"]["name"], "one");
+            assert_eq!(w1["content"][0]["file"], "a.png");
+        }
+
+        let warm = db
+            .active_entity_docs_by_prefix(prefix, 2, 10)
+            .await
+            .unwrap();
+        assert_eq!(warm.total, 4);
+        let warm_ids: Vec<&str> = warm.entities.iter().map(|d| d.id.as_str()).collect();
+        let expected: Vec<&str> = memo[2..]
+            .iter()
+            .map(String::as_str)
+            .filter(|id| *id != "gone")
+            .collect();
+        assert_eq!(warm_ids, expected);
+
+        let empty = db
+            .active_entity_docs_by_prefix("urn:decentraland:matic:collections-v2:0x_none", 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(empty.total, 0);
+        assert!(empty.entities.is_empty());
+        assert_eq!(
+            db.prefix_ids_cache
+                .lock()
+                .await
+                .get("urn:decentraland:matic:collections-v2:0x_none")
+                .unwrap()
+                .len(),
+            0
+        );
+        drop_visibility_fixture(db, schema).await;
+    }
+
+    #[tokio::test]
+    async fn side_cache_fills_are_dropped_when_a_deployment_landed_in_between() {
+        use super::*;
+        let db = LiveDatabase {
+            pool: PgPoolOptions::new()
+                .connect_lazy("postgres://localhost/unused")
+                .unwrap(),
+            deployment_schema: catalyrst_server::schema_migrations::DeploymentSchema {
+                local_entities: false,
+                pointer_entity_type: false,
+            },
+            entity_cache: Arc::new(RwLock::new(EntityCache::new())),
+            profile_lru: Arc::new(Mutex::new(ProfileLru::new(10))),
+            prefix_ids_cache: Arc::new(Mutex::new(PrefixIdsCache::new(
+                10,
+                Duration::from_secs(60),
+            ))),
+        };
+        let doc = EntityDoc {
+            id: "p".into(),
+            json: Bytes::from_static(b"{\"id\":\"p\"}"),
+        };
+        let generation = db.entity_cache.read().await.generation;
+        db.entity_cache.write().await.generation += 1;
+        db.remember_profiles(generation, vec![doc.clone()]).await;
+        assert!(db.profile_lru.lock().await.get("p").is_none());
+        let generation = db.entity_cache.read().await.generation;
+        db.remember_profiles(generation, vec![doc]).await;
+        assert!(db.profile_lru.lock().await.get("p").is_some());
     }
 
     #[test]
@@ -781,5 +1015,217 @@ mod tests {
         assert!(cache
             .get("urn:decentraland:matic:collections-v2:0xaaa")
             .is_some());
+    }
+
+    async fn migrated_fixture() -> Option<(super::LiveDatabase, String)> {
+        use super::*;
+        let url = catalyrst_testgate::require_pg("CATALYRST_SERVER_TEST_PG")?;
+        let schema = format!("test_live_db_{}", uuid::Uuid::new_v4().simple());
+        let admin = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&admin)
+            .await
+            .unwrap();
+        let options: PgConnectOptions = url.parse().unwrap();
+        let options = options.options([("search_path", schema.as_str())]);
+        let pool = PgPoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await
+            .unwrap();
+        admin.close().await;
+        for sql in [
+            include_str!("../../../migrations/0001_content_schema.sql"),
+            include_str!("../../../migrations/0003_local_provenance.sql"),
+            include_str!("../../../migrations/0005_active_pointers_entity_type.sql"),
+            include_str!("../../../migrations/0006_failed_deployments_retry_backoff.sql"),
+        ] {
+            let body: String = sql
+                .lines()
+                .filter(|l| !l.trim_start().starts_with("--"))
+                .map(|l| l.replace("public.", ""))
+                .collect::<Vec<_>>()
+                .join("\n");
+            sqlx::raw_sql(sqlx::AssertSqlSafe(body))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let deployment_schema =
+            catalyrst_server::schema_migrations::DeploymentSchema::detect(&pool)
+                .await
+                .unwrap();
+        assert!(deployment_schema.local_entities && deployment_schema.pointer_entity_type);
+        let db = LiveDatabase {
+            pool,
+            deployment_schema,
+            entity_cache: Arc::new(RwLock::new(EntityCache::new())),
+            profile_lru: Arc::new(Mutex::new(ProfileLru::new(10))),
+            prefix_ids_cache: Arc::new(Mutex::new(PrefixIdsCache::new(
+                10,
+                Duration::from_secs(60),
+            ))),
+        };
+        Some((db, schema))
+    }
+
+    async fn insert_scene(pool: &sqlx::PgPool, entity_id: &str, ts_ms: i64, pointer: &str) -> i32 {
+        sqlx::query_scalar(
+            "INSERT INTO deployments
+                (deployer_address, version, entity_type, entity_id, entity_metadata,
+                 entity_timestamp, entity_pointers, local_timestamp, auth_chain)
+             VALUES ('0xdeployer', 'v3', 'scene', $1, NULL, to_timestamp($2 / 1000.0),
+                     ARRAY[$3::text], to_timestamp($2 / 1000.0), '[]'::json)
+             RETURNING id",
+        )
+        .bind(entity_id)
+        .bind(ts_ms as f64)
+        .bind(pointer)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn deployments_page_carries_content_off_the_page_query() {
+        use super::*;
+        let Some((db, schema)) = migrated_fixture().await else {
+            return;
+        };
+        let a = insert_scene(&db.pool, "bafya", 1_000, "0,0").await;
+        insert_scene(&db.pool, "bafyb", 2_000, "1,1").await;
+        sqlx::query(
+            "INSERT INTO content_files (deployment, content_hash, key)
+             VALUES ($1, 'hz', 'z.glb'), ($1, 'ha', 'a.png')",
+        )
+        .bind(a)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+        let opts = DeploymentQueryOptions {
+            fields: vec!["content".to_string()],
+            sorting_field: Some("entity_timestamp".to_string()),
+            sorting_order: Some("ASC".to_string()),
+            ..Default::default()
+        };
+        let page = db.get_deployments(&opts).await.unwrap();
+        let ids: Vec<&str> = page
+            .deployments
+            .iter()
+            .map(|d| d.entity_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["bafya", "bafyb"]);
+        let content: Vec<(String, String)> = page.deployments[0]
+            .content
+            .clone()
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.key, c.hash))
+            .collect();
+        assert_eq!(
+            content,
+            vec![
+                ("a.png".to_string(), "ha".to_string()),
+                ("z.glb".to_string(), "hz".to_string())
+            ]
+        );
+        assert!(page.deployments[1].content.as_ref().unwrap().is_empty());
+
+        let without = DeploymentQueryOptions {
+            fields: vec![],
+            ..opts
+        };
+        let page = db.get_deployments(&without).await.unwrap();
+        assert!(page.deployments[0].content.as_ref().unwrap().is_empty());
+        drop_visibility_fixture(db, schema).await;
+    }
+
+    #[tokio::test]
+    async fn audit_info_joins_local_provenance_in_one_statement() {
+        use super::*;
+        let Some((db, schema)) = migrated_fixture().await else {
+            return;
+        };
+        insert_scene(&db.pool, "bafylocal", 1_000, "0,0").await;
+        insert_scene(&db.pool, "bafysynced", 2_000, "1,1").await;
+        sqlx::query(
+            "INSERT INTO local_entities (entity_id, signer) VALUES ('bafylocal', '0xOwner')",
+        )
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+        let local = db
+            .get_audit_info("scene", "bafylocal")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(local["version"], "v3");
+        assert_eq!(local["localTimestamp"], 1_000);
+        assert!(local["authChain"].is_array());
+        assert_eq!(local["localProvenance"]["signer"], "0xOwner");
+        assert_eq!(local["localProvenance"]["origin"], "land-publish");
+        assert_eq!(local["localProvenance"]["status"], "active");
+        assert_eq!(local["localProvenance"]["superseded"], false);
+        assert!(local["localProvenance"]["publishedAt"].is_i64());
+
+        let synced = db
+            .get_audit_info("scene", "bafysynced")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(synced.get("localProvenance").is_none());
+        assert!(db
+            .get_audit_info("scene", "missing")
+            .await
+            .unwrap()
+            .is_none());
+        drop_visibility_fixture(db, schema).await;
+    }
+
+    #[tokio::test]
+    async fn failed_deployments_page_is_windowed_in_sql() {
+        use super::*;
+        let Some((db, schema)) = migrated_fixture().await else {
+            return;
+        };
+        for (id, ts) in [("f1", 1_000), ("f2", 2_000), ("f3", 3_000)] {
+            sqlx::query(
+                "INSERT INTO failed_deployments
+                    (entity_id, entity_type, failure_time, reason, auth_chain, error_description, snapshot_hash)
+                 VALUES ($1, 'scene', to_timestamp($2 / 1000.0), 'DEPLOYMENT_ERROR', '[]'::json, 'boom', 'snap')",
+            )
+            .bind(id)
+            .bind(ts as f64)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        }
+        let all = db.get_failed_deployments().await.unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0]["entityId"], "f1");
+        assert_eq!(all[0]["failureTimestamp"], 1_000);
+        assert_eq!(all[0]["retryCount"], 0);
+        assert!(all[0]["nextRetryAt"].is_i64());
+
+        let page = db.get_failed_deployments_page(1, 1).await.unwrap();
+        assert_eq!(page, vec![all[1].clone()]);
+        assert_eq!(db.get_failed_deployments_page(0, 10).await.unwrap(), all);
+        assert!(db
+            .get_failed_deployments_page(3, 10)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(db
+            .get_failed_deployments_page(0, 0)
+            .await
+            .unwrap()
+            .is_empty());
+        drop_visibility_fixture(db, schema).await;
     }
 }

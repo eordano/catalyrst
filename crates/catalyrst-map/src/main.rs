@@ -25,6 +25,10 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "fallback name for MAP_TILES_TTL_SECONDS",
     ),
     (
+        "MAP_TILES_FORCE_REBUILD_SECONDS",
+        "rebuild the grid even when its fingerprint is unchanged after this many seconds (default 900)",
+    ),
+    (
         "LAND_CONTRACT_ADDRESS",
         "LAND contract (default 0xf87e31492faf9a91b02ee0deaad50d51d56d5d4d)",
     ),

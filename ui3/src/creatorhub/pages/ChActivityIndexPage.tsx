@@ -57,7 +57,7 @@ export type ParcelActivity = {
   jumpUrl?: string | null;
 };
 
-export type ChActivityIndexPageProps = {
+type ChActivityIndexPageProps = {
   address: string | null;
   readAt?: string | null;
   peopleInYourWorlds: Datum<number>;

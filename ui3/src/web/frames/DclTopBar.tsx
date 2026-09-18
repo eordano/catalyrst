@@ -12,6 +12,9 @@ import {
   type Notification,
 } from "../../data/catalyst/notificationsView";
 import { useChromeAuth } from "./chrome-auth";
+import { chromeLinkClick, chromeLinkProps, useChromeNav, type ChromeNavigate } from "./chrome-nav";
+import AccountMenu from "./AccountMenu";
+import { docsUrl } from "../../data/docs";
 import "./dcltopbar.css";
 
 type DclTopBarVariant = "default" | "dao" | "sites";
@@ -20,7 +23,7 @@ type NavMenuItem = { label: string; href: string };
 type NavLink = { id: string; label: string; href: string; caret?: boolean; menu?: NavMenuItem[] };
 
 const LEARN_MENU: NavMenuItem[] = [
-  { label: "Docs", href: "https://docs.decentraland.org/" },
+  { label: "Docs", href: docsUrl() },
   { label: "Blog", href: "/blog" },
 ];
 
@@ -51,7 +54,7 @@ const BurgerMark = ({ open, size = 22 }: { open: boolean; size?: number }) => (
   </svg>
 );
 
-export const DCL_LINKS_BY_VARIANT: Record<DclTopBarVariant, NavLink[]> = {
+const DCL_LINKS_BY_VARIANT: Record<DclTopBarVariant, NavLink[]> = {
   default: (["explore", "shop", "create", "learn"] as const).map((id) => LINK_DEFS[id]),
   dao: (["shop", "create", "learn", "vote", "events"] as const).map((id) => LINK_DEFS[id]),
   sites: (["whatson", "shop", "create", "learn"] as const).map((id) => LINK_DEFS[id]),
@@ -69,9 +72,16 @@ type DclTopBarProps = {
   account?: string;
   transparent?: boolean;
   onSignIn?: () => void;
+  onSignOut?: () => void;
   signInHref?: string;
   fetchNotifications?: () => Promise<unknown>;
+  onNavigate?: ChromeNavigate;
 };
+
+const ACCOUNT_LINKS = [
+  { label: "My assets", href: "/marketplace/account" },
+  { label: "Creator Hub", href: "/create" },
+];
 
 export default function DclTopBar({
   variant = "default",
@@ -80,13 +90,25 @@ export default function DclTopBar({
   account = undefined,
   transparent = false,
   onSignIn = undefined,
+  onSignOut = undefined,
   signInHref = "/marketplace/account",
   fetchNotifications = undefined,
+  onNavigate = undefined,
 }: DclTopBarProps) {
   const auth = useChromeAuth();
+  const nav = useChromeNav();
+  const go = onNavigate ?? nav.navigate;
   const isIn = signedIn ?? auth.signedIn;
   const acct = account ?? auth.account;
   const doSignIn = onSignIn ?? auth.onSignIn;
+  const doSignOut = onSignOut ?? auth.onSignOut;
+  const switchAccount =
+    doSignOut && doSignIn
+      ? () => {
+          doSignOut();
+          doSignIn();
+        }
+      : undefined;
   const fetchNotifs = fetchNotifications ?? auth.fetchNotifications;
   const links = DCL_LINKS_BY_VARIANT[variant] ?? DCL_LINKS_BY_VARIANT.default;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -162,7 +184,7 @@ export default function DclTopBar({
       return (
         <a
           key={link.id}
-          href={link.href}
+          {...chromeLinkProps(link.href, go)}
           className={"dtb__link" + (link.id === active ? " is-active" : "")}
           aria-current={link.id === active ? "page" : undefined}
         >
@@ -194,7 +216,7 @@ export default function DclTopBar({
         }}
       >
         <a
-          href={link.href}
+          {...chromeLinkProps(link.href, go)}
           className={"dtb__link" + (link.id === active ? " is-active" : "")}
           aria-current={link.id === active ? "page" : undefined}
           aria-haspopup="menu"
@@ -205,7 +227,7 @@ export default function DclTopBar({
         </a>
         <div className={"dtb__ddmenu" + (open ? " is-open" : "")} role="menu" aria-label={`${link.label} menu`}>
           {link.menu.map((item) => (
-            <a key={item.label} href={item.href} className="dtb__dditem" role="menuitem">
+            <a key={item.label} {...chromeLinkProps(item.href, go)} className="dtb__dditem" role="menuitem">
               {item.label}
             </a>
           ))}
@@ -216,7 +238,7 @@ export default function DclTopBar({
 
   return (
     <header className={"dtb" + (transparent ? " dtb--transparent" : "")} role="banner" aria-label="Decentraland">
-      <a className="dtb__brand" href="/" aria-label="Decentraland">
+      <a className="dtb__brand" {...chromeLinkProps("/", go)} aria-label="Decentraland">
         <img src={asset("assets/dcl-logo.png")} alt="" />
       </a>
 
@@ -236,7 +258,7 @@ export default function DclTopBar({
 
       <div className="dtb__right">
         {variant === "dao" && (
-          <a className="dtb__download" href="/play/" style={{ textDecoration: "none" }}>JUMP IN</a>
+          <a className="dtb__download" {...chromeLinkProps("/play/", go)} style={{ textDecoration: "none" }}>JUMP IN</a>
         )}
         {isIn || doSignIn ? (
           <div className="dtb__bellwrap" ref={bellRef}>
@@ -279,7 +301,7 @@ export default function DclTopBar({
                       return (
                         <li key={n.id} className={"dtb__notifitem" + (n.read ? "" : " is-unread")}>
                           {link ? (
-                            <a className="dtb__notiflink" href={link}>
+                            <a className="dtb__notiflink" {...chromeLinkProps(link, go)}>
                               {body}
                             </a>
                           ) : (
@@ -295,7 +317,17 @@ export default function DclTopBar({
           </div>
         ) : null}
         {isIn ? (
-          <a className="dtb__usermenu" href={signInHref} aria-label="My account" style={{ textDecoration: "none" }}>
+          <AccountMenu
+            triggerClassName="dtb__usermenu"
+            triggerLabel="My account"
+            name={auth.name}
+            account={acct}
+            links={ACCOUNT_LINKS}
+            onSwitchAccount={switchAccount}
+            onSignOut={doSignOut}
+            onNavigate={go}
+            align="right"
+          >
             <span className="dtb__avatar u-avatar" style={{ "--sz": "40px", "--hue": 268 } as CSSProperties}>
               {faceUrl && (
                 <img
@@ -309,11 +341,11 @@ export default function DclTopBar({
                 />
               )}
             </span>
-          </a>
+          </AccountMenu>
         ) : doSignIn ? (
           <button type="button" className="dtb__signin" onClick={() => doSignIn()}>SIGN IN</button>
         ) : (
-          <a className="dtb__signin" href={signInHref} style={{ textDecoration: "none" }}>SIGN IN</a>
+          <a className="dtb__signin" {...chromeLinkProps(signInHref, go)} style={{ textDecoration: "none" }}>SIGN IN</a>
         )}
       </div>
 
@@ -321,10 +353,13 @@ export default function DclTopBar({
         {links.map((link) => (
           <span key={link.id} className="dtb__menugroup">
             <a
-              href={link.href}
+              {...chromeLinkProps(link.href, go)}
               className={"dtb__menulink" + (link.id === active ? " is-active" : "")}
               aria-current={link.id === active ? "page" : undefined}
-              onClick={() => setMenuOpen(false)}
+              onClick={(e) => {
+                setMenuOpen(false);
+                chromeLinkClick(e, link.href, go);
+              }}
             >
               {link.label}
               {link.caret && <ChevronDown size={16} className="dtb__menucaret" />}
@@ -332,9 +367,12 @@ export default function DclTopBar({
             {link.menu?.map((item) => (
               <a
                 key={item.label}
-                href={item.href}
+                {...chromeLinkProps(item.href, go)}
                 className="dtb__menulink dtb__menulink--sub"
-                onClick={() => setMenuOpen(false)}
+                onClick={(e) => {
+                  setMenuOpen(false);
+                  chromeLinkClick(e, item.href, go);
+                }}
               >
                 {item.label}
               </a>

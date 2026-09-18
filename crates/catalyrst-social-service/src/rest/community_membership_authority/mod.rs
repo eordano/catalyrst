@@ -18,7 +18,8 @@ use catalyrst_authenticated_principal::AuthorityNotEstablished;
 pub use ban_authority::{CommunityBanAuthority, CommunityUnbanAuthority};
 pub use standing::{
     load_standing_from_community_members, load_standing_from_community_role_current,
-    CommunityMembershipStanding, CommunityMembershipTier, CommunityMembershipTierSourceTable,
+    load_standings_pair_from_community_members, CommunityMembershipStanding,
+    CommunityMembershipTier, CommunityMembershipTierSourceTable,
 };
 
 /// The caller supplies the refusal status and message because the same logical refusal

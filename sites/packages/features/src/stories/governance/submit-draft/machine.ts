@@ -16,23 +16,23 @@ export type SubmitFn = (args: {
 
 export type { TrackFn };
 
-export type CoAuthor = { addr: string };
+type CoAuthor = { addr: string };
 
-export type DraftForm = {
+type DraftForm = {
   pollId?: string;
   title: string;
   bodies: Record<string, string>;
   coauthors: CoAuthor[];
 };
 
-export type DraftInput = {
+type DraftInput = {
   trackCtx: TrackContext;
   submitDraft?: SubmitFn;
   track?: TrackFn;
   draft?: Partial<DraftForm>;
 };
 
-export type DraftContext = {
+type DraftContext = {
   trackCtx: TrackContext;
   submitDraft: SubmitFn;
   track: TrackFn;
@@ -41,7 +41,7 @@ export type DraftContext = {
   error?: string;
 };
 
-export type DraftEvent =
+type DraftEvent =
   | { type: "CLEAR_GATE"; pollId: string }
   | { type: "SUBMIT_DETAILS"; title: string; bodies: Record<string, string> }
   | { type: "NEXT"; coauthors?: CoAuthor[] }
@@ -68,8 +68,8 @@ export const STATE_TO_SLUG = {
   success: "success",
 } as const;
 
-export type DraftStateId = keyof typeof STATE_TO_SLUG;
-export type DraftStepSlug = (typeof STATE_TO_SLUG)[DraftStateId];
+type DraftStateId = keyof typeof STATE_TO_SLUG;
+type DraftStepSlug = (typeof STATE_TO_SLUG)[DraftStateId];
 
 export const FIRST_STEP_SLUG: DraftStepSlug = STATE_TO_SLUG.intro;
 
@@ -256,8 +256,6 @@ export const draftMachine = setup({
     },
   },
 });
-
-export type DraftMachine = typeof draftMachine;
 
 export function resolveDraftSnapshot(args: {
   step: DraftStateId;

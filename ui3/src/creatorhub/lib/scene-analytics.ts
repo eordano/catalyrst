@@ -83,7 +83,7 @@ export type ChartSeries = {
 
 export type RetentionKey = "d1" | "d7" | "d30";
 
-export type CsvRow = {
+type CsvRow = {
   date: string;
   visits: number;
   uniqueUsers: number;
@@ -326,7 +326,7 @@ export function formatMinutes(seconds: number | null): string {
     : `${Math.round((seconds / 60) * 10) / 10} min`;
 }
 
-export function formatDate(date: string): string {
+function formatDate(date: string): string {
   const isTimestamp = date.includes("T");
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",

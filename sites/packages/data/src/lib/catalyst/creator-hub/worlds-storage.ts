@@ -11,25 +11,13 @@ import {
   ValuesListResponseSchema,
 } from "../generated-schemas/world-storage";
 
-export const WORLD_STORAGE_PREFIX = "/world-storage";
-
-const KB = 1024;
-const MB = KB * 1024;
-const GB = MB * 1024;
-
-export function formatSize(size: number): string {
-  if (!Number.isFinite(size) || size < 0) return "0.00 B";
-  if (size < KB) return `${size.toFixed(2)} B`;
-  if (size < MB) return `${(size / KB).toFixed(2)} KB`;
-  if (size < GB) return `${(size / MB).toFixed(2)} MB`;
-  return `${(size / GB).toFixed(2)} GB`;
-}
+const WORLD_STORAGE_PREFIX = "/world-storage";
 
 export function normalizeAddress(addr: string | null | undefined): string {
   return (addr ?? "").trim().toLowerCase();
 }
 
-export type Usage = z.infer<typeof UsageResponseSchema>;
+type Usage = z.infer<typeof UsageResponseSchema>;
 
 export async function fetchUsage(
   endpoint: "world" | "env" | { player: string },
@@ -45,7 +33,7 @@ export async function fetchUsage(
   return UsageResponseSchema.parse(raw);
 }
 
-export const StorageValueSchema = StorageValueRowSchema;
+const StorageValueSchema = StorageValueRowSchema;
 export type StorageValue = z.infer<typeof StorageValueSchema>;
 
 export async function fetchValues(
@@ -104,7 +92,7 @@ export type WalletStats = {
   ensNames: { name: string; size: number }[];
 };
 
-export type StorageScope = {
+type StorageScope = {
   realm: string;
   position: string;
   scene: string;
@@ -137,7 +125,7 @@ export function findWorld(
   return worlds.find((w) => w.name.toLowerCase() === n) ?? null;
 }
 
-export const STORAGE_STEPS = ["select", "scene", "edit", "clear"] as const;
+const STORAGE_STEPS = ["select", "scene", "edit", "clear"] as const;
 export type StorageStep = (typeof STORAGE_STEPS)[number];
 
 export function coerceStep(raw: string | null | undefined): StorageStep {

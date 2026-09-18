@@ -288,7 +288,7 @@ function receptionRows(d: WorldActivityData): Datum<FactRow[]> {
   return liveNow(rows, r.endpoint, r.readAt);
 }
 
-function notBuiltPanels(world: string): NotBuiltSpec[] {
+function notBuiltPanels(): NotBuiltSpec[] {
   const entry = (id: string) => SOURCE_REGISTRY.find((e) => e.id === id);
 
   const sessions = entry("creators-scenes-stats");
@@ -340,7 +340,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     url.searchParams.get("address")?.trim() || readWallet(request) || "";
   const from = url.searchParams.get("from");
 
-  const { sid, assignment, wrap } = await storyLoader(request, STORY, FALLBACK);
+  const { sid, wrap } = await storyLoader(request, STORY, FALLBACK);
 
   const [activity, stats] = await Promise.all([
     loadWorldActivity(world, { address, signal: request.signal }),
@@ -468,7 +468,7 @@ export default function CreatorHubWorldActivityRoute({
         }}
         permissionsHref={permissionsHref}
         reception={d.reception}
-        notBuilt={notBuiltPanels(d.world)}
+        notBuilt={notBuiltPanels()}
         sources={d.sources}
         notFound={d.notFound}
         deployedByCaller={d.deployedByCaller}

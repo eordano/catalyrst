@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { hashFile, hashV1, MAX_CHILDREN_PER_NODE } from "./hashing";
 
-
 function gen(size: number): Uint8Array {
   const b = new Uint8Array(size);
   for (let i = 0; i < size; i += 1) b[i] = ((i * 2654435761) >>> 0) & 255;
@@ -24,13 +23,17 @@ const ORACLE: Array<[number, string]> = [
 ];
 
 describe("hashV1 (multi-block) is byte-exact with @dcl/hashing", () => {
-  for (const [size, expected] of ORACLE) {
-    it(`size ${size} \u{2192} ${expected}`, async () => {
+  it("matches the oracle CID for every size, via hashV1 and hashFile alike", async () => {
+    const mismatches: string[] = [];
+    for (const [size, expected] of ORACLE) {
       const bytes = gen(size);
-      expect(await hashV1(bytes)).toBe(expected);
-      expect(await hashFile(bytes)).toBe(expected);
-    }, 30_000);
-  }
+      const v1 = await hashV1(bytes);
+      const file = await hashFile(bytes);
+      if (v1 !== expected) mismatches.push(`hashV1 size ${size}: ${v1} != ${expected}`);
+      if (file !== expected) mismatches.push(`hashFile size ${size}: ${file} != ${expected}`);
+    }
+    expect(mismatches).toEqual([]);
+  }, 330_000);
 
   it("uses the importer's default fan-out (maxChildrenPerNode = 174)", () => {
     expect(MAX_CHILDREN_PER_NODE).toBe(174);

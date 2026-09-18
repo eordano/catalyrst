@@ -30,22 +30,25 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const { sid, wrap } = sidLoader(request);
 
-  let assignment: Assignment = {
-    variant: "with-dashboard",
-    flags: { showOperatorDashboard: true },
-    experimentKey: "operator_dashboard",
-  };
-  try {
-    const story = parseStory(STORY_DIR);
-    assignment = await resolveAssignment(request, story).catch(() => ({
-      variant: story.experiment.variants[0].id,
-      flags: story.experiment.variants[0].flags,
-      experimentKey: story.experiment.key,
-    }));
-  } catch {
-  }
+  const assignmentP = (async (): Promise<Assignment> => {
+    let assignment: Assignment = {
+      variant: "with-dashboard",
+      flags: { showOperatorDashboard: true },
+      experimentKey: "operator_dashboard",
+    };
+    try {
+      const story = parseStory(STORY_DIR);
+      assignment = await resolveAssignment(request, story).catch(() => ({
+        variant: story.experiment.variants[0].id,
+        flags: story.experiment.variants[0].flags,
+        experimentKey: story.experiment.key,
+      }));
+    } catch {
+    }
+    return assignment;
+  })();
 
-  const loaded = await loadOperatorDashboard(
+  const loadedP = loadOperatorDashboard(
     ownerParam ?? DEMO_OWNER,
     { signal: request.signal },
   ).catch((err: unknown) => ({
@@ -64,6 +67,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         "catalyrst-places/src/handlers/places.rs:66-73 (auth_address_optional, no gate)",
     },
   }));
+  const [assignment, loaded] = await Promise.all([assignmentP, loadedP]);
 
   const payload = {
     sid,

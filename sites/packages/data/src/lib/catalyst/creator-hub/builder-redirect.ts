@@ -59,7 +59,7 @@ export const REDIRECT_DASHBOARD: RedirectFixture = {
       from: "collection-detail",
       legacyPath: "/builder/collection/:id",
       to: "/create/wearables/collections/:id",
-      carry: ["tab", "variant"],
+      carry: ["address", "tab", "variant"],
       param: { name: "id", queryKey: null },
     },
     {

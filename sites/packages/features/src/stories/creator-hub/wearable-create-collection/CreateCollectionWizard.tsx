@@ -25,7 +25,7 @@ export type WizardOptions = {
   nameSuggestions: string[];
 };
 
-export type CreateCollectionWizardProps = {
+type CreateCollectionWizardProps = {
   trackCtx: TrackContext;
   options: WizardOptions;
   initialStep?: string;

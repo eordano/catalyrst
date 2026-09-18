@@ -1,4 +1,4 @@
-export type BootPhase =
+type BootPhase =
   | "idle"
   | "booting"
   | "handshaking"
@@ -105,7 +105,7 @@ export function bootReducer(state: BootState, event: BootEvent): BootState {
   }
 }
 
-export function stageFromProgress(pct: number): BootStage {
+function stageFromProgress(pct: number): BootStage {
   if (pct < 80) return "download";
   if (pct < 85) return "compile";
   if (pct < 90) return "init";
@@ -121,7 +121,7 @@ const STAGE_TEXT: Record<BootStage, string> = {
   gpu: "Preparing GPU pipelines",
 };
 
-export interface BootOverlay {
+interface BootOverlay {
   show: boolean;
   kind: "loading" | "error" | null;
   text: string;

@@ -61,7 +61,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const address =
     url.searchParams.get("address")?.trim().toLowerCase() || readWallet(request) || "";
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,

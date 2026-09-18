@@ -34,11 +34,11 @@ export type Datum<T> =
     }
   | { state: "unbuilt"; subject: string; reason: string; today: string | null };
 
-export type ShowableDatum<T> = Extract<Datum<T>, { value: T }>;
+type ShowableDatum<T> = Extract<Datum<T>, { value: T }>;
 
-export type NoSampleDatum = Extract<Datum<never>, { state: "no-sample" }>;
-export type UnavailableDatum = Extract<Datum<never>, { state: "unavailable" }>;
-export type UnbuiltDatum = Extract<Datum<never>, { state: "unbuilt" }>;
+type NoSampleDatum = Extract<Datum<never>, { state: "no-sample" }>;
+type UnavailableDatum = Extract<Datum<never>, { state: "unavailable" }>;
+type UnbuiltDatum = Extract<Datum<never>, { state: "unbuilt" }>;
 
 export const NO_VALUE = "\u{2014}";
 
@@ -48,7 +48,7 @@ export const STALE_SAMPLE_FACTOR = 3;
 
 export const STALE_SNAPSHOT_DAYS = 30;
 
-export const TRUSTED_EXPORT_SOURCE = "metabase";
+const TRUSTED_EXPORT_SOURCE = "metabase";
 
 export const PUBLIC_DATA_DISCLOSURE =
   "Everything on this page is public. worlds-content-server, /presence/* and the Places API all answer unauthenticated requests. Your address selects which rows you see; it does not protect them.";
@@ -109,21 +109,6 @@ export function datumModifier<T>(d: Datum<T>): string {
 
 export function datumEndpoint<T>(d: Datum<T>): string | null {
   return d.state === "unbuilt" ? null : d.endpoint;
-}
-
-export function datumTimestamp<T>(d: Datum<T>): string | null {
-  switch (d.state) {
-    case "live":
-      return d.readAt;
-    case "sampled":
-      return d.takenAt;
-    case "snapshot":
-      return d.exportedAt;
-    case "no-sample":
-      return d.takenAt;
-    default:
-      return null;
-  }
 }
 
 export function requiresNote<T>(d: Datum<T>): boolean {
@@ -190,16 +175,10 @@ function ms(iso: string | null | undefined): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-export function formatUtcTime(iso: string | null | undefined): string | null {
+function formatUtcTime(iso: string | null | undefined): string | null {
   const t = ms(iso);
   if (t === null) return null;
   return `${new Date(t).toISOString().slice(11, 19)} UTC`;
-}
-
-export function formatUtcMinute(iso: string | null | undefined): string | null {
-  const t = ms(iso);
-  if (t === null) return null;
-  return `${new Date(t).toISOString().slice(11, 16)} UTC`;
 }
 
 export function formatUtcDay(iso: string | null | undefined): string | null {
@@ -213,7 +192,7 @@ export function formatUtcDay(iso: string | null | undefined): string | null {
   }).format(new Date(t));
 }
 
-export function relativeAge(
+function relativeAge(
   iso: string | null | undefined,
   now = Date.now(),
 ): string | null {

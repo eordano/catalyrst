@@ -39,33 +39,29 @@ decision:
     new drop-off cliff, and mk_buy_failed does not rise); otherwise hold.
 ---
 
-# Buy a listed NFT (secondary-market order)
+# Buy a listed NFT
 
-The buy wizard (`/marketplace/buy?item=<id>`) walks a buyer through purchasing a
-live secondary-market listing: **review** the listing, **connect-wallet**,
-**approve-mana** (ERC-20 allowance), **confirm-purchase**, **submit-tx** (the
-EIP-712 signed trade commit), and **success**.
+The production route reads a real listing through `loadBuyListing`. Missing and
+unavailable listings have separate states; it does not invent a fallback price.
 
-Listing data is LIVE from Catalyst `GET /credits/v1/orders` (cheapest open order
-for the item, joined with the `/credits/v1/catalog` row for name/rarity/image),
-with `app/fixtures/marketplace-buy-nft.json` as the fallback.
+## Current capability
 
-- **Primary metric:** `mk_buy_confirm_rate` = `mk_buy_confirm_reached` / `mk_buy_started`.
-- **Guardrails:** buy-start volume (`mk_buy_started`), the approval step
-  (`mk_buy_approve_reached`) must not become a new drop-off, and failures
-  (`mk_buy_failed`) must not rise.
-- **Events (per-transition):** `mk_buy_started` (leave review), `mk_buy_wallet_connected`,
-  `mk_buy_mana_approved`, `mk_buy_confirm_reached` (enter submit-tx / sign),
-  `mk_buy_completed` (stub), `mk_buy_failed` (sign/commit error), plus
-  `experiment_exposed` + `mk_buy_viewed` on the route loader.
+Secondary-market purchase submission is **unavailable**. The route injects
+`unavailablePurchase` for connect, approval and commit. It requests no wallet
+signature or token approval and cannot produce a successful purchase receipt.
+Production also disables URL step previews, so `?step=success` cannot masquerade
+as a completed purchase. Storybook may still explicitly exercise simulated steps.
+Collection-item checkout is a separate flow; its readiness does not imply this
+secondary-market route can settle an order.
 
-## Simulated / deferred
+## Assumptions and measurement
 
-The final on-chain commit is **simulated**. The live endpoint
-`POST /credits/v1/federation/trade` requires an EIP-712 / dcl auth-chain signed
-payload from a connected wallet and rejects unsigned requests with
-`{"ok":false,"message":"auth chain: Invalid Auth Chain"}`. The wizard's
-`simulateTradeCommit` actor never signs and never POSTs -- it resolves a stubbed
-`{txHash}` after a short delay so the submit/success screens advance. The flow,
-states, telemetry, and the live listing/price are all real; only the signed
-commit is a clearly-noted stub.
+A live listing, connected wallet, correct chain, sufficient allowance and a
+working transaction submission path are separate prerequisites. A typed-data
+signature is not a transaction or purchase. Completion requires an authoritative
+result for the buyer and asset.
+
+`mk_buy_confirm_rate` measures reaching confirmation, not ownership transfer.
+This single-arm draft cannot demonstrate lift over a control. Enable a real
+writer and define a comparison before applying the decision rule. Use the
+shared [Marketplace assumptions](../../../../../../docs/product-capabilities.md#marketplace).

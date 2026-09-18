@@ -28,31 +28,19 @@ const sceneReady = {
 };
 
 describe("editor bus scene-to-page validation", () => {
-  const cases: [string, unknown, boolean][] = [
-    ["valid scene-ready", sceneReady, true],
-    ["valid rpc-reply", { type: "rpc-reply", id: "t-1", ok: true, result: 3 }, true],
-    [
-      "scene-ready missing sdkVersion",
-      { ...sceneReady, scene: { ...sceneReady.scene, sdkVersion: undefined } },
-      false,
-    ],
-    [
-      "scene-ready parcels as tuples instead of {x,y}",
-      { ...sceneReady, scene: { ...sceneReady.scene, parcels: [[0, 0]] } },
-      false,
-    ],
-    ["rpc-reply with ok renamed to success", { type: "rpc-reply", id: "t-1", success: true }, false],
-    ["unknown message type", { type: "brand-new", payload: 1 }, false],
-    ["selection with selected as a string", { type: "selection", selected: "a", active: null }, false],
-  ];
-  for (const [name, value, shouldPass] of cases) {
-    test(name, () => {
-      expect(SceneToPageMessageSchema.safeParse(value).success).toBe(shouldPass);
-      expect(oldGuard(value)).toBe(true);
-    });
-  }
-
-  test("tolerates unknown extra keys", () => {
-    expect(SceneToPageMessageSchema.safeParse({ ...sceneReady, futureField: 1 }).success).toBe(true);
+  test("accepts valid messages and unknown extra keys; rejects drifted shapes the old envelope guard let through", () => {
+    const cases: [string, unknown, boolean][] = [
+      ["valid scene-ready", sceneReady, true],
+      ["valid rpc-reply", { type: "rpc-reply", id: "t-1", ok: true, result: 3 }, true],
+      ["scene-ready with an unknown extra key", { ...sceneReady, futureField: 1 }, true],
+      ["scene-ready missing sdkVersion", { ...sceneReady, scene: { ...sceneReady.scene, sdkVersion: undefined } }, false],
+      ["scene-ready parcels as tuples instead of {x,y}", { ...sceneReady, scene: { ...sceneReady.scene, parcels: [[0, 0]] } }, false],
+      ["rpc-reply with ok renamed to success", { type: "rpc-reply", id: "t-1", success: true }, false],
+      ["unknown message type", { type: "brand-new", payload: 1 }, false],
+      ["selection with selected as a string", { type: "selection", selected: "a", active: null }, false],
+    ];
+    const verdicts = cases.map(([name, value]) => [name, SceneToPageMessageSchema.safeParse(value).success]);
+    expect(verdicts).toEqual(cases.map(([name, , shouldPass]) => [name, shouldPass]));
+    expect(cases.every(([, value]) => oldGuard(value))).toBe(true);
   });
 });

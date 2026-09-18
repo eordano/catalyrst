@@ -63,30 +63,19 @@ describe("fetchPlaces", () => {
     expect(out[0]?.image).toContain("/content/contents/");
   });
 
-  test("rows that fail the summary schema are dropped, not fatal", async () => {
-    const fetchImpl = vi.fn(() =>
-      jsonResponse({ ok: true, data: [{ nope: true }, summaryRow], total: 2 }),
-    );
-    const out = await fetchPlaces({}, { fetchImpl: fetchImpl as unknown as typeof fetch });
-    expect(out).toHaveLength(1);
-    expect(out[0]?.id).toBe(summaryRow.id);
-  });
-
-  test("a row without coordinates is dropped, not placed at the origin", async () => {
+  test("bad rows and rows without coordinates are dropped, and an unknown live count stays unknown", async () => {
     const { base_position: _dropped, ...noCoords } = summaryRow;
     const fetchImpl = vi.fn(() =>
-      jsonResponse({ ok: true, data: [noCoords], total: 1 }),
+      jsonResponse({
+        ok: true,
+        data: [{ nope: true }, noCoords, { ...summaryRow, user_count: null }, summaryRow],
+        total: 4,
+      }),
     );
     const out = await fetchPlaces({}, { fetchImpl: fetchImpl as unknown as typeof fetch });
-    expect(out).toEqual([]);
-  });
-
-  test("an unknown live count stays unknown instead of reading as empty", async () => {
-    const fetchImpl = vi.fn(() =>
-      jsonResponse({ ok: true, data: [{ ...summaryRow, user_count: null }], total: 1 }),
-    );
-    const out = await fetchPlaces({}, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(out).toHaveLength(2);
     expect(out[0]?.players).toBeNull();
     expect(out[0]?.live).toBe(false);
+    expect(out[1]?.players).toBe(9);
   });
 });

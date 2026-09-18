@@ -10,7 +10,7 @@ const STEP_LABELS: { slug: string; label: string }[] = [
   { slug: "success", label: "Done" },
 ];
 
-export type GvCatalystRequest = "add" | "remove";
+type GvCatalystRequest = "add" | "remove";
 
 type GvSubmitCatalystViewProps = {
   value?: string;

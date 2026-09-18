@@ -40,6 +40,7 @@ pub async fn create_entity_multipart(
     headers: HeaderMap,
     MultipartBody(mut multipart): MultipartBody,
 ) -> Result<impl IntoResponse, AppError> {
+    let request_started = std::time::Instant::now();
     let sync_state = state.synchronization_state.get_state();
     if sync_state == "Bootstrapping" {
         return Err(AppError::ServiceUnavailable(
@@ -145,6 +146,8 @@ pub async fn create_entity_multipart(
         "POST /entities - Deploying entity (multipart)"
     );
 
+    let multipart_us = request_started.elapsed().as_micros() as u64;
+    let deploy_started = std::time::Instant::now();
     match state
         .deployer
         .deploy_entity(files, &entity_id, auth_chain, "LOCAL")
@@ -155,9 +158,12 @@ pub async fn create_entity_multipart(
                 entity_id = %entity_id,
                 "POST /entities - Deployment successful"
             );
+            let deploy_us = deploy_started.elapsed().as_micros() as u64;
+            let refresh_started = std::time::Instant::now();
             state.deployments_cache.clear();
             super::lambdas_catalog::invalidate_outfits_cache();
             state.database.deployment_committed(&entity_id).await?;
+            tracing::debug!(target: "catalyrst_perf", phase="publish", entity_id, multipart_us, deploy_us, refresh_us=refresh_started.elapsed().as_micros() as u64, elapsed_us=request_started.elapsed().as_micros() as u64);
             Ok((
                 StatusCode::OK,
                 Json(json!({ "creationTimestamp": creation_timestamp })),

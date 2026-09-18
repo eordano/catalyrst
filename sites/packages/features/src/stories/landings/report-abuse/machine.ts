@@ -17,14 +17,14 @@ import {
 
 export type { TrackFn };
 
-export type ReportInput = {
+type ReportInput = {
   trackCtx: TrackContext;
   playerAddress?: string;
   submit?: SubmitReportFn;
   track?: TrackFn;
 };
 
-export type ReportContext = {
+type ReportContext = {
   trackCtx: TrackContext;
   submit: SubmitReportFn;
   track: TrackFn;
@@ -33,7 +33,7 @@ export type ReportContext = {
   error?: string;
 };
 
-export type ReportEvent =
+type ReportEvent =
   | { type: "START" }
   | { type: "SET_TARGET"; reportedAddress: string }
   | { type: "SET_CATEGORY"; reason: ReportReason }
@@ -71,7 +71,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type ReportStateId = keyof typeof STATE_TO_SLUG;
-export type ReportStepSlug = (typeof STATE_TO_SLUG)[ReportStateId];
+type ReportStepSlug = (typeof STATE_TO_SLUG)[ReportStateId];
 
 export const FIRST_STEP_SLUG: ReportStepSlug = STATE_TO_SLUG.intro;
 
@@ -83,7 +83,7 @@ export const stateToSlug: (value: string) => ReportStepSlug = stepSlugs.toSlug;
 
 export const slugToState: (slug: string | null | undefined) => ReportStateId = stepSlugs.toState;
 
-export function emptyDraft(playerAddress = ""): ReportDraft {
+function emptyDraft(playerAddress = ""): ReportDraft {
   return {
     playerAddress,
     reportedAddress: "",
@@ -327,8 +327,6 @@ export const reportMachine = setup({
     },
   },
 });
-
-export type ReportMachine = typeof reportMachine;
 
 export function resolveReportSnapshot(args: {
   step: ReportStateId;

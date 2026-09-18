@@ -49,7 +49,7 @@ export type LoadResult =
   | { kind: "fulfilled" }
   | { kind: "error"; message: string };
 
-export type RecoveryOutcome =
+type RecoveryOutcome =
   | {
       kind: "ready";
       request: ReadyRequest;

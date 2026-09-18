@@ -19,11 +19,26 @@ mod identities;
 mod validation;
 
 use identities::{create_identity, get_identity};
-pub use identities::{DeletionReason, IdentityRecord, IdentityStatus};
+pub use identities::{sweep_expired_identities, DeletionReason, IdentityRecord, IdentityStatus};
 use validation::{validate_auth_chain, validate_request_message};
 
 const REQUEST_TTL_SECONDS: i64 = 300;
 const DEFAULT_BODY_SIZE_BYTES: usize = 16 * 1024;
+const IDENTITY_SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Prunes expired identities and aged tombstones on an interval instead of on every
+/// POST; the task ends with the state it watches.
+pub fn spawn_identity_sweeper(state: std::sync::Weak<crate::AppStateInner>) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(IDENTITY_SWEEP_INTERVAL);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tick.tick().await;
+            let Some(state) = state.upgrade() else { break };
+            sweep_expired_identities(&state, Utc::now());
+        }
+    });
+}
 
 pub struct AuthApiState {
     pub requests: DashMap<String, ChallengeRecord>,

@@ -12,17 +12,9 @@ import {
   type GovernanceProposalCopy,
   type LinkedDraft,
 } from "@data/lib/catalyst/governance/submit-governance-proposal";
-import {
-  govProposalMachine,
-  resolveGovProposalSnapshot,
-  slugToState,
-  stateToSlug,
-  type GovDraft,
-  type SubmitFn,
-  type TrackFn,
-} from "./machine";
+import { govProposalMachine, resolveGovProposalSnapshot, slugToState, stateToSlug, type SubmitFn, type TrackFn } from "./machine";
 
-export type GovProposalWizardProps = {
+type GovProposalWizardProps = {
   trackCtx: TrackContext;
   copy: GovernanceProposalCopy;
   drafts: LinkedDraft[];

@@ -25,53 +25,38 @@ function harness() {
 }
 
 describe("movementKeys", () => {
-  it("returns nothing inside the downstream 0.5 dead zone", () => {
+  it("is empty inside the downstream dead zone, maps screen-up to forward, and sectors eight ways without pressing a near-zero axis", () => {
     expect(movementKeys({ x: 0, y: 0 }, 0.5, 0.38)).toEqual([]);
     expect(movementKeys({ x: 0.3, y: -0.3 }, 0.5, 0.38)).toEqual([]);
-  });
-
-  it("maps screen-up to forward", () => {
     expect(movementKeys({ x: 0, y: -1 }, 0.5, 0.38)).toEqual(["KeyW"]);
     expect(movementKeys({ x: 0, y: 1 }, 0.5, 0.38)).toEqual(["KeyS"]);
     expect(movementKeys({ x: -1, y: 0 }, 0.5, 0.38)).toEqual(["KeyA"]);
     expect(movementKeys({ x: 1, y: 0 }, 0.5, 0.38)).toEqual(["KeyD"]);
-  });
-
-  it("sectors into eight ways rather than pressing a near-zero axis", () => {
     expect(movementKeys({ x: 0.7, y: -0.7 }, 0.5, 0.38)).toEqual(["KeyW", "KeyD"]);
     expect(movementKeys({ x: 0.05, y: -0.9 }, 0.5, 0.38)).toEqual(["KeyW"]);
   });
 });
 
 describe("joystick geometry", () => {
-  it("normalises against the 75 unit clamp radius", () => {
+  it("normalises against the 75 unit clamp radius, leaves output uncapped past it, and arms sprint only from 0.95 magnitude", () => {
     const resolved = resolveJoystick({ x: 0, y: -75 }, 75, 0.5, 0.38);
     expect(resolved.magnitude).toBeCloseTo(1);
     expect(resolved.sprintEligible).toBe(true);
-  });
-
-  it("leaves output uncapped past the clamp radius", () => {
     expect(resolveJoystick({ x: 150, y: 0 }, 75, 0.5, 0.38).magnitude).toBeCloseTo(2);
-  });
-
-  it("does not arm sprint below 0.95 magnitude", () => {
     expect(resolveJoystick({ x: 0, y: -70 }, 75, 0.5, 0.38).sprintEligible).toBe(false);
   });
 
-  it("swaps the design base in portrait", () => {
+  it("swaps the design base in portrait and places the active area and resting base per the godot constants", () => {
     expect(designScale(1600, 720)).toBeCloseTo(1);
     expect(designScale(720, 1600)).toBeCloseTo(1);
     expect(designScale(393, 852)).toBeCloseTo(0.5325, 4);
-  });
-
-  it("places the active area and resting base per the godot constants", () => {
     expect(activeAreaWidth(1600, 1)).toBeCloseTo(734.658);
     expect(restingBase(720, 1)).toEqual({ x: 160, y: 555 });
   });
 });
 
 describe("createEngineInput", () => {
-  it("presses a movement key once and releases it once", () => {
+  it("presses each movement key once, releases it once, swaps keys when the direction changes, and logs a drop when the canvas is absent", () => {
     const { input, keys } = harness();
     input.setMovement(["KeyW"]);
     input.setMovement(["KeyW"]);
@@ -84,15 +69,20 @@ describe("createEngineInput", () => {
     expect(keys.filter((e) => e.type === "keyup")).toHaveLength(1);
     input.setMovement([]);
     expect(keys.filter((e) => e.type === "keyup")).toHaveLength(1);
-  });
 
-  it("swaps held keys when the direction changes", () => {
-    const { input, keys } = harness();
     input.setMovement(["KeyW", "KeyD"]);
     keys.length = 0;
     input.setMovement(["KeyS", "KeyD"]);
     expect(keys.map((e) => `${e.type}:${e.code}`)).toEqual(["keyup:KeyW", "keydown:KeyS"]);
     expect(input.heldKeys().sort()).toEqual(["KeyD", "KeyS"]);
+
+    const log: EngineInputLogEntry[] = [];
+    const orphan = createEngineInput({
+      canvasId: "definitely-not-here",
+      onEvent: (entry) => log.push(entry),
+    });
+    orphan.setMovement(["KeyW"]);
+    expect(log.map((e) => e.type)).toEqual(["dropped"]);
   });
 
   it("releases every held key and the camera lock on releaseAll", () => {
@@ -110,7 +100,7 @@ describe("createEngineInput", () => {
     expect(input.heldKeys()).toEqual([]);
   });
 
-  it("carries movementX/movementY and a coalesced sample on look", () => {
+  it("looks as a right-button mouse drag carrying movementX/Y with a coalesced sample, honouring sensitivity and Y inversion", () => {
     const { input, pointers } = harness();
     input.beginLook(100, 100);
     input.look(12, -7);
@@ -121,45 +111,35 @@ describe("createEngineInput", () => {
     expect(move?.buttons).toBe(2);
     expect(move?.pointerType).toBe("mouse");
     expect(move?.getCoalescedEvents()).toHaveLength(1);
-  });
-
-  it("holds the right button for the whole look drag", () => {
-    const { input, pointers } = harness();
-    input.beginLook(0, 0);
-    input.look(5, 5);
     input.look(5, 5);
     const downs = pointers.filter((e) => e.type === "pointerdown");
     expect(downs).toHaveLength(1);
     expect(downs[0]?.button).toBe(2);
     input.endLook();
     expect(pointers.filter((e) => e.type === "pointerup")).toHaveLength(1);
+
+    const tuned = harness();
+    tuned.input.configure({ lookSensitivity: 2, lookInvertY: true });
+    tuned.input.beginLook(0, 0);
+    tuned.input.look(3, 3);
+    const scaled = tuned.pointers.find((e) => e.type === "pointermove");
+    expect(scaled?.movementX).toBe(6);
+    expect(scaled?.movementY).toBe(-6);
   });
 
-  it("applies sensitivity and optional Y inversion", () => {
-    const { input, pointers } = harness();
-    input.configure({ lookSensitivity: 2, lookInvertY: true });
-    input.beginLook(0, 0);
-    input.look(3, 3);
-    const move = pointers.find((e) => e.type === "pointermove");
-    expect(move?.movementX).toBe(6);
-    expect(move?.movementY).toBe(-6);
-  });
-
-  it("drives arrow keys when the look strategy is arrow-keys", () => {
-    const { input, keys, pointers } = harness();
-    input.configure({ lookStrategy: "arrow-keys" });
-    input.beginLook(0, 0);
-    input.look(5, -5);
-    expect(keys.filter((e) => e.type === "keydown").map((e) => e.code).sort()).toEqual([
+  it("drives arrow keys under the arrow-keys look strategy and synthesises a left click for the primary tap", () => {
+    const arrows = harness();
+    arrows.input.configure({ lookStrategy: "arrow-keys" });
+    arrows.input.beginLook(0, 0);
+    arrows.input.look(5, -5);
+    expect(arrows.keys.filter((e) => e.type === "keydown").map((e) => e.code).sort()).toEqual([
       "ArrowRight",
       "ArrowUp",
     ]);
-    expect(pointers).toHaveLength(0);
-    input.endLook();
-    expect(keys.filter((e) => e.type === "keyup")).toHaveLength(2);
-  });
+    expect(arrows.pointers).toHaveLength(0);
+    arrows.input.endLook();
+    expect(arrows.keys.filter((e) => e.type === "keyup")).toHaveLength(2);
 
-  it("synthesises a left click for the primary tap", () => {
     const { input, pointers } = harness();
     input.primaryTap(42, 84);
     expect(pointers.map((e) => e.type)).toEqual(["pointermove", "pointerdown", "pointerup"]);
@@ -168,15 +148,5 @@ describe("createEngineInput", () => {
     expect(down?.buttons).toBe(1);
     expect(down?.clientX).toBe(42);
     expect(down?.clientY).toBe(84);
-  });
-
-  it("logs a dropped entry when the canvas is absent", () => {
-    const log: EngineInputLogEntry[] = [];
-    const input = createEngineInput({
-      canvasId: "definitely-not-here",
-      onEvent: (entry) => log.push(entry),
-    });
-    input.setMovement(["KeyW"]);
-    expect(log.map((e) => e.type)).toEqual(["dropped"]);
   });
 });

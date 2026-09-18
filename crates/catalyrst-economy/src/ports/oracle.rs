@@ -1,10 +1,20 @@
 use alloy::primitives::{address, Address, Bytes, U256};
 use alloy::sol;
 use alloy::sol_types::SolCall;
+use catalyrst_commons::cache::TtlMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use crate::http::errors::ApiError;
 use crate::ports::signer::DirectSigner;
+
+/// A feed's `decimals()` is immutable, so it is fetched once per (chain, aggregator).
+static FEED_DECIMALS: OnceLock<TtlMap<(u64, Address), u8>> = OnceLock::new();
+
+fn feed_decimals() -> &'static TtlMap<(u64, Address), u8> {
+    FEED_DECIMALS.get_or_init(|| TtlMap::new("economy-oracle-decimals", Duration::MAX))
+}
 
 pub const MANA_USD_AGGREGATOR_POLYGON: Address =
     address!("0xA1CbF3Fe43BC3501e3Fc4b573e822c70e76A7512");
@@ -57,8 +67,16 @@ fn err(msg: impl Into<String>) -> ApiError {
 }
 
 pub fn decode_rate_reading(decimals_ret: &[u8], round_ret: &[u8]) -> Result<ManaUsdRate, ApiError> {
-    let feed_decimals = decimalsCall::abi_decode_returns(decimals_ret)
-        .map_err(|e| ApiError::RelayerFailed(format!("could not decode decimals(): {e}")))?;
+    let feed_decimals = decode_decimals(decimals_ret)?;
+    decode_round(feed_decimals, round_ret)
+}
+
+fn decode_decimals(decimals_ret: &[u8]) -> Result<u8, ApiError> {
+    decimalsCall::abi_decode_returns(decimals_ret)
+        .map_err(|e| ApiError::RelayerFailed(format!("could not decode decimals(): {e}")))
+}
+
+fn decode_round(feed_decimals: u8, round_ret: &[u8]) -> Result<ManaUsdRate, ApiError> {
     let round = latestRoundDataCall::abi_decode_returns(round_ret)
         .map_err(|e| ApiError::RelayerFailed(format!("could not decode latestRoundData(): {e}")))?;
     normalize_rate(feed_decimals, round.answer, round.updatedAt)
@@ -102,13 +120,15 @@ pub async fn fetch_mana_usd_rate(
     signer: &DirectSigner,
     aggregator: Address,
 ) -> Result<ManaUsdRate, ApiError> {
-    let decimals_ret = signer
-        .eth_call(aggregator, Bytes::from(decimalsCall {}.abi_encode()))
-        .await?;
-    let round_ret = signer
-        .eth_call(aggregator, Bytes::from(latestRoundDataCall {}.abi_encode()))
-        .await?;
-    decode_rate_reading(&decimals_ret, &round_ret)
+    let decimals = feed_decimals().get_or_fetch((signer.chain_id(), aggregator), || async {
+        let ret = signer
+            .eth_call(aggregator, Bytes::from(decimalsCall {}.abi_encode()))
+            .await?;
+        decode_decimals(&ret)
+    });
+    let round = signer.eth_call(aggregator, Bytes::from(latestRoundDataCall {}.abi_encode()));
+    let (feed_decimals, round_ret) = tokio::try_join!(decimals, round)?;
+    decode_round(feed_decimals, &round_ret)
 }
 
 pub fn ensure_fresh(rate: &ManaUsdRate, now_s: i64, max_age_secs: u64) -> Result<(), ApiError> {

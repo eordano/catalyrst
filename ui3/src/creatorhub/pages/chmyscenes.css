@@ -164,7 +164,6 @@
   background: currentColor;
   flex: 0 0 auto;
 }
-.chms__dot--live { animation: chms-pulse 1.3s ease-in-out infinite; }
 .chms__badge--good { color: var(--success, #34ce77); }
 .chms__badge--good .chms__dot { box-shadow: 0 0 0 3px rgba(52, 206, 119, 0.18); }
 .chms__badge--brand { color: var(--chms-brand); }
@@ -366,8 +365,7 @@
   .chms__shimmer::after,
   .chms__skelline::after,
   .chms__heroicon--scan::after,
-  .chms__heroicon--scan svg,
-  .chms__dot--live {
+  .chms__heroicon--scan svg {
     animation: none !important;
   }
   .chms__card { transform: none !important; }

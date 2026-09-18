@@ -25,6 +25,13 @@ const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
 let dispose: (() => void) | null = null;
 
+function reset(): void {
+  dispose?.();
+  dispose = null;
+  FakeWebSocket.urls = [];
+  window.localStorage.clear();
+}
+
 beforeEach(() => {
   FakeWebSocket.urls = [];
   vi.stubGlobal("WebSocket", FakeWebSocket);
@@ -42,28 +49,32 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  dispose?.();
-  dispose = null;
+  reset();
   vi.unstubAllGlobals();
   setPageUrl("", "");
 });
 
 describe("mcp pairing gate", () => {
-  it("pairs a loopback port silently, never asking for consent", () => {
+  it("pairs loopback silently: a bare port, the whole 127.0.0.0/8 block, and a stored loopback config", () => {
     setPageUrl("?mcp=5196", "#mcptoken=tok");
     const confirmRemote = vi.fn();
     dispose = autoConnect({ confirmRemote });
     expect(FakeWebSocket.urls).toEqual(["ws://127.0.0.1:5196/bridge"]);
     expect(confirmRemote).not.toHaveBeenCalled();
-  });
+    reset();
 
-  it("treats the whole 127.0.0.0/8 block and localhost as loopback", () => {
     setPageUrl(`?mcp=${encodeURIComponent("ws://127.0.0.5:5196/bridge")}`, "#mcptoken=tok");
     dispose = autoConnect({ confirmRemote: vi.fn() });
     expect(FakeWebSocket.urls).toEqual(["ws://127.0.0.5:5196/bridge"]);
+    reset();
+
+    window.localStorage.setItem("dcl-mcp-relay", JSON.stringify({ url: 5196, token: "tok" }));
+    setPageUrl("", "");
+    dispose = autoConnect({ confirmRemote: vi.fn() });
+    expect(FakeWebSocket.urls).toEqual(["ws://127.0.0.1:5196/bridge"]);
   });
 
-  it("opens no socket for a remote relay until consent resolves", async () => {
+  it("opens no socket for a remote relay until consent resolves, then connects to exactly the named relay only on approval", async () => {
     setPageUrl(`?mcp=${encodeURIComponent("wss://evil.example/bridge")}`, "#mcptoken=tok");
     let resolveConsent: ((ok: boolean) => void) | undefined;
     const confirmRemote = vi.fn(
@@ -79,23 +90,21 @@ describe("mcp pairing gate", () => {
     resolveConsent?.(false);
     await flush();
     expect(FakeWebSocket.urls).toEqual([]);
-  });
+    reset();
 
-  it("approving connects to exactly the named relay", async () => {
     setPageUrl(`?mcp=${encodeURIComponent("wss://relay.tail.example/bridge")}`, "#mcptoken=tok");
     dispose = autoConnect({ confirmRemote: () => Promise.resolve(true) });
     await flush();
     expect(FakeWebSocket.urls).toEqual(["wss://relay.tail.example/bridge"]);
   });
 
-  it("refuses a remote relay outright when no consent surface exists", async () => {
+  it("refuses a remote relay with no consent surface, gates a stored remote config, and cancels a pairing disposed before consent", async () => {
     setPageUrl(`?mcp=${encodeURIComponent("wss://evil.example/bridge")}`, "#mcptoken=tok");
     dispose = autoConnect();
     await flush();
     expect(FakeWebSocket.urls).toEqual([]);
-  });
+    reset();
 
-  it("a stored remote config is gated too", () => {
     window.localStorage.setItem(
       "dcl-mcp-relay",
       JSON.stringify({ url: "wss://far.example/bridge", token: "tok" }),
@@ -105,16 +114,8 @@ describe("mcp pairing gate", () => {
     dispose = autoConnect({ confirmRemote });
     expect(FakeWebSocket.urls).toEqual([]);
     expect(confirmRemote).toHaveBeenCalledWith("far.example");
-  });
+    reset();
 
-  it("a stored loopback config still pairs silently", () => {
-    window.localStorage.setItem("dcl-mcp-relay", JSON.stringify({ url: 5196, token: "tok" }));
-    setPageUrl("", "");
-    dispose = autoConnect({ confirmRemote: vi.fn() });
-    expect(FakeWebSocket.urls).toEqual(["ws://127.0.0.1:5196/bridge"]);
-  });
-
-  it("disposing before consent resolves cancels the pairing", async () => {
     setPageUrl(`?mcp=${encodeURIComponent("wss://slow.example/bridge")}`, "#mcptoken=tok");
     let resolveConsent: ((ok: boolean) => void) | undefined;
     dispose = autoConnect({

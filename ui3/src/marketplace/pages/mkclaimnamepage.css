@@ -390,17 +390,6 @@
   background-color: #fff;
   color: #000;
 }
-
-.mkclaimnamepage__scrim {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  background: var(--scrim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
 .mkclaimnamepage__modal {
   position: relative;
   width: 628px;
@@ -411,16 +400,6 @@
   box-shadow: var(--shadow-modal);
   padding: 54px 70px 32px;
   color: #fff;
-}
-.mkclaimnamepage__modalclose {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  background: none;
-  border: 0;
-  color: var(--ink-6);
-  font-size: 18px;
-  cursor: pointer;
 }
 .mkclaimnamepage__modaltitle {
   font-size: 30px;

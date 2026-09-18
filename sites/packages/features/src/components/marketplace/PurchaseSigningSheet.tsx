@@ -12,7 +12,7 @@ import {
   type PurchaseIntent,
 } from "@data/lib/catalyst/marketplace/purchase-intent";
 
-export type SigningSheetLine = {
+type SigningSheetLine = {
   key: string;
   name: string;
   qty: number;

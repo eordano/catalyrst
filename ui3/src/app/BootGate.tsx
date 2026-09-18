@@ -337,11 +337,13 @@ function BootPhases({ children }: BootGateProps) {
   };
 
   const handleDestinationChosen = (dest: PickedDestination) => {
+    const engineLive = engineAliveAt.current > 0;
     pendingDestinationRef.current = primeBootPosition(dest) ? null : dest;
     destinationAppliedRef.current = false;
     jumpedAt.current = Date.now();
     setPhase("loading");
     startEngine();
+    if (engineLive) applyPendingDestination();
   };
 
   if (phase === "lobby") {

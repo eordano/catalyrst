@@ -29,6 +29,18 @@ pub struct LandOperators {
 #[async_trait]
 pub trait LandOperatorResolver: Send + Sync {
     async fn operators(&self, x: i32, y: i32) -> Result<Option<LandOperators>, String>;
+
+    /// Positional by input; the default asks one parcel at a time, batch sources override it.
+    async fn operators_batch(
+        &self,
+        parcels: &[(i32, i32)],
+    ) -> Vec<Result<Option<LandOperators>, String>> {
+        let mut out = Vec::with_capacity(parcels.len());
+        for &(x, y) in parcels {
+            out.push(self.operators(x, y).await);
+        }
+        out
+    }
 }
 
 pub struct SquidBlockchainChecker {
@@ -241,10 +253,7 @@ impl ParcelOwnerSource for SquidParcelSource<'_> {
     }
 }
 
-/// Owned (parcel or estate owner matches) => allowed; otherwise the operator
-/// legs and their fail-closed default decide. Results are positional by input
-/// index; the operator legs run sequentially, only for not-owned parcels and
-/// only when a resolver is configured.
+/// Positional: owned => allowed, else one batched operator-leg lookup (fail-closed) decides.
 async fn land_access_batch<S: ParcelOwnerSource + ?Sized>(
     src: &S,
     operator_resolver: Option<&dyn LandOperatorResolver>,
@@ -252,15 +261,39 @@ async fn land_access_batch<S: ParcelOwnerSource + ?Sized>(
     parcels: &[(i32, i32)],
 ) -> Result<Vec<bool>, ValidatorError> {
     let map = src.ownership_for(parcels).await?;
-    let mut results = Vec::with_capacity(parcels.len());
-    for &(x, y) in parcels {
-        let allowed = map.get(&(x, y)).is_some_and(|o| o.owned_by(address))
-            || operator_legs(operator_resolver, address, x, y)
-                .await
-                .grants_deploy();
-        results.push(allowed);
+    let owned: Vec<bool> = parcels
+        .iter()
+        .map(|p| map.get(p).is_some_and(|o| o.owned_by(address)))
+        .collect();
+    let pending: Vec<(i32, i32)> = parcels
+        .iter()
+        .zip(&owned)
+        .filter(|(_, o)| !**o)
+        .map(|(p, _)| *p)
+        .collect();
+    let mut legs = operator_legs_batch(operator_resolver, address, &pending)
+        .await
+        .into_iter();
+    Ok(owned
+        .into_iter()
+        .map(|o| o || legs.next().is_some_and(|f| f.grants_deploy()))
+        .collect())
+}
+
+fn resolved_legs(
+    address: &str,
+    x: i32,
+    y: i32,
+    resolved: Result<Option<LandOperators>, String>,
+) -> ParcelPermissionFlags {
+    match resolved {
+        Ok(Some(operators)) => operator_flags(address, &operators),
+        Ok(None) => ParcelPermissionFlags::default(),
+        Err(e) => {
+            warn!(x, y, error = %e, "land operator resolver failed; denying operator legs (fail-closed)");
+            ParcelPermissionFlags::default()
+        }
     }
-    Ok(results)
 }
 
 async fn operator_legs(
@@ -272,14 +305,31 @@ async fn operator_legs(
     let Some(resolver) = operator_resolver else {
         return ParcelPermissionFlags::default();
     };
-    match resolver.operators(x, y).await {
-        Ok(Some(operators)) => operator_flags(address, &operators),
-        Ok(None) => ParcelPermissionFlags::default(),
-        Err(e) => {
-            warn!(x, y, error = %e, "land operator resolver failed; denying operator legs (fail-closed)");
-            ParcelPermissionFlags::default()
-        }
+    resolved_legs(address, x, y, resolver.operators(x, y).await)
+}
+
+/// Positional by `parcels`; a short resolver answer denies the unanswered tail (fail-closed).
+async fn operator_legs_batch(
+    operator_resolver: Option<&dyn LandOperatorResolver>,
+    address: &str,
+    parcels: &[(i32, i32)],
+) -> Vec<ParcelPermissionFlags> {
+    let Some(resolver) = operator_resolver else {
+        return vec![ParcelPermissionFlags::default(); parcels.len()];
+    };
+    if parcels.is_empty() {
+        return Vec::new();
     }
+    let mut resolved = resolver.operators_batch(parcels).await.into_iter();
+    parcels
+        .iter()
+        .map(|&(x, y)| {
+            let answer = resolved
+                .next()
+                .unwrap_or_else(|| Err("resolver batch answered too few parcels".to_string()));
+            resolved_legs(address, x, y, answer)
+        })
+        .collect()
 }
 
 async fn parcel_flags(
@@ -329,11 +379,23 @@ async fn permission_flags_batch<S: ParcelOwnerSource + ?Sized>(
     parcels: &[(i32, i32)],
 ) -> Result<Vec<Option<ParcelPermissionFlags>>, ValidatorError> {
     let map = src.ownership_for(parcels).await?;
-    let mut results = Vec::with_capacity(parcels.len());
-    for &(x, y) in parcels {
-        results.push(parcel_flags(map.get(&(x, y)), operator_resolver, address, x, y).await);
-    }
-    Ok(results)
+    let indexed: Vec<(i32, i32)> = parcels
+        .iter()
+        .filter(|p| map.contains_key(p))
+        .copied()
+        .collect();
+    let mut legs = operator_legs_batch(operator_resolver, address, &indexed)
+        .await
+        .into_iter();
+    Ok(parcels
+        .iter()
+        .map(|p| {
+            let ownership = map.get(p)?;
+            let mut flags = legs.next().unwrap_or_default();
+            flags.owner = ownership.owned_by(address);
+            Some(flags)
+        })
+        .collect())
 }
 
 pub async fn check_parcel_access(
@@ -1192,6 +1254,123 @@ mod tests {
                 update_operator: true,
                 ..Default::default()
             }
+        );
+    }
+
+    struct BatchResolver {
+        batches: AtomicUsize,
+        singles: AtomicUsize,
+        granted: HashMap<(i32, i32), LandOperators>,
+        short_by: usize,
+    }
+
+    #[async_trait]
+    impl LandOperatorResolver for BatchResolver {
+        async fn operators(&self, x: i32, y: i32) -> Result<Option<LandOperators>, String> {
+            self.singles.fetch_add(1, Ordering::SeqCst);
+            Ok(self.granted.get(&(x, y)).cloned())
+        }
+        async fn operators_batch(
+            &self,
+            parcels: &[(i32, i32)],
+        ) -> Vec<Result<Option<LandOperators>, String>> {
+            self.batches.fetch_add(1, Ordering::SeqCst);
+            parcels
+                .iter()
+                .take(parcels.len().saturating_sub(self.short_by))
+                .map(|p| Ok(self.granted.get(p).cloned()))
+                .collect()
+        }
+    }
+
+    fn update_operator(addr: &str) -> LandOperators {
+        LandOperators {
+            update_operator: Some(addr.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn flags_batch_resolves_operator_legs_in_one_round_trip() {
+        let parcels: Vec<(i32, i32)> = (0..30).map(|k| (k, k)).collect();
+        let src = CountingParcel::new(parcels.iter().map(|p| (*p, ownership(Some(OTHER), None))));
+        let resolver = BatchResolver {
+            batches: AtomicUsize::new(0),
+            singles: AtomicUsize::new(0),
+            granted: HashMap::from([
+                ((4, 4), update_operator("0xop")),
+                ((9, 9), update_operator("0xop")),
+            ]),
+            short_by: 0,
+        };
+
+        let result = permission_flags_batch(&src, Some(&resolver), "0xop", &parcels)
+            .await
+            .unwrap();
+
+        assert_eq!(resolver.batches.load(Ordering::SeqCst), 1, "one batch call");
+        assert_eq!(
+            resolver.singles.load(Ordering::SeqCst),
+            0,
+            "no per-parcel calls"
+        );
+        for (i, p) in parcels.iter().enumerate() {
+            let flags = result[i].expect("indexed");
+            assert_eq!(flags.update_operator, matches!(p, (4, 4) | (9, 9)), "{p:?}");
+            assert!(!flags.owner);
+        }
+    }
+
+    #[tokio::test]
+    async fn land_access_batch_asks_only_for_unowned_parcels_once() {
+        let parcels = vec![(1, 1), (2, 2), (3, 3), (4, 4)];
+        let src = CountingParcel::new([
+            ((1, 1), ownership(Some(OWNER), None)),
+            ((2, 2), ownership(Some(OTHER), None)),
+            ((3, 3), ownership(Some(OTHER), None)),
+        ]);
+        let resolver = BatchResolver {
+            batches: AtomicUsize::new(0),
+            singles: AtomicUsize::new(0),
+            granted: HashMap::from([((3, 3), update_operator("0xowner"))]),
+            short_by: 0,
+        };
+
+        let result = land_access_batch(&src, Some(&resolver), "0xowner", &parcels)
+            .await
+            .unwrap();
+
+        assert_eq!(result, vec![true, false, true, false]);
+        assert_eq!(resolver.batches.load(Ordering::SeqCst), 1);
+        assert_eq!(src.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn short_batch_answer_denies_the_unanswered_tail() {
+        let parcels = vec![(1, 1), (2, 2)];
+        let src = CountingParcel::new([
+            ((1, 1), ownership(Some(OTHER), None)),
+            ((2, 2), ownership(Some(OTHER), None)),
+        ]);
+        let resolver = BatchResolver {
+            batches: AtomicUsize::new(0),
+            singles: AtomicUsize::new(0),
+            granted: HashMap::from([
+                ((1, 1), update_operator("0xop")),
+                ((2, 2), update_operator("0xop")),
+            ]),
+            short_by: 1,
+        };
+
+        let result = permission_flags_batch(&src, Some(&resolver), "0xop", &parcels)
+            .await
+            .unwrap();
+
+        assert!(result[0].unwrap().update_operator);
+        assert_eq!(
+            result[1].unwrap(),
+            ParcelPermissionFlags::default(),
+            "an unanswered parcel is denied, never granted by position slip"
         );
     }
 

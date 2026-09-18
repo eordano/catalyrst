@@ -3,24 +3,19 @@ import { describe, expect, it } from "vitest";
 import { KNOWN_ENV, SERVICES, isSecretName } from "./registry";
 
 describe("operator service registry", () => {
-  it("has unique keys, units and ports", () => {
+  it("has unique keys, units and ports, probes rooted paths on registered local ports, and catalogs every env var exactly once", () => {
     const keys = SERVICES.map((s) => s.key);
     const units = SERVICES.map((s) => s.unit);
     const ports = SERVICES.map((s) => s.port);
     expect(new Set(keys).size).toBe(keys.length);
     expect(new Set(units).size).toBe(units.length);
     expect(new Set(ports).size).toBe(ports.length);
-  });
 
-  it("probes rooted paths on registered local ports", () => {
-    for (const s of SERVICES) {
-      expect(s.healthPath.startsWith("/")).toBe(true);
-      expect(s.port).toBeGreaterThan(1024);
-      expect(s.serves.length).toBeGreaterThan(0);
-    }
-  });
+    const offenders = SERVICES.filter(
+      (s) => !s.healthPath.startsWith("/") || s.port <= 1024 || s.serves.length === 0,
+    ).map((s) => s.key);
+    expect(offenders).toEqual([]);
 
-  it("catalogs every env var exactly once", () => {
     const names = KNOWN_ENV.map((v) => v.name);
     expect(new Set(names).size).toBe(names.length);
   });

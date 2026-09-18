@@ -25,11 +25,13 @@ export type RsvpEventView = {
   jumpHref: string;
 };
 
-export type RsvpWizardProps = {
+type RsvpWizardProps = {
   trackCtx: TrackContext;
   event: RsvpEventView;
   count?: number;
   initialStep?: string;
+  signedIn?: boolean;
+  onSignIn?: () => void;
   commit?: CommitFn;
   track?: TrackFn;
 };
@@ -40,6 +42,8 @@ export default function RsvpWizard({
   count = 0,
   initialStep,
   commit,
+  signedIn,
+  onSignIn,
   track,
 }: RsvpWizardProps) {
   const [searchParams] = useSearchParams();
@@ -55,6 +59,8 @@ export default function RsvpWizard({
       event={event}
       count={count}
       commit={commit}
+      signedIn={signedIn}
+      onSignIn={onSignIn}
       track={track}
     />
   );
@@ -65,6 +71,8 @@ type InnerProps = {
   trackCtx: TrackContext;
   event: RsvpEventView;
   count: number;
+  signedIn?: boolean;
+  onSignIn?: () => void;
   commit?: CommitFn;
   track?: TrackFn;
 };
@@ -75,6 +83,8 @@ function RsvpWizardInner({
   event,
   count,
   commit,
+  signedIn,
+  onSignIn,
   track,
 }: InnerProps) {
   const [, setSearchParams] = useSearchParams();
@@ -94,6 +104,10 @@ function RsvpWizardInner({
     input: { trackCtx, eventId: event.id, count, commit, track },
     snapshot,
   });
+
+  useEffect(() => {
+    if (signedIn && state.matches("signinGate")) send({ type: "SIGN_IN" });
+  }, [signedIn, state.value, send]);
 
   const value = state.value as string;
   const step = stateToSlug(value);
@@ -123,7 +137,10 @@ function RsvpWizardInner({
       error={state.context.error}
       onTapGoing={() => send({ type: "TAP_GOING" })}
       onCancel={() => send({ type: "CANCEL" })}
-      onSignIn={() => send({ type: "SIGN_IN" })}
+      onSignIn={() => {
+        if (signedIn === false) onSignIn?.();
+        else send({ type: "SIGN_IN" });
+      }}
       onBack={() => send({ type: "BACK" })}
       onConfirm={() => send({ type: "CONFIRM" })}
       onCancelRsvp={() => send({ type: "CANCEL_RSVP" })}

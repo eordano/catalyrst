@@ -34,6 +34,7 @@ import { useAuth } from "@data/lib/auth/index";
 import { getIdentity } from "@data/lib/auth/session";
 import { parseItemRef } from "@data/lib/catalyst/marketplace/cart";
 import { tryQuoteCreditItems } from "@data/lib/catalyst/marketplace/credit-quotes";
+import { loadCatalogRail } from "@data/lib/catalyst/marketplace/catalog-rails.server";
 import {
   fetchCatalog,
   isCatalogItemBuyable,
@@ -125,8 +126,8 @@ export async function loader({ request }: Route.LoaderArgs) {
         sortBy: f.sortBy || undefined,
         search: f.search || undefined,
       }),
-      isOverview ? fetchCatalog({ first: 6, isOnSale: true, sortBy: "most_expensive" }) : none,
-      isOverview ? fetchCatalog({ first: 8, isOnSale: true, sortBy: "cheapest" }) : none,
+      isOverview ? loadCatalogRail({ first: 6, isOnSale: true, sortBy: "most_expensive" }) : none,
+      isOverview ? loadCatalogRail({ first: 8, isOnSale: true, sortBy: "cheapest" }) : none,
     ]);
     items = result.data.filter(isCatalogItemBuyable);
     total = result.total;

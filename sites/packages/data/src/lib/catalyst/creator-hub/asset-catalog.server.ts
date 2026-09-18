@@ -87,7 +87,7 @@ function flatten(resp: AssetPacksResponse): CatalogItem[] {
   return out;
 }
 
-export type LoadCatalogOptions = {
+type LoadCatalogOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;

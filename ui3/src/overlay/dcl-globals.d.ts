@@ -30,7 +30,7 @@ declare global {
       attributes: Record<string, { data: Float32Array; components: number }>;
     }>;
 
-    __DCL_PUBLIC__?: { thirdwebClientId?: string; thirdwebSignProxy?: string };
+    __DCL_PUBLIC__?: { thirdwebClientId?: string; thirdwebSignProxy?: string; docsBase?: string };
     __DCL_AUTH_HEADERS__?: Record<string, string>;
 
     __srch?: unknown;

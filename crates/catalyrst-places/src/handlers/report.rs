@@ -123,6 +123,22 @@ pub async fn post_report(
                 now,
             )
         }
+        ReportUploadMode::Database => {
+            let public_path = headers
+                .get("x-original-path")
+                .and_then(|value| value.to_str().ok())
+                .map(|path| path.split('?').next().unwrap_or(path))
+                .filter(|path| {
+                    path.starts_with('/') && !path.starts_with("//") && path.ends_with(uri.path())
+                })
+                .unwrap_or(uri.path());
+            format!(
+                "{}{}/upload/{}",
+                request_base_url(&headers),
+                public_path,
+                filename
+            )
+        }
         ReportUploadMode::LocalDev => {
             tracing::warn!(
                 target: "catalyrst_places::report",
@@ -198,9 +214,10 @@ pub async fn put_report_upload(
         .record_report_upload(&filename, reporter.as_str(), &payload)
         .await?
     {
-        ReportUploadOutcome::Stored | ReportUploadOutcome::PersistenceDisabled => {
-            Ok(Json(json!({ "ok": true })))
-        }
+        ReportUploadOutcome::Stored => Ok(Json(json!({ "ok": true }))),
+        ReportUploadOutcome::PersistenceDisabled => Err(ApiError::service_unavailable(
+            "report persistence not configured",
+        )),
         ReportUploadOutcome::NoReportOwnedByReporter => {
             Err(ApiError::not_found("report not found"))
         }

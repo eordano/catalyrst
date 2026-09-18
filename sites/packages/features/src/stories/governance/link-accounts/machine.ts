@@ -23,7 +23,7 @@ export type UnlinkFn = (args: {
   signal?: AbortSignal;
 }) => Promise<UnlinkResult>;
 
-export type LinkInput = {
+type LinkInput = {
   account?: Provider;
   trackCtx: TrackContext;
   verify?: VerifyFn;
@@ -31,7 +31,7 @@ export type LinkInput = {
   track?: TrackFn;
 };
 
-export type LinkContext = {
+type LinkContext = {
   account: Provider;
   trackCtx: TrackContext;
   verify: VerifyFn;
@@ -44,7 +44,7 @@ export type LinkContext = {
   error?: string;
 };
 
-export type LinkEvent =
+type LinkEvent =
   | { type: "CHOOSE"; account: Provider; totalSteps?: number }
   | { type: "NEXT_STEP" }
   | { type: "CONFIRM" }
@@ -74,7 +74,7 @@ export const STATE_TO_SLUG = {
 } as const;
 
 export type LinkStateId = keyof typeof STATE_TO_SLUG;
-export type LinkStepSlug = (typeof STATE_TO_SLUG)[LinkStateId];
+type LinkStepSlug = (typeof STATE_TO_SLUG)[LinkStateId];
 
 export const FIRST_STEP_SLUG: LinkStepSlug = STATE_TO_SLUG.choosing;
 
@@ -90,10 +90,10 @@ export function stepsFor(account: Provider): number {
   return account === "push" ? 1 : 3;
 }
 
-export const defaultVerify: VerifyFn = ({ provider, signal }) =>
+const defaultVerify: VerifyFn = ({ provider, signal }) =>
   failClosedVerify({ provider, signal });
 
-export const defaultUnlink: UnlinkFn = ({ account, signal }) =>
+const defaultUnlink: UnlinkFn = ({ account, signal }) =>
   failClosedUnlink({ account, signal });
 
 export const linkAccountsMachine = setup({
@@ -242,8 +242,6 @@ export const linkAccountsMachine = setup({
     },
   },
 });
-
-export type LinkAccountsMachine = typeof linkAccountsMachine;
 
 export function resolveLinkSnapshot(args: {
   step: LinkStateId;

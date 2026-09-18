@@ -38,7 +38,7 @@ function ui3<C extends React.ComponentType<any>>(
   return props as ComponentProps<C>;
 }
 
-export type SellWizardProps = {
+type SellWizardProps = {
   trackCtx: TrackContext;
   assets: OwnedAsset[];
   initialStep?: string;

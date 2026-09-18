@@ -19,7 +19,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type SubmitCatalystWizardProps = {
+type SubmitCatalystWizardProps = {
   trackCtx: TrackContext;
   request: CatalystRequest;
   data: SubmitCatalystData;

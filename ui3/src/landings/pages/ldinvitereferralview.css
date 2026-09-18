@@ -57,10 +57,6 @@
   padding: 18.5px 61px;
 }
 
-.invite-referral-route__btn--alt {
-  background: linear-gradient(180deg, #410461, #5d0089);
-}
-
 .invite-referral-route__by {
   flex-basis: 100%;
   text-align: center;
@@ -71,30 +67,6 @@
 
 .invite-referral-route__by strong {
   color: #fff;
-}
-
-.invite-referral-route__faqs {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 0 24px 80px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.invite-referral-route__faq {
-  background: #161518;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24px;
-  padding: 20px 28px;
-}
-
-.invite-referral-route__faq-q {
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 20px;
-  font-weight: 300;
-  cursor: pointer;
-  list-style: none;
 }
 
 .invite-referral-route__faq-a {

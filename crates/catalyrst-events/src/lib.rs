@@ -65,6 +65,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         .run(&pool)
         .await
         .context("events migration failed")?;
+    crate::fed::replay::spawn_sweep(pool.clone());
 
     let gossip = catalyrst_fed::build_publisher(&catalyrst_fed::GossipConfig::from_env()).await?;
     tracing::info!(

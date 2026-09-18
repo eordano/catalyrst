@@ -55,25 +55,13 @@ afterEach(() => {
 });
 
 describe("useEngineSettings", () => {
-  it("attaches immediately when the bridge exists and requests a snapshot", () => {
+  it("attaches immediately, requests a snapshot, normalizes variants and descriptions (including legacy bare strings), and unsubscribes on unmount", () => {
     const b = makeBridge();
     window.dclBridge = b.bridge;
-    const { result } = renderHook(() => useEngineSettings());
+    const { result, unmount } = renderHook(() => useEngineSettings());
     expect(b.sent).toContainEqual({ action: "GetSettings", payload: {} });
     expect(result.current.connected).toBe(true);
-    act(() => b.push({ kind: "settings", settings: [entry()] }));
-    expect(result.current.info?.Bloom?.namedVariants.map((v) => v.label)).toEqual([
-      "Off",
-      "Low",
-      "High",
-    ]);
-    expect(result.current.values.Bloom).toBe(1);
-  });
 
-  it("normalizes {name, description} variants and the setting description into tooltips", () => {
-    const b = makeBridge();
-    window.dclBridge = b.bridge;
-    const { result } = renderHook(() => useEngineSettings());
     act(() =>
       b.push({
         kind: "settings",
@@ -85,23 +73,14 @@ describe("useEngineSettings", () => {
         ],
       }),
     );
-    expect(result.current.info?.Bloom?.description).toBe(
-      "Glow around bright light sources.",
-    );
+    expect(result.current.values.Bloom).toBe(1);
+    expect(result.current.info?.Bloom?.description).toBe("Glow around bright light sources.");
     expect(result.current.info?.Bloom?.namedVariants).toEqual([
       { label: "Off", description: "No glow." },
       { label: "High", description: "Strong glow." },
     ]);
-  });
 
-  it("still accepts bare-string variants from older engine builds", () => {
-    const b = makeBridge();
-    window.dclBridge = b.bridge;
-    const { result } = renderHook(() => useEngineSettings());
-    const legacy = {
-      ...entry(),
-      namedVariants: ["Off", "Low", "High"],
-    } as unknown as SettingEntry;
+    const legacy = { ...entry(), namedVariants: ["Off", "Low", "High"] } as unknown as SettingEntry;
     act(() => b.push({ kind: "settings", settings: [legacy] }));
     expect(result.current.info?.Bloom?.namedVariants).toEqual([
       { label: "Off", description: null },
@@ -109,19 +88,13 @@ describe("useEngineSettings", () => {
       { label: "High", description: null },
     ]);
     expect(result.current.info?.Bloom?.description).toBeNull();
+
+    expect(b.listeners.size).toBe(1);
+    unmount();
+    expect(b.listeners.size).toBe(0);
   });
 
-  it("merges values across snapshot pushes", () => {
-    const b = makeBridge();
-    window.dclBridge = b.bridge;
-    const { result } = renderHook(() => useEngineSettings());
-    act(() => b.push({ kind: "settings", settings: [entry({ value: 2 })] }));
-    act(() => b.push({ kind: "settings", settings: [outlineEntry({ value: 0 })] }));
-    expect(result.current.values.Bloom).toBe(2);
-    expect(result.current.values["Avatar Outline"]).toBe(0);
-  });
-
-  it("ignores pushes of other kinds", () => {
+  it("merges values across snapshot pushes and ignores pushes of other kinds", () => {
     const b = makeBridge();
     window.dclBridge = b.bridge;
     const { result } = renderHook(() => useEngineSettings());
@@ -129,6 +102,11 @@ describe("useEngineSettings", () => {
     act(() => b.push(null));
     expect(result.current.info).toBeNull();
     expect(result.current.values).toEqual({});
+
+    act(() => b.push({ kind: "settings", settings: [entry({ value: 2 })] }));
+    act(() => b.push({ kind: "settings", settings: [outlineEntry({ value: 0 })] }));
+    expect(result.current.values.Bloom).toBe(2);
+    expect(result.current.values["Avatar Outline"]).toBe(0);
   });
 
   it("applies a write optimistically, sends SetSetting, and lets the echo reconcile", () => {
@@ -145,10 +123,10 @@ describe("useEngineSettings", () => {
     expect(result.current.values["Avatar Outline"]).toBe(1);
   });
 
-  it("polls every 250ms until the bridge appears", () => {
+  it("polls every 250ms until the bridge appears and gives up after 10 seconds", () => {
     vi.useFakeTimers();
-    const { result } = renderHook(() => useEngineSettings());
-    expect(result.current.connected).toBeNull();
+    const late = renderHook(() => useEngineSettings());
+    expect(late.result.current.connected).toBeNull();
     const b = makeBridge();
     window.dclBridge = b.bridge;
     expect(b.sent).toHaveLength(0);
@@ -156,34 +134,22 @@ describe("useEngineSettings", () => {
       vi.advanceTimersByTime(250);
     });
     expect(b.sent).toContainEqual({ action: "GetSettings", payload: {} });
-    expect(result.current.connected).toBe(true);
-    act(() => b.push({ kind: "settings", settings: [entry()] }));
-    expect(result.current.values.Bloom).toBe(1);
-  });
+    expect(late.result.current.connected).toBe(true);
+    late.unmount();
+    delete window.dclBridge;
 
-  it("gives up after 10 seconds without a bridge and reports disconnected", () => {
-    vi.useFakeTimers();
-    const { result } = renderHook(() => useEngineSettings());
+    const never = renderHook(() => useEngineSettings());
     act(() => {
       vi.advanceTimersByTime(10000);
     });
-    expect(result.current.connected).toBe(false);
-    const b = makeBridge();
-    window.dclBridge = b.bridge;
+    expect(never.result.current.connected).toBe(false);
+    const c = makeBridge();
+    window.dclBridge = c.bridge;
     act(() => {
       vi.advanceTimersByTime(2000);
     });
-    expect(b.sent).toHaveLength(0);
-    expect(b.listeners.size).toBe(0);
-    expect(result.current.connected).toBe(false);
-  });
-
-  it("unsubscribes from the bridge on unmount", () => {
-    const b = makeBridge();
-    window.dclBridge = b.bridge;
-    const { unmount } = renderHook(() => useEngineSettings());
-    expect(b.listeners.size).toBe(1);
-    unmount();
-    expect(b.listeners.size).toBe(0);
+    expect(c.sent).toHaveLength(0);
+    expect(c.listeners.size).toBe(0);
+    expect(never.result.current.connected).toBe(false);
   });
 });

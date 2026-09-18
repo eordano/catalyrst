@@ -43,6 +43,15 @@ function overlayRoot(): HTMLElement {
   return root;
 }
 
+const FAKED = [
+  "setTimeout",
+  "clearTimeout",
+  "setInterval",
+  "clearInterval",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+] as const;
+
 afterEach(() => {
   document.body.innerHTML = "";
   delete window.__dclNativeHost;
@@ -50,26 +59,24 @@ afterEach(() => {
 });
 
 describe("computeInteractiveRects", () => {
-  it("records the first auto ancestor only, rounded outward", () => {
+  it("records the first auto ancestor only, rounded outward, drops rects inside a sibling, and hashes stably across no-op mutations", () => {
     const root = overlayRoot();
     const stage = el("none", [0, 0, 1280, 720]);
     const widget = el("auto", [10.2, 20.7, 99.5, 40.1]);
-    const inner = el("auto", [20, 30, 50, 20], "button");
-    widget.appendChild(inner);
+    widget.appendChild(el("auto", [20, 30, 50, 20], "button"));
     stage.appendChild(widget);
+    stage.appendChild(el("auto", [20, 30, 10, 10]));
     root.appendChild(stage);
     expect(computeInteractiveRects(root)).toEqual([[10, 20, 100, 41]]);
+
+    const before = hashRects(computeInteractiveRects(root));
+    stage.dataset.tick = "1";
+    expect(hashRects(computeInteractiveRects(root))).toBe(before);
+    stage.appendChild(el("auto", [500, 20, 40, 40]));
+    expect(hashRects(computeInteractiveRects(root))).not.toBe(before);
   });
 
-  it("drops rects contained in a sibling rect", () => {
-    const root = overlayRoot();
-    const big = el("auto", [10, 20, 100, 41]);
-    const small = el("auto", [20, 30, 10, 10]);
-    root.append(big, small);
-    expect(computeInteractiveRects(root)).toEqual([[10, 20, 100, 41]]);
-  });
-
-  it("skips hidden and zero-area subtrees", () => {
+  it("skips hidden and zero-area subtrees but descends through zero-area wrappers to overflowing children", () => {
     const root = overlayRoot();
     const hidden = el("none", [0, 0, 300, 300]);
     hidden.style.display = "none";
@@ -81,10 +88,7 @@ describe("computeInteractiveRects", () => {
     const flat = el("auto", [0, 0, 0, 40]);
     root.append(hidden, ghost, faded, flat);
     expect(computeInteractiveRects(root)).toEqual([]);
-  });
 
-  it("descends through zero-area wrappers to overflowing children", () => {
-    const root = overlayRoot();
     const wrapper = el("none", [0, 0, 0, 0]);
     wrapper.style.display = "contents";
     wrapper.appendChild(el("auto", [10, 20, 100, 40]));
@@ -92,45 +96,23 @@ describe("computeInteractiveRects", () => {
     expect(computeInteractiveRects(root)).toEqual([[10, 20, 100, 40]]);
   });
 
-  it("captures portal subtrees mounted outside the overlay root", () => {
+  it("captures portal subtrees mounted outside the overlay root in the page rects only", () => {
     const root = overlayRoot();
     root.appendChild(el("auto", [10, 20, 100, 40]));
     const portal = el("none", [0, 0, 0, 0]);
     portal.appendChild(el("auto", [300, 200, 400, 300]));
     document.body.appendChild(portal);
-    const script = document.createElement("script");
-    document.body.appendChild(script);
+    document.body.appendChild(document.createElement("script"));
     expect(computePageRects(root)).toEqual([
       [10, 20, 100, 40],
       [300, 200, 400, 300],
     ]);
     expect(computeInteractiveRects(root)).toEqual([[10, 20, 100, 40]]);
   });
-
-  it("hashes identically across a no-op mutation", () => {
-    const root = overlayRoot();
-    const stage = el("none", [0, 0, 1280, 720]);
-    stage.appendChild(el("auto", [10, 20, 100, 40]));
-    root.appendChild(stage);
-    const before = hashRects(computeInteractiveRects(root));
-    stage.dataset.tick = "1";
-    expect(hashRects(computeInteractiveRects(root))).toBe(before);
-    stage.appendChild(el("auto", [500, 20, 40, 40]));
-    expect(hashRects(computeInteractiveRects(root))).not.toBe(before);
-  });
 });
 
-const FAKED = [
-  "setTimeout",
-  "clearTimeout",
-  "setInterval",
-  "clearInterval",
-  "requestAnimationFrame",
-  "cancelAnimationFrame",
-] as const;
-
 describe("startNativeHostBridge", () => {
-  it("is a no-op without a host: nothing emitted, nothing thrown", () => {
+  it("is a no-op without a host and survives a host that throws", () => {
     vi.useFakeTimers({ toFake: [...FAKED] });
     const root = overlayRoot();
     root.appendChild(el("auto", [10, 20, 100, 40]));
@@ -141,9 +123,18 @@ describe("startNativeHostBridge", () => {
     vi.advanceTimersByTime(300);
     stop();
     expect(post).not.toHaveBeenCalled();
+
+    window.__dclNativeHost = {
+      post: () => {
+        throw new Error("gone");
+      },
+    };
+    const stop2 = startNativeHostBridge();
+    expect(() => vi.advanceTimersByTime(300)).not.toThrow();
+    stop2();
   });
 
-  it("posts pointerRegions once per geometry, keyboardFocus on editables", () => {
+  it("posts pointerRegions once per geometry, again when a modal portals into document.body, and keyboardFocus on editables", () => {
     vi.useFakeTimers({ toFake: [...FAKED] });
     const posts: NativeHostMessage[] = [];
     window.__dclNativeHost = { post: (m) => posts.push(m) };
@@ -152,38 +143,13 @@ describe("startNativeHostBridge", () => {
     root.appendChild(widget);
     const stop = startNativeHostBridge();
     vi.advanceTimersByTime(300);
-    expect(posts).toEqual([
-      { t: "pointerRegions", w: 1024, h: 768, rects: [[10, 20, 100, 40]] },
-    ]);
-    vi.advanceTimersByTime(300);
-    expect(posts).toHaveLength(1);
-
-    const input = el("auto", undefined, "input");
-    widget.appendChild(input);
-    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
-    input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
-    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
-    vi.advanceTimersByTime(50);
-    expect(posts.filter((m) => m.t === "keyboardFocus")).toEqual([
-      { t: "keyboardFocus", want: true },
-    ]);
-    stop();
-  });
-
-  it("re-emits when a modal portals into document.body", () => {
-    vi.useFakeTimers({ toFake: [...FAKED] });
-    const posts: NativeHostMessage[] = [];
-    window.__dclNativeHost = { post: (m) => posts.push(m) };
-    const root = overlayRoot();
-    root.appendChild(el("auto", [10, 20, 100, 40]));
-    const stop = startNativeHostBridge();
+    expect(posts).toEqual([{ t: "pointerRegions", w: 1024, h: 768, rects: [[10, 20, 100, 40]] }]);
     vi.advanceTimersByTime(300);
     expect(posts).toHaveLength(1);
 
     document.body.appendChild(el("auto", [300, 200, 400, 300]));
     vi.advanceTimersByTime(300);
-    const last = posts.at(-1);
-    expect(last).toEqual({
+    expect(posts.at(-1)).toEqual({
       t: "pointerRegions",
       w: 1024,
       h: 768,
@@ -192,42 +158,28 @@ describe("startNativeHostBridge", () => {
         [300, 200, 400, 300],
       ],
     });
-    stop();
-  });
 
-  it("survives a rejecting host", () => {
-    vi.useFakeTimers({ toFake: [...FAKED] });
-    window.__dclNativeHost = {
-      post: () => {
-        throw new Error("gone");
-      },
-    };
-    const root = overlayRoot();
-    root.appendChild(el("auto", [10, 20, 100, 40]));
-    const stop = startNativeHostBridge();
-    expect(() => vi.advanceTimersByTime(300)).not.toThrow();
+    const input = el("auto", undefined, "input");
+    widget.appendChild(input);
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    vi.advanceTimersByTime(50);
+    expect(posts.filter((m) => m.t === "keyboardFocus")).toEqual([{ t: "keyboardFocus", want: true }]);
     stop();
   });
 });
 
-describe("isNativeHost", () => {
-  it("reflects the global", () => {
+describe("host detection", () => {
+  it("isNativeHost reflects the global and a native host is never the editor shell", () => {
     expect(isNativeHost()).toBe(false);
-    window.__dclNativeHost = { post: () => {} };
-    expect(isNativeHost()).toBe(true);
-  });
-});
-
-describe("isEditorShell", () => {
-  it("matches editor/preview queries on the web", () => {
     expect(isEditorShell("?editorUi=1")).toBe(true);
     expect(isEditorShell("?preview=true")).toBe(true);
     expect(isEditorShell("?realm=x&preview=true&y=1")).toBe(true);
     expect(isEditorShell("?realm=x")).toBe(false);
-  });
 
-  it("never treats a native host as the editor shell", () => {
     window.__dclNativeHost = { post: () => {} };
+    expect(isNativeHost()).toBe(true);
     expect(isEditorShell("?preview=true")).toBe(false);
     expect(isEditorShell("?editorUi=1")).toBe(false);
   });

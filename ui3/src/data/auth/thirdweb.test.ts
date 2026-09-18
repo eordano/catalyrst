@@ -19,14 +19,13 @@ afterEach(() => {
 });
 
 describe("config resolution", () => {
-  test("thirdwebClientId prefers the injected SSR global", () => {
-    window.__DCL_PUBLIC__ = { thirdwebClientId: "cid-from-ssr" };
-    expect(thirdwebClientId()).toBe("cid-from-ssr");
-  });
-
-  test("sign proxy defaults to the same-origin sites route", () => {
+  test("the injected SSR global wins over the same-origin defaults", () => {
     expect(thirdwebSignProxyUrl()).toBe("/internal/thirdweb-sign");
-    window.__DCL_PUBLIC__ = { thirdwebSignProxy: "https://catalyst.example.com/internal/thirdweb-sign" };
+    window.__DCL_PUBLIC__ = {
+      thirdwebClientId: "cid-from-ssr",
+      thirdwebSignProxy: "https://catalyst.example.com/internal/thirdweb-sign",
+    };
+    expect(thirdwebClientId()).toBe("cid-from-ssr");
     expect(thirdwebSignProxyUrl()).toBe(
       "https://catalyst.example.com/internal/thirdweb-sign",
     );
@@ -63,7 +62,7 @@ describe("proxy signer", () => {
     });
   });
 
-  test("proxy errors surface as ThirdwebError with the server message", async () => {
+  test("a proxy 503 surfaces as a ThirdwebError with the server message, never a validation error", async () => {
     vi.stubGlobal(
       "fetch",
       async () =>
@@ -81,7 +80,14 @@ describe("proxy signer", () => {
       status: 503,
       message: expect.stringContaining("THIRDWEB_SECRET_KEY"),
     });
-    await expect(signer.personalSign("m")).rejects.toBeInstanceOf(ThirdwebError);
+    let err: unknown;
+    try {
+      await signer.personalSign("m");
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ThirdwebError);
+    expect(String((err as Error).message)).not.toMatch(/validation failed/);
   });
 });
 
@@ -106,37 +112,34 @@ describe("upstream drift at the thirdweb boundaries", () => {
     return copy;
   };
 
-  const authCases: [string, unknown, boolean][] = [
-    ["what thirdweb sends today", authResult(), true],
-    ["a field thirdweb added since", authResult({ profiles: [] }), true],
-    ["token wrapped in an object", authResult({ token: { jwt: "jwt-123" } }), false],
-    [
-      "walletAddress renamed to address",
-      without(authResult({ address: "0xabc" }), "walletAddress"),
-      false,
-    ],
-    ["a declared field stopped arriving", without(authResult(), "type"), false],
-  ];
-  for (const [name, value, shouldPass] of authCases) {
-    test(`auth-complete: ${name}`, () => {
-      expect(ThirdwebAuthResultSchema.safeParse(value).success).toBe(shouldPass);
+  test("the schemas catch every drift shape the old guards waved through", () => {
+    const authCases: [string, unknown, boolean][] = [
+      ["what thirdweb sends today", authResult(), true],
+      ["a field thirdweb added since", authResult({ profiles: [] }), true],
+      ["token wrapped in an object", authResult({ token: { jwt: "jwt-123" } }), false],
+      [
+        "walletAddress renamed to address",
+        without(authResult({ address: "0xabc" }), "walletAddress"),
+        false,
+      ],
+      ["a declared field stopped arriving", without(authResult(), "type"), false],
+    ];
+    for (const [name, value, shouldPass] of authCases) {
+      expect(ThirdwebAuthResultSchema.safeParse(value).success, `auth-complete: ${name}`).toBe(shouldPass);
       expect(oldTwFetchGuard(value)).toBe(true);
-    });
-  }
-
-  const signCases: [string, unknown, boolean][] = [
-    ["what the proxy sends today", { signature: "0xsigned" }, true],
-    ["signature split into r/s/v", { signature: { r: "0x1", s: "0x2", v: 27 } }, false],
-    ["signature arrived as bytes", { signature: [1, 2, 3] }, false],
-  ];
-  for (const [name, value, shouldPass] of signCases) {
-    test(`sign-proxy: ${name}`, () => {
-      expect(SignProxyOkSchema.safeParse(value).success).toBe(shouldPass);
+    }
+    const signCases: [string, unknown, boolean][] = [
+      ["what the proxy sends today", { signature: "0xsigned" }, true],
+      ["signature split into r/s/v", { signature: { r: "0x1", s: "0x2", v: 27 } }, false],
+      ["signature arrived as bytes", { signature: [1, 2, 3] }, false],
+    ];
+    for (const [name, value, shouldPass] of signCases) {
+      expect(SignProxyOkSchema.safeParse(value).success, `sign-proxy: ${name}`).toBe(shouldPass);
       expect(oldSignatureGuard(value)).toBe(true);
-    });
-  }
+    }
+  });
 
-  test("completeEmailLogin reports the boundary rather than failing later", async () => {
+  test("both boundaries report drift by name rather than failing later", async () => {
     window.__DCL_PUBLIC__ = { thirdwebClientId: "cid" };
     vi.stubGlobal(
       "fetch",
@@ -148,9 +151,6 @@ describe("upstream drift at the thirdweb boundaries", () => {
     await expect(completeEmailLogin("a@b.com", "123456")).rejects.toThrow(
       /external-http\/thirdweb\/auth-complete/,
     );
-  });
-
-  test("personalSign reports the boundary rather than signing with an object", async () => {
     vi.stubGlobal(
       "fetch",
       async () =>
@@ -163,32 +163,13 @@ describe("upstream drift at the thirdweb boundaries", () => {
       /external-http\/thirdweb\/sign-proxy/,
     );
   });
-
-  test("a 503 stays a ThirdwebError and never becomes a validation error", async () => {
-    vi.stubGlobal(
-      "fetch",
-      async () => new Response(JSON.stringify({ error: "secret key unset" }), { status: 503 }),
-    );
-    const signer = makeInAppSigner({ token: "t", walletAddress: "0xabc" });
-    let err: unknown;
-    try {
-      await signer.personalSign("m");
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeInstanceOf(ThirdwebError);
-    expect(String((err as Error).message)).not.toMatch(/validation failed/);
-  });
 });
 
 describe("parseAuthResult (social redirect return)", () => {
-  test("flat {token, walletAddress}", () => {
+  test("reads the flat, storedToken and cookieString shapes, and null for anything else", () => {
     expect(
       parseAuthResult(JSON.stringify({ token: "t1", walletAddress: "0x1" })),
     ).toEqual({ token: "t1", walletAddress: "0x1" });
-  });
-
-  test("SDK storedToken shape (jwtToken + authDetails)", () => {
     expect(
       parseAuthResult(
         JSON.stringify({
@@ -199,9 +180,6 @@ describe("parseAuthResult (social redirect return)", () => {
         }),
       ),
     ).toEqual({ token: "t2", walletAddress: "0x2" });
-  });
-
-  test("cookieString fallback", () => {
     expect(
       parseAuthResult(
         JSON.stringify({
@@ -212,9 +190,6 @@ describe("parseAuthResult (social redirect return)", () => {
         }),
       ),
     ).toEqual({ token: "t3", walletAddress: "0x3" });
-  });
-
-  test("garbage returns null", () => {
     expect(parseAuthResult("not-json")).toBeNull();
     expect(parseAuthResult(JSON.stringify({ token: "only-token" }))).toBeNull();
     expect(parseAuthResult(JSON.stringify(null))).toBeNull();

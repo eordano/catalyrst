@@ -14,6 +14,8 @@ import {
   fetchEmoteGlbUrl,
 } from "../../data/catalyst/backpack";
 
+import { expectLiveAvatar, LIVE_CATALYST } from "../../test/live-avatar";
+
 const meta = {
   title: "Explorer/Pages/Backpack",
   component: Backpack,
@@ -73,11 +75,11 @@ function BackpackLive() {
     (async () => {
       try {
         const [w, e, o] = await Promise.all([
-          loadBackpack(SHOWCASE_ADDRESS, { signal: ac.signal }),
-          loadBackpackEmotes(SHOWCASE_ADDRESS, { signal: ac.signal }).catch(
+          loadBackpack(SHOWCASE_ADDRESS, { signal: ac.signal, base: LIVE_CATALYST }),
+          loadBackpackEmotes(SHOWCASE_ADDRESS, { signal: ac.signal, base: LIVE_CATALYST }).catch(
             () => null,
           ),
-          loadRecentOutfits(4, { signal: ac.signal }).catch(() => []),
+          loadRecentOutfits(4, { signal: ac.signal, base: LIVE_CATALYST }).catch(() => []),
         ]);
         if (!alive) return;
         const ownedSet = new Set(w.ownedUrns);
@@ -126,7 +128,7 @@ function BackpackLive() {
   const playEmoteOnPreview = async (urn: string) => {
     let url = null;
     try {
-      url = await fetchEmoteGlbUrl(urn);
+      url = await fetchEmoteGlbUrl(urn, { base: LIVE_CATALYST });
     } catch {
     }
     const value = url || String(urn).split(":").pop() || "";
@@ -137,6 +139,7 @@ function BackpackLive() {
   const preview =
     eq && equippedUrns && base ? (
       <WearablePreview
+        base={LIVE_CATALYST}
         outfit={{
           bodyShape: base.bodyShape ?? undefined,
           wearables: equippedUrns,
@@ -150,6 +153,7 @@ function BackpackLive() {
       />
     ) : (
       <WearablePreview
+        base={LIVE_CATALYST}
         profile={SHOWCASE_ADDRESS}
         emote={emote.value}
         emoteNonce={emote.nonce}
@@ -171,6 +175,7 @@ function BackpackLive() {
       error={data.error}
       renderOutfitPreview={(o) => (
         <WearablePreview
+        base={LIVE_CATALYST}
           outfit={{
             bodyShape: o.bodyShape,
             wearables: o.wearables,
@@ -194,6 +199,7 @@ function BackpackLive() {
 }
 
 export const Default: Story = {
+  play: ({ canvasElement }) => expectLiveAvatar(canvasElement),
   render: () => (
     <ExploreChrome active="backpack">
       <BackpackLive />

@@ -14,7 +14,7 @@ export type OperatorService = {
 
 export { SERVICES } from "./services.generated";
 
-export type KnownEnvVar = {
+type KnownEnvVar = {
   name: string;
   purpose: string;
   consumers: string[];
@@ -39,6 +39,13 @@ export const KNOWN_ENV: KnownEnvVar[] = [
     name: "WORLDS_URL",
     purpose: "Worlds content server base URL. Unset, derived as worlds.<domain>.",
     consumers: ["sites"],
+  },
+  {
+    name: "DOCS_BASE",
+    purpose:
+      "Base every Docs link points at; absolute URLs allowed. Unset, /docs (the self-hosted mirror).",
+    consumers: ["sites"],
+    example: "https://docs.decentraland.org",
   },
   {
     name: "CATALYST_DATABASE_URL",

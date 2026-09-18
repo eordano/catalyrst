@@ -53,6 +53,23 @@
 .sb__btn.is-stroke .sb__icon [fill="currentColor"] { fill: currentColor; }
 .sb__btn:hover { background: var(--fill-5); color: #fff; }
 
+.sb__glyph { display: inline-flex; align-items: center; justify-content: center; color: inherit; }
+.sb__glyph .sb__icon { width: 20px; height: 20px; }
+.sb__glyph.is-stroke .sb__icon {
+  fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.sb__glyph.is-stroke .sb__icon [fill="currentColor"] { fill: currentColor; }
+
+.sb__pop { position: relative; display: flex; }
+.sb__pop.is-open .tt__tip { display: none; }
+.sb__menu {
+  position: absolute; left: calc(100% + 10px); top: 0;
+  z-index: var(--z-overlay);
+}
+.sb__menu .ctx { min-width: 176px; }
+.sb__menuicon { display: block; width: 16px; height: 16px; fill: currentColor; }
+
 .sb__btn.is-tile {
   border: 1.5px solid rgba(255, 255, 255, .3);
   border-radius: 9px; width: 36px; height: 36px;
@@ -118,5 +135,9 @@
     left: auto;
     right: -6px;
     border-radius: 3px 0 0 3px;
+  }
+  [data-mobile-chrome] .sb__menu {
+    left: auto;
+    right: calc(100% + 10px);
   }
 }

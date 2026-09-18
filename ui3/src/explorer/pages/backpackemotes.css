@@ -60,33 +60,6 @@
   -webkit-mask-size: contain; mask-size: contain;
 }
 
-.bpe__headright {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.bpe__filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: var(--r-pill, 999px);
-  background: rgba(0, 0, 0, 0.32);
-  color: rgba(255, 255, 255, 0.92);
-  font: inherit;
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  cursor: pointer;
-}
-.bpe__filter:hover { background: rgba(0, 0, 0, 0.45); }
-.bpe__filter .bpe__chev { opacity: 0.7; margin-left: 2px; }
-.bpe__search { width: 260px; max-width: 36vw; }
-
 .bpe__main {
   flex: 1 1 auto;
   min-height: 0;
@@ -212,22 +185,6 @@
     0 0 60px rgba(245, 183, 60, 0.22);
 }
 .bpe__stage .avatar-stage { height: 88%; }
-.bpe__expand {
-  position: absolute;
-  left: 10px;
-  bottom: 10px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 0;
-  cursor: pointer;
-  background: rgba(0, 0, 0, 0.35);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.bpe__expand:hover { background: rgba(0, 0, 0, 0.5); }
 
 .bpe__panel {
   display: grid;
@@ -284,26 +241,6 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   aspect-ratio: 1 / 1;
 }
-.bpe__pager {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-}
-.bpe__pagebtn {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 0;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.34);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.bpe__pagebtn:hover { background: rgba(255, 255, 255, 0.48); }
 
 .bpe__detail {
   display: flex;
@@ -335,7 +272,5 @@
 }
 @media (max-width: 620px) {
   .bpe { padding: 12px 14px 16px; }
-  .bpe__headright { flex: 0 0 100%; margin-left: 0; }
-  .bpe__search { width: 100%; max-width: none; }
   .bpe__pills { flex-wrap: wrap; }
 }

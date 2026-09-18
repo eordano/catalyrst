@@ -18,6 +18,11 @@ pub(crate) struct BannedNames {
 }
 
 impl BannedNames {
+    /// Whether `world_name` passes the deny list this snapshot holds.
+    pub(crate) fn allows(&self, world_name: &str) -> bool {
+        !is_name_banned(&self.normalized, world_name)
+    }
+
     fn from_list(names: Vec<String>) -> Self {
         let normalized = names.iter().map(|n| n.to_lowercase()).collect();
         Self {
@@ -68,7 +73,12 @@ impl NameDenyListChecker {
     }
 
     pub async fn check_name_deny_list(&self, world_name: &str) -> bool {
-        !is_name_banned(&self.banned_names().await.normalized, world_name)
+        self.banned_names().await.allows(world_name)
+    }
+
+    /// One resolved snapshot for checking many names.
+    pub(crate) async fn snapshot(&self) -> Arc<BannedNames> {
+        self.banned_names().await
     }
 
     pub async fn get_banned_names(&self) -> Vec<String> {

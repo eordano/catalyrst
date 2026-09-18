@@ -44,7 +44,7 @@ const FALLBACK: Assignment = {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const url = new URL(request.url);
+  new URL(request.url);
   const now = new Date();
 
   const { sid, assignment, wrap } = await storyLoader(

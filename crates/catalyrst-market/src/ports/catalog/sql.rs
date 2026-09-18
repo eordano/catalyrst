@@ -537,6 +537,23 @@ fn build_order_range_price_where(b: &mut Builder, f: &CatalogFilters) {
 }
 
 pub(super) fn push_nfts_with_orders_v1_body(b: &mut Builder, f: &CatalogFilters) {
+    push_nfts_with_orders_v1_body_inner(b, f, None);
+}
+
+/// Same aggregate, restricted to the items of an already-ranked page CTE.
+pub(super) fn push_nfts_with_orders_v1_body_for_page(
+    b: &mut Builder,
+    f: &CatalogFilters,
+    page_cte: &str,
+) {
+    push_nfts_with_orders_v1_body_inner(b, f, Some(page_cte));
+}
+
+fn push_nfts_with_orders_v1_body_inner(
+    b: &mut Builder,
+    f: &CatalogFilters,
+    page_cte: Option<&str>,
+) {
     b.push_sql(&format!(
         " SELECT
                 orders.item_id,
@@ -553,6 +570,11 @@ pub(super) fn push_nfts_with_orders_v1_body(b: &mut Builder, f: &CatalogFilters)
         ts = MAX_ORDER_TIMESTAMP,
     ));
     build_order_range_price_where(b, f);
+    if let Some(cte) = page_cte {
+        b.push_sql(&format!(
+            " AND orders.item_id IN (SELECT ranked_id FROM {cte}) "
+        ));
+    }
     b.push_sql(" GROUP BY orders.item_id ");
 }
 

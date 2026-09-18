@@ -6,7 +6,9 @@ fn is_base_wearable(urn: &str) -> bool {
 }
 
 fn is_base_emote(urn: &str) -> bool {
-    urn.contains("urn:decentraland:off-chain:base-emotes")
+    urn.starts_with("urn:decentraland:off-chain:")
+        && !urn.ends_with(':')
+        && catalyrst_types::item_schema::is_base_emote(urn)
 }
 
 fn split_urn_and_token_id(urn: &str) -> (&str, Option<&str>) {
@@ -23,6 +25,7 @@ fn normalize_urn(urn: &str) -> String {
     urn.replacen(":ethereum:", ":mainnet:", 1)
 }
 
+#[cfg(test)]
 fn resolve_owned(
     normalized_urns: &[String],
     owned_exact: &std::collections::HashSet<String>,
@@ -37,101 +40,114 @@ fn resolve_owned(
     owned
 }
 
-async fn resolve_ownership_batch(
-    pool: &PgPool,
-    address: &str,
-    normalized_urns: &[String],
-) -> std::collections::HashSet<String> {
-    use std::collections::HashSet;
+/// `[lo, hi)` per item urn: `lo` is the token prefix `urn:`, `hi` swaps its last byte for
+/// the next one (':' -> ';'), so a bytewise (C collation) walk of nft_owner_urn between
+/// them visits only the token urns under that item instead of every urn the owner holds.
+fn prefix_bounds(urns: &[String]) -> (Vec<String>, Vec<String>) {
+    urns.iter()
+        .map(|u| (format!("{u}:"), format!("{u};")))
+        .unzip()
+}
 
-    let mut owned_exact: HashSet<String> = HashSet::new();
-    let mut owned_prefixes: HashSet<String> = HashSet::new();
-
-    if normalized_urns.is_empty() {
-        return HashSet::new();
-    }
-
-    let unique: Vec<String> = {
-        let mut seen = HashSet::new();
-        normalized_urns
-            .iter()
-            .filter(|u| seen.insert((*u).clone()))
-            .cloned()
-            .collect()
-    };
-
-    let overlay = super::lease_overlay::usage_grants_present(pool).await;
-    let exact_sql = if overlay {
-        "SELECT DISTINCT urn FROM ( \
-             SELECT urn FROM squid_marketplace.nft \
-             WHERE owner_address = lower($1) AND urn = ANY($2) \
-           UNION ALL \
-             SELECT ug.urn AS urn FROM marketplace.usage_grants ug \
-             WHERE ug.status = 'active' \
-               AND ug.grantee_address = lower($1) \
-               AND ug.urn = ANY($2) \
+/// One row per owned `(address, urn)` pair (exact urn or a token urn under it), one round trip per batch.
+fn ownership_sql(overlay: bool) -> &'static str {
+    if overlay {
+        "SELECT DISTINCT u.address, u.urn \
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS u(address, urn, lo, hi) \
+         CROSS JOIN LATERAL ( \
+             (SELECT 1 FROM squid_marketplace.nft n \
+              WHERE n.owner_address = u.address AND n.urn = u.urn \
+              LIMIT 1) \
+             UNION ALL \
+             (SELECT 1 FROM marketplace.usage_grants ug \
+              WHERE ug.status = 'active' \
+                AND ug.grantee_address = u.address AND ug.urn = u.urn \
+              LIMIT 1) \
+             UNION ALL \
+             (SELECT 1 FROM squid_marketplace.nft n \
+              WHERE n.owner_address = u.address \
+                AND n.urn >= u.lo AND n.urn < u.hi \
+                AND left(n.urn, length(u.lo)) = u.lo \
+              LIMIT 1) \
+             UNION ALL \
+             (SELECT 1 FROM marketplace.usage_grants ug \
+              WHERE ug.status = 'active' \
+                AND ug.grantee_address = u.address \
+                AND ug.urn >= u.lo AND ug.urn < u.hi \
+                AND left(ug.urn, length(u.lo)) = u.lo \
+              LIMIT 1) \
+             LIMIT 1 \
          ) owned"
     } else {
-        "SELECT DISTINCT urn FROM squid_marketplace.nft \
-         WHERE owner_address = lower($1) AND urn = ANY($2)"
-    };
-    let exact_rows: Vec<(String,)> = sqlx::query_as(exact_sql)
-        .bind(address)
-        .bind(&unique)
+        "SELECT DISTINCT u.address, u.urn \
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS u(address, urn, lo, hi) \
+         CROSS JOIN LATERAL ( \
+             (SELECT 1 FROM squid_marketplace.nft n \
+              WHERE n.owner_address = u.address AND n.urn = u.urn \
+              LIMIT 1) \
+             UNION ALL \
+             (SELECT 1 FROM squid_marketplace.nft n \
+              WHERE n.owner_address = u.address \
+                AND n.urn >= u.lo AND n.urn < u.hi \
+                AND left(n.urn, length(u.lo)) = u.lo \
+              LIMIT 1) \
+             LIMIT 1 \
+         ) owned"
+    }
+}
+
+async fn resolve_ownership_batch(
+    pool: &PgPool,
+    requested: &std::collections::HashSet<(String, String)>,
+) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+    use std::collections::{HashMap, HashSet};
+    if requested.is_empty() {
+        return HashMap::new();
+    }
+    let (addresses, urns): (Vec<_>, Vec<_>) = requested.iter().cloned().unzip();
+    let (lows, highs) = prefix_bounds(&urns);
+    let overlay = super::lease_overlay::usage_grants_present(pool).await;
+    let rows: Vec<(String, String)> = sqlx::query_as(ownership_sql(overlay))
+        .bind(&addresses)
+        .bind(&urns)
+        .bind(&lows)
+        .bind(&highs)
         .fetch_all(pool)
         .await
         .unwrap_or_default();
-    for (urn,) in exact_rows {
-        owned_exact.insert(urn);
+    let mut owned: HashMap<String, HashSet<String>> = HashMap::new();
+    for (address, urn) in rows {
+        owned.entry(address).or_default().insert(urn);
     }
+    owned
+}
 
-    let fallback: Vec<String> = unique
-        .iter()
-        .filter(|u| !owned_exact.contains(*u))
-        .cloned()
-        .collect();
-
-    if !fallback.is_empty() {
-        let prefixes: Vec<String> = fallback.iter().map(|u| format!("{u}:")).collect();
-
-        let prefix_sql = if overlay {
-            "SELECT DISTINCT p AS matched_prefix \
-             FROM unnest($2::text[]) AS p \
-             WHERE EXISTS ( \
-                 SELECT 1 FROM squid_marketplace.nft n \
-                 WHERE n.owner_address = lower($1) \
-                   AND left(n.urn, length(p)) = p \
-             ) \
-             OR EXISTS ( \
-                 SELECT 1 FROM marketplace.usage_grants ug \
-                 WHERE ug.status = 'active' \
-                   AND ug.grantee_address = lower($1) \
-                   AND left(ug.urn, length(p)) = p \
-             )"
+async fn fetch_batch_ens_names(
+    pool: &PgPool,
+    addresses: &[String],
+) -> std::collections::HashMap<String, Vec<String>> {
+    use std::collections::{HashMap, HashSet};
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT owner_address, name FROM squid_marketplace.nft
+         WHERE category = 'ens' AND owner_address = ANY($1) ORDER BY id ASC",
+    )
+    .bind(addresses)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    let mut names: HashMap<String, Vec<String>> = HashMap::new();
+    let mut invalid = HashSet::new();
+    for (address, name) in rows {
+        if let Some(name) = name {
+            names.entry(address).or_default().push(name);
         } else {
-            "SELECT DISTINCT p AS matched_prefix \
-             FROM unnest($2::text[]) AS p \
-             WHERE EXISTS ( \
-                 SELECT 1 FROM squid_marketplace.nft n \
-                 WHERE n.owner_address = lower($1) \
-                   AND left(n.urn, length(p)) = p \
-             )"
-        };
-        let prefix_rows: Vec<(String,)> = sqlx::query_as(prefix_sql)
-            .bind(address)
-            .bind(&prefixes)
-            .fetch_all(pool)
-            .await
-            .unwrap_or_default();
-
-        for (matched_prefix,) in prefix_rows {
-            if let Some(urn) = matched_prefix.strip_suffix(':') {
-                owned_prefixes.insert(urn.to_string());
-            }
+            invalid.insert(address);
         }
     }
-
-    resolve_owned(&unique, &owned_exact, &owned_prefixes)
+    for address in invalid {
+        names.remove(&address);
+    }
+    names
 }
 
 pub async fn fetch_owned_ens_names(pool: &PgPool, address: &str) -> Vec<String> {
@@ -384,37 +400,90 @@ pub async fn process_profile(
     squid_pool: Option<&PgPool>,
     cdn_base: &str,
 ) -> Option<Value> {
-    let mut metadata = entity.get("metadata")?.clone();
+    process_profiles_positional(std::slice::from_ref(entity), squid_pool, cdn_base)
+        .await
+        .pop()
+        .flatten()
+}
 
-    let eid = entity_id(entity).unwrap_or("");
-    let eth_address = entity_eth_address(entity).unwrap_or_default();
+pub async fn process_profiles(
+    entities: &[Value],
+    squid_pool: Option<&PgPool>,
+    cdn_base: &str,
+) -> Vec<Value> {
+    process_profiles_positional(entities, squid_pool, cdn_base)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
+}
 
-    ensure_profile_shape(entity, &mut metadata);
-
-    sanitize_links(&mut metadata);
-
-    rewrite_snapshot_urls(eid, &mut metadata, cdn_base);
-
-    if !eth_address.is_empty() && !eth_address.starts_with("default") {
-        apply_pointer_identity(&mut metadata, &eth_address);
-    }
-
-    if !eth_address.starts_with("default") {
+/// One slot per entity (`None` without metadata); each chunk of 128 costs two concurrent round trips.
+pub async fn process_profiles_positional(
+    entities: &[Value],
+    squid_pool: Option<&PgPool>,
+    cdn_base: &str,
+) -> Vec<Option<Value>> {
+    use std::collections::HashSet;
+    let mut profiles = Vec::with_capacity(entities.len());
+    for chunk in entities.chunks(128) {
+        let mut prepared: Vec<Option<(String, Value)>> = chunk
+            .iter()
+            .map(|entity| {
+                let mut metadata = entity.get("metadata")?.clone();
+                let eid = entity_id(entity).unwrap_or("");
+                let address = entity_eth_address(entity).unwrap_or_default();
+                ensure_profile_shape(entity, &mut metadata);
+                sanitize_links(&mut metadata);
+                rewrite_snapshot_urls(eid, &mut metadata, cdn_base);
+                if !address.is_empty() && !address.starts_with("default") {
+                    apply_pointer_identity(&mut metadata, &address);
+                }
+                Some((address, metadata))
+            })
+            .collect();
         if let Some(pool) = squid_pool {
-            let to_check = collect_ownership_urns(&metadata);
-            let (owned, owned_names) = tokio::join!(
-                resolve_ownership_batch(pool, &eth_address, &to_check),
-                fetch_owned_ens_names(pool, &eth_address),
-            );
-
-            if let Some(avatars) = metadata.get_mut("avatars").and_then(|v| v.as_array_mut()) {
-                filter_avatars_by_ownership(avatars, &owned);
+            let mut addresses = HashSet::new();
+            let mut requested = HashSet::new();
+            for (address, metadata) in prepared.iter().flatten() {
+                if !address.starts_with("default") {
+                    addresses.insert(address.clone());
+                    requested.extend(
+                        collect_ownership_urns(metadata)
+                            .into_iter()
+                            .map(|urn| (address.clone(), urn)),
+                    );
+                }
             }
-            apply_claimed_name(&mut metadata, &owned_names);
+            if !addresses.is_empty() {
+                let addresses: Vec<_> = addresses.into_iter().collect();
+                let (owned, names) = tokio::join!(
+                    resolve_ownership_batch(pool, &requested),
+                    fetch_batch_ens_names(pool, &addresses),
+                );
+                let empty = HashSet::new();
+                for (address, metadata) in prepared.iter_mut().flatten() {
+                    if address.starts_with("default") {
+                        continue;
+                    }
+                    if let Some(avatars) = metadata.get_mut("avatars").and_then(Value::as_array_mut)
+                    {
+                        filter_avatars_by_ownership(avatars, owned.get(address).unwrap_or(&empty));
+                    }
+                    apply_claimed_name(
+                        metadata,
+                        names.get(address).map(Vec::as_slice).unwrap_or(&[]),
+                    );
+                }
+            }
         }
+        profiles.extend(
+            prepared
+                .into_iter()
+                .map(|p| p.map(|(_, metadata)| metadata)),
+        );
     }
-
-    Some(metadata)
+    profiles
 }
 
 #[cfg(test)]
@@ -511,6 +580,205 @@ mod tests {
     }
 
     #[test]
+    fn prefix_bounds_bracket_each_item_urn_bytewise() {
+        let item = "urn:decentraland:matic:collections-v2:0xabc:0";
+        let (lo, hi) = prefix_bounds(&[item.to_string()]);
+        assert_eq!(lo, vec![format!("{item}:")]);
+        assert_eq!(hi, vec![format!("{item};")]);
+        assert_eq!(b';', b':' + 1);
+        let inside = |s: &str| s.as_bytes() >= lo[0].as_bytes() && s.as_bytes() < hi[0].as_bytes();
+        assert!(inside(&format!("{item}:42")));
+        assert!(inside(&format!("{item}:")));
+        assert!(
+            !inside(item),
+            "the item urn itself is an exact match, not a prefix one"
+        );
+        assert!(!inside("urn:decentraland:matic:collections-v2:0xabc:01:7"));
+        assert!(!inside("urn:decentraland:matic:collections-v2:0xabc:10:7"));
+    }
+
+    #[test]
+    fn ownership_sql_pairs_each_address_with_its_own_urns() {
+        for overlay in [false, true] {
+            let sql = ownership_sql(overlay);
+            assert!(
+                sql.contains(
+                    "FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS u(address, urn, lo, hi)"
+                ),
+                "{sql}"
+            );
+            assert!(sql.contains("CROSS JOIN LATERAL ("), "{sql}");
+            assert!(
+                sql.contains("n.owner_address = u.address AND n.urn = u.urn"),
+                "exact leg scoped to the pair's address: {sql}"
+            );
+            assert!(sql.contains("n.urn >= u.lo AND n.urn < u.hi"), "{sql}");
+            assert!(sql.contains("LIMIT 1"), "{sql}");
+            assert!(!sql.contains("EXISTS"), "{sql}");
+            assert!(!sql.contains("ANY("), "no cross-address ANY() match: {sql}");
+            assert!(sql.contains("left(n.urn, length(u.lo)) = u.lo"), "{sql}");
+            assert_eq!(sql.contains("marketplace.usage_grants"), overlay);
+            assert_eq!(sql.contains("ug.urn >= u.lo AND ug.urn < u.hi"), overlay);
+            assert_eq!(
+                sql.contains("ug.grantee_address = u.address AND ug.urn = u.urn"),
+                overlay
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn process_profiles_is_positional_and_pure_without_a_pool() {
+        let entities = vec![
+            json!({
+                "id": "Qm1",
+                "pointers": ["0xAAAA"],
+                "timestamp": 5,
+                "metadata": { "avatars": [{ "name": "one", "avatar": { "wearables": [] } }] }
+            }),
+            json!({ "id": "Qm2", "pointers": ["0xbbbb"], "timestamp": 6 }),
+            json!({
+                "id": "Qm3",
+                "pointers": ["0xcccc"],
+                "timestamp": 7,
+                "metadata": { "avatars": [{ "name": "three" }] }
+            }),
+        ];
+        let out = process_profiles_positional(&entities, None, "https://cdn.example").await;
+        assert_eq!(out.len(), 3);
+        assert!(out[1].is_none(), "no metadata, no profile");
+        assert_eq!(out[0].as_ref().unwrap()["avatars"][0]["userId"], "0xaaaa");
+        assert_eq!(out[0].as_ref().unwrap()["timestamp"], 5);
+        assert_eq!(
+            out[2].as_ref().unwrap()["avatars"][0]["ethAddress"],
+            "0xcccc"
+        );
+        let single = process_profile(&entities[0], None, "https://cdn.example").await;
+        assert_eq!(single, out[0]);
+        let flat = process_profiles(&entities, None, "https://cdn.example").await;
+        assert_eq!(flat, out.iter().flatten().cloned().collect::<Vec<_>>());
+    }
+
+    const ALICE: &str = "0xaaaa000000000000000000000000000000000001";
+    const BOB: &str = "0xbbbb000000000000000000000000000000000002";
+    const CARL: &str = "0xcccc000000000000000000000000000000000003";
+    const ITEM1: &str = "urn:decentraland:matic:collections-v2:0xc0ffee:1";
+    const ITEM2: &str = "urn:decentraland:matic:collections-v2:0xc0ffee:2";
+    const ITEM3: &str = "urn:decentraland:matic:collections-v2:0xc0ffee:3";
+
+    const SQUID_DDL: &str = "
+        CREATE TABLE squid_marketplace.nft (
+            id TEXT PRIMARY KEY, owner_address TEXT NOT NULL, urn TEXT, category TEXT, name TEXT);
+        INSERT INTO squid_marketplace.nft VALUES
+            ('w-1', '0xaaaa000000000000000000000000000000000001', 'urn:decentraland:matic:collections-v2:0xc0ffee:1', 'wearable', NULL),
+            ('w-2', '0xaaaa000000000000000000000000000000000001', 'urn:decentraland:matic:collections-v2:0xc0ffee:2:77', 'wearable', NULL),
+            ('w-3', '0xaaaa000000000000000000000000000000000001', 'urn:decentraland:matic:collections-v2:0xc0ffee:30:1', 'wearable', NULL),
+            ('w-4', '0xbbbb000000000000000000000000000000000002', 'urn:decentraland:matic:collections-v2:0xc0ffee:1:5', 'wearable', NULL),
+            ('ens-1', '0xaaaa000000000000000000000000000000000001', NULL, 'ens', 'alice'),
+            ('ens-2', '0xaaaa000000000000000000000000000000000001', NULL, 'ens', 'aaa'),
+            ('ens-3', '0xbbbb000000000000000000000000000000000002', NULL, 'ens', 'bob');
+    ";
+
+    fn pair(addr: &str, urn: &str) -> (String, String) {
+        (addr.to_string(), urn.to_string())
+    }
+
+    #[tokio::test]
+    async fn ownership_and_names_batches_match_the_single_lookups() {
+        let Some(db) = super::pg_scratch::ScratchSquid::new(SQUID_DDL).await else {
+            return;
+        };
+        let pool = db.pool.clone();
+
+        let pairs = [
+            pair(ALICE, ITEM1),
+            pair(ALICE, ITEM2),
+            pair(ALICE, ITEM3),
+            pair(BOB, ITEM1),
+            pair(BOB, ITEM2),
+            pair(CARL, ITEM1),
+        ];
+        let owned = resolve_ownership_batch(&pool, &pairs.iter().cloned().collect()).await;
+        let expect: std::collections::HashMap<String, HashSet<String>> = [
+            (ALICE.to_string(), owned_set(&[ITEM1, ITEM2])),
+            (BOB.to_string(), owned_set(&[ITEM1])),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            owned, expect,
+            "exact, token-prefix, and per-address scoping"
+        );
+        assert!(resolve_ownership_batch(&pool, &HashSet::new())
+            .await
+            .is_empty());
+
+        let names = fetch_batch_ens_names(&pool, &[ALICE.into(), BOB.into(), CARL.into()]).await;
+        for addr in [ALICE, BOB, CARL] {
+            let single = fetch_owned_ens_names(&pool, addr).await;
+            assert_eq!(
+                names.get(addr).cloned().unwrap_or_default(),
+                single,
+                "{addr}"
+            );
+        }
+        assert_eq!(
+            names[ALICE],
+            vec!["alice", "aaa"],
+            "id order like the single lookup"
+        );
+
+        let entities = vec![
+            json!({
+                "id": "Qa", "pointers": [ALICE], "timestamp": 1,
+                "metadata": { "avatars": [{ "name": "aaa", "avatar": {
+                    "wearables": [ITEM1, format!("{ITEM2}:77"), ITEM3] } }] }
+            }),
+            json!({
+                "id": "Qb", "pointers": [BOB], "timestamp": 2,
+                "metadata": { "avatars": [{ "name": "alice", "avatar": {
+                    "wearables": [ITEM1, ITEM2] } }] }
+            }),
+            json!({
+                "id": "Qc", "pointers": [CARL], "timestamp": 3,
+                "metadata": { "avatars": [{ "name": "carl", "avatar": {
+                    "wearables": [ITEM1] } }] }
+            }),
+        ];
+        let out = process_profiles_positional(&entities, Some(&pool), "https://cdn.example").await;
+        let wearables = |i: usize| -> Vec<String> {
+            out[i].as_ref().unwrap()["avatars"][0]["avatar"]["wearables"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(wearables(0), vec![ITEM1.to_string(), format!("{ITEM2}:77")]);
+        assert_eq!(wearables(1), vec![ITEM1.to_string()]);
+        assert!(wearables(2).is_empty(), "carl holds nothing");
+        assert_eq!(
+            out[0].as_ref().unwrap()["avatars"][0]["hasClaimedName"],
+            true
+        );
+        assert_eq!(
+            out[1].as_ref().unwrap()["avatars"][0]["hasClaimedName"],
+            false,
+            "bob does not hold the name alice"
+        );
+        assert_eq!(
+            out[2].as_ref().unwrap()["avatars"][0]["hasClaimedName"],
+            false
+        );
+        for (i, entity) in entities.iter().enumerate() {
+            let single = process_profile(entity, Some(&pool), "https://cdn.example").await;
+            assert_eq!(single, out[i], "batch and single agree for entity {i}");
+        }
+
+        drop(pool);
+        db.drop().await;
+    }
+
+    #[test]
     fn test_is_base_wearable() {
         assert!(is_base_wearable(
             "urn:decentraland:off-chain:base-avatars:green_hoodie"
@@ -523,6 +791,18 @@ mod tests {
     #[test]
     fn test_is_base_emote() {
         assert!(is_base_emote("urn:decentraland:off-chain:base-emotes:wave"));
+        assert!(is_base_emote(
+            "urn:decentraland:off-chain:base-scene-emotes:wave"
+        ));
+        assert!(!is_base_emote(
+            "urn:decentraland:off-chain:base-scene-emotes:"
+        ));
+        assert!(!is_base_emote(
+            "urn:decentraland:off-chain:base-emotes-fake:wave"
+        ));
+        assert!(!is_base_emote(
+            "fake:urn:decentraland:off-chain:base-emotes:wave"
+        ));
         assert!(!is_base_emote(
             "urn:decentraland:matic:collections-v2:0xabc:0"
         ));
@@ -949,5 +1229,72 @@ mod tests {
         apply_pointer_identity(&mut mixed, pointer);
         assert_eq!(mixed["avatars"][0], "not-an-object");
         assert_eq!(mixed["avatars"][1]["userId"], pointer);
+    }
+}
+
+#[cfg(test)]
+#[path = "profile_batch_tests.rs"]
+mod batch_tests;
+
+/// A throwaway database with empty `squid_marketplace` and `marketplace.usage_grants` for PG-gated tests.
+#[cfg(test)]
+pub(crate) mod pg_scratch {
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::PgPool;
+
+    pub(crate) struct ScratchSquid {
+        admin: PgPool,
+        pub(crate) pool: PgPool,
+        database: String,
+    }
+
+    impl ScratchSquid {
+        pub(crate) async fn new(ddl: &'static str) -> Option<Self> {
+            let url = catalyrst_testgate::require_pg("CATALYRST_SERVER_TEST_PG")?;
+            let admin = PgPoolOptions::new()
+                .max_connections(1)
+                .connect(&url)
+                .await
+                .unwrap();
+            let database = format!("squid_scratch_{}", uuid::Uuid::new_v4().simple());
+            sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {database}")))
+                .execute(&admin)
+                .await
+                .unwrap();
+            let (base, _) = url.rsplit_once('/').unwrap();
+            let pool = PgPoolOptions::new()
+                .max_connections(4)
+                .connect(&format!("{base}/{database}"))
+                .await
+                .unwrap();
+            sqlx::raw_sql(
+                "CREATE SCHEMA squid_marketplace; CREATE SCHEMA marketplace;
+                 CREATE TABLE marketplace.usage_grants (
+                     id BIGSERIAL PRIMARY KEY, grantee_address TEXT NOT NULL, urn TEXT NOT NULL,
+                     token_id TEXT, category TEXT NOT NULL, escrow_ref TEXT,
+                     granted_at TIMESTAMPTZ NOT NULL DEFAULT now(), unlock_at TIMESTAMPTZ NOT NULL,
+                     status TEXT NOT NULL DEFAULT 'active')",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::raw_sql(ddl).execute(&pool).await.unwrap();
+            Some(Self {
+                admin,
+                pool,
+                database,
+            })
+        }
+
+        pub(crate) async fn drop(self) {
+            self.pool.close().await;
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "DROP DATABASE {}",
+                self.database
+            )))
+            .execute(&self.admin)
+            .await
+            .unwrap();
+        }
     }
 }

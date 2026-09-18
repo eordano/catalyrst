@@ -6,6 +6,7 @@ import Modal from "../../components/Modal";
 import Button from "../../atoms/Button";
 import ManaMark from "../../atoms/ManaMark";
 import "./mkclaimnamepage.css";
+import { docsUrl } from "../../data/docs";
 
 const MAX_NAME_SIZE = 15;
 const PLACEHOLDER_NAME = "yourName";
@@ -138,7 +139,7 @@ const WHY_CARDS: WhyCard[] = [
       <>
         Shape the future of Decentraland&#x2014;each NAME grants you{" "}
         <b className="mkclaimnamepage__voting">100 Voting Power</b> when voting on DAO proposals.{" "}
-        <a className="mkclaimnamepage__learnmore" href="https://docs.decentraland.org/dao/dao/what-is-the-dao">
+        <a className="mkclaimnamepage__learnmore" href={docsUrl("player/dao/what-is-the-dao")}>
           Learn more
         </a>
       </>

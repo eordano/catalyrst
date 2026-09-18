@@ -21,7 +21,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type OutfitSaveWizardProps = {
+type OutfitSaveWizardProps = {
   trackCtx: TrackContext;
   seed: OutfitSaveSeed;
   profile?: string;

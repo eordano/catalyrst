@@ -3,7 +3,7 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   inputs.rust-overlay = { url = "github:oxalica/rust-overlay"; inputs.nixpkgs.follows = "nixpkgs"; };
-  inputs.abgen.url = "github:decentraland/abgen/v0.17.10";
+  inputs.abgen.url = "github:decentraland/abgen/v0.17.13";
   inputs.crane.url = "github:ipetkov/crane/v0.21.0";
 
   outputs = inputs@{ self, nixpkgs, rust-overlay, ... }:
@@ -137,6 +137,8 @@
             catalyrst-comms = svc "catalyrst-comms";
 
             catalyrst-archipelago = svc "catalyrst-archipelago";
+
+            catalyrst-pulse = pulse;
 
             catalyrst-bvimposters = svc "catalyrst-bvimposters";
 

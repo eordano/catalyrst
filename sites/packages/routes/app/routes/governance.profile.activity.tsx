@@ -35,7 +35,7 @@ const FALLBACK: Assignment = {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap } = await storyLoader(
     request,
     STORY,
     FALLBACK,
@@ -117,14 +117,6 @@ function ProfileActivityDashboard({
       { sid, story: STORY },
     );
     setActiveTab(newTab);
-  }
-
-  function onProposalClick(proposalId: string) {
-    track(
-      "gv_profile_proposal_clicked",
-      { proposal_id: proposalId, tab: activeTab },
-      { sid, story: STORY },
-    );
   }
 
   function onDelegateClick() {

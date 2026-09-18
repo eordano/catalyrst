@@ -10,15 +10,6 @@ export type Notification = {
   metadata: Record<string, unknown>;
 };
 
-export const NOTIFICATION_CATEGORIES = [
-  "friends",
-  "badge",
-  "gift",
-  "community",
-  "marketplace",
-  "system",
-];
-
 export function categoryForType(type: unknown): string {
   const t = String(type ?? "").toLowerCase();
   if (t.startsWith("social_service_friendship")) return "friends";

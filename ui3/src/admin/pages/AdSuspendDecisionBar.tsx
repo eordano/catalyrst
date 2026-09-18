@@ -3,7 +3,7 @@ import { useState } from "react";
 import Button from "../../atoms/Button";
 import type { CommunityDecision } from "./AdCommunityTypes";
 
-export type SuspendDecisionBarProps = {
+type SuspendDecisionBarProps = {
   suspended: boolean | null;
   decision: CommunityDecision;
   onDecide: (decision: CommunityDecision, reason?: string) => void;
@@ -40,13 +40,14 @@ export default function AdSuspendDecisionBar({
   }
 
   return (
-    <div className="sdb" role="region" aria-label="Moderation decision">
-      <div className="sdb__choices" role="radiogroup" aria-label="Decision">
+    <div className="adm-card" role="region" aria-label="Moderation decision">
+      <div className="adm-actions adm-actions--start" role="radiogroup" aria-label="Decision">
         <button
           type="button"
           role="radio"
           aria-checked={isSuspend}
-          className={"sdb__choice sdb__choice--suspend" + (isSuspend ? " is-active" : "")}
+          className={"adm-choice" + (isSuspend ? " is-active" : "")}
+          data-tone="bad"
           onClick={() => choose("suspend")}
         >
           Suspend
@@ -55,7 +56,8 @@ export default function AdSuspendDecisionBar({
           type="button"
           role="radio"
           aria-checked={!isSuspend}
-          className={"sdb__choice sdb__choice--unsuspend" + (!isSuspend ? " is-active" : "")}
+          className={"adm-choice" + (!isSuspend ? " is-active" : "")}
+          data-tone="ok"
           onClick={() => choose("unsuspend")}
         >
           Unsuspend
@@ -63,10 +65,10 @@ export default function AdSuspendDecisionBar({
       </div>
 
       {isSuspend ? (
-        <label className="sdb__reasonlabel">
-          Suspension reason*
+        <label className={"adm-field" + (reasonError ? " is-error" : "")}>
+          <span className="adm-field__label">Suspension reason*</span>
           <textarea
-            className={"sdb__reason" + (reasonError ? " is-error" : "")}
+            className="adm-input"
             rows={2}
             maxLength={MAX_REASON_LENGTH}
             placeholder="Recorded on the community for audit. Be specific."
@@ -78,13 +80,13 @@ export default function AdSuspendDecisionBar({
             }}
           />
           {reasonError && (
-            <span className="sdb__error" role="alert">
+            <span className="adm-field__help is-error" role="alert">
               A reason is required to suspend.
             </span>
           )}
         </label>
       ) : (
-        <p className="sdb__text">
+        <p className="adm-card__text">
           Clears the suspension via{" "}
           <code>POST /v1/admin/communities/&#123;id&#125;/unsuspend</code>, a real
           write gated by this node&apos;s admin bearer token.
@@ -92,20 +94,16 @@ export default function AdSuspendDecisionBar({
       )}
 
       {error && (
-        <p className="sdb__error" role="alert">
+        <p className="adm-bad" role="alert">
           Moderation failed: {error}. Please try again.
         </p>
       )}
 
-      <div className="sdb__actions">
-        <Button variant="secondary" className="sdb__btn" onClick={onCancel}>
+      <div className="adm-actions">
+        <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button
-          variant="primary"
-          className={"sdb__btn--primary" + (isSuspend ? " sdb__btn--danger" : "")}
-          onClick={confirm}
-        >
+        <Button variant="primary" tone={isSuspend ? "danger" : "success"} onClick={confirm}>
           {isSuspend ? "Confirm suspend" : "Confirm unsuspend"}
         </Button>
       </div>

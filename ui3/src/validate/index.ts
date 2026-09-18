@@ -8,4 +8,3 @@ export {
   setValidationReporter,
   setValidationDevMode,
 } from "dcl-validate-impl";
-export type { ValidationReporter } from "dcl-validate-impl";

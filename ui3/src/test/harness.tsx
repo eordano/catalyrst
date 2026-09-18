@@ -14,7 +14,7 @@ import BootGate from "../app/BootGate";
 import { panelLoaders, prefetchPanel } from "../app/router";
 import { FakeBridge } from "./fakeBridge";
 
-export { FakeBridge, makeFriend, makeFriendRequest } from "./fakeBridge";
+export { makeFriend } from "./fakeBridge";
 
 function installBridge(bridge: FakeBridge): void {
   const prev = window.dclBridge;
@@ -72,7 +72,7 @@ function buildRoutes(): RouteObject[] {
   ];
 }
 
-export type RenderHudOptions = {
+type RenderHudOptions = {
   bridge?: FakeBridge;
   route?: string;
   minimapShown?: boolean;
@@ -88,7 +88,7 @@ function seedMinimapPreference(shown: boolean): void {
   });
 }
 
-export type HudHarness = RenderResult & {
+type HudHarness = RenderResult & {
   bridge: FakeBridge;
   router: ReturnType<typeof createMemoryRouter>;
   user: UserEvent;

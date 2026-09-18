@@ -4,15 +4,15 @@ import type { OverlayPush } from "../generated/bridge/OverlayPush";
 import type { FriendEntry } from "../generated/bridge/FriendEntry";
 import type { FriendRequestEntry } from "../generated/bridge/FriendRequestEntry";
 
-export type PushKind = OverlayPush["kind"];
-export type PushOf<K extends PushKind> = Extract<OverlayPush, { kind: K }>;
+type PushKind = OverlayPush["kind"];
+type PushOf<K extends PushKind> = Extract<OverlayPush, { kind: K }>;
 type PushOverrides<K extends PushKind> = Partial<Omit<PushOf<K>, "kind">>;
 
-export type SentCommand = {
+type SentCommand = {
   [K in BridgeAction]: { action: K; payload: BridgePayloads[K] };
 }[BridgeAction];
 
-export type SentMatcher<K extends BridgeAction> =
+type SentMatcher<K extends BridgeAction> =
   | Partial<BridgePayloads[K]>
   | ((payload: BridgePayloads[K]) => boolean);
 
@@ -62,7 +62,6 @@ export class FakeBridge implements BridgeApi {
 
   wrapDispatch: (fn: () => void) => void = (fn) => fn();
 
-
   send = (action: string, payload?: unknown): void => {
     this.sent.push({ action, payload } as SentCommand);
   };
@@ -75,7 +74,6 @@ export class FakeBridge implements BridgeApi {
   get subscriberCount(): number {
     return this.subscribers.size;
   }
-
 
   push(p: OverlayPush): OverlayPush {
     this.wrapDispatch(() => {
@@ -194,7 +192,6 @@ export class FakeBridge implements BridgeApi {
       ...over,
     }) as PushOf<"permissionWithdrawn">;
   }
-
 
   sentOf<K extends BridgeAction>(action: K): BridgePayloads[K][] {
     return this.sent

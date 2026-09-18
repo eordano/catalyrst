@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use crate::auth_chain::verify_signed_fetch;
 use crate::http::{auth_error, ApiError};
-use crate::ports::extra_addresses;
+use crate::ports::extra_addresses::{self, PlaceLookup};
 use crate::ports::scene_admin::SceneAdminRow;
 use crate::room_metadata_sync::{self, RoomContext};
 use crate::AppState;
@@ -67,25 +67,29 @@ pub async fn list_admins(
         .or_else(|| super::scene_adapter::place_from_metadata(&sf.metadata))
         .ok_or_else(|| ApiError::bad_request("missing place_id query"))?;
 
-    let admins = state
-        .scene_admin
-        .list_active_admins(&place_id, q.admin.as_deref())
-        .await?;
+    let (admins, place) = tokio::try_join!(
+        state
+            .scene_admin
+            .list_active_admins(&place_id, q.admin.as_deref()),
+        async { Ok::<_, ApiError>(extra_addresses::load_place_info(&state, &place_id).await) }
+    )?;
 
-    let (extra_addresses, lease_holders) =
-        match extra_addresses::load_place_info(&state, &place_id).await {
-            Some(place) => {
-                let extra = extra_addresses::get_extra_addresses(&state, &place).await;
-
-                let leases = if place.world {
-                    BTreeSet::new()
-                } else {
-                    extra_addresses::get_lease_holders_for_parcels(&state, &place.positions).await
-                };
-                (extra, leases)
-            }
-            None => (BTreeSet::new(), BTreeSet::new()),
-        };
+    let (extra_addresses, lease_holders) = match place {
+        Some(place) => {
+            tokio::join!(
+                extra_addresses::get_extra_addresses(&state, &place),
+                async {
+                    if place.world {
+                        BTreeSet::new()
+                    } else {
+                        extra_addresses::get_lease_holders_for_parcels(&state, &place.positions)
+                            .await
+                    }
+                }
+            )
+        }
+        None => (BTreeSet::new(), BTreeSet::new()),
+    };
 
     let mut all_addresses: BTreeSet<String> = BTreeSet::new();
     for a in &admins {
@@ -125,15 +129,14 @@ pub async fn add_admin(
     let sf = verify_signed_fetch(&headers, "post", "/scene-admin", &[SCENE_SIGNER])
         .await
         .map_err(|e| auth_error(e.status, e.message))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &body.place_id, sf.signer.as_str())
-        .await?
-    {
+    let place = PlaceLookup::new(&state, &body.place_id);
+    if !crate::scene_perms::is_scene_owner_or_admin_for(&state, &place, sf.signer.as_str()).await? {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));
     }
     let ctx = RoomContext::from_metadata(&sf.metadata, &body.place_id);
-    let rooms = room_metadata_sync::resolve_rooms(&state, &ctx).await?;
+    let rooms = room_metadata_sync::resolve_rooms_for(&state, &ctx, &place).await?;
     state
         .scene_admin
         .add(&body.place_id, &body.admin, sf.signer.as_str())
@@ -156,13 +159,14 @@ pub async fn remove_admin(
     let admin = q
         .admin
         .ok_or_else(|| ApiError::bad_request("missing admin query"))?;
-    if !crate::scene_perms::is_scene_owner_or_admin(&state, &place_id, sf.signer.as_str()).await? {
+    let place = PlaceLookup::new(&state, &place_id);
+    if !crate::scene_perms::is_scene_owner_or_admin_for(&state, &place, sf.signer.as_str()).await? {
         return Err(crate::http::forbidden(
             "signer is not an owner or admin of this scene",
         ));
     }
     let ctx = RoomContext::from_metadata(&sf.metadata, &place_id);
-    let rooms = room_metadata_sync::resolve_rooms(&state, &ctx).await?;
+    let rooms = room_metadata_sync::resolve_rooms_for(&state, &ctx, &place).await?;
     state.scene_admin.remove(&place_id, &admin).await?;
     room_metadata_sync::remove_admin(&state, &rooms, &admin).await;
     Ok(StatusCode::NO_CONTENT)

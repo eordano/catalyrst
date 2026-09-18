@@ -19,6 +19,7 @@ use catalyrst_economy::ports::chain::ChainComponent;
 use catalyrst_economy::ports::contracts::ContractsComponent;
 use catalyrst_economy::ports::meta_tx::{meta_tx_digest, MetaTxStruct};
 use catalyrst_economy::ports::relayer::Relayer;
+use catalyrst_economy::ports::signer::DirectSigner;
 use catalyrst_economy::ports::transaction::TransactionComponent;
 use catalyrst_economy::ports::upstream::UpstreamForwarder;
 use catalyrst_economy::{api_router, AppStateInner};
@@ -39,6 +40,7 @@ mod combined_sig_abi {
 mod chain_abi {
     alloy::sol! {
         function getNonce(address user) external view returns (uint256);
+        function balanceOf(address owner) external view returns (uint256);
         function domainSeparator() external view returns (bytes32);
         function getDomainSeperator() external view returns (bytes32);
     }
@@ -53,6 +55,12 @@ pub const TEST_DOMAIN_SEPARATOR: B256 = B256::new([0x5a; 32]);
 /// meta-transaction contract) but whose domain separator getters revert; it is
 /// not in the audited table, so the signature is unverifiable and refused.
 pub const CHAIN_UNVERIFIABLE_CONTRACT: &str = "0x00000000000000000000000000000000dead0001";
+
+/// The one wallet the fake chain reports as holding no MANA; every other
+/// `balanceOf` answers [`TEST_MANA_BALANCE_WEI`].
+pub const CHAIN_EMPTY_WALLET: &str = "0x00000000000000000000000000000000dead0002";
+
+pub const TEST_MANA_BALANCE_WEI: u128 = 5_000_000_000_000_000_000;
 
 pub struct Scratch {
     pub pool: PgPool,
@@ -100,6 +108,9 @@ pub async fn setup_db() -> Option<Scratch> {
         include_str!("../../migrations/0003_escrow_actions.sql"),
         include_str!("../../migrations/0004_broker_forward_confirm.sql"),
         include_str!("../../migrations/0005_add_reservation_columns.sql"),
+        include_str!("../../migrations/0006_name_transfers.sql"),
+        include_str!("../../migrations/0007_broker_trades.sql"),
+        include_str!("../../migrations/0008_usd_pegged_trades.sql"),
     ] {
         sqlx::raw_sql(sql)
             .execute(&scratch.pool)
@@ -249,11 +260,27 @@ pub async fn spawn_fake_chain() -> String {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_lowercase();
-                let data = call.get("data").and_then(|v| v.as_str()).unwrap_or("");
+                let data = call
+                    .get("input")
+                    .or_else(|| call.get("data"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let bytes = hex::decode(data.trim_start_matches("0x")).unwrap_or_default();
                 let selector = bytes.get(0..4).map(<[u8]>::to_vec).unwrap_or_default();
                 if selector == <chain_abi::getNonceCall as SolCall>::SELECTOR {
                     return Json(ok(json!(format!("0x{}", "0".repeat(64)))));
+                }
+                if selector == <chain_abi::balanceOfCall as SolCall>::SELECTOR {
+                    let owner = bytes
+                        .get(16..36)
+                        .map(Address::from_slice)
+                        .unwrap_or(Address::ZERO);
+                    let wei = if format!("{owner:#x}") == CHAIN_EMPTY_WALLET {
+                        0
+                    } else {
+                        TEST_MANA_BALANCE_WEI
+                    };
+                    return Json(ok(json!(format!("0x{wei:064x}"))));
                 }
                 if selector == <chain_abi::domainSeparatorCall as SolCall>::SELECTOR {
                     if to == CHAIN_UNVERIFIABLE_CONTRACT.to_lowercase() {
@@ -382,6 +409,46 @@ pub async fn spawn_app(scratch: &Scratch, max_per_day: i64) -> String {
     let state = Arc::new(AppStateInner {
         config: cfg,
         pool: scratch.pool.clone(),
+        transaction,
+        contracts,
+        eth_signer: None,
+        runtime,
+    });
+    serve(state).await
+}
+
+/// An app whose only chain access is a direct signer against the fake chain and
+/// whose pool never connects: it serves the endpoints that read the chain
+/// without touching Postgres (payments config, nonce, balance).
+pub async fn spawn_app_chain_only(with_signer: bool) -> String {
+    let db_url = "postgres://127.0.0.1:1/never-connected";
+    let pool = PgPool::connect_lazy(db_url).expect("lazy pool");
+    let mut cfg = test_config("never", db_url, "http://127.0.0.1:1".to_string(), 10);
+    let signer = if with_signer {
+        cfg.meta_tx_broadcast_enabled = true;
+        cfg.relayer_private_key = Some(hex::encode(PrivateKeySigner::random().to_bytes()));
+        cfg.rpc_url = Some(spawn_fake_chain().await);
+        Some(
+            DirectSigner::from_config(&cfg)
+                .expect("signer config")
+                .expect("signer provisioned"),
+        )
+    } else {
+        None
+    };
+    let contracts = ContractsComponent::new(
+        pool.clone(),
+        cfg.squid_schema.clone(),
+        cfg.contract_addresses_url.clone(),
+        cfg.contract_addresses_chain_key.clone(),
+        Duration::from_millis(cfg.collections_fetch_interval_ms),
+    );
+    let runtime = RuntimeConfig::new();
+    let transaction =
+        TransactionComponent::new(pool.clone(), None, signer, None, None, runtime.clone());
+    let state = Arc::new(AppStateInner {
+        config: cfg,
+        pool,
         transaction,
         contracts,
         eth_signer: None,

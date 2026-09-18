@@ -16,6 +16,8 @@ use crate::dto::{
 };
 use crate::handlers::require_auth;
 use crate::http::ApiError;
+use crate::ports::db::{hash_of_url, DeletedImage};
+use crate::ports::storage::ImageStore;
 use crate::AppState;
 
 pub async fn upload_image(
@@ -134,19 +136,6 @@ async fn finalize_upload(
     metadata: Metadata,
     is_public: bool,
 ) -> Result<Response, ApiError> {
-    let images_count = state
-        .db
-        .get_user_images_count(address, false)
-        .await
-        .unwrap_or(0);
-    if images_count >= state.config.max_images_per_user {
-        let message = format!(
-            "you have reached the limit of {} max images",
-            state.config.max_images_per_user
-        );
-        return Err(ApiError::MaxLimitReached(message));
-    }
-
     if !metadata.user_address.eq_ignore_ascii_case(address) {
         return Err(ApiError::BadRequest("invalid user address".to_string()));
     }
@@ -175,16 +164,8 @@ async fn finalize_upload(
         Bytes::from(buffer.into_inner())
     };
 
-    let image_hash = state
-        .store
-        .store(image_bytes)
-        .await
-        .map_err(|e| ApiError::Internal(format!("failed to store image: {e}")))?;
-    let thumbnail_hash = state
-        .store
-        .store(thumbnail)
-        .await
-        .map_err(|e| ApiError::Internal(format!("failed to store thumbnail: {e}")))?;
+    let image_hash = ImageStore::hash(&image_bytes);
+    let thumbnail_hash = ImageStore::hash(&thumbnail);
 
     let image_id = Uuid::new_v4().to_string();
     let api_url = &state.config.api_url;
@@ -196,16 +177,46 @@ async fn finalize_upload(
         metadata,
     };
 
-    state.db.insert_image(&image).await.map_err(|e| {
-        tracing::error!("failed to store image metadata: {e}");
-        ApiError::Internal("failed to store image metadata".to_string())
-    })?;
+    // The row is the limit gate, so it lands before the blobs: a refused upload
+    // never touches the disk, and a failed blob write takes its row back out.
+    let max_images = state.config.max_images_per_user;
+    let current_images = state
+        .db
+        .insert_image_within_limit(&image, max_images)
+        .await
+        .map_err(|e| {
+            tracing::error!("failed to store image metadata: {e}");
+            ApiError::Internal("failed to store image metadata".to_string())
+        })?
+        .ok_or_else(|| {
+            ApiError::MaxLimitReached(format!(
+                "you have reached the limit of {max_images} max images"
+            ))
+        })?;
+
+    let stored = async {
+        state
+            .store
+            .store_as(&image_hash, image_bytes)
+            .await
+            .map_err(|e| ApiError::Internal(format!("failed to store image: {e}")))?;
+        state
+            .store
+            .store_as(&thumbnail_hash, thumbnail)
+            .await
+            .map_err(|e| ApiError::Internal(format!("failed to store thumbnail: {e}")))
+    }
+    .await;
+    if let Err(err) = stored {
+        let _ = state.db.delete_image(&image_id).await;
+        return Err(err);
+    }
 
     let response = UploadResponse {
         image,
         user_data: UserDataResponse {
-            current_images: images_count + 1,
-            max_images: state.config.max_images_per_user,
+            current_images,
+            max_images,
         },
     };
     Ok((StatusCode::OK, Json(response)).into_response())
@@ -219,58 +230,49 @@ pub async fn delete_image(
 ) -> Result<Response, ApiError> {
     let address = require_auth(&headers, "delete", uri.path()).await?;
 
-    let image = state
-        .db
-        .get_image(&image_id)
-        .await
-        .map_err(|_| ApiError::NotFound("image not found".to_string()))?;
-
-    if !image.user_address.eq_ignore_ascii_case(address.as_str()) {
+    let deleted = delete_image_row(&state, &image_id, Some(address.as_str())).await?;
+    if !deleted.deleted {
         return Err(ApiError::Forbidden("forbidden".to_string()));
     }
-
-    state.db.delete_image(&image_id).await.map_err(|e| {
-        tracing::error!("failed to delete image metadata: {e}");
-        ApiError::Internal("failed to delete image".to_string())
-    })?;
-
-    delete_unreferenced_blobs(&state, &image, &image_id).await;
-
-    let current_images = state
-        .db
-        .get_user_images_count(&image.user_address, false)
-        .await
-        .unwrap_or(0);
+    delete_unreferenced_blobs(&state, &deleted).await;
 
     Ok((
         StatusCode::OK,
         Json(UserDataResponse {
-            current_images,
+            current_images: deleted.remaining,
             max_images: state.config.max_images_per_user,
         }),
     )
         .into_response())
 }
 
+async fn delete_image_row(
+    state: &AppState,
+    image_id: &str,
+    owner: Option<&str>,
+) -> Result<DeletedImage, ApiError> {
+    state
+        .db
+        .delete_image_owned(image_id, owner)
+        .await
+        .map_err(|e| {
+            tracing::error!("failed to delete image metadata: {e}");
+            ApiError::Internal("failed to delete image".to_string())
+        })?
+        .ok_or_else(|| ApiError::NotFound("image not found".to_string()))
+}
+
 /// Blobs are content-addressed with no refcount, and any user can re-upload another user's
 /// public bytes to the same hash, so an unconditional unlink would 404 every other live row
-/// sharing that blob.
-async fn delete_unreferenced_blobs(
-    state: &AppState,
-    image: &crate::ports::db::DbImage,
-    image_id: &str,
-) {
-    for url in [image.url.as_str(), image.thumbnail_url.as_str()] {
-        if let Some(hash) = url.rsplit('/').next() {
-            let still_referenced = state
-                .db
-                .count_other_images_with_hash(hash, image_id)
-                .await
-                .unwrap_or(1)
-                > 0;
-            if !still_referenced {
-                let _ = state.store.delete(hash).await;
-            }
+/// sharing that blob. The delete statement already reported which hashes other rows still
+/// reference.
+async fn delete_unreferenced_blobs(state: &AppState, deleted: &DeletedImage) {
+    for (url, shared) in [
+        (deleted.url.as_str(), deleted.image_shared),
+        (deleted.thumbnail_url.as_str(), deleted.thumbnail_shared),
+    ] {
+        if !shared {
+            let _ = state.store.delete(hash_of_url(url)).await;
         }
     }
 }
@@ -284,28 +286,18 @@ pub async fn update_image_visibility(
 ) -> Result<Response, ApiError> {
     let address = require_auth(&headers, "patch", uri.path()).await?;
 
-    let image = state
+    let owned = state
         .db
-        .get_image(&image_id)
-        .await
-        .map_err(|_| ApiError::NotFound("image not found".to_string()))?;
-
-    if !image.user_address.eq_ignore_ascii_case(address.as_str()) {
-        return Err(ApiError::Forbidden("forbidden".to_string()));
-    }
-
-    if image.is_public == update.is_public {
-        return Ok(StatusCode::OK.into_response());
-    }
-
-    state
-        .db
-        .update_image_visibility(&image_id, update.is_public)
+        .set_image_visibility(&image_id, address.as_str(), update.is_public)
         .await
         .map_err(|e| {
             tracing::error!("failed to update image metadata: {e}");
             ApiError::Internal("failed to update image metadata".to_string())
-        })?;
+        })?
+        .ok_or_else(|| ApiError::NotFound("image not found".to_string()))?;
+    if !owned {
+        return Err(ApiError::Forbidden("forbidden".to_string()));
+    }
 
     Ok(StatusCode::OK.into_response())
 }
@@ -365,29 +357,13 @@ pub async fn admin_delete_image(
 ) -> Result<Response, ApiError> {
     authorize_admin(&state, &headers)?;
 
-    let image = state
-        .db
-        .get_image(&image_id)
-        .await
-        .map_err(|_| ApiError::NotFound("image not found".to_string()))?;
-
-    state.db.delete_image(&image_id).await.map_err(|e| {
-        tracing::error!("failed to delete image metadata: {e}");
-        ApiError::Internal("failed to delete image".to_string())
-    })?;
-
-    delete_unreferenced_blobs(&state, &image, &image_id).await;
-
-    let current_images = state
-        .db
-        .get_user_images_count(&image.user_address, false)
-        .await
-        .unwrap_or(0);
+    let deleted = delete_image_row(&state, &image_id, None).await?;
+    delete_unreferenced_blobs(&state, &deleted).await;
 
     Ok((
         StatusCode::OK,
         Json(UserDataResponse {
-            current_images,
+            current_images: deleted.remaining,
             max_images: state.config.max_images_per_user,
         }),
     )

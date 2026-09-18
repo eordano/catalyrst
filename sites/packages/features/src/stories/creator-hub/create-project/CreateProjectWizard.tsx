@@ -39,7 +39,7 @@ export type TemplateOption = {
   github_link: string;
 };
 
-export type CreateProjectWizardProps = {
+type CreateProjectWizardProps = {
   trackCtx: TrackContext;
   defaults: { name: string; path: string };
   takenPaths: string[];

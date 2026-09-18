@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 use catalyrst_explorer_api::config::Config;
-use catalyrst_explorer_api::modules::auth_api::{IdentityRecord, IdentityStatus};
+use catalyrst_explorer_api::modules::auth_api::{
+    sweep_expired_identities, IdentityRecord, IdentityStatus,
+};
 use catalyrst_explorer_api::{api_router, build_state, AppState};
 
 use support::{
@@ -238,7 +240,7 @@ fn status_at(created_at: chrono::DateTime<Utc>) -> IdentityStatus {
 }
 
 #[tokio::test]
-async fn expired_identities_are_swept_by_the_next_post() {
+async fn expired_identities_are_swept_by_the_sweeper_not_the_post() {
     let state = state().await;
     let app = app(&state);
     let expired_id = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
@@ -260,7 +262,12 @@ async fn expired_identities_are_swept_by_the_next_post() {
     let (_, request) = signed_identity_post(IP);
     let res = app.clone().oneshot(request).await.unwrap();
     assert_eq!(res.status(), StatusCode::CREATED);
+    assert!(
+        state.auth_api.identities.contains_key(expired_id),
+        "a POST under the cap must not pay for a sweep"
+    );
 
+    sweep_expired_identities(&state, Utc::now());
     assert!(!state.auth_api.identities.contains_key(expired_id));
     assert!(state.auth_api.identities.contains_key(live_id));
     let (status, body) = get_identity(&app, expired_id).await;
@@ -284,9 +291,7 @@ async fn tombstones_outlive_their_identity_for_two_weeks_only() {
         .identity_status
         .insert(ancient.into(), status_at(now - Duration::days(15)));
 
-    let (_, request) = signed_identity_post(IP);
-    let res = app.clone().oneshot(request).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
+    sweep_expired_identities(&state, Utc::now());
 
     assert_eq!(
         get_identity(&app, fresh).await.1["error"],

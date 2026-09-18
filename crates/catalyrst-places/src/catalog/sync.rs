@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -45,7 +46,12 @@ const UPSERT: &str = r#"
         (id, base_position, title, description, creator_address, content_rating,
          categories, likes, dislikes, favorites, deployed_at, disabled, highlighted,
          raw, fetched_at)
-    VALUES ($1, $2, $3, $4, $5, $6, '{}', 0, 0, 0, $7, false, false, $8, now())
+    SELECT u.id, u.base_position, u.title, u.description, u.creator_address, u.content_rating,
+           '{}', 0, 0, 0, u.deployed_at, false, false, u.raw, now()
+    FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
+                $7::timestamptz[], $8::jsonb[])
+         AS u(id, base_position, title, description, creator_address, content_rating,
+              deployed_at, raw)
     ON CONFLICT (id) DO UPDATE SET
         base_position   = EXCLUDED.base_position,
         title           = EXCLUDED.title,
@@ -63,21 +69,24 @@ const UPSERT: &str = r#"
             'disabled_reason',      place.raw->'disabled_reason'
         )),
         fetched_at = now()
-    RETURNING (xmax = 0) AS inserted
+    RETURNING id, (xmax = 0) AS inserted
 "#;
 
+/// Overlap candidates for every fresh row of a page at once: `$1` the fresh ids, `$2`
+/// each one's positions as a jsonb array.
 pub(crate) fn overlapping_places_sql() -> &'static str {
     static SQL: LazyLock<String> = LazyLock::new(|| {
         let ranking = raw_float8_sql("ranking");
         format!(
             r#"
-    SELECT id, highlighted, creator_address,
+    SELECT f.id AS fresh_id, p.id, p.highlighted, p.creator_address,
            {ranking} AS ranking,
            {EXCLUDE_FROM_RANKING_SQL} AS exclude_from_ranking,
            raw->>'highlighted_image' AS highlighted_image
-    FROM place
-    WHERE id <> $1 AND disabled IS FALSE AND world IS FALSE
-      AND raw->'positions' ?| $2::text[]
+    FROM unnest($1::text[], $2::jsonb[]) AS f(id, positions)
+    JOIN place p
+      ON p.id <> f.id AND p.disabled IS FALSE AND p.world IS FALSE
+     AND p.raw->'positions' ?| ARRAY(SELECT jsonb_array_elements_text(f.positions))
 "#
         )
     });
@@ -86,13 +95,15 @@ pub(crate) fn overlapping_places_sql() -> &'static str {
 
 const INHERIT_CURATION: &str = r#"
     UPDATE place
-    SET highlighted = $2,
+    SET highlighted = u.highlighted,
         raw = raw || jsonb_build_object(
-            'ranking',              $3::float8,
-            'highlighted_image',    $4::text,
-            'exclude_from_ranking', $5::boolean
+            'ranking',              u.ranking,
+            'highlighted_image',    u.highlighted_image,
+            'exclude_from_ranking', u.exclude_from_ranking
         )
-    WHERE id = $1
+    FROM unnest($1::text[], $2::boolean[], $3::float8[], $4::text[], $5::boolean[])
+         AS u(id, highlighted, ranking, highlighted_image, exclude_from_ranking)
+    WHERE place.id = u.id
 "#;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -179,6 +190,7 @@ pub async fn run_once(
     loop {
         let rows = fetch_scene_page(content, PAGE, last_id).await?;
         let fetched = rows.len() as i64;
+        let mut page: Vec<DerivedPlace> = Vec::with_capacity(rows.len());
         for row in &rows {
             last_id = row.try_get("id")?;
             let deployer: String = row.try_get("deployer_address").unwrap_or_default();
@@ -194,10 +206,11 @@ pub async fn run_once(
                 thumb.as_deref(),
                 content_public_url,
             ) {
-                upsert(places, &p).await?;
+                page.push(p);
                 derived += 1;
             }
         }
+        upsert_page(places, page).await?;
         if fetched < PAGE {
             break;
         }
@@ -210,21 +223,8 @@ pub async fn run_once(
     Ok((derived, pruned))
 }
 
-async fn upsert(places: &PgPool, p: &DerivedPlace) -> Result<()> {
-    let mut tx = places.begin().await?;
-    let row = sqlx::query(UPSERT)
-        .bind(&p.id)
-        .bind(&p.base_position)
-        .bind(&p.title)
-        .bind(&p.description)
-        .bind(&p.creator_address)
-        .bind(&p.content_rating)
-        .bind(p.deployed_at)
-        .bind(&p.raw)
-        .fetch_one(&mut *tx)
-        .await?;
-    let inserted: bool = row.try_get("inserted").unwrap_or(false);
-    let positions: Vec<String> = p.raw["positions"]
+fn positions_of(p: &DerivedPlace) -> Vec<String> {
+    p.raw["positions"]
         .as_array()
         .map(|a| {
             a.iter()
@@ -232,34 +232,146 @@ async fn upsert(places: &PgPool, p: &DerivedPlace) -> Result<()> {
                 .map(str::to_string)
                 .collect()
         })
-        .unwrap_or_default();
-    if !inserted || positions.is_empty() {
-        tx.commit().await?;
+        .unwrap_or_default()
+}
+
+/// One transaction per page: a multi-row upsert, one overlap query for the fresh rows,
+/// and one batched curation update. Later duplicates of an id win, as they did row by row.
+async fn upsert_page(places: &PgPool, page: Vec<DerivedPlace>) -> Result<()> {
+    let mut slot_of: HashMap<&str, usize> = HashMap::new();
+    let mut order: Vec<usize> = Vec::with_capacity(page.len());
+    for (i, p) in page.iter().enumerate() {
+        match slot_of.get(p.id.as_str()) {
+            Some(&slot) => order[slot] = i,
+            None => {
+                slot_of.insert(p.id.as_str(), order.len());
+                order.push(i);
+            }
+        }
+    }
+    let rows: Vec<&DerivedPlace> = order.iter().map(|&i| &page[i]).collect();
+    if rows.is_empty() {
         return Ok(());
     }
-    let candidates: Vec<CurationCandidate> = sqlx::query(overlapping_places_sql())
-        .bind(&p.id)
-        .bind(&positions)
+    let mut tx = places.begin().await?;
+    let inserted: HashMap<String, bool> = sqlx::query(UPSERT)
+        .bind(rows.iter().map(|p| p.id.clone()).collect::<Vec<_>>())
+        .bind(
+            rows.iter()
+                .map(|p| p.base_position.clone())
+                .collect::<Vec<_>>(),
+        )
+        .bind(rows.iter().map(|p| p.title.clone()).collect::<Vec<_>>())
+        .bind(
+            rows.iter()
+                .map(|p| p.description.clone())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|p| p.creator_address.clone())
+                .collect::<Vec<_>>(),
+        )
+        .bind(
+            rows.iter()
+                .map(|p| p.content_rating.clone())
+                .collect::<Vec<_>>(),
+        )
+        .bind(rows.iter().map(|p| p.deployed_at).collect::<Vec<_>>())
+        .bind(rows.iter().map(|p| p.raw.clone()).collect::<Vec<_>>())
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
-        .map(|r| CurationCandidate {
-            creator_address: r.try_get("creator_address").unwrap_or(None),
-            curation: Curation {
-                highlighted: r.try_get("highlighted").unwrap_or(false),
-                ranking: r.try_get("ranking").unwrap_or(None),
-                exclude_from_ranking: r.try_get("exclude_from_ranking").unwrap_or(false),
-                highlighted_image: r.try_get("highlighted_image").unwrap_or(None),
-            },
+        .map(|r| {
+            (
+                r.try_get::<String, _>("id").unwrap_or_default(),
+                r.try_get::<bool, _>("inserted").unwrap_or(false),
+            )
         })
         .collect();
-    if let Some(curation) = inherited_curation(&candidates, p.creator_address.as_deref()) {
+    let fresh: Vec<(&DerivedPlace, Vec<String>)> = rows
+        .iter()
+        .filter(|p| inserted.get(&p.id).copied().unwrap_or(false))
+        .map(|p| (*p, positions_of(p)))
+        .filter(|(_, positions)| !positions.is_empty())
+        .collect();
+    if fresh.is_empty() {
+        tx.commit().await?;
+        return Ok(());
+    }
+    let mut candidates: HashMap<String, Vec<(String, CurationCandidate)>> = HashMap::new();
+    let found = sqlx::query(overlapping_places_sql())
+        .bind(fresh.iter().map(|(p, _)| p.id.clone()).collect::<Vec<_>>())
+        .bind(
+            fresh
+                .iter()
+                .map(|(_, positions)| Value::from(positions.clone()))
+                .collect::<Vec<Value>>(),
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+    for r in found {
+        let fresh_id: String = r.try_get("fresh_id").unwrap_or_default();
+        let id: String = r.try_get("id").unwrap_or_default();
+        candidates.entry(fresh_id).or_default().push((
+            id,
+            CurationCandidate {
+                creator_address: r.try_get("creator_address").unwrap_or(None),
+                curation: Curation {
+                    highlighted: r.try_get("highlighted").unwrap_or(false),
+                    ranking: r.try_get("ranking").unwrap_or(None),
+                    exclude_from_ranking: r.try_get("exclude_from_ranking").unwrap_or(false),
+                    highlighted_image: r.try_get("highlighted_image").unwrap_or(None),
+                },
+            },
+        ));
+    }
+    // Fresh rows earlier in the page that just inherited count as curated for later ones,
+    // exactly as when each row was committed before the next was examined.
+    let mut inherited: Vec<(String, Curation)> = Vec::new();
+    for (p, _) in &fresh {
+        let mine: Vec<CurationCandidate> = candidates
+            .remove(&p.id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(id, mut c)| {
+                if let Some((_, cur)) = inherited.iter().find(|(i, _)| *i == id) {
+                    c.curation = cur.clone();
+                }
+                c
+            })
+            .collect();
+        if let Some(curation) = inherited_curation(&mine, p.creator_address.as_deref()) {
+            inherited.push((p.id.clone(), curation));
+        }
+    }
+    if !inherited.is_empty() {
         sqlx::query(INHERIT_CURATION)
-            .bind(&p.id)
-            .bind(curation.highlighted)
-            .bind(curation.ranking)
-            .bind(curation.highlighted_image)
-            .bind(curation.exclude_from_ranking)
+            .bind(
+                inherited
+                    .iter()
+                    .map(|(id, _)| id.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .bind(
+                inherited
+                    .iter()
+                    .map(|(_, c)| c.highlighted)
+                    .collect::<Vec<_>>(),
+            )
+            .bind(inherited.iter().map(|(_, c)| c.ranking).collect::<Vec<_>>())
+            .bind(
+                inherited
+                    .iter()
+                    .map(|(_, c)| c.highlighted_image.clone())
+                    .collect::<Vec<_>>(),
+            )
+            .bind(
+                inherited
+                    .iter()
+                    .map(|(_, c)| c.exclude_from_ranking)
+                    .collect::<Vec<_>>(),
+            )
             .execute(&mut *tx)
             .await?;
     }

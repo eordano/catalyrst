@@ -462,8 +462,23 @@ fn not_found() -> Response {
         .into_response()
 }
 
+/// Refs are immutable once linked, so only found rows are memoised.
+async fn proposal_refs(
+    state: &AppState,
+    id: &str,
+) -> anyhow::Result<Option<crate::ports::store::ProposalRefs>> {
+    if let Some(refs) = state.refs_memo.get(&id.to_string()) {
+        return Ok(Some(refs));
+    }
+    let refs = state.store.proposal_refs(id).await?;
+    if let Some(refs) = &refs {
+        state.refs_memo.insert(id.to_string(), refs.clone());
+    }
+    Ok(refs)
+}
+
 pub async fn proposal_votes(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    let refs = match state.store.proposal_refs(&id).await {
+    let refs = match proposal_refs(&state, &id).await {
         Ok(Some(r)) => r,
         Ok(None) => return not_found(),
         Err(e) => return internal(e),
@@ -491,7 +506,7 @@ pub async fn proposal_comments(
     Path(id): Path<String>,
     Query(q): Query<CommentsQuery>,
 ) -> Response {
-    let refs = match state.store.proposal_refs(&id).await {
+    let refs = match proposal_refs(&state, &id).await {
         Ok(Some(r)) => r,
         Ok(None) => return not_found(),
         Err(e) => return internal(e),
@@ -532,91 +547,77 @@ pub async fn engagement(
     };
     let days = q.days.unwrap_or(30).clamp(1, 365);
     let limit = q.limit.unwrap_or(10).clamp(1, 100);
+    if let Some(payload) = state.engagement_memo.get(&(days, limit)) {
+        return Json(payload).into_response();
+    }
     match archives::engagement(pool, days, limit).await {
-        Ok(payload) => Json(payload).into_response(),
+        Ok(payload) => {
+            state.engagement_memo.insert((days, limit), payload.clone());
+            Json(payload).into_response()
+        }
         Err(e) => internal(e),
     }
 }
 
+async fn vote_activity(
+    state: &AppState,
+    limit: i64,
+) -> anyhow::Result<Vec<archives::ActivityFeedItem>> {
+    let Some(pool) = state.archives.snapshot.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let votes = archives::recent_votes(pool, limit).await?;
+    let mut ids: Vec<String> = votes.iter().map(|(_, sid, _, _)| sid.clone()).collect();
+    ids.sort();
+    ids.dedup();
+    let titles = state.store.titles_by_snapshot_ids(&ids).await?;
+    let map: std::collections::HashMap<&str, (&str, &str)> = titles
+        .iter()
+        .map(|(sid, gid, title)| (sid.as_str(), (gid.as_str(), title.as_str())))
+        .collect();
+    Ok(votes
+        .iter()
+        .filter_map(|(voter, sid, _vp, ts)| {
+            map.get(sid.as_str())
+                .map(|(gid, title)| archives::ActivityFeedItem {
+                    kind: "vote".to_string(),
+                    address: Some(voter.clone()),
+                    title: Some((*title).to_string()),
+                    proposal_id: Some((*gid).to_string()),
+                    ts: *ts,
+                })
+        })
+        .collect())
+}
+
 pub async fn activity(State(state): State<AppState>, Query(q): Query<ActivityQuery>) -> Response {
     let limit = q.limit.unwrap_or(30).clamp(1, 100);
-    let mut items: Vec<archives::ActivityFeedItem> = Vec::new();
-
-    if let Some(pool) = state.archives.snapshot.as_ref() {
-        match archives::recent_votes(pool, limit).await {
-            Ok(votes) => {
-                let mut ids: Vec<String> = votes.iter().map(|(_, sid, _, _)| sid.clone()).collect();
-                ids.sort();
-                ids.dedup();
-                match state.store.titles_by_snapshot_ids(&ids).await {
-                    Ok(titles) => {
-                        let map: std::collections::HashMap<&str, (&str, &str)> = titles
-                            .iter()
-                            .map(|(sid, gid, title)| (sid.as_str(), (gid.as_str(), title.as_str())))
-                            .collect();
-                        for (voter, sid, _vp, ts) in &votes {
-                            if let Some((gid, title)) = map.get(sid.as_str()) {
-                                items.push(archives::ActivityFeedItem {
-                                    kind: "vote".to_string(),
-                                    address: Some(voter.clone()),
-                                    title: Some((*title).to_string()),
-                                    proposal_id: Some((*gid).to_string()),
-                                    ts: *ts,
-                                });
-                            }
-                        }
-                    }
-                    Err(e) => return internal(e),
-                }
-            }
-            Err(e) => return internal(e),
-        }
+    if let Some(payload) = state.activity_memo.get(&limit) {
+        return Json(payload).into_response();
     }
 
-    match state.store.recent_proposals(limit).await {
-        Ok(rows) => {
-            for (id, title, user, ts) in rows {
-                items.push(archives::ActivityFeedItem {
-                    kind: "proposal".to_string(),
-                    address: user,
-                    title: Some(title),
-                    proposal_id: Some(id),
-                    ts,
-                });
-            }
-        }
+    let (votes, feed) = tokio::join!(
+        vote_activity(&state, limit),
+        state.store.recent_activity(limit)
+    );
+    let mut items = match votes {
+        Ok(items) => items,
         Err(e) => return internal(e),
-    }
-    match state.store.recently_finished(limit).await {
-        Ok(rows) => {
-            for (id, title, ts) in rows {
-                items.push(archives::ActivityFeedItem {
-                    kind: "finished".to_string(),
-                    address: None,
-                    title: Some(title),
-                    proposal_id: Some(id),
-                    ts,
-                });
-            }
-        }
-        Err(e) => return internal(e),
-    }
-    match state.store.recent_updates(limit).await {
-        Ok(rows) => {
-            for (proposal_id, title, ts) in rows {
-                items.push(archives::ActivityFeedItem {
-                    kind: "update".to_string(),
-                    address: None,
-                    title: Some(title),
-                    proposal_id,
-                    ts,
-                });
-            }
-        }
+    };
+    match feed {
+        Ok(rows) => items.extend(rows.into_iter().map(|r| archives::ActivityFeedItem {
+            kind: r.kind.to_string(),
+            address: r.address,
+            title: Some(r.title),
+            proposal_id: r.proposal_id,
+            ts: r.ts,
+        })),
         Err(e) => return internal(e),
     }
 
     items.sort_by_key(|x| std::cmp::Reverse(x.ts));
     items.truncate(limit as usize);
-    Json(archives::ActivityPayload { items }).into_response()
+    let payload = archives::ActivityPayload { items };
+    state.activity_memo.insert(limit, payload.clone());
+    Json(payload).into_response()
 }

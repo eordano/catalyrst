@@ -62,7 +62,7 @@ const RailSchema = z.object({
   items: z.array(z.unknown()),
 });
 
-export const HomeContentSchema = z.object({
+const HomeContentSchema = z.object({
   hero: HeroSchema,
   rails: z.array(RailSchema),
   comeHangOut: z.object({
@@ -73,8 +73,8 @@ export const HomeContentSchema = z.object({
 });
 
 export type HomeContent = z.infer<typeof HomeContentSchema>;
-export type Rail = z.infer<typeof RailSchema>;
-export type EventRailItem = z.infer<typeof EventRailItemSchema>;
+type Rail = z.infer<typeof RailSchema>;
+type EventRailItem = z.infer<typeof EventRailItemSchema>;
 export type HotspotRailItem = z.infer<typeof HotspotRailItemSchema>;
 export type RitualRailItem = z.infer<typeof RitualRailItemSchema>;
 
@@ -89,7 +89,7 @@ function eventCategory(e: Event): string {
   return "EVENT";
 }
 
-export function eventToRailItem(e: Event): EventRailItem {
+function eventToRailItem(e: Event): EventRailItem {
   return {
     id: e.id,
     category: eventCategory(e),
@@ -183,7 +183,7 @@ export function eventItems(rail: Rail): EventRailItem[] {
     .map((r) => r.data);
 }
 
-export function hotspotItems(rail: Rail): HotspotRailItem[] {
+function hotspotItems(rail: Rail): HotspotRailItem[] {
   return rail.items
     .map((it) => HotspotRailItemSchema.safeParse(it))
     .filter((r): r is { success: true; data: HotspotRailItem } => r.success)

@@ -209,12 +209,6 @@
   color: var(--text);
 }
 .mkmybids__btn:hover { background: var(--mb-secondary-on-modal); }
-.mkmybids__btn--primary {
-  border-color: var(--brand);
-  background: var(--brand-cta, #d80029);
-  color: #fff;
-}
-.mkmybids__btn--primary:hover { background: var(--brand-hover); border-color: var(--brand-hover); }
 .mkmybids__btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .mkmybids__warning {

@@ -9,7 +9,7 @@ const MAX_LINE = 2000;
 
 const STORY = "sites-error";
 
-export type ClientErrorReport = {
+type ClientErrorReport = {
   message: string;
   name: string;
   stack: string;
@@ -72,7 +72,7 @@ export async function action({ request }: Route.ActionArgs) {
   return Response.json({ ok: true }, { status: 202 });
 }
 
-export function recordClientError(report: ClientErrorReport, request: Request): void {
+function recordClientError(report: ClientErrorReport, request: Request): void {
   try {
     // eslint-disable-next-line no-console
     console.error(

@@ -67,13 +67,20 @@ pub async fn fetch_world_scene_id(state: &AppState, world_name: &str) -> Option<
         state.world_content_url,
         crate::http::encode_path_segment(&world_name.to_lowercase())
     );
-    let resp = state.http.get(&url).send().await.ok()?;
-    if !resp.status().is_success() {
-        tracing::warn!(world = %world_name, status = %resp.status(), "world /about fetch returned non-2xx");
-        return None;
-    }
-    let about: Value = resp.json().await.ok()?;
-    parse_scene_id_from_about(&about)
+    state
+        .world_permissions
+        .about_scene_ids
+        .get_or_fetch(url.clone(), || async {
+            let resp = state.http.get(&url).send().await.map_err(|_| ())?;
+            if !resp.status().is_success() {
+                tracing::warn!(world = %world_name, status = %resp.status(), "world /about fetch returned non-2xx");
+                return Err(());
+            }
+            let about: Value = resp.json().await.map_err(|_| ())?;
+            parse_scene_id_from_about(&about).ok_or(())
+        })
+        .await
+        .ok()
 }
 
 pub async fn fetch_world_scene_id_by_pointer(
@@ -175,30 +182,36 @@ pub async fn get_scene_adapter(
 
     let ip_address = get_request_ip(&headers);
     let device_id = device_identifier(&sf.metadata);
-    if let Err(e) = state
-        .player_connection
-        .upsert(UpsertPlayerConnection {
-            address: identity.clone(),
-            ip_address,
-            device_id: device_id.clone(),
-        })
-        .await
-    {
-        tracing::warn!(error = %e, address = %identity, "failed to store player connection info");
-    }
-
-    let (user_banned, scene_banned) = tokio::try_join!(
-        crate::access_gate::is_connection_banned(&state, &identity, device_id.as_deref()),
-        state.scene_bans.is_banned(&resolved_scene_id, &identity),
-    )?;
+    let upsert = async {
+        if let Err(e) = state
+            .player_connection
+            .upsert(UpsertPlayerConnection {
+                address: identity.clone(),
+                ip_address,
+                device_id: device_id.clone(),
+            })
+            .await
+        {
+            tracing::warn!(error = %e, address = %identity, "failed to store player connection info");
+        }
+    };
+    let world_access =
+        async { !is_world || has_world_access_permission(&state, &identity, realm_name).await };
+    let ((), gate, world_allowed) = tokio::join!(
+        upsert,
+        state
+            .user_bans
+            .connection_gate(&identity, device_id.as_deref(), &resolved_scene_id),
+        world_access,
+    );
+    let (user_banned, scene_banned) = gate?;
     if user_banned {
         return Err(forbidden(crate::access_gate::PLATFORM_BANNED_MSG));
     }
     if scene_banned {
         return Err(forbidden("User is banned from this scene"));
     }
-
-    if is_world && !has_world_access_permission(&state, &identity, realm_name).await {
+    if !world_allowed {
         return Err(unauthorized(
             "Access denied, you are not authorized to access this world",
         ));

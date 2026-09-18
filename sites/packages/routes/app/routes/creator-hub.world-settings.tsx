@@ -10,7 +10,7 @@ import { useAuth } from "@data/lib/auth/index";
 import { openSignIn } from "@features/components/auth/signin-store";
 import { useProfileName } from "@data/lib/auth/use-profile-name";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 
 import { worldsBase } from "@data/lib/catalyst/client";
 import { loadWorldPermissions } from "@data/lib/catalyst/creator-hub/world-permissions.server";
@@ -119,12 +119,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       (tabParam ? tabToStep(tabParam) : null)) ||
     null;
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
   const worldName = url.searchParams.get("world")?.trim() || "";
   const noWorld = worldName === "";
   const viewer = (
@@ -133,23 +127,32 @@ export async function loader({ request }: Route.LoaderArgs) {
     ""
   ).toLowerCase();
 
-  let scenes: WorldSceneVM[] = [];
-  let isOwner = false;
-  let gate: WorldGate = noWorld ? "no-world" : "none";
-  if (!noWorld) {
-    const loaded = await loadWorldSettingsScenes(
-      worldName,
-      viewer,
-      request.signal,
-    ).catch(() => ({
-      scenes: [] as WorldSceneVM[],
-      isOwner: false,
-      gate: "load-failed" as const,
-    }));
-    scenes = loaded.scenes;
-    isOwner = loaded.isOwner;
-    gate = loaded.gate;
-  }
+  const { sid, assignment, wrap, data } = await storyLoaderWith(
+    request,
+    STORY,
+    FALLBACK,
+    async () => {
+      let scenes: WorldSceneVM[] = [];
+      let isOwner = false;
+      let gate: WorldGate = noWorld ? "no-world" : "none";
+      if (!noWorld) {
+        const loaded = await loadWorldSettingsScenes(
+          worldName,
+          viewer,
+          request.signal,
+        ).catch(() => ({
+          scenes: [] as WorldSceneVM[],
+          isOwner: false,
+          gate: "load-failed" as const,
+        }));
+        scenes = loaded.scenes;
+        isOwner = loaded.isOwner;
+        gate = loaded.gate;
+      }
+      return { scenes, isOwner, gate };
+    },
+  );
+  const { scenes, isOwner, gate } = data;
 
   const payload = {
     sid,

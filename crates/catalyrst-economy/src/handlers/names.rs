@@ -14,6 +14,7 @@ use crate::ports::broker::{
     minted_token_id_from_logs, parse_address, parse_token_id, parse_wei, parse_wei_allow_zero,
     BrokerCall, PurchaseMode,
 };
+use crate::ports::claims::{claim_name_purchase, claim_name_transfer, Claim};
 use crate::ports::contracts_addrs::NameContracts;
 use crate::ports::signer::{DirectSigner, ReceiptOutcome};
 use crate::AppState;
@@ -153,28 +154,24 @@ pub async fn buy(
     let custody_hex = format!("{beneficiary:#x}");
     let buyer_hex = format!("{buyer:#x}");
 
-    let claim = sqlx::query(
-        "INSERT INTO broker_purchases \
-         (idempotency_key, collection, item_id, token_id, buyer_address, escrow_address, price_wei, chain_id, mode, status) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9, 'pending') \
-         ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING",
+    let claim = claim_name_purchase(
+        &state.pool,
+        &key,
+        &registrar_hex,
+        name_for_row.as_deref(),
+        token_id_for_row.as_deref(),
+        &buyer_hex,
+        &custody_hex,
+        &price_wei.to_string(),
+        chain_id as i64,
+        mode.as_str(),
     )
-    .bind(&key)
-    .bind(&registrar_hex)
-    .bind(name_for_row.as_deref())
-    .bind(token_id_for_row.as_deref())
-    .bind(&buyer_hex)
-    .bind(&custody_hex)
-    .bind(price_wei.to_string())
-    .bind(chain_id as i64)
-    .bind(mode.as_str())
-    .execute(&state.pool)
     .await?;
 
-    let tx_hash = if claim.rows_affected() == 0 {
-        resume_name_buy(&state, signer, &key, mode, registrar, beneficiary).await?
-    } else {
+    let tx_hash = if claim.claimed {
         drive_name_buy(&state, signer, &key, mode, call, registrar, beneficiary).await?
+    } else {
+        resume_name_buy(&state, signer, &key, mode, registrar, beneficiary, claim).await?
     };
 
     tracing::info!(
@@ -261,15 +258,11 @@ async fn resume_name_buy(
     mode: PurchaseMode,
     registrar: Address,
     beneficiary: Address,
+    claim: Claim,
 ) -> Result<String, ApiError> {
-    let row: (String, Option<String>) =
-        sqlx::query_as("SELECT status, tx_hash FROM broker_purchases WHERE idempotency_key = $1")
-            .bind(key)
-            .fetch_one(&state.pool)
-            .await?;
-    let (status, tx_hash) = row;
+    let tx_hash = claim.tx_hash.clone();
 
-    match status.as_str() {
+    match claim.status() {
         "confirmed" => {
             let tx = tx_hash.ok_or_else(|| {
                 ApiError::Internal(format!("name buy {key:?} is 'confirmed' without a tx_hash"))
@@ -281,14 +274,7 @@ async fn resume_name_buy(
             "name buy {key:?} reverted on a prior attempt; not re-broadcasting"
         ))),
         "error" => {
-            let rearmed = sqlx::query(
-                "UPDATE broker_purchases SET status = 'pending', updated_at = NOW() \
-                 WHERE idempotency_key = $1 AND status = 'error'",
-            )
-            .bind(key)
-            .execute(&state.pool)
-            .await?;
-            if rearmed.rows_affected() == 0 {
+            if !claim.rearmed {
                 return Err(ApiError::Conflict(format!(
                     "name buy {key:?} changed state concurrently; retry"
                 )));
@@ -365,23 +351,19 @@ pub async fn transfer(
         ));
     };
 
-    let claim = sqlx::query(
-        "INSERT INTO name_transfers \
-         (idempotency_key, registrar, token_id, from_address, to_address, chain_id, status) \
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending') \
-         ON CONFLICT (idempotency_key) DO NOTHING",
+    let claim = claim_name_transfer(
+        &state.pool,
+        &key,
+        &format!("{registrar:#x}"),
+        &token_id.to_string(),
+        &format!("{relayer:#x}"),
+        &format!("{to:#x}"),
+        chain_id as i64,
     )
-    .bind(&key)
-    .bind(format!("{registrar:#x}"))
-    .bind(token_id.to_string())
-    .bind(format!("{relayer:#x}"))
-    .bind(format!("{to:#x}"))
-    .bind(chain_id as i64)
-    .execute(&state.pool)
     .await?;
 
-    if claim.rows_affected() == 0 {
-        if let Some(tx) = resume_transfer(&state, signer, &key).await? {
+    if !claim.claimed {
+        if let Some(tx) = resume_transfer(&state, signer, &key, claim).await? {
             return Ok(Json(json!({ "ok": true, "txHash": tx })));
         }
     }
@@ -411,15 +393,11 @@ async fn resume_transfer(
     state: &AppState,
     signer: &DirectSigner,
     key: &str,
+    claim: Claim,
 ) -> Result<Option<String>, ApiError> {
-    let row: (String, Option<String>) =
-        sqlx::query_as("SELECT status, tx_hash FROM name_transfers WHERE idempotency_key = $1")
-            .bind(key)
-            .fetch_one(&state.pool)
-            .await?;
-    let (status, tx_hash) = row;
+    let tx_hash = claim.tx_hash.clone();
 
-    match status.as_str() {
+    match claim.status() {
         "confirmed" => {
             let tx = tx_hash.ok_or_else(|| {
                 ApiError::Internal(format!(
@@ -440,14 +418,7 @@ async fn resume_transfer(
             Ok(Some(tx))
         }
         "error" => {
-            let rearmed = sqlx::query(
-                "UPDATE name_transfers SET status = 'pending', updated_at = NOW() \
-                 WHERE idempotency_key = $1 AND status = 'error'",
-            )
-            .bind(key)
-            .execute(&state.pool)
-            .await?;
-            if rearmed.rows_affected() == 0 {
+            if !claim.rearmed {
                 return Err(ApiError::Conflict(format!(
                     "name transfer {key:?} changed state concurrently; retry"
                 )));

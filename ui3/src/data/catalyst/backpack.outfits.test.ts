@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { buildOutfitsMetadata, type OutfitInput } from "./backpack";
+import { buildOutfitsMetadata, hasOutfitsEntity, loadOutfits, type OutfitInput } from "./backpack";
 
 const BODY = "urn:decentraland:off-chain:base-avatars:BaseMale";
 
@@ -33,29 +33,101 @@ describe("buildOutfitsMetadata", () => {
     expect(entry.outfit.eyes.color.b).toBeCloseTo(0xa5 / 255, 5);
   });
 
-  it("drops entries without a bodyShape or with out-of-range slots", () => {
+  it("drops entries without a bodyShape or out-of-range slots, keeps the first of a duplicated slot, and tolerates nullish input", () => {
     const input: OutfitInput[] = [
       { slot: 0, bodyShape: BODY, wearables: [] },
       { slot: 1, wearables: [] },
       { slot: 9, bodyShape: BODY, wearables: [] },
       { slot: -1, bodyShape: BODY, wearables: [] },
     ];
-    const md = buildOutfitsMetadata(input);
-    expect(md.outfits.map((o) => o.slot)).toEqual([0]);
-  });
-
-  it("keeps the first entry when a slot is duplicated", () => {
-    const md = buildOutfitsMetadata([
+    expect(buildOutfitsMetadata(input).outfits.map((o) => o.slot)).toEqual([0]);
+    const dup = buildOutfitsMetadata([
       { slot: 2, bodyShape: BODY, wearables: ["a"] },
       { slot: 2, bodyShape: BODY, wearables: ["b"] },
     ]);
-    expect(md.outfits).toHaveLength(1);
-    expect(md.outfits[0]!.outfit.wearables).toEqual(["a"]);
-  });
-
-  it("tolerates empty / nullish input", () => {
+    expect(dup.outfits).toHaveLength(1);
+    expect(dup.outfits[0]!.outfit.wearables).toEqual(["a"]);
     expect(buildOutfitsMetadata([]).outfits).toEqual([]);
     // @ts-expect-error exercising the runtime nullish guard
     expect(buildOutfitsMetadata(undefined).outfits).toEqual([]);
+  });
+});
+
+const ADDR = "0x92de52247aeae00fcfb18072c8564f3549b64f9c";
+const BASE = "https://cat.test";
+
+type Route = (init?: RequestInit) => unknown;
+
+function fakeFetch(routes: Record<string, Route>) {
+  const calls: string[] = [];
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    calls.push(url);
+    const route = routes[url];
+    if (!route) return new Response("not found", { status: 404 });
+    return new Response(JSON.stringify(route(init)), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  return { fetchImpl, calls };
+}
+
+const ACTIVE = `${BASE}/content/entities/active`;
+const LAMBDAS = `${BASE}/lambdas/outfits/${ADDR}`;
+
+const ENTITY = {
+  id: "bafyoutfits",
+  pointers: [`${ADDR}:outfits`],
+  metadata: {
+    outfits: [
+      {
+        slot: 1,
+        outfit: {
+          bodyShape: BODY,
+          wearables: ["urn:decentraland:off-chain:base-avatars:eyes_00"],
+          skin: { color: { r: 1, g: 1, b: 1 } },
+          hair: { color: { r: 0, g: 0, b: 0 } },
+          eyes: { color: { r: 0, g: 0, b: 1 } },
+        },
+      },
+    ],
+  },
+};
+
+describe("loadOutfits", () => {
+  it("probes with the <address>:outfits pointer and loads the lambdas projection only when the entity carries outfits", async () => {
+    const full = fakeFetch({
+      [ACTIVE]: (init) => {
+        expect(JSON.parse(String(init?.body))).toEqual({ pointers: [`${ADDR}:outfits`] });
+        return [ENTITY];
+      },
+      [LAMBDAS]: () => ENTITY,
+    });
+    const outfits = await loadOutfits(ADDR, { base: BASE, fetchImpl: full.fetchImpl });
+    expect(full.calls).toEqual([ACTIVE, LAMBDAS]);
+    expect(outfits).toEqual([
+      {
+        slot: 1,
+        bodyShape: BODY,
+        wearables: ["urn:decentraland:off-chain:base-avatars:eyes_00"],
+        skinColor: "#ffffff",
+        hairColor: "#000000",
+        eyeColor: "#0000ff",
+      },
+    ]);
+
+    const noEntity = fakeFetch({ [ACTIVE]: () => [] });
+    expect(await loadOutfits(ADDR, { base: BASE, fetchImpl: noEntity.fetchImpl })).toEqual([]);
+    expect(noEntity.calls).toEqual([ACTIVE]);
+
+    const emptyEntity = fakeFetch({ [ACTIVE]: () => [{ ...ENTITY, metadata: { outfits: [] } }] });
+    expect(await loadOutfits(ADDR, { base: BASE, fetchImpl: emptyEntity.fetchImpl })).toEqual([]);
+    expect(emptyEntity.calls).toEqual([ACTIVE]);
+
+    const failed = fakeFetch({});
+    expect(await hasOutfitsEntity(ADDR, { base: BASE, fetchImpl: failed.fetchImpl })).toBe(false);
+    expect(await loadOutfits(ADDR, { base: BASE, fetchImpl: failed.fetchImpl })).toEqual([]);
+    expect(failed.calls).toEqual([ACTIVE, ACTIVE]);
   });
 });

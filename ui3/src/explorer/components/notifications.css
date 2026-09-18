@@ -159,14 +159,18 @@
   height: 560px; max-height: 70vh;
 }
 
-.nf__bare--floating {
-  opacity: 0.5;
-  transition: opacity 0.12s ease;
+.nf--floating {
+  position: static; left: auto; top: auto;
+  width: auto; max-width: none; height: auto; max-height: none;
+  flex: 1 1 auto; min-height: 0;
+  background: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+  border: none; border-radius: 0; box-shadow: none;
 }
-.nf__bare--floating:hover,
-.nf__bare--floating:focus-within {
-  opacity: 1;
+.nf--floating .nf__header {
+  justify-content: flex-end; padding: 6px 10px 0; border-bottom: none;
 }
+.nf--floating .nf__header:empty { display: none; }
+.nf--floating .nf__headeractions:empty { display: none; }
 
 @media (max-width: 600px) {
   .nf__rail { width: 42px; }

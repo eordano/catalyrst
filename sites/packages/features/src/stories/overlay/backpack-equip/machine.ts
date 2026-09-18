@@ -4,7 +4,7 @@ import { makeStepSlugs } from "@core/lib/stories/step-slugs";
 
 import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/lib/telemetry/track";
 
-export type ColorKind = "skin" | "hair" | "eye";
+type ColorKind = "skin" | "hair" | "eye";
 
 export type { TrackFn };
 
@@ -16,7 +16,7 @@ export type SaveFn = (args: {
   signal?: AbortSignal;
 }) => Promise<SaveResult>;
 
-export type BackpackInput = {
+type BackpackInput = {
   trackCtx: TrackContext;
   baseWearables?: string[];
   baseColors?: Partial<Record<ColorKind, string>>;
@@ -25,7 +25,7 @@ export type BackpackInput = {
   track?: TrackFn;
 };
 
-export type BackpackContext = {
+type BackpackContext = {
   trackCtx: TrackContext;
   save: SaveFn;
   track: TrackFn;
@@ -40,7 +40,7 @@ export type BackpackContext = {
   error?: string;
 };
 
-export type BackpackEvent =
+type BackpackEvent =
   | { type: "OPEN" }
   | { type: "SELECT"; urn: string; category: string; rarity: string | null }
   | { type: "INVENTORY_EMPTY" }
@@ -81,8 +81,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type BackpackStateId = keyof typeof STATE_TO_SLUG;
-export type BackpackStepSlug = (typeof STATE_TO_SLUG)[BackpackStateId];
+type BackpackStateId = keyof typeof STATE_TO_SLUG;
+type BackpackStepSlug = (typeof STATE_TO_SLUG)[BackpackStateId];
 
 export const FIRST_STEP_SLUG: BackpackStepSlug = STATE_TO_SLUG.opening;
 
@@ -275,8 +275,6 @@ export const backpackMachine = setup({
     },
   },
 });
-
-export type BackpackMachine = typeof backpackMachine;
 
 export function resolveBackpackSnapshot(args: {
   step: BackpackStateId;

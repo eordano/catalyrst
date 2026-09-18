@@ -1,8 +1,8 @@
 import type { CSSProperties, ReactNode } from "react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import "./primitives.css";
 
-export type StatusKind = "online" | "away" | "offline";
+type StatusKind = "online" | "away" | "offline";
 
 export const rarityColor = (r: string): string => `var(--rar-${r})`;
 
@@ -38,10 +38,18 @@ export function Avatar({
   className = "",
 }: AvatarProps) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const seedStr = seed ?? name ?? "";
   const resolvedHue = hue ?? (seedStr ? hueFromSeed(seedStr) : 280);
   const label = (initials ?? (name ? name.trim().slice(0, 2) : "")).toUpperCase();
   const showImg = Boolean(src) && failedSrc !== src;
+  const imgLoaded = showImg && loadedSrc === src;
+  const adoptComplete = useCallback(
+    (el: HTMLImageElement | null) => {
+      if (el && src && el.complete && el.naturalWidth > 0) setLoadedSrc(src);
+    },
+    [src],
+  );
 
   const style: CSSProperties & { "--hue": number; "--sz": string } = {
     "--hue": resolvedHue,
@@ -50,17 +58,19 @@ export function Avatar({
 
   return (
     <span className={"u-avatar " + className} style={style}>
-      {label && !children ? (
-        <span className="u-avatar__initials" aria-hidden="true">{label}</span>
-      ) : null}
       {showImg ? (
         <img
+          ref={adoptComplete}
           className="u-avatar__img"
           src={src}
           alt={alt}
           loading="lazy"
+          onLoad={() => setLoadedSrc(src ?? null)}
           onError={() => setFailedSrc(src ?? null)}
         />
+      ) : null}
+      {label && !children && !imgLoaded ? (
+        <span className="u-avatar__initials" aria-hidden="true">{label}</span>
       ) : null}
       {status && <StatusDot status={status} ring />}
       {children}

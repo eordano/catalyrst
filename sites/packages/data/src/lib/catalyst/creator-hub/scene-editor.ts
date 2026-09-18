@@ -4,28 +4,27 @@ import { catalystBase } from "../client";
 import { track } from "@core/lib/telemetry/track";
 import editorDefaults from "./scene-editor-defaults.data.json";
 
-export const Vector3Schema = z.object({
+const Vector3Schema = z.object({
   x: z.number(),
   y: z.number(),
   z: z.number(),
 });
-export type Vector3 = z.infer<typeof Vector3Schema>;
 
-export const QuaternionSchema = z.object({
+const QuaternionSchema = z.object({
   x: z.number(),
   y: z.number(),
   z: z.number(),
   w: z.number(),
 });
 
-export const TransformSchema = z.object({
+const TransformSchema = z.object({
   position: Vector3Schema,
   rotation: QuaternionSchema,
   scale: Vector3Schema,
 });
-export type Transform = z.infer<typeof TransformSchema>;
+type Transform = z.infer<typeof TransformSchema>;
 
-export const AssetSchema = z.object({
+const AssetSchema = z.object({
   id: z.string(),
   name: z.string(),
   pack: z.string(),
@@ -37,24 +36,24 @@ export const AssetSchema = z.object({
   glbFile: z.string().optional(),
   contents: z.record(z.string(), z.string()).optional(),
 });
-export type Asset = z.infer<typeof AssetSchema>;
+type Asset = z.infer<typeof AssetSchema>;
 
-export const AssetCatalogSchema = z.object({
+const AssetCatalogSchema = z.object({
   categories: z.array(z.string()),
   models: z.array(AssetSchema),
 });
-export type AssetCatalog = z.infer<typeof AssetCatalogSchema>;
+type AssetCatalog = z.infer<typeof AssetCatalogSchema>;
 
-export const ComponentDefSchema = z.object({
+const ComponentDefSchema = z.object({
   id: z.number(),
   key: z.string(),
   label: z.string(),
   componentName: z.string(),
   fields: z.array(z.string()),
 });
-export type ComponentDef = z.infer<typeof ComponentDefSchema>;
+type ComponentDef = z.infer<typeof ComponentDefSchema>;
 
-export const HierarchyNodeSchema = z.object({
+const HierarchyNodeSchema = z.object({
   entity: z.number(),
   name: z.string(),
   parent: z.number(),
@@ -63,7 +62,7 @@ export const HierarchyNodeSchema = z.object({
 });
 export type HierarchyNode = z.infer<typeof HierarchyNodeSchema>;
 
-export const SceneInfoSchema = z.object({
+const SceneInfoSchema = z.object({
   pointer: z.string(),
   title: z.string(),
   base: z.string(),
@@ -72,7 +71,7 @@ export const SceneInfoSchema = z.object({
   live: z.boolean(),
   template: z.string().optional(),
 });
-export type SceneInfo = z.infer<typeof SceneInfoSchema>;
+type SceneInfo = z.infer<typeof SceneInfoSchema>;
 
 export type SceneEditorSeed = {
   scene: SceneInfo;
@@ -167,7 +166,7 @@ const ActiveEntitySchema = z.object({
     .optional(),
 });
 
-export type LoadSeedOptions = {
+type LoadSeedOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -433,12 +432,12 @@ async function fetchCompositeJSON(
   }
 }
 
-export type ActiveEntity = {
+type ActiveEntity = {
   info: SceneInfo;
   content: { file: string; hash: string }[];
 };
 
-export async function fetchActiveEntity(
+async function fetchActiveEntity(
   opts: LoadSeedOptions = {},
 ): Promise<ActiveEntity | null> {
   const base = catalystBase(opts.base);

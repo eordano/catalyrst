@@ -230,11 +230,10 @@ pub async fn pick_unpick_in_bulk(
     validate_list_ids(&picked_for)?;
     validate_list_ids(&unpicked_from)?;
 
-    if !state.lists.item_exists(&item_id).await? {
-        return Err(PicksError::ItemNotFound(item_id));
-    }
-
     let (pick_ids, unpick_ids) = if picked_for.is_empty() && unpicked_from.is_empty() {
+        if !state.lists.item_exists(&item_id).await? {
+            return Err(PicksError::ItemNotFound(item_id));
+        }
         (
             vec![state.lists.get_or_create_default_list(&user).await?],
             Vec::new(),
@@ -244,23 +243,23 @@ pub async fn pick_unpick_in_bulk(
         all.extend(unpicked_from.iter().cloned());
         all.sort();
         all.dedup();
-        let non_editable = state.lists.check_non_editable_lists(&all, &user).await?;
+        let (found, non_editable) = tokio::try_join!(
+            state.lists.item_exists(&item_id),
+            state.lists.check_non_editable_lists(&all, &user),
+        )?;
+        if !found {
+            return Err(PicksError::ItemNotFound(item_id));
+        }
         if !non_editable.is_empty() {
             return Err(PicksError::ListsNotFound(non_editable));
         }
         (picked_for, unpicked_from)
     };
 
-    state
+    let picked_by_user = state
         .lists
         .pick_and_unpick_in_bulk(&item_id, &user, &pick_ids, &unpick_ids)
         .await?;
-
-    let picked_by_user = if !pick_ids.is_empty() {
-        true
-    } else {
-        state.lists.is_picked_by_user(&item_id, &user).await?
-    };
 
     Ok(Json(PickUnpickEnvelope {
         ok: true,

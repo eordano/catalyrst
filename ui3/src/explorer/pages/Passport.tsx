@@ -169,10 +169,22 @@ export default function Passport({
         <button className="ep__close ps__close" aria-label="Close" onClick={onClose}>&#xD7;</button>
 
         <div className={"ps__preview" + (avatarPreview ? "" : " ps__preview--empty")}>
-          {avatarPreview ? (
-            avatarPreview
-          ) : (
-            <Avatar size={184} name={displayName} className="ps__avatar" />
+          <div className="ps__stage">
+            {avatarPreview ? (
+              avatarPreview
+            ) : (
+              <Avatar size={184} name={displayName} className="ps__avatar" />
+            )}
+          </div>
+          {isSelf && (
+            <button
+              type="button"
+              className="ps__editavatar"
+              data-sb-linkto="Explorer/Pages/Backpack"
+            >
+              <span aria-hidden="true">&#x270E;</span>
+              EDIT AVATAR
+            </button>
           )}
         </div>
 

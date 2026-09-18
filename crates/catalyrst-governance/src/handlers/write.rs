@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
@@ -8,6 +8,9 @@ use axum::Json;
 use serde::Serialize;
 use serde_json::Value;
 
+use catalyrst_crypto::signed_fetch::{verify_signed_fetch_meta_with_policy, SignedFetchPolicy};
+use catalyrst_crypto::{reject_if_signer, SignerGate};
+
 use crate::handlers::read::ErrorBody;
 use crate::snapshot::client::SnapshotError;
 use crate::snapshot::templates::ProposalKind;
@@ -16,6 +19,13 @@ use crate::snapshot::{SnapshotGate, SubmitError};
 pub type WriteState = Arc<SnapshotGate>;
 
 const SIGNED_FETCH_MAX_AGE_SECS: i64 = 5 * 60;
+
+const SCENE_SIGNER: &str = "decentraland-kernel-scene";
+
+fn scene_signer_gate() -> &'static SignerGate {
+    static GATE: OnceLock<SignerGate> = OnceLock::new();
+    GATE.get_or_init(|| reject_if_signer(&[SCENE_SIGNER]).expect("SCENE_SIGNER is canonical"))
+}
 
 const BID_NOT_A_SNAPSHOT_WRITE: &str = "bid submission is not implemented: a bid does not create a snapshot proposal when it is submitted, it is held unpublished until its tender closes, and this server has no bid store";
 
@@ -50,15 +60,17 @@ pub async fn submit_proposal(
     };
 
     let path = format!("/proposals/{}", kind.as_path());
-    let author = match catalyrst_crypto::signed_fetch::verify_signed_fetch(
+    let author = match verify_signed_fetch_meta_with_policy(
         &headers,
         "post",
         &path,
         SIGNED_FETCH_MAX_AGE_SECS,
+        SignedFetchPolicy::new(&[], Some(scene_signer_gate())),
+        None,
     )
     .await
     {
-        Ok(signer) => signer,
+        Ok((signer, _)) => signer,
         Err(e) => {
             tracing::warn!(kind = kind.as_path(), error = %e, "proposal submission rejected: unauthenticated");
             return error(

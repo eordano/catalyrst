@@ -20,9 +20,6 @@ import {
 const RESULT: SubmitResult = { proposalId: "stub-draft-abc12345" };
 
 const okSubmit: SubmitFn = async () => RESULT;
-const failSubmit: SubmitFn = async () => {
-  throw new Error("governance api unreachable");
-};
 
 const SAMPLE_BODIES = {
   summary: "A one sentence summary of the draft proposal.",
@@ -65,104 +62,71 @@ const TRAVERSAL_EVENTS = [
 ];
 
 describe("draftMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
+  it("covers every state, round-trips uniquely, routes the spec steps, and falls back to the first step", () => {
     const machineStates = new Set(Object.keys(draftMachine.states));
     const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
     expect(mappedStates).toEqual(machineStates);
     expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
-
-  it("spec ?step values are all routable", () => {
-    for (const step of [
-      "intro",
-      "details",
-      "coauthors",
-      "review",
-      "submitting",
-      "success",
-    ]) {
+    for (const step of ["intro", "details", "coauthors", "review", "submitting", "success"]) {
       expect(EXPECTED_STATES.has(slugToState(step))).toBe(true);
     }
-  });
 
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.intro);
-    expect(slugToState(null)).toBe("intro");
-    expect(slugToState(undefined)).toBe("intro");
-    expect(slugToState("")).toBe("intro");
-    expect(slugToState("nope")).toBe("intro");
-    expect(slugToState("details")).toBe("details");
+    for (const bad of [null, undefined, "", "nope"]) {
+      expect(slugToState(bad)).toBe("intro");
+    }
     expect(slugToState("submit-error")).toBe("submitError");
     expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
   });
 });
 
 describe("draftMachine \u{2014} deep-link hydration (snapshot, no event replay)", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveDraftSnapshot({
-      step: "intro",
-      trackCtx: inputFor(okSubmit, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submitting does NOT fire telemetry and does NOT auto-submit", async () => {
+  it("first step boots from initial; submitting hydrates without telemetry or auto-submit; review then SUBMIT fires", async () => {
     const track = vi.fn();
     const submitDraft = vi.fn(okSubmit);
-    const snapshot = resolveDraftSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(submitDraft, track).trackCtx,
-      submitDraft,
-      track,
-    });
-    const actor = createActor(draftMachine, {
-      input: inputFor(submitDraft, track),
-      snapshot,
+    const input = inputFor(submitDraft, track);
+
+    expect(resolveDraftSnapshot({ step: "intro", trackCtx: input.trackCtx })).toBeUndefined();
+
+    const submitting = createActor(draftMachine, {
+      input,
+      snapshot: resolveDraftSnapshot({
+        step: "submitting",
+        trackCtx: input.trackCtx,
+        submitDraft,
+        track,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(actor.getSnapshot().context.draft.pollId).toBe("sample-poll");
-
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    expect(submitting.getSnapshot().context.draft.pollId).toBe("sample-poll");
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(submitDraft).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveDraftSnapshot({
-      step: "review",
-      trackCtx: inputFor(okSubmit, track).trackCtx,
-      track,
-    });
-    const actor = createActor(draftMachine, {
-      input: inputFor(okSubmit, track),
-      snapshot,
+    const review = createActor(draftMachine, {
+      input,
+      snapshot: resolveDraftSnapshot({ step: "review", trackCtx: input.trackCtx, track }),
     }).start();
-
-    expect(actor.getSnapshot().matches("review")).toBe(true);
+    expect(review.getSnapshot().matches("review")).toBe(true);
     expect(track).not.toHaveBeenCalled();
 
-    actor.send({ type: "SUBMIT" });
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(
-      DRAFT_EVENTS.submitAttempted,
-    );
+    review.send({ type: "SUBMIT" });
+    expect(review.getSnapshot().matches("submitting")).toBe(true);
+    expect(track.mock.calls.map((c) => c[0])).toContain(DRAFT_EVENTS.submitAttempted);
   });
 });
 
 describe("draftMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and submitting needs the full step sequence", () => {
     const paths = getShortestPaths(draftMachine, {
       input: inputFor(okSubmit, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -175,29 +139,21 @@ describe("draftMachine \u{2014} model-based path coverage (@xstate/graph)", () =
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("details")).toBe(true);
-    expect(ends.has("coauthors")).toBe(true);
-    expect(ends.has("review")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
+    for (const s of ["details", "coauthors", "review", "submitting"]) {
+      expect(ends.has(s)).toBe(true);
+    }
 
-  it("reaching submitting passes through the full step sequence", () => {
-    const paths = getShortestPaths(draftMachine, {
-      input: inputFor(okSubmit, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const submitting = paths.find((p) => (p.state.value as string) === "submitting");
     expect(submitting).toBeDefined();
     const events = submitting!.steps.map((s) => s.event.type);
-    expect(events).toContain("CLEAR_GATE");
-    expect(events).toContain("SUBMIT_DETAILS");
-    expect(events).toContain("NEXT");
-    expect(events).toContain("SUBMIT");
+    expect(events).toEqual(
+      expect.arrayContaining(["CLEAR_GATE", "SUBMIT_DETAILS", "NEXT", "SUBMIT"]),
+    );
   });
 });
 
 describe("draftMachine \u{2014} telemetry events (happy path)", () => {
-  it("full flow fires the complete funnel in order", async () => {
+  it("full flow fires the funnel in order with the details + coauthor payloads", async () => {
     const track = vi.fn();
     const actor = createActor(draftMachine, {
       input: inputFor(okSubmit, track),
@@ -206,21 +162,29 @@ describe("draftMachine \u{2014} telemetry events (happy path)", () => {
     actor.send({ type: "CLEAR_GATE", pollId: "poll-1" });
     expect(actor.getSnapshot().matches("details")).toBe(true);
 
-    actor.send({ type: "SUBMIT_DETAILS", title: "A descriptive title", bodies: SAMPLE_BODIES });
+    actor.send({ type: "SUBMIT_DETAILS", title: "Hello world", bodies: SAMPLE_BODIES });
     expect(actor.getSnapshot().matches("coauthors")).toBe(true);
+    const details = track.mock.calls.find((c) => c[0] === DRAFT_EVENTS.detailsCompleted);
+    expect(details?.[1]).toMatchObject({ title_len: 11, bodies: 5 });
 
-    actor.send({ type: "NEXT", coauthors: [{ addr: "0xabc\u{2026}123" }] });
+    actor.send({ type: "NEXT", coauthors: [{ addr: "0xa" }, { addr: "0xb" }] });
+    const coauthors = track.mock.calls.find((c) => c[0] === DRAFT_EVENTS.coauthorsSet);
+    expect(coauthors?.[1]).toMatchObject({ count: 2 });
+
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("success"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(DRAFT_EVENTS.started);
-    expect(events).toContain(DRAFT_EVENTS.detailsCompleted);
-    expect(events).toContain(DRAFT_EVENTS.coauthorsSet);
-    expect(events).toContain(DRAFT_EVENTS.stepAdvanced);
-    expect(events).toContain(DRAFT_EVENTS.submitAttempted);
-    expect(events).toContain(DRAFT_EVENTS.submitted);
-
+    expect(events).toEqual(
+      expect.arrayContaining([
+        DRAFT_EVENTS.started,
+        DRAFT_EVENTS.detailsCompleted,
+        DRAFT_EVENTS.coauthorsSet,
+        DRAFT_EVENTS.stepAdvanced,
+        DRAFT_EVENTS.submitAttempted,
+        DRAFT_EVENTS.submitted,
+      ]),
+    );
     expect(events.indexOf(DRAFT_EVENTS.submitAttempted)).toBeLessThan(
       events.indexOf(DRAFT_EVENTS.submitted),
     );
@@ -233,33 +197,6 @@ describe("draftMachine \u{2014} telemetry events (happy path)", () => {
       variant: "wizard",
     });
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
-  });
-
-  it("details_completed carries the title length + body count", () => {
-    const track = vi.fn();
-    const actor = createActor(draftMachine, {
-      input: inputFor(okSubmit, track),
-    }).start();
-
-    actor.send({ type: "CLEAR_GATE", pollId: "poll-1" });
-    actor.send({ type: "SUBMIT_DETAILS", title: "Hello world", bodies: SAMPLE_BODIES });
-
-    const call = track.mock.calls.find((c) => c[0] === DRAFT_EVENTS.detailsCompleted);
-    expect(call?.[1]).toMatchObject({ title_len: 11, bodies: 5 });
-  });
-
-  it("coauthors_set carries the chip count", () => {
-    const track = vi.fn();
-    const actor = createActor(draftMachine, {
-      input: inputFor(okSubmit, track),
-    }).start();
-
-    actor.send({ type: "CLEAR_GATE", pollId: "poll-1" });
-    actor.send({ type: "SUBMIT_DETAILS", title: "Title", bodies: SAMPLE_BODIES });
-    actor.send({ type: "NEXT", coauthors: [{ addr: "0xa" }, { addr: "0xb" }] });
-
-    const call = track.mock.calls.find((c) => c[0] === DRAFT_EVENTS.coauthorsSet);
-    expect(call?.[1]).toMatchObject({ count: 2 });
   });
 
   it("BACK steps return without re-firing forward telemetry", () => {
@@ -283,12 +220,12 @@ describe("draftMachine \u{2014} telemetry events (happy path)", () => {
 });
 
 describe("draftMachine \u{2014} submit failure + retry", () => {
-  it("submit error -> RETRY recovers to success", async () => {
+  it("submit error -> BACK returns to review; a second failure -> RETRY recovers to success", async () => {
     const track = vi.fn();
     let calls = 0;
     const submitDraft: SubmitFn = async (args) => {
       calls += 1;
-      if (calls === 1) throw new Error("governance api unreachable");
+      if (calls <= 2) throw new Error("governance api unreachable");
       return okSubmit(args);
     };
 
@@ -303,27 +240,16 @@ describe("draftMachine \u{2014} submit failure + retry", () => {
     await waitFor(actor, (s) => s.matches("submitError"));
     expect(actor.getSnapshot().context.error).toBe("governance api unreachable");
 
-    actor.send({ type: "RETRY" });
-    await waitFor(actor, (s) => s.matches("success"));
+    actor.send({ type: "BACK" });
+    expect(actor.getSnapshot().matches("review")).toBe(true);
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(DRAFT_EVENTS.submitted);
-  });
-
-  it("submit error -> BACK returns to review without submitting", async () => {
-    const track = vi.fn();
-    const actor = createActor(draftMachine, {
-      input: inputFor(failSubmit, track),
-    }).start();
-
-    actor.send({ type: "CLEAR_GATE", pollId: "poll-1" });
-    actor.send({ type: "SUBMIT_DETAILS", title: "Title", bodies: SAMPLE_BODIES });
-    actor.send({ type: "NEXT" });
     actor.send({ type: "SUBMIT" });
     await waitFor(actor, (s) => s.matches("submitError"));
 
-    actor.send({ type: "BACK" });
-    expect(actor.getSnapshot().matches("review")).toBe(true);
+    actor.send({ type: "RETRY" });
+    await waitFor(actor, (s) => s.matches("success"));
+    expect(calls).toBe(3);
+    expect(track.mock.calls.map((c) => c[0])).toContain(DRAFT_EVENTS.submitted);
   });
 });
 

@@ -223,7 +223,7 @@
 .chh__ctarow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .chh__cta {
   border: 0;
-  background: var(--brand);
+  background: var(--brand-cta);
   color: var(--on-brand);
   cursor: pointer;
   font: inherit;
@@ -233,7 +233,7 @@
   border-radius: var(--r-pill);
   transition: filter 0.12s ease;
 }
-.chh__cta:hover { filter: brightness(1.1); }
+.chh__cta:hover { filter: brightness(.9); }
 
 .chh__strip { margin: 0 0 28px; }
 .chh__grid + .chh__strip,

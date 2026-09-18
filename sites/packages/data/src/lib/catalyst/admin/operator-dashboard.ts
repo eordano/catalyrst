@@ -18,7 +18,7 @@ export const OperatorPlaceSchema = z.object({
 });
 export type OperatorPlace = z.infer<typeof OperatorPlaceSchema>;
 
-export const OperatorDashboardSchema = z.object({
+const OperatorDashboardSchema = z.object({
   _source: z.string().optional(),
   owner: z.string(),
   owner_name: z.string().nullish().transform((v) => v ?? null),
@@ -28,20 +28,9 @@ export const OperatorDashboardSchema = z.object({
 });
 export type OperatorDashboard = z.infer<typeof OperatorDashboardSchema>;
 
-export const RANGES = ["1h", "6h", "24h"] as const;
+const RANGES = ["1h", "6h", "24h"] as const;
 export type Range = (typeof RANGES)[number];
-export const DEFAULT_RANGE: Range = "24h";
-
-export function rangePoints(range: Range): number {
-  switch (range) {
-    case "1h":
-      return 2;
-    case "6h":
-      return 12;
-    case "24h":
-      return 48;
-  }
-}
+const DEFAULT_RANGE: Range = "24h";
 
 export function coerceRange(raw: string | null | undefined): Range {
   return (RANGES as readonly string[]).includes(raw ?? "")
@@ -49,7 +38,7 @@ export function coerceRange(raw: string | null | undefined): Range {
     : DEFAULT_RANGE;
 }
 
-export type DashboardTotals = {
+type DashboardTotals = {
   placeCount: number;
   totalLivePlayers: number;
   headcountUnreported: number;

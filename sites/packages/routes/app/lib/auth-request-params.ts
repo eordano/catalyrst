@@ -28,7 +28,7 @@ const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/i;
 const IDENTITY_AUTH_ADDRESS_RE = /^(?:0x)?[0-9a-fA-F]{40}$/i;
 const HEX_BYTES_RE = /^0[xX]([0-9a-fA-F]{2})*$/;
 
-export function decodeHexMessage(value: string): string | null {
+function decodeHexMessage(value: string): string | null {
   if (!HEX_BYTES_RE.test(value) || value.length <= 2) return null;
   const body = value.slice(2);
   const bytes = new Uint8Array(body.length / 2);
@@ -76,9 +76,9 @@ export type RequestRejection = {
   message: string;
 };
 
-export type ValidatedRequest = { method: AllowedMethod; params: unknown[] };
+type ValidatedRequest = { method: AllowedMethod; params: unknown[] };
 
-export type ValidationResult =
+type ValidationResult =
   | { ok: true; request: ValidatedRequest }
   | { ok: false; rejection: RequestRejection };
 
@@ -329,7 +329,7 @@ export function toHexQuantity(value: unknown): string {
   return `0x${BigInt(value).toString(16)}`;
 }
 
-export type TransactionParams = { to: string; data: string; value: string };
+type TransactionParams = { to: string; data: string; value: string };
 
 export function buildTransactionParams(params: unknown[] | undefined): [TransactionParams] {
   const [txParams] = params ?? [];
@@ -360,7 +360,7 @@ export function buildTransactionParams(params: unknown[] | undefined): [Transact
   ];
 }
 
-export type TransactionPreview = { shown: TransactionParams; dropped: string[] };
+type TransactionPreview = { shown: TransactionParams; dropped: string[] };
 
 export function previewTransaction(params: unknown[] | undefined): TransactionPreview {
   const [shown] = buildTransactionParams(params);
@@ -368,9 +368,9 @@ export function previewTransaction(params: unknown[] | undefined): TransactionPr
   return { shown, dropped: Object.keys(source).filter((key) => !(key in shown)) };
 }
 
-export type WalletRequest = { method: AllowedMethod; params: unknown[] };
+type WalletRequest = { method: AllowedMethod; params: unknown[] };
 
-export type WalletRequestResult =
+type WalletRequestResult =
   | { ok: true; request: WalletRequest }
   | { ok: false; rejection: RequestRejection };
 

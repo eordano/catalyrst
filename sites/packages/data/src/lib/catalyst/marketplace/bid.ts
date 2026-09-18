@@ -5,8 +5,6 @@ import type { GetOptions } from "../client";
 import { BidSchema, BidsEnvelopeSchema } from "../generated-schemas/market";
 import { warnInvalid } from "../warn";
 
-export { BidSchema, BidsEnvelopeSchema };
-
 export type Bid = z.infer<typeof BidSchema>;
 
 export async function fetchOpenBids(

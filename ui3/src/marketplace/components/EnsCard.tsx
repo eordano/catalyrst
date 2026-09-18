@@ -13,7 +13,7 @@ const ENS_GRADIENTS: EnsGradient[] = [
   { min: 11, max: 15, c: ["#FF9EB1", "#FF2D55"] },
 ];
 
-export function ensGradient(name?: string): string {
+function ensGradient(name?: string): string {
   const n = (name || "").length;
   const g = ENS_GRADIENTS.find((x) => n >= x.min && n <= x.max) || { c: ["#000", "#fff"] as [string, string] };
   return `linear-gradient(135deg, ${g.c[0]} 0%, ${g.c[1]} 100%)`;

@@ -6,7 +6,7 @@ export type BlogBlock =
   | { type: "quote"; content: string }
   | { type: "ul"; items: string[] };
 
-export type BlogCategory = { id: string; title: string; slug: string; url: string };
+type BlogCategory = { id: string; title: string; slug: string; url: string };
 
 export type BlogPostCard = {
   id: string;
@@ -49,7 +49,7 @@ function cat(slug: string, title: string): BlogCategory {
   return { id: slug, slug, title, url: `/blog?category=${slug}` };
 }
 
-export const BLOG_POSTS: BlogPost[] = [
+const BLOG_POSTS: BlogPost[] = [
   {
     id: "explore-from-your-browser",
     slug: "explore-from-your-browser",

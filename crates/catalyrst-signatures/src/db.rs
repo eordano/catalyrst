@@ -78,68 +78,42 @@ impl Database {
         rental: &RentalListingCreation,
         lessor: &str,
     ) -> Result<RentalListing, sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-
-        sqlx::query(
-            r#"INSERT INTO metadata (id, category, search_text, distance_to_plaza, adjacent_to_road, estate_size, updated_at, created_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-               ON CONFLICT (id) DO UPDATE SET search_text = $3"#,
-        )
-        .bind(nft_id)
-        .bind(category)
-        .bind(search_text)
-        .bind(distance_to_plaza)
-        .bind(adjacent_to_road)
-        .bind(estate_size)
-        .bind(nft_updated_at)
-        .bind(nft_created_at)
-        .execute(&mut *tx)
-        .await?;
-
         let expiration = DateTime::<Utc>::from_timestamp_millis(rental.expiration)
             .map(|d| d.naive_utc())
             .unwrap_or_else(|| Utc::now().naive_utc());
+        let min_days: Vec<i32> = rental.periods.iter().map(|p| p.min_days as i32).collect();
+        let max_days: Vec<i32> = rental.periods.iter().map(|p| p.max_days as i32).collect();
+        let prices: Vec<String> = rental
+            .periods
+            .iter()
+            .map(|p| p.price_per_day.clone())
+            .collect();
 
-        let rental_id: Uuid = sqlx::query_scalar(
-            r#"INSERT INTO rentals (metadata_id, network, chain_id, expiration, signature, nonces, token_id, contract_address, rental_contract_address, status, target)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10) RETURNING id"#,
-        )
-        .bind(nft_id)
-        .bind(&rental.network)
-        .bind(rental.chain_id as i32)
-        .bind(expiration)
-        .bind(&rental.signature)
-        .bind(&rental.nonces)
-        .bind(&rental.token_id)
-        .bind(&rental.contract_address)
-        .bind(&rental.rental_contract_address)
-        .bind(&rental.target)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        sqlx::query("INSERT INTO rentals_listings (id, lessor) VALUES ($1,$2)")
-            .bind(rental_id)
+        let row = sqlx::query(INSERT_LISTING_SQL)
+            .bind(nft_id)
+            .bind(category)
+            .bind(search_text)
+            .bind(distance_to_plaza)
+            .bind(adjacent_to_road)
+            .bind(estate_size)
+            .bind(nft_updated_at)
+            .bind(nft_created_at)
+            .bind(&rental.network)
+            .bind(rental.chain_id as i32)
+            .bind(expiration)
+            .bind(&rental.signature)
+            .bind(&rental.nonces)
+            .bind(&rental.token_id)
+            .bind(&rental.contract_address)
+            .bind(&rental.rental_contract_address)
+            .bind(&rental.target)
             .bind(lessor)
-            .execute(&mut *tx)
+            .bind(min_days)
+            .bind(max_days)
+            .bind(prices)
+            .fetch_one(&self.pool)
             .await?;
-
-        for p in &rental.periods {
-            sqlx::query(
-                "INSERT INTO periods (min_days, max_days, price_per_day, rental_id) VALUES ($1,$2,$3::numeric,$4)",
-            )
-            .bind(p.min_days as i32)
-            .bind(p.max_days as i32)
-            .bind(&p.price_per_day)
-            .bind(rental_id)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
-
-        self.get_listing_by_id(&rental_id.to_string())
-            .await?
-            .ok_or(sqlx::Error::RowNotFound)
+        Ok(row_to_listing(&row))
     }
 
     pub fn is_open_conflict(err: &sqlx::Error) -> bool {
@@ -152,8 +126,21 @@ impl Database {
         false
     }
 
+    pub async fn listing_asset(&self, id: &str) -> Result<Option<(String, String)>, sqlx::Error> {
+        let uuid = match Uuid::parse_str(id) {
+            Ok(u) => u,
+            Err(_) => return Ok(None),
+        };
+        sqlx::query_as("SELECT contract_address, token_id FROM rentals WHERE id = $1")
+            .bind(uuid)
+            .fetch_optional(&self.pool)
+            .await
+    }
+
+    // Updates the metadata and returns the refreshed listing in one statement;
+    // None when the rental (or its periods) is missing.
     #[allow(clippy::too_many_arguments)]
-    pub async fn update_metadata_for_rental(
+    pub async fn refresh_metadata_for_rental(
         &self,
         rental_id: &str,
         category: &str,
@@ -162,32 +149,22 @@ impl Database {
         adjacent_to_road: Option<bool>,
         estate_size: Option<i32>,
         nft_updated_at: NaiveDateTime,
-    ) -> Result<u64, sqlx::Error> {
+    ) -> Result<Option<RentalListing>, sqlx::Error> {
         let uuid = match Uuid::parse_str(rental_id) {
             Ok(u) => u,
-            Err(_) => return Ok(0),
+            Err(_) => return Ok(None),
         };
-        let res = sqlx::query(
-            r#"UPDATE metadata m SET
-                   category = $2,
-                   search_text = $3,
-                   distance_to_plaza = $4,
-                   adjacent_to_road = $5,
-                   estate_size = $6,
-                   updated_at = $7
-               FROM rentals r
-               WHERE r.id = $1 AND r.metadata_id = m.id"#,
-        )
-        .bind(uuid)
-        .bind(category)
-        .bind(search_text)
-        .bind(distance_to_plaza)
-        .bind(adjacent_to_road)
-        .bind(estate_size)
-        .bind(nft_updated_at)
-        .execute(&self.pool)
-        .await?;
-        Ok(res.rows_affected())
+        let row = sqlx::query(REFRESH_LISTING_SQL)
+            .bind(uuid)
+            .bind(category)
+            .bind(search_text)
+            .bind(distance_to_plaza)
+            .bind(adjacent_to_road)
+            .bind(estate_size)
+            .bind(nft_updated_at)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| row_to_listing(&r)))
     }
 
     pub async fn get_listing_by_id(&self, id: &str) -> Result<Option<RentalListing>, sqlx::Error> {
@@ -455,6 +432,49 @@ FROM metadata,
    WHERE rentals.id = rentals_listings.id AND periods.rental_id = rentals.id
    GROUP BY rentals.id, rentals_listings.id) as rentals
 WHERE metadata.id = rentals.metadata_id AND rentals.id = $1
+"#;
+
+const INSERT_LISTING_SQL: &str = r#"
+WITH m AS (
+  INSERT INTO metadata (id, category, search_text, distance_to_plaza, adjacent_to_road, estate_size, updated_at, created_at)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+  ON CONFLICT (id) DO UPDATE SET search_text = $3
+  RETURNING id, category, search_text, created_at
+), r AS (
+  INSERT INTO rentals (metadata_id, network, chain_id, expiration, signature, nonces, token_id, contract_address, rental_contract_address, status, target)
+  VALUES ($1,$9,$10,$11,$12,$13,$14,$15,$16,'open',$17)
+  RETURNING *
+), l AS (
+  INSERT INTO rentals_listings (id, lessor) SELECT id, $18 FROM r
+  RETURNING id, lessor, tenant
+), p AS (
+  INSERT INTO periods (min_days, max_days, price_per_day, rental_id)
+  SELECT u.min_days, u.max_days, u.price_per_day::numeric, r.id
+  FROM r, UNNEST($19::int[], $20::int[], $21::text[]) AS u(min_days, max_days, price_per_day)
+  RETURNING min_days, max_days, price_per_day
+)
+SELECT r.*, l.tenant, l.lessor, m.category, m.search_text, m.created_at AS metadata_created_at,
+  (SELECT jsonb_agg(jsonb_build_array(p.min_days::text, p.max_days::text, p.price_per_day::text) ORDER BY p.min_days) FROM p) AS periods
+FROM r, l, m
+"#;
+
+const REFRESH_LISTING_SQL: &str = r#"
+WITH upd AS (
+  UPDATE metadata m SET
+    category = $2, search_text = $3, distance_to_plaza = $4,
+    adjacent_to_road = $5, estate_size = $6, updated_at = $7
+  FROM rentals r
+  WHERE r.id = $1 AND r.metadata_id = m.id
+  RETURNING m.id, m.category, m.search_text, m.created_at
+)
+SELECT rentals.*, upd.category, upd.search_text, upd.created_at AS metadata_created_at
+FROM upd,
+  (SELECT rentals.*, rentals_listings.tenant, rentals_listings.lessor,
+     jsonb_agg(jsonb_build_array(periods.min_days::text, periods.max_days::text, periods.price_per_day::text) ORDER BY periods.min_days) as periods
+   FROM rentals, rentals_listings, periods
+   WHERE rentals.id = rentals_listings.id AND periods.rental_id = rentals.id AND rentals.id = $1
+   GROUP BY rentals.id, rentals_listings.id) as rentals
+WHERE upd.id = rentals.metadata_id
 "#;
 
 fn row_to_listing(r: &PgRow) -> RentalListing {

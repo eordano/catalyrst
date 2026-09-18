@@ -70,28 +70,24 @@ const TRAVERSAL_EVENTS = [
 ];
 
 describe("curateCommittee \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
+  it("covers every state, round-trips uniquely, and falls back to the first step", () => {
     const machineStates = new Set(Object.keys(curationMachine.states));
     const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
     expect(mappedStates).toEqual(machineStates);
     expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
 
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
     const slugs = Object.values(STATE_TO_SLUG);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
       expect(SLUG_TO_STATE[slug]).toBe(state);
       expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
     }
-  });
 
-  it("unknown/missing ?step falls back to the first step", () => {
     expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.dashboard);
-    expect(slugToState(null)).toBe("dashboard");
-    expect(slugToState(undefined)).toBe("dashboard");
-    expect(slugToState("")).toBe("dashboard");
-    expect(slugToState("nope")).toBe("dashboard");
+    for (const bad of [null, undefined, "", "nope"]) {
+      expect(slugToState(bad)).toBe("dashboard");
+    }
     expect(slugToState("review")).toBe("reviewing");
     expect(slugToState("comment")).toBe("commenting");
     expect(slugToState("decide")).toBe("deciding");
@@ -100,66 +96,59 @@ describe("curateCommittee \u{2014} URL ?step slug map", () => {
 });
 
 describe("curateCommittee \u{2014} deep-link hydration", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveCurationSnapshot({ step: "dashboard", trackCtx: inputFor(okAssign, okDecide, () => {}).trackCtx, count: 7, youAddress: YOU });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating the comment step seeds decision + does NOT fire telemetry / auto-decide", async () => {
+  it("first step boots from initial; commenting hydrates its draft without telemetry or auto-decide; real transitions still move", async () => {
     const track = vi.fn();
     const decide = vi.fn(okDecide);
-    const snapshot = resolveCurationSnapshot({
-      step: "commenting",
-      trackCtx: inputFor(okAssign, decide, track).trackCtx,
-      count: 7,
-      youAddress: YOU,
-      activeId: "0xcol1",
-      activeTopicId: 50121,
-      decision: "rejected",
-      comment: "draft text",
-      decide,
-      track,
-    });
-    const actor = createActor(curationMachine, {
-      input: inputFor(okAssign, decide, track),
-      snapshot,
+    const input = inputFor(okAssign, decide, track);
+
+    expect(
+      resolveCurationSnapshot({ step: "dashboard", trackCtx: input.trackCtx, count: 7, youAddress: YOU }),
+    ).toBeUndefined();
+
+    const commenting = createActor(curationMachine, {
+      input,
+      snapshot: resolveCurationSnapshot({
+        step: "commenting",
+        trackCtx: input.trackCtx,
+        count: 7,
+        youAddress: YOU,
+        activeId: "0xcol1",
+        activeTopicId: 50121,
+        decision: "rejected",
+        comment: "draft text",
+        decide,
+        track,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("commenting")).toBe(true);
-    expect(actor.getSnapshot().context.decision).toBe("rejected");
-    expect(actor.getSnapshot().context.comment).toBe("draft text");
-
+    expect(commenting.getSnapshot().matches("commenting")).toBe(true);
+    expect(commenting.getSnapshot().context.decision).toBe("rejected");
+    expect(commenting.getSnapshot().context.comment).toBe("draft text");
     await Promise.resolve();
     expect(track).not.toHaveBeenCalled();
     expect(decide).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("commenting")).toBe(true);
-  });
+    expect(commenting.getSnapshot().matches("commenting")).toBe(true);
 
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveCurationSnapshot({
-      step: "reviewing",
-      trackCtx: inputFor(okAssign, okDecide, track).trackCtx,
-      count: 7,
-      youAddress: YOU,
-      activeId: "0xcol1",
-      track,
-    });
-    const actor = createActor(curationMachine, {
-      input: inputFor(okAssign, okDecide, track),
-      snapshot,
+    const reviewing = createActor(curationMachine, {
+      input,
+      snapshot: resolveCurationSnapshot({
+        step: "reviewing",
+        trackCtx: input.trackCtx,
+        count: 7,
+        youAddress: YOU,
+        activeId: "0xcol1",
+        track,
+      }),
     }).start();
-
-    expect(actor.getSnapshot().matches("reviewing")).toBe(true);
+    expect(reviewing.getSnapshot().matches("reviewing")).toBe(true);
     expect(track).not.toHaveBeenCalled();
 
-    actor.send({ type: "DRAFT_DECISION", status: "approved" });
-    expect(actor.getSnapshot().matches("commenting")).toBe(true);
+    reviewing.send({ type: "DRAFT_DECISION", status: "approved" });
+    expect(reviewing.getSnapshot().matches("commenting")).toBe(true);
   });
 });
 
 describe("curateCommittee \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and commenting needs OPEN_REVIEW + DRAFT_DECISION", () => {
     const paths = getShortestPaths(curationMachine, {
       input: inputFor(okAssign, okDecide, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -174,23 +163,16 @@ describe("curateCommittee \u{2014} model-based path coverage (@xstate/graph)", (
     }
     expect(ends.has("reviewing")).toBe(true);
     expect(ends.has("commenting")).toBe(true);
-  });
 
-  it("reaching commenting passes through OPEN_REVIEW and DRAFT_DECISION", () => {
-    const paths = getShortestPaths(curationMachine, {
-      input: inputFor(okAssign, okDecide, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const commenting = paths.find((p) => (p.state.value as string) === "commenting");
     expect(commenting).toBeDefined();
     const events = commenting!.steps.map((s) => s.event.type);
-    expect(events).toContain("OPEN_REVIEW");
-    expect(events).toContain("DRAFT_DECISION");
+    expect(events).toEqual(expect.arrayContaining(["OPEN_REVIEW", "DRAFT_DECISION"]));
   });
 });
 
 describe("curateCommittee \u{2014} telemetry (review -> comment -> decide)", () => {
-  it("approve WITH a comment fires comment_added before decided", async () => {
+  it("approve WITH a comment fires comment_added before decided; deciding WITHOUT a comment skips it but still decides", async () => {
     const track = vi.fn();
     const decide = vi.fn(okDecide);
     const actor = createActor(curationMachine, {
@@ -207,10 +189,13 @@ describe("curateCommittee \u{2014} telemetry (review -> comment -> decide)", () 
     await waitFor(actor, (s) => s.matches("decided"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CURATION_EVENTS.reviewOpened);
-    expect(events).toContain(CURATION_EVENTS.commentAdded);
-    expect(events).toContain(CURATION_EVENTS.decided);
-
+    expect(events).toEqual(
+      expect.arrayContaining([
+        CURATION_EVENTS.reviewOpened,
+        CURATION_EVENTS.commentAdded,
+        CURATION_EVENTS.decided,
+      ]),
+    );
     expect(events.indexOf(CURATION_EVENTS.commentAdded)).toBeLessThan(
       events.indexOf(CURATION_EVENTS.decided),
     );
@@ -223,49 +208,32 @@ describe("curateCommittee \u{2014} telemetry (review -> comment -> decide)", () 
     expect(commentCall?.[1]).toMatchObject({ id: "0xcol1", decision: "approved", has_comment: true });
     expect((commentCall?.[1] as { length: number }).length).toBeGreaterThan(0);
     expect(commentCall?.[2]).toMatchObject({ experimentKey: "bd_curation_comments", variant: "comments" });
-  });
 
-  it("decide WITHOUT a comment does not fire comment_added (but still decides)", async () => {
-    const track = vi.fn();
-    const decide = vi.fn(okDecide);
-    const actor = createActor(curationMachine, {
-      input: inputFor(okAssign, decide, track),
+    const silentTrack = vi.fn();
+    const silentDecide = vi.fn(okDecide);
+    const silent = createActor(curationMachine, {
+      input: inputFor(okAssign, silentDecide, silentTrack),
     }).start();
+    silent.send({ type: "OPEN_REVIEW", id: "0xcol1", topicId: 50121 });
+    silent.send({ type: "DRAFT_DECISION", status: "rejected" });
+    silent.send({ type: "SUBMIT", comment: "   " });
+    await waitFor(silent, (s) => s.matches("decided"));
 
-    actor.send({ type: "OPEN_REVIEW", id: "0xcol1", topicId: 50121 });
-    actor.send({ type: "DRAFT_DECISION", status: "rejected" });
-    actor.send({ type: "SUBMIT", comment: "   " });
-    await waitFor(actor, (s) => s.matches("decided"));
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(CURATION_EVENTS.decided);
-    expect(events).not.toContain(CURATION_EVENTS.commentAdded);
-
-    expect(decide.mock.calls[0]?.[0].comment).toBeUndefined();
-    const decidedCall = track.mock.calls.find((c) => c[0] === CURATION_EVENTS.decided);
+    const silentEvents = silentTrack.mock.calls.map((c) => c[0]);
+    expect(silentEvents).toContain(CURATION_EVENTS.decided);
+    expect(silentEvents).not.toContain(CURATION_EVENTS.commentAdded);
+    expect(silentDecide.mock.calls[0]?.[0].comment).toBeUndefined();
+    const decidedCall = silentTrack.mock.calls.find((c) => c[0] === CURATION_EVENTS.decided);
     expect(decidedCall?.[1]).toMatchObject({ status: "rejected", has_comment: false });
   });
 });
 
 describe("curateCommittee \u{2014} assign + filter", () => {
-  it("ASSIGN runs the simulated PATCH and returns to dashboard", async () => {
+  it("FILTER fires bd_curation_filtered and stays on the dashboard; ASSIGN runs the PATCH and returns to dashboard", async () => {
     const track = vi.fn();
     const assign = vi.fn(okAssign);
     const actor = createActor(curationMachine, {
       input: inputFor(assign, okDecide, track),
-    }).start();
-
-    actor.send({ type: "ASSIGN", id: "0xcol1" });
-    await waitFor(actor, (s) => s.matches("dashboard") && !!s.context.assignResult);
-
-    expect(assign.mock.calls[0]?.[0].body).toEqual({ assignee: YOU });
-    expect(track.mock.calls.map((c) => c[0])).toContain(CURATION_EVENTS.assigned);
-  });
-
-  it("FILTER fires bd_curation_filtered and stays on the dashboard", () => {
-    const track = vi.fn();
-    const actor = createActor(curationMachine, {
-      input: inputFor(okAssign, okDecide, track),
     }).start();
 
     actor.send({
@@ -275,6 +243,11 @@ describe("curateCommittee \u{2014} assign + filter", () => {
     expect(actor.getSnapshot().matches("dashboard")).toBe(true);
     expect(actor.getSnapshot().context.filters.status).toBe("to_review");
     expect(track.mock.calls.map((c) => c[0])).toContain(CURATION_EVENTS.filtered);
+
+    actor.send({ type: "ASSIGN", id: "0xcol1" });
+    await waitFor(actor, (s) => s.matches("dashboard") && !!s.context.assignResult);
+    expect(assign.mock.calls[0]?.[0].body).toEqual({ assignee: YOU });
+    expect(track.mock.calls.map((c) => c[0])).toContain(CURATION_EVENTS.assigned);
   });
 });
 
@@ -306,7 +279,7 @@ describe("curateCommittee \u{2014} decide failure keeps the comment draft", () =
 });
 
 describe("simulateAssign / simulateDecide", () => {
-  it("simulateDecide echoes status + a forum post when a comment is given", async () => {
+  it("simulateDecide echoes status + a forum post, rejects an invalid status; simulateAssign echoes the assignee", async () => {
     const out = await simulateDecide({
       id: "0xcol1",
       body: { status: "approved" },
@@ -315,17 +288,13 @@ describe("simulateAssign / simulateDecide", () => {
     expect(out.status).toBe("approved");
     expect(out.simulated).toBe(true);
     expect(out.comment?.raw).toBe("ok");
-  });
 
-  it("simulateDecide rejects an invalid status (mirrors validate_status)", async () => {
     await expect(
       // @ts-expect-error -- deliberately invalid status
       simulateDecide({ id: "x", body: { status: "bogus" } }),
     ).rejects.toThrow(/Invalid Status/);
-  });
 
-  it("simulateAssign echoes the assignee body", async () => {
-    const out = await simulateAssign({ id: "0xcol1", body: { assignee: YOU } });
-    expect(out).toEqual({ id: "0xcol1", assignee: YOU, simulated: true });
+    const assigned = await simulateAssign({ id: "0xcol1", body: { assignee: YOU } });
+    expect(assigned).toEqual({ id: "0xcol1", assignee: YOU, simulated: true });
   });
 });

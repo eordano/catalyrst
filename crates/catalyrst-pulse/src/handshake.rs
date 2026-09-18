@@ -39,6 +39,11 @@ impl HandshakeError {
 pub struct VerifiedHandshake {
     pub user_address: String,
 
+    /// The identity that actually signed this connection: the last delegated ephemeral address,
+    /// or the wallet itself when the chain never delegates. Two devices on one wallet therefore
+    /// carry different sessions, which is what makes a takeover distinguishable from a reconnect.
+    pub session: String,
+
     pub timestamp: String,
 }
 
@@ -47,6 +52,20 @@ pub use catalyrst_crypto::signed_fetch::build_payload_v6 as build_signed_fetch_p
 fn has_auth_chain_header(obj: &serde_json::Map<String, serde_json::Value>) -> bool {
     obj.keys()
         .any(|k| k.to_lowercase().starts_with(AUTH_CHAIN_HEADER_PREFIX))
+}
+
+/// The final delegate in the chain. Only the last one counts: a chain may delegate more than
+/// once, and every earlier ephemeral is a link in the path to it, not the signer of the payload.
+fn session_address(chain: &AuthChain) -> Option<String> {
+    chain
+        .iter()
+        .rev()
+        .find(|l| l.link_type == AuthLinkType::EcdsaEphemeral)
+        .and_then(|l| {
+            catalyrst_crypto::auth_chain::parse_ephemeral_payload(&l.payload)
+                .ok()
+                .map(|(_, ephemeral, _)| ephemeral.trim().to_lowercase())
+        })
 }
 
 fn signer_address(chain: &AuthChain) -> Option<String> {
@@ -109,8 +128,11 @@ pub fn verify_handshake_bytes(
     let user_address = signer_address(&chain)
         .ok_or_else(|| HandshakeError::InvalidAuthChain("First link must be SIGNER".into()))?;
 
+    let session = session_address(&chain).unwrap_or_else(|| user_address.clone());
+
     Ok(VerifiedHandshake {
         user_address,
+        session,
         timestamp,
     })
 }
@@ -317,6 +339,8 @@ mod tests {
         let now_ms: i64 = ts.parse().unwrap();
         let ok = verify_handshake(&req, now_ms).expect("real chain must verify");
         assert_eq!(ok.user_address, root_addr.to_lowercase());
+        assert_eq!(ok.session, eph_addr.to_lowercase());
+        assert_ne!(ok.session, ok.user_address);
         assert_eq!(ok.timestamp, ts);
 
         let bad_metadata = "{\"signer\":\"dcl:other\"}";

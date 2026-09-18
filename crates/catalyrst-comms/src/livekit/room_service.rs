@@ -77,6 +77,13 @@ pub enum RoomServiceError {
     NotFound,
 }
 
+/// What a removal found in the room.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Removal {
+    Removed,
+    Absent,
+}
+
 pub const BANNED_ADDRESSES_FIELD: &str = "bannedAddresses";
 pub const SCENE_ADMINS_FIELD: &str = "sceneAdmins";
 
@@ -220,6 +227,52 @@ impl<'a> RoomServiceClient<'a> {
         }
     }
 
+    /// Removes a participant and, when a boundary is given, revokes every token for that identity
+    /// whose `nbf` predates it.
+    ///
+    /// Unlike [`RoomServiceClient::remove_participant`], an absent participant is reported rather
+    /// than folded into success: the takeover path counts "had already left" apart from "removed",
+    /// and only the second means a live session was ended.
+    ///
+    /// The boundary goes on the wire in seconds, matching the `nbf` unit LiveKit compares it
+    /// against, and as a string because that is proto3 JSON's canonical encoding for an int64.
+    pub async fn remove_participant_revoking(
+        &self,
+        room: &str,
+        identity: &str,
+        revoke_tokens_minted_before: Option<i64>,
+    ) -> Result<Removal, RoomServiceError> {
+        let mut body = serde_json::json!({ "room": room, "identity": identity });
+        if let Some(boundary) = revoke_tokens_minted_before {
+            body["revokeTokenTs"] = serde_json::Value::String(boundary.to_string());
+        }
+        match self.call("RemoveParticipant", room, body).await {
+            Ok(_) => Ok(Removal::Removed),
+            Err(RoomServiceError::NotFound) => Ok(Removal::Absent),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Whether the identity is currently in the room, compared case-insensitively.
+    ///
+    /// A room or participant that is absent answers `false`; every other failure propagates. A
+    /// caller that must fail closed on "could not tell" can only do so if the two are distinct.
+    pub async fn holds_participant(
+        &self,
+        room: &str,
+        identity: &str,
+    ) -> Result<bool, RoomServiceError> {
+        let participants = match self.list_participants(room).await {
+            Ok(participants) => participants,
+            Err(RoomServiceError::NotFound) => return Ok(false),
+            Err(e) => return Err(e),
+        };
+        let target = identity.to_lowercase();
+        Ok(participants
+            .iter()
+            .any(|p| p.identity.to_lowercase() == target))
+    }
+
     pub async fn get_participant(
         &self,
         room: &str,
@@ -323,6 +376,30 @@ impl<'a> RoomServiceClient<'a> {
         identity: &str,
         patch: serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), RoomServiceError> {
+        let metadata = self.merged_metadata(room, identity, patch).await;
+        self.update_participant(room, identity, Some(&metadata), None)
+            .await
+    }
+
+    /// One UpdateParticipant carrying both the merged metadata and the permission.
+    pub async fn merge_participant_metadata_with_permission(
+        &self,
+        room: &str,
+        identity: &str,
+        patch: serde_json::Map<String, serde_json::Value>,
+        permission: serde_json::Value,
+    ) -> Result<(), RoomServiceError> {
+        let metadata = self.merged_metadata(room, identity, patch).await;
+        self.update_participant(room, identity, Some(&metadata), Some(permission))
+            .await
+    }
+
+    async fn merged_metadata(
+        &self,
+        room: &str,
+        identity: &str,
+        patch: serde_json::Map<String, serde_json::Value>,
+    ) -> String {
         let existing = self
             .get_participant(room, identity)
             .await
@@ -336,9 +413,7 @@ impl<'a> RoomServiceClient<'a> {
         for (k, v) in patch {
             merged.insert(k, v);
         }
-        let metadata = serde_json::Value::Object(merged).to_string();
-        self.update_participant(room, identity, Some(&metadata), None)
-            .await
+        serde_json::Value::Object(merged).to_string()
     }
 
     pub async fn list_rooms(&self) -> Result<Vec<String>, RoomServiceError> {

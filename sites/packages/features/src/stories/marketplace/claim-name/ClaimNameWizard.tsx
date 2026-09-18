@@ -20,11 +20,12 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type ClaimNameWizardProps = {
+type ClaimNameWizardProps = {
   trackCtx: TrackContext;
   takenNames?: string[];
   sampleName?: string;
   initialStep?: string;
+  allowStepPreview?: boolean;
   check?: CheckAvailabilityFn;
   mint?: MintFn;
   track?: TrackFn;
@@ -38,6 +39,7 @@ export default function ClaimNameWizard({
   takenNames = [],
   sampleName = "myWorld",
   initialStep,
+  allowStepPreview = true,
   check,
   mint,
   track,
@@ -47,7 +49,7 @@ export default function ClaimNameWizard({
 }: ClaimNameWizardProps) {
   const [searchParams] = useSearchParams();
 
-  const urlStep = (searchParams.get("step")?.trim() || initialStep) ?? undefined;
+  const urlStep = allowStepPreview ? (searchParams.get("step")?.trim() || initialStep) ?? undefined : undefined;
   const TRANSIENT = new Set(["checking", "submitting"]);
   const rawState = slugToState(urlStep);
   const stateId = TRANSIENT.has(rawState) ? "entering" : rawState;

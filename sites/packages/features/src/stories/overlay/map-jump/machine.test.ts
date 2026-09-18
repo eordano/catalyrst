@@ -72,91 +72,6 @@ const EXPECTED_STATES = new Set([
   "error",
 ]);
 
-describe("mapJumpMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(mapJumpMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.browsing);
-    expect(slugToState(null)).toBe("browsing");
-    expect(slugToState(undefined)).toBe("browsing");
-    expect(slugToState("")).toBe("browsing");
-    expect(slugToState("nope")).toBe("browsing");
-    expect(slugToState("select")).toBe("selected");
-    expect(slugToState("confirm")).toBe("confirming");
-    expect(slugToState("jump")).toBe("jumping");
-    expect(slugToState("done")).toBe("done");
-    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
-});
-
-describe("mapJumpMachine \u{2014} deep-link hydration", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveMapJumpSnapshot({
-      step: "browsing",
-      trackCtx: inputFor(okJump, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating ?step=jump pins the step, fires NO machine telemetry, and does NOT auto-teleport", async () => {
-    const track = vi.fn();
-    const jump = vi.fn(okJump);
-    const snapshot = resolveMapJumpSnapshot({
-      step: "jumping",
-      trackCtx: inputFor(jump, track, PIN_A).trackCtx,
-      pin: PIN_A,
-      jump,
-      track,
-    });
-    const actor = createActor(mapJumpMachine, {
-      input: inputFor(jump, track, PIN_A),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("jumping")).toBe(true);
-    expect(actor.getSnapshot().context.pin?.id).toBe("place-a");
-
-    await Promise.resolve();
-    expect(track).not.toHaveBeenCalled();
-    expect(jump).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("jumping")).toBe(true);
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveMapJumpSnapshot({
-      step: "selected",
-      trackCtx: inputFor(okJump, track, PIN_A).trackCtx,
-      pin: PIN_A,
-      track,
-    });
-    const actor = createActor(mapJumpMachine, {
-      input: inputFor(okJump, track, PIN_A),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("selected")).toBe(true);
-
-    actor.send({ type: "CONFIRM" });
-    expect(actor.getSnapshot().matches("confirming")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(MAP_JUMP_EVENTS.confirmReached);
-  });
-});
-
 const TRAVERSAL_EVENTS = [
   { type: "FILTER" as const, filter: "poi" as const },
   { type: "SELECT_PIN" as const, pin: PIN_A },
@@ -168,8 +83,74 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
+describe("mapJumpMachine \u{2014} URL ?step slug map", () => {
+  it("covers exactly the machine's states with unique slugs that round-trip and fall back to the first step", () => {
+    const machineStates = new Set(Object.keys(mapJumpMachine.states));
+    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mappedStates).toEqual(machineStates);
+    expect(mappedStates).toEqual(EXPECTED_STATES);
+
+    const slugs = Object.values(STATE_TO_SLUG);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+    }
+
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.browsing);
+    for (const missing of [null, undefined, "", "nope"]) expect(slugToState(missing)).toBe("browsing");
+    expect(slugToState("select")).toBe("selected");
+    expect(slugToState("confirm")).toBe("confirming");
+    expect(slugToState("jump")).toBe("jumping");
+    expect(slugToState("done")).toBe("done");
+    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
+  });
+});
+
+describe("mapJumpMachine \u{2014} deep-link hydration", () => {
+  it("pins the step without machine telemetry or an auto-teleport, and real transitions afterwards still track", async () => {
+    const track = vi.fn();
+    const jump = vi.fn(okJump);
+    expect(
+      resolveMapJumpSnapshot({ step: "browsing", trackCtx: inputFor(jump, track).trackCtx }),
+    ).toBeUndefined();
+
+    const jumping = createActor(mapJumpMachine, {
+      input: inputFor(jump, track, PIN_A),
+      snapshot: resolveMapJumpSnapshot({
+        step: "jumping",
+        trackCtx: inputFor(jump, track, PIN_A).trackCtx,
+        pin: PIN_A,
+        jump,
+        track,
+      }),
+    }).start();
+    expect(jumping.getSnapshot().matches("jumping")).toBe(true);
+    expect(jumping.getSnapshot().context.pin?.id).toBe("place-a");
+    await Promise.resolve();
+    expect(track).not.toHaveBeenCalled();
+    expect(jump).not.toHaveBeenCalled();
+    expect(jumping.getSnapshot().matches("jumping")).toBe(true);
+
+    const selected = createActor(mapJumpMachine, {
+      input: inputFor(jump, track, PIN_A),
+      snapshot: resolveMapJumpSnapshot({
+        step: "selected",
+        trackCtx: inputFor(jump, track, PIN_A).trackCtx,
+        pin: PIN_A,
+        track,
+      }),
+    }).start();
+    expect(selected.getSnapshot().matches("selected")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+    selected.send({ type: "CONFIRM" });
+    expect(selected.getSnapshot().matches("confirming")).toBe(true);
+    expect(track.mock.calls.map((c) => c[0])).toContain(MAP_JUMP_EVENTS.confirmReached);
+  });
+});
+
 describe("mapJumpMachine \u{2014} model-based path coverage (@xstate/graph)", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and jumping is reached through SELECT_PIN, CONFIRM and JUMP", () => {
     const paths = getShortestPaths(mapJumpMachine, {
       input: inputFor(okJump, () => {}),
       events: TRAVERSAL_EVENTS,
@@ -181,17 +162,8 @@ describe("mapJumpMachine \u{2014} model-based path coverage (@xstate/graph)", ()
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("browsing")).toBe(true);
-    expect(ends.has("selected")).toBe(true);
-    expect(ends.has("confirming")).toBe(true);
-    expect(ends.has("jumping")).toBe(true);
-  });
+    for (const state of ["browsing", "selected", "confirming", "jumping"]) expect(ends.has(state), state).toBe(true);
 
-  it("reaching jumping passes through SELECT_PIN, CONFIRM and JUMP", () => {
-    const paths = getShortestPaths(mapJumpMachine, {
-      input: inputFor(okJump, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
     const jumping = paths.find((p) => (p.state.value as string) === "jumping");
     expect(jumping).toBeDefined();
     const events = jumping!.steps.map((s) => s.event.type);
@@ -202,7 +174,7 @@ describe("mapJumpMachine \u{2014} model-based path coverage (@xstate/graph)", ()
 });
 
 describe("mapJumpMachine \u{2014} telemetry events (happy path)", () => {
-  it("filter -> select -> confirm -> jump -> done fires the full funnel", async () => {
+  it("filter -> select (re-pick) -> set home -> confirm -> jump -> done fires the full funnel with the last pin", async () => {
     const track = vi.fn();
     const actor = createActor(mapJumpMachine, {
       input: inputFor(okJump, track),
@@ -210,21 +182,30 @@ describe("mapJumpMachine \u{2014} telemetry events (happy path)", () => {
 
     actor.send({ type: "FILTER", filter: "poi" });
     actor.send({ type: "SELECT_PIN", pin: PIN_A });
+    actor.send({ type: "SELECT_PIN", pin: PIN_B });
     expect(actor.getSnapshot().matches("selected")).toBe(true);
+    expect(actor.getSnapshot().context.pin?.id).toBe("place-b");
+    expect(track.mock.calls.filter((c) => c[0] === MAP_JUMP_EVENTS.pinSelected).length).toBe(2);
 
+    actor.send({ type: "TOGGLE_HOME" });
     actor.send({ type: "CONFIRM" });
     expect(actor.getSnapshot().matches("confirming")).toBe(true);
+    const confirmCall = track.mock.calls.find((c) => c[0] === MAP_JUMP_EVENTS.confirmReached);
+    expect(confirmCall?.[1]).toMatchObject({ coords: "-45,72", set_home: true });
 
     actor.send({ type: "JUMP" });
     await waitFor(actor, (s) => s.matches("done"));
 
     const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(MAP_JUMP_EVENTS.filtered);
-    expect(events).toContain(MAP_JUMP_EVENTS.pinSelected);
-    expect(events).toContain(MAP_JUMP_EVENTS.confirmReached);
-    expect(events).toContain(MAP_JUMP_EVENTS.jump);
-    expect(events).toContain(MAP_JUMP_EVENTS.done);
-
+    for (const event of [
+      MAP_JUMP_EVENTS.filtered,
+      MAP_JUMP_EVENTS.pinSelected,
+      MAP_JUMP_EVENTS.confirmReached,
+      MAP_JUMP_EVENTS.jump,
+      MAP_JUMP_EVENTS.done,
+    ]) {
+      expect(events, event).toContain(event);
+    }
     expect(events.indexOf(MAP_JUMP_EVENTS.confirmReached)).toBeLessThan(
       events.indexOf(MAP_JUMP_EVENTS.jump),
     );
@@ -234,8 +215,9 @@ describe("mapJumpMachine \u{2014} telemetry events (happy path)", () => {
 
     const jumpCall = track.mock.calls.find((c) => c[0] === MAP_JUMP_EVENTS.jump);
     expect(jumpCall?.[1]).toMatchObject({
-      place_id: "place-a",
-      coords: "0,0",
+      place_id: "place-b",
+      coords: "-45,72",
+      set_home: true,
       simulated: true,
     });
     expect(jumpCall?.[2]).toMatchObject({
@@ -244,19 +226,6 @@ describe("mapJumpMachine \u{2014} telemetry events (happy path)", () => {
       variant: "navmap",
     });
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
-  });
-
-  it("re-picking a pin in `selected` re-fires cl_map_pin_selected and updates ctx", () => {
-    const track = vi.fn();
-    const actor = createActor(mapJumpMachine, {
-      input: inputFor(okJump, track),
-    }).start();
-
-    actor.send({ type: "SELECT_PIN", pin: PIN_A });
-    actor.send({ type: "SELECT_PIN", pin: PIN_B });
-    expect(actor.getSnapshot().context.pin?.id).toBe("place-b");
-    const selects = track.mock.calls.filter((c) => c[0] === MAP_JUMP_EVENTS.pinSelected);
-    expect(selects.length).toBe(2);
   });
 
   it("CONFIRM without a selected pin is a no-op (guarded)", () => {
@@ -270,18 +239,6 @@ describe("mapJumpMachine \u{2014} telemetry events (happy path)", () => {
     actor.send({ type: "CONFIRM" });
     expect(actor.getSnapshot().matches("confirming")).toBe(false);
     expect(track.mock.calls.map((c) => c[0])).not.toContain(MAP_JUMP_EVENTS.confirmReached);
-  });
-
-  it("set-as-home toggle is carried into confirm_reached + jump props", () => {
-    const track = vi.fn();
-    const actor = createActor(mapJumpMachine, {
-      input: inputFor(okJump, track),
-    }).start();
-    actor.send({ type: "SELECT_PIN", pin: PIN_A });
-    actor.send({ type: "TOGGLE_HOME" });
-    actor.send({ type: "CONFIRM" });
-    const confirmCall = track.mock.calls.find((c) => c[0] === MAP_JUMP_EVENTS.confirmReached);
-    expect(confirmCall?.[1]).toMatchObject({ coords: "0,0", set_home: true });
   });
 });
 

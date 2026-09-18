@@ -44,7 +44,7 @@ const SAMPLE_SEED: Partial<ReportDraft> = {
   ],
 };
 
-export type ReportWizardProps = {
+type ReportWizardProps = {
   trackCtx: TrackContext;
   playerAddress?: string;
   reasonOptions?: ReasonOption[];

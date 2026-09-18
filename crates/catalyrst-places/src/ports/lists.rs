@@ -17,6 +17,14 @@ impl ListsComponent {
     }
 
     pub async fn ensure_schema(&self) -> Result<(), ApiError> {
+        let existing: bool = sqlx::query_scalar(
+            "SELECT to_regclass('lists_poi') IS NOT NULL AND to_regclass('lists_banned_name') IS NOT NULL",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if existing {
+            return Ok(());
+        }
         for statement in split_statements(include_str!("../../migrations/0001_lists.sql")) {
             sqlx::query(sqlx::AssertSqlSafe(statement))
                 .execute(&self.pool)

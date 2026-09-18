@@ -18,7 +18,7 @@
 .fpsmeter__fps.is-bad { color: var(--error); }
 
 .fpsmeter__unit {
-  font-size: var(--fs-2xs); font-weight: 600; opacity: .7; margin-left: 2px;
+  font-size: var(--fs-2xs); font-weight: 600; margin-left: 2px;
 }
 .fpsmeter__dim { color: var(--ink-6); }
 .fpsmeter__engine { color: var(--info); font-weight: 700; }

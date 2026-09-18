@@ -12,7 +12,7 @@ function renderWorkspace() {
 }
 
 describe("DeWorkspace discrete shortcuts", () => {
-  it("Q/W/E/R switch the active tool (aria-pressed)", () => {
+  it("Q/W/E/R switch the active tool, keys typed into panel inputs never do, and Undo/Redo stay disabled with an empty history", () => {
     renderWorkspace();
     expect(pressed("Move (W)")).toBe("true");
 
@@ -28,21 +28,28 @@ describe("DeWorkspace discrete shortcuts", () => {
 
     fireEvent.keyDown(window, { key: "w" });
     expect(pressed("Move (W)")).toBe("true");
-  });
 
-  it("keys typed into panel inputs never switch tools", () => {
-    renderWorkspace();
     const search = screen.getByPlaceholderText("Search entities\u{2026}");
     search.focus();
     fireEvent.keyDown(search, { key: "e" });
     expect(pressed("Rotate (E)")).toBe("false");
     expect(pressed("Move (W)")).toBe("true");
+
+    for (const label of ["Undo", "Redo"]) {
+      const btn = screen.getByLabelText(label) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      expect(btn.title.length).toBeGreaterThan(label.length);
+    }
   });
 
-  it("? opens the cheatsheet, Esc closes it, and tool keys stand down while it is open", () => {
+  it("? toggles the cheatsheet, Esc closes it, tool keys stand down while it is open, and it documents the combined scheme", () => {
     renderWorkspace();
     fireEvent.keyDown(window, { key: "?" });
     expect(screen.getByText(/Keyboard & mouse shortcuts/)).toBeTruthy();
+    for (const label of ["Orbit", "Focus selection", "Toggle fly camera"]) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+    expect(screen.getAllByText(/F5/).length).toBeGreaterThan(0);
 
     fireEvent.keyDown(window, { key: "e" });
     expect(pressed("Rotate (E)")).toBe("false");
@@ -54,23 +61,5 @@ describe("DeWorkspace discrete shortcuts", () => {
     expect(screen.getByText(/Keyboard & mouse shortcuts/)).toBeTruthy();
     fireEvent.keyDown(window, { key: "?" });
     expect(screen.queryByText(/Keyboard & mouse shortcuts/)).toBeNull();
-  });
-
-  it("the cheatsheet documents the combined scheme (mouse + views + F5)", () => {
-    renderWorkspace();
-    fireEvent.keyDown(window, { key: "?" });
-    for (const label of ["Orbit", "Focus selection", "Toggle fly camera"]) {
-      expect(screen.getByText(label)).toBeTruthy();
-    }
-    expect(screen.getAllByText(/F5/).length).toBeGreaterThan(0);
-  });
-
-  it("Undo/Redo stay disabled with an empty history, and say why", () => {
-    renderWorkspace();
-    for (const label of ["Undo", "Redo"]) {
-      const btn = screen.getByLabelText(label) as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
-      expect(btn.title.length).toBeGreaterThan(label.length);
-    }
   });
 });

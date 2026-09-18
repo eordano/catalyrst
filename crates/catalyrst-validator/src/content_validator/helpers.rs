@@ -222,3 +222,19 @@ mod tests {
         assert!(is_relative_thumbnail_path(""));
     }
 }
+
+#[cfg(test)]
+mod schema_27_2_tests {
+    use super::*;
+
+    #[test]
+    fn base_scene_emotes_pass_profile_validation() {
+        let metadata = serde_json::json!({"avatars": [{"avatar": {"emotes": [
+            {"slot": 0, "urn": "urn:decentraland:off-chain:base-scene-emotes:wave"}
+        ]}}]});
+        assert!(validate_profile_emote_urns(&metadata, 1_800_000_000_000).is_ok());
+        let mut invalid = metadata;
+        invalid["avatars"][0]["avatar"]["emotes"][0]["slot"] = serde_json::json!(10);
+        assert!(validate_profile_emote_urns(&invalid, 1_800_000_000_000).is_err());
+    }
+}

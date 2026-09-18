@@ -404,39 +404,28 @@ impl Store {
         &self,
         id: &str,
     ) -> Result<Option<(Value, Option<Value>, Vec<Value>)>> {
-        let Some(row) = sqlx::query("SELECT raw, proposal_id FROM projects WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await
-            .context("get project")?
+        let Some(row) = sqlx::query(
+            "SELECT p.raw, pr.configuration, \
+                    COALESCE((SELECT json_agg(pu.raw ORDER BY pu.created_at ASC NULLS LAST) \
+                              FROM project_updates pu WHERE pu.project_id = p.id), \
+                             '[]'::json) AS updates \
+             FROM projects p \
+             LEFT JOIN proposals pr ON pr.id = p.proposal_id \
+             WHERE p.id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("get project")?
         else {
             return Ok(None);
         };
         let project_raw: Value = row.get("raw");
-        let proposal_id: Option<String> = row.get("proposal_id");
-
-        let proposal_cfg: Option<Value> = match proposal_id.as_deref() {
-            Some(pid) => sqlx::query("SELECT configuration FROM proposals WHERE id = $1")
-                .bind(pid)
-                .fetch_optional(&self.pool)
-                .await
-                .context("get proposal configuration")?
-                .and_then(|r| r.get::<Option<Value>, _>("configuration")),
-            None => None,
+        let proposal_cfg: Option<Value> = row.get("configuration");
+        let updates = match row.get::<Value, _>("updates") {
+            Value::Array(items) => items,
+            _ => Vec::new(),
         };
-
-        let updates = sqlx::query(
-            "SELECT raw FROM project_updates WHERE project_id = $1 \
-             ORDER BY created_at ASC NULLS LAST",
-        )
-        .bind(id)
-        .fetch_all(&self.pool)
-        .await
-        .context("list project updates")?
-        .into_iter()
-        .map(|r| r.get::<Value, _>("raw"))
-        .collect();
-
         Ok(Some((project_raw, proposal_cfg, updates)))
     }
 
@@ -489,8 +478,19 @@ impl Store {
     }
 }
 
+pub type ProposalRefs = (Option<String>, Option<i64>);
+
+#[derive(Debug, Clone)]
+pub struct ActivityRow {
+    pub kind: &'static str,
+    pub proposal_id: Option<String>,
+    pub title: String,
+    pub address: Option<String>,
+    pub ts: i64,
+}
+
 impl Store {
-    pub async fn proposal_refs(&self, id: &str) -> Result<Option<(Option<String>, Option<i64>)>> {
+    pub async fn proposal_refs(&self, id: &str) -> Result<Option<ProposalRefs>> {
         let row =
             sqlx::query("SELECT snapshot_id, discourse_topic_id FROM proposals WHERE id = $1")
                 .bind(id)
@@ -583,6 +583,56 @@ impl Store {
                 )
             })
             .collect())
+    }
+
+    /// The three main-pool feeds of `/activity` in one statement, branch order kept.
+    pub async fn recent_activity(&self, limit: i64) -> Result<Vec<ActivityRow>> {
+        let rows = sqlx::query(
+            "(SELECT 1 AS seq, id AS proposal_id, COALESCE(title, '') AS title, \"user\" AS address, \
+                     COALESCE(EXTRACT(EPOCH FROM created_at), 0)::bigint AS ts \
+              FROM proposals WHERE created_at IS NOT NULL \
+              ORDER BY created_at DESC LIMIT $1) \
+             UNION ALL \
+             (SELECT 2, id, COALESCE(title, ''), NULL::text, \
+                     COALESCE(EXTRACT(EPOCH FROM finish_at), 0)::bigint \
+              FROM proposals WHERE finish_at IS NOT NULL AND finish_at < now() \
+              ORDER BY finish_at DESC LIMIT $1) \
+             UNION ALL \
+             (SELECT 3, pu.proposal_id, COALESCE(pr.title, p.title, ''), NULL::text, \
+                     COALESCE(EXTRACT(EPOCH FROM pu.created_at), 0)::bigint \
+              FROM project_updates pu \
+              LEFT JOIN projects pr ON pr.id = pu.project_id \
+              LEFT JOIN proposals p ON p.id = pu.proposal_id \
+              WHERE pu.created_at IS NOT NULL \
+              ORDER BY pu.created_at DESC LIMIT $1)",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .context("recent activity")?;
+        let mut out: Vec<(i32, ActivityRow)> = rows
+            .iter()
+            .map(|r| {
+                let seq: i32 = r.get("seq");
+                let kind = match seq {
+                    1 => "proposal",
+                    2 => "finished",
+                    _ => "update",
+                };
+                (
+                    seq,
+                    ActivityRow {
+                        kind,
+                        proposal_id: r.try_get::<Option<String>, _>("proposal_id").ok().flatten(),
+                        title: r.get::<String, _>("title"),
+                        address: r.try_get::<Option<String>, _>("address").ok().flatten(),
+                        ts: r.get::<i64, _>("ts"),
+                    },
+                )
+            })
+            .collect();
+        out.sort_by_key(|(seq, _)| *seq);
+        Ok(out.into_iter().map(|(_, row)| row).collect())
     }
 
     pub async fn titles_by_snapshot_ids(

@@ -321,31 +321,6 @@
   background: transparent;
 }
 
-.cwie-wizard__btn--primary:disabled:hover {
-  background: var(--brand, #ff2d55);
-}
-
-.cwie-wizard__btn--primary {
-  background: var(--brand, #ff2d55);
-  border-color: var(--brand, #ff2d55);
-}
-
-.cwie-wizard__btn--primary:hover {
-  filter: brightness(1.08);
-  background: var(--brand, #ff2d55);
-}
-
-.cwie-wizard__btn--ghost {
-  border-color: transparent;
-  opacity: 0.8;
-  min-width: 0;
-  padding: 8px 16px;
-}
-
-.cwie-wizard__btn--ghost:hover {
-  opacity: 1;
-}
-
 .cwie-wizard__revert {
   margin-top: 14px;
 }

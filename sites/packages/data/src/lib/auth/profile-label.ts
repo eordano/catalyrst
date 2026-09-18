@@ -1,6 +1,6 @@
 import { formatUntrustedLabel } from "./untrusted-label";
 
-export type ProfileNameSource = {
+type ProfileNameSource = {
   name?: string;
   ethAddress?: string;
   userId?: string;

@@ -18,9 +18,9 @@ const AvatarSchema = z.object({
 const ProfileLambdaSchema = z.object({
   avatars: z.array(AvatarSchema),
 });
-export type ProfileLambda = z.infer<typeof ProfileLambdaSchema>;
+type ProfileLambda = z.infer<typeof ProfileLambdaSchema>;
 
-export const ReferralTierSchema = z.object({
+const ReferralTierSchema = z.object({
   tier: z.number(),
   invitesAccepted: z.number(),
   rarity: z.string(),
@@ -43,11 +43,11 @@ export type ReferrerVM = {
   resolved: boolean;
 };
 
-export function truncateAddress(addr: string): string {
+function truncateAddress(addr: string): string {
   return shortAddress(addr);
 }
 
-export function toReferrerVM(profile: ProfileLambda): ReferrerVM | null {
+function toReferrerVM(profile: ProfileLambda): ReferrerVM | null {
   const a = profile.avatars[0];
   if (!a) return null;
   const claimed = Boolean(a.hasClaimedName && a.name);

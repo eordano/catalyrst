@@ -50,12 +50,6 @@
   color: #fff;
 }
 
-.es-browse__source {
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(22, 20, 26, 0.55);
-}
-
 .es-browse__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -126,18 +120,6 @@
 .es-card__badge--draft {
   background: rgba(22, 20, 26, 0.1);
   color: rgba(22, 20, 26, 0.6);
-}
-
-.es-browse__create {
-  appearance: none;
-  border: none;
-  background: #ff2d55;
-  color: #fff;
-  border-radius: 999px;
-  padding: 10px 22px;
-  font-size: 14px;
-  font-weight: 800;
-  cursor: pointer;
 }
 
 .event-schedule {

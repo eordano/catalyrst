@@ -14,9 +14,9 @@ export const OPERATOR_EVENTS = {
   dashboardFunnelClicked: "operator_dashboard_funnel_clicked",
 } as const;
 
-export type OperatorTarget = "land" | "world";
+type OperatorTarget = "land" | "world";
 
-export type OperatorEvent = (typeof OPERATOR_EVENTS)[keyof typeof OPERATOR_EVENTS] &
+type OperatorEvent = (typeof OPERATOR_EVENTS)[keyof typeof OPERATOR_EVENTS] &
   TelemetryEventName;
 
 export function trackOperator<K extends OperatorEvent>(

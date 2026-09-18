@@ -21,7 +21,7 @@ import {
   type NameAvailability,
 } from "@data/lib/catalyst/marketplace/names";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 
 import type { Route } from "./+types/marketplace.names";
@@ -64,21 +64,24 @@ export async function loader({ request }: Route.LoaderArgs) {
     ""
   ).trim();
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, wrap, data } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    async () => {
+      let result: NameAvailability | null = null;
+      let checkFailed = false;
+      if (query && classifyName(query, NO_TAKEN).kind === "available") {
+        try {
+          result = await checkNameAvailability(query, { signal: request.signal });
+        } catch {
+          checkFailed = true;
+        }
+      }
+      return { result, checkFailed };
+    },
   );
-
-  let result: NameAvailability | null = null;
-  let checkFailed = false;
-  if (query && classifyName(query, NO_TAKEN).kind === "available") {
-    try {
-      result = await checkNameAvailability(query, { signal: request.signal });
-    } catch {
-      checkFailed = true;
-    }
-  }
+  const { result, checkFailed } = data;
 
   const payload = { sid, query, result, checkFailed };
 

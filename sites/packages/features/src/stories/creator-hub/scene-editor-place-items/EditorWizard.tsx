@@ -14,12 +14,17 @@ import type { CatalogItem } from "@data/lib/catalyst/creator-hub/asset-catalog.s
 import { buildScaffoldFiles } from "@data/lib/fs/scaffold-project";
 import { hasTemplateComposite } from "@data/lib/fs/template-composites";
 import {
+  NO_COMPOSITE_CODE_ONLY_HINT,
+  NO_COMPOSITE_HINT,
+  OPEN_FAILED_HINT,
+} from "@data/lib/fs/local-scene";
+import {
   handleStore,
   slugifyProjectTitle,
   ensureHandlePermission,
 } from "@data/lib/fs/handle-store";
 
-export type EditorWizardProps = {
+type EditorWizardProps = {
   seed: SceneEditorSeed;
   onExit?: () => void;
   onPublish?: (id?: string, draft?: string) => void;
@@ -30,6 +35,7 @@ export type EditorWizardProps = {
   catalog?: CatalogItem[];
   template?: string;
   failedToLoadLocal?: boolean;
+  from?: string | null;
 };
 
 type DiskSaveState =
@@ -43,6 +49,11 @@ type DiskSaveState =
       serverSynced?: boolean;
     }
   | { phase: "canceled"; serverSynced?: boolean }
+  | { phase: "error"; message: string };
+
+type DiskOpenState =
+  | { phase: "idle" }
+  | { phase: "picking" | "reading" | "opening" }
   | { phase: "error"; message: string };
 
 const MUTATING_TO_SCENE = new Set<PageToSceneMessage["type"]>([
@@ -65,11 +76,13 @@ export default function EditorWizard({
   catalog,
   template,
   failedToLoadLocal,
+  from = null,
 }: EditorWizardProps) {
   const [templateNoticeDismissed, setTemplateNoticeDismissed] = useState(false);
   const [localErrorDismissed, setLocalErrorDismissed] = useState(false);
   const [liveCopyNoteDismissed, setLiveCopyNoteDismissed] = useState(false);
   const [diskSave, setDiskSave] = useState<DiskSaveState>({ phase: "idle" });
+  const [diskOpen, setDiskOpen] = useState<DiskOpenState>({ phase: "idle" });
   const [enginePlaying, setEnginePlaying] = useState(false);
   const [engineStatus, setEngineStatus] = useState<"connecting" | "online" | "offline">(
     "connecting",
@@ -383,6 +396,46 @@ export default function EditorWizard({
       </div>
     ) : null;
 
+  async function onOpenFromDisk() {
+    if (diskOpen.phase !== "idle" && diskOpen.phase !== "error") return;
+    if (enginePlaying) return;
+    if (
+      dirtyRef.current &&
+      typeof window !== "undefined" &&
+      !window.confirm("You have unsaved changes. Open another scene and lose them?")
+    ) {
+      return;
+    }
+    setDiskOpen({ phase: "picking" });
+    try {
+      const { openLocalScene, stageLocalSceneForEditor } = await import(
+        "@data/lib/fs/local-scene"
+      );
+      const out = await openLocalScene({ onPhase: (phase) => setDiskOpen({ phase }) });
+      if (out.status === "cancelled") {
+        setDiskOpen({ phase: "idle" });
+        return;
+      }
+      if (out.status === "no-composite") {
+        setDiskOpen({
+          phase: "error",
+          message: out.hasSceneJson ? NO_COMPOSITE_CODE_ONLY_HINT : NO_COMPOSITE_HINT,
+        });
+        return;
+      }
+      setDiskOpen({ phase: "opening" });
+      await stageLocalSceneForEditor(out.result);
+      dirtyRef.current = false;
+      if (typeof window !== "undefined") {
+        window.location.assign(
+          `/creator-hub/scene-editor?source=local&from=${encodeURIComponent(from ?? "editor")}`,
+        );
+      }
+    } catch {
+      setDiskOpen({ phase: "error", message: OPEN_FAILED_HINT });
+    }
+  }
+
   async function onSaveToDisk() {
     if (diskSave.phase === "saving" || enginePlaying) return;
     setDiskSave({ phase: "saving" });
@@ -420,6 +473,34 @@ export default function EditorWizard({
       });
     }
   }
+
+  const openStatusStrip =
+    diskOpen.phase === "idle" ? null : (
+      <Controls label="Open">
+        {diskOpen.phase === "error" ? (
+          <span role="alert" style={{ color: "var(--error, #ff8080)" }}>
+            {diskOpen.message}
+          </span>
+        ) : (
+          <span className="editor-wizard__spinner" role="status">
+            {diskOpen.phase === "picking"
+              ? "Pick the project folder that holds your saved scene\u{2026}"
+              : diskOpen.phase === "reading"
+                ? "Reading the project folder\u{2026}"
+                : "Opening the scene\u{2026}"}
+          </span>
+        )}
+        {diskOpen.phase === "error" && (
+          <button
+            type="button"
+            className="editor-wizard__btn"
+            onClick={() => setDiskOpen({ phase: "idle" })}
+          >
+            Dismiss
+          </button>
+        )}
+      </Controls>
+    );
 
   const saveStatusStrip =
     diskSave.phase === "idle" ? null : (
@@ -486,13 +567,21 @@ export default function EditorWizard({
         prepareRealm={gameTemplateId ? prepareRealm : undefined}
         onEngineStatus={setEngineStatus}
         onSaveToDisk={enginePlaying ? undefined : onSaveToDisk}
+        onOpenFromDisk={enginePlaying ? undefined : () => void onOpenFromDisk()}
         onPublish={guardedPublish ? () => guardedPublish() : undefined}
+        sceneInfo={{
+          base: seed.scene.base,
+          parcels: seed.scene.parcels,
+          template: seed.scene.template ?? null,
+        }}
         saveState={
           diskSave.phase === "saving"
             ? "saving"
             : diskSave.phase === "error"
               ? "error"
-              : diskSave.phase === "saved" && !dirtyRef.current
+              : (diskSave.phase === "saved" ||
+                    (diskSave.phase === "canceled" && diskSave.serverSynced === true)) &&
+                  !dirtyRef.current
                 ? "saved"
                 : "idle"
         }
@@ -501,6 +590,7 @@ export default function EditorWizard({
       {localErrorBanner}
       {templateNotice}
       {liveCopyNote}
+      {openStatusStrip}
       {saveStatusStrip}
     </div>
   );

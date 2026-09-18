@@ -1,7 +1,7 @@
 import { decodeFunctionResult, encodeFunctionData, isAddress, stringToHex } from "viem";
 import { z } from "zod";
 
-export const DELEGATE_REGISTRY_ABI = [
+const DELEGATE_REGISTRY_ABI = [
   {
     type: "function",
     name: "setDelegate",
@@ -27,9 +27,9 @@ export const DELEGATE_REGISTRY_ABI = [
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const GLOBAL_SPACE_ID = `0x${"0".repeat(64)}` as `0x${string}`;
 
-export const REGISTRY_ADDRESS_ENV = "SNAPSHOT_DELEGATE_CONTRACT_ADDRESS";
-export const REGISTRY_CHAIN_ENV = "SNAPSHOT_DELEGATE_CHAIN_ID";
-export const REGISTRY_RPC_ENV = "SNAPSHOT_DELEGATE_RPC_URL";
+const REGISTRY_ADDRESS_ENV = "SNAPSHOT_DELEGATE_CONTRACT_ADDRESS";
+const REGISTRY_CHAIN_ENV = "SNAPSHOT_DELEGATE_CHAIN_ID";
+const REGISTRY_RPC_ENV = "SNAPSHOT_DELEGATE_RPC_URL";
 
 export type DelegateRegistryConfig = {
   address: `0x${string}`;
@@ -44,7 +44,7 @@ export type DelegateRegistrySetup = {
 
 export type DelegationScope = "space" | "global" | "none";
 
-export type DelegationState = {
+type DelegationState = {
   delegate: string | null;
   scope: DelegationScope;
 };
@@ -125,7 +125,7 @@ const RpcResponseSchema = z.object({
   error: z.object({ message: z.string().optional() }).nullish(),
 });
 
-export async function ethCall(args: {
+async function ethCall(args: {
   rpcUrl: string;
   to: string;
   data: `0x${string}`;

@@ -1,4 +1,4 @@
-export type BlogCategory = { id: string; slug: string; title: string };
+type BlogCategory = { id: string; slug: string; title: string };
 
 export type BlogCategoryView = BlogCategory & { root: boolean; active: boolean };
 

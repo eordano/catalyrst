@@ -1,7 +1,7 @@
 
-export type TypedDataFixtureField = { name: string; type: string };
+type TypedDataFixtureField = { name: string; type: string };
 
-export type DappTypedData = {
+type DappTypedData = {
   primaryType: string;
   types: Record<string, TypedDataFixtureField[]>;
   domain: Record<string, unknown>;

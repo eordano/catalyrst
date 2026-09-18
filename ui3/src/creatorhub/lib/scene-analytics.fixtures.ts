@@ -7,7 +7,7 @@ import type {
 } from "./scene-analytics";
 
 export const FIXTURE_AS_OF = "2026-07-21";
-export const FIXTURE_ADDRESS = "0x1234567890abcdef1234567890abcdef12345678";
+const FIXTURE_ADDRESS = "0x1234567890abcdef1234567890abcdef12345678";
 
 function addDays(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);

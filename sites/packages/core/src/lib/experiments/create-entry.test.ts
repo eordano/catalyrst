@@ -19,16 +19,7 @@ const STORIES_ROOT = path.join(process.cwd(), "packages", "features", "src", "st
 const dirs = Object.keys(CREATE_ENTRY_STORIES) as CreateEntryStoryName[];
 
 describe("create entry stories (app/stories/create/*)", () => {
-  it("every mapped story dir exists and parses", () => {
-    for (const dir of dirs) {
-      const meta = parseStory(path.join(STORIES_ROOT, dir));
-      expect(meta.experiment.key).toBe(CREATE_ENTRY_STORIES[dir]);
-      expect(meta.experiment.unit).toBe("session");
-      expect(meta.metric.primary).toBe("create_preview_rate");
-    }
-  });
-
-  it("all seven create story.md files parse (incl. non-entry stories)", () => {
+  it("all seven story dirs parse; mapped ones carry their key, and two-arm ones are control + own arm", () => {
     const all = fs
       .readdirSync(STORIES_ROOT, { withFileTypes: true })
       .filter((d) => d.isDirectory())
@@ -37,23 +28,24 @@ describe("create entry stories (app/stories/create/*)", () => {
     for (const dir of all) {
       expect(() => parseStory(path.join(STORIES_ROOT, dir))).not.toThrow();
     }
-  });
-
-  it("standalone two-arm stories are control + their own arm", () => {
     for (const dir of dirs) {
-      if (dir === "entry-preview") continue;
       const meta = parseStory(path.join(STORIES_ROOT, dir));
+      expect(meta.experiment.key).toBe(CREATE_ENTRY_STORIES[dir]);
+      expect(meta.experiment.unit).toBe("session");
+      expect(meta.metric.primary).toBe("create_preview_rate");
+      if (dir === "entry-preview") continue;
       expect(meta.experiment.variants.map((v) => v.id)).toEqual(["control", dir]);
-      const treatment = meta.experiment.variants[1];
-      expect(entryFromFlags(treatment.flags)).toBe(dir);
+      expect(entryFromFlags(meta.experiment.variants[1].flags)).toBe(dir);
       expect(entryFromFlags(meta.experiment.variants[0].flags)).toBeNull();
     }
+    expect(entryFromFlags({})).toBeNull();
+    expect(entryFromFlags({ entry: 7 })).toBeNull();
+    expect(entryFromFlags({ entry: "not-an-arm" })).toBeNull();
   });
 
   it("entry-preview multi-arm covers all four treatments + control", () => {
     const meta = parseStory(path.join(STORIES_ROOT, "entry-preview"));
-    const ids = meta.experiment.variants.map((v) => v.id);
-    expect(ids).toEqual([
+    expect(meta.experiment.variants.map((v) => v.id)).toEqual([
       "control",
       "download-hub",
       "builder-or-download",
@@ -70,17 +62,11 @@ describe("create entry stories (app/stories/create/*)", () => {
 });
 
 describe("activeCreateExperiment (CREATE_EXPERIMENT env)", () => {
-  it("accepts a story dir name", () => {
+  it("accepts a story dir name or an experiment key and rejects unset, non-entry or unknown values", () => {
     expect(activeCreateExperiment("entry-preview")).toBe("entry-preview");
     expect(activeCreateExperiment("  capability-routed ")).toBe("capability-routed");
-  });
-
-  it("accepts an experiment key", () => {
     expect(activeCreateExperiment("create_download_hub")).toBe("download-hub");
     expect(activeCreateExperiment("create_entry_preview")).toBe("entry-preview");
-  });
-
-  it("rejects unset/unknown values (no experiment runs)", () => {
     expect(activeCreateExperiment(undefined)).toBeNull();
     expect(activeCreateExperiment(null)).toBeNull();
     expect(activeCreateExperiment("")).toBeNull();
@@ -91,27 +77,15 @@ describe("activeCreateExperiment (CREATE_EXPERIMENT env)", () => {
 });
 
 describe("armOverride (?arm=)", () => {
-  const variants = [{ id: "control" }, { id: "download-hub" }];
-
-  it("returns a matching variant id", () => {
+  it("returns a matching variant id and ignores missing or unknown arms", () => {
+    const variants = [{ id: "control" }, { id: "download-hub" }];
     expect(armOverride(new URL("https://x/create?arm=download-hub"), variants)).toBe(
       "download-hub",
     );
     expect(armOverride(new URL("https://x/create?arm=control"), variants)).toBe("control");
-  });
-
-  it("ignores missing/unknown arms", () => {
     expect(armOverride(new URL("https://x/create"), variants)).toBeUndefined();
     expect(armOverride(new URL("https://x/create?arm="), variants)).toBeUndefined();
     expect(armOverride(new URL("https://x/create?arm=bogus"), variants)).toBeUndefined();
-  });
-});
-
-describe("entryFromFlags", () => {
-  it("rejects non-string / unknown entries", () => {
-    expect(entryFromFlags({})).toBeNull();
-    expect(entryFromFlags({ entry: 7 })).toBeNull();
-    expect(entryFromFlags({ entry: "not-an-arm" })).toBeNull();
   });
 });
 

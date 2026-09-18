@@ -18,11 +18,9 @@ export type CommunityModerationCard = {
   hue: number;
 };
 
-export const STATUS_CLASS: Record<CommunityModerationCard["status"], string> = {
-  Suspended: "cml-status cml-status--suspended",
-  Inactive: "cml-status cml-status--inactive",
-  Unknown: "cml-status cml-status--unknown",
-  Active: "cml-status cml-status--active",
+export const STATUS_TONE: Partial<Record<CommunityModerationCard["status"], "ok" | "bad">> = {
+  Active: "ok",
+  Suspended: "bad",
 };
 
 export type ModerateCommunitiesStateValue =

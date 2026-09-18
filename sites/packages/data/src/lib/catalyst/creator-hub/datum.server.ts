@@ -1,20 +1,9 @@
-import {
-  DEFAULT_CADENCE_SECONDS,
-  live,
-  noSample as noSampleDatum,
-  sampled,
-  showable,
-  snapshot,
-  unavailable,
-  unbuilt,
-  NO_VALUE,
-  type Datum,
-} from "@ui/creatorhub/lib/datum";
+import { DEFAULT_CADENCE_SECONDS, live, noSample as noSampleDatum, sampled, showable, snapshot, unavailable, unbuilt, type Datum } from "@ui/creatorhub/lib/datum";
 
 import { CatalystError } from "../client";
 
 export type { Datum } from "@ui/creatorhub/lib/datum";
-export { DEFAULT_CADENCE_SECONDS, showable, NO_VALUE };
+export { DEFAULT_CADENCE_SECONDS, showable };
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -30,12 +19,6 @@ export function sampleTime<T>(
   if (d.state === "sampled") return d.takenAt;
   if (d.state === "snapshot") return d.exportedAt;
   return d.readAt;
-}
-
-export function sampleCadence<T>(
-  d: Extract<Datum<T>, { value: T }>,
-): number | null {
-  return d.state === "sampled" ? d.cadenceSeconds : null;
 }
 
 export function liveNow<T>(value: T, endpoint: string, readAt = nowIso()): Datum<T> {

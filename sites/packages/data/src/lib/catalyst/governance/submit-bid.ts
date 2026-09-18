@@ -4,10 +4,8 @@ import { getJSON } from "../client";
 import type { Query } from "../client";
 import { submitProposal } from "./submit-client";
 import type { AuthIdentity } from "../../auth/types";
-import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 import { governanceApiBase } from "./api-base";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import type { ListEnvelope as RsListEnvelope } from "@ui/generated/catalyst/governance/ListEnvelope";
 
 const ParentSchema = z.object({
   id: z.string(),
@@ -23,10 +21,10 @@ const ParentSchema = z.object({
   url: z.string(),
 });
 
-export type BidParent = z.infer<typeof ParentSchema>;
-export type ConsentItem = { key: string; text: string };
+type BidParent = z.infer<typeof ParentSchema>;
+type ConsentItem = { key: string; text: string };
 
-export type BidSampleDraft = {
+type BidSampleDraft = {
   funding: number;
   projectDuration: number;
   deliveryDate: string;
@@ -275,7 +273,7 @@ function toParent(row: ProposalRow, type: "pitch" | "tender", kind: string): Bid
   };
 }
 
-export type GetSubmitBidOptions = {
+type GetSubmitBidOptions = {
   linkedProposalId?: string | null;
   base?: string;
   signal?: AbortSignal;
@@ -353,57 +351,19 @@ export async function getSubmitBidData(
   };
 }
 
-export type FieldErrors = Record<string, string>;
-
-export type FundingDraft = {
-  funding: number | null;
-  projectDuration: number;
-  deliveryDate: string;
-  beneficiary: string;
-  email: string;
-};
-
-export type GeneralDraft = {
-  teamName: string;
-  deliverables: string;
-  roadmap: string;
-  milestones: { title: string; tasks: string }[];
-  members: { name: string; role: string }[];
-  budgetBreakdown: { concept: string; amount: string }[];
-  coAuthors: string[];
-  consent: { contentPolicy: boolean; termsOfUse: boolean; codeOfEthics: boolean };
-};
-
-export type NewProposalBid = {
-  linked_proposal_id: string;
-  type: "bid";
-  funding: number;
-  projectDuration: number;
-  deliveryDate: string;
-  beneficiary: string;
-  email: string;
-  teamName: string;
-  deliverables: string;
-  roadmap: string;
-  milestones: { title: string; tasks: string }[];
-  members: { name: string; role: string }[];
-  budgetBreakdown: { concept: string; amount: string }[];
-  coAuthors: string[];
-};
-
-export type NewProposalBidFunding = {
+type NewProposalBidFunding = {
   type: "bid";
   linked_proposal_id: string;
   funding: number;
   projectDuration: number;
 };
 
-export type SubmittedBid = {
+type SubmittedBid = {
   proposalId: string;
   published: boolean;
 };
 
-export type SubmitBidFn = (args: {
+type SubmitBidFn = (args: {
   tenderId: string;
   budget: number;
   duration: number;
@@ -412,10 +372,6 @@ export type SubmitBidFn = (args: {
 
 const SUBMIT_UNAVAILABLE =
   "bid submission unavailable: DAO governance signer not configured";
-
-export const failClosedSubmitBid: SubmitBidFn = async () => {
-  throw new Error(SUBMIT_UNAVAILABLE);
-};
 
 export function buildSubmitBid(identity: AuthIdentity | null): SubmitBidFn {
   return async ({ tenderId, budget, duration, signal }) => {
@@ -437,7 +393,10 @@ export function buildSubmitBid(identity: AuthIdentity | null): SubmitBidFn {
 }
 
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
+
 type Assert<T extends true> = T;
+
 export type _DriftProposalsEnvelope = Assert<
   AssignableTo<RsListEnvelope, z.input<typeof EnvelopeSchema>>
 >;
+

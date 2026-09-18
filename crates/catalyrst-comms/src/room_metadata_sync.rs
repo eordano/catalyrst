@@ -1,3 +1,4 @@
+use futures::StreamExt;
 use serde_json::Value;
 
 use crate::handlers::scene_adapter::{fetch_world_scene_id, meta_str, realm_name_from_metadata};
@@ -6,7 +7,7 @@ use crate::livekit::{
     is_world_realm_name, scene_room_name, world_room_name, world_scene_room_name,
     BANNED_ADDRESSES_FIELD, SCENE_ADMINS_FIELD,
 };
-use crate::ports::extra_addresses::{load_place_info, try_load_place_info, PlaceInfo};
+use crate::ports::extra_addresses::{PlaceInfo, PlaceLookup};
 use crate::AppState;
 
 /// The request context upstream derives a room name from
@@ -93,22 +94,24 @@ fn context_matches_place(ctx: &RoomContext, place: &PlaceInfo) -> bool {
 /// scene-bans.ts); our endpoints take `place_id` from the request instead, so the
 /// two have to be tied back together here -- without this a caller authorized on
 /// one place could aim the LiveKit side effects at another scene's room.
-async fn ensure_place_matches_context(state: &AppState, ctx: &RoomContext) -> Result<(), ApiError> {
+async fn ensure_place_matches_context(
+    state: &AppState,
+    ctx: &RoomContext,
+    place: &PlaceLookup<'_>,
+) -> Result<(), ApiError> {
     if state.places_pool.is_none() {
         return Ok(());
     }
-    let place = try_load_place_info(state, &ctx.place_id)
-        .await
-        .map_err(|error| {
-            tracing::error!(
-                %error,
-                place_id = %ctx.place_id,
-                "places lookup failed while binding a mutation to its room"
-            );
-            service_unavailable(PLACE_LOOKUP_UNAVAILABLE_MSG)
-        })?;
+    let place = place.get().await.map_err(|error| {
+        tracing::error!(
+            error,
+            place_id = %ctx.place_id,
+            "places lookup failed while binding a mutation to its room"
+        );
+        service_unavailable(PLACE_LOOKUP_UNAVAILABLE_MSG)
+    })?;
     match place {
-        Some(place) if context_matches_place(ctx, &place) => Ok(()),
+        Some(place) if context_matches_place(ctx, place) => Ok(()),
         _ => Err(ApiError::bad_request(PLACE_MISMATCH_MSG)),
     }
 }
@@ -129,20 +132,29 @@ async fn world_rooms(state: &AppState, world: &str, scene_id: Option<&str>) -> V
 /// database write so a failure to name the room cannot leave the two out of sync
 /// (upstream computes `roomName` up front for the same reason).
 pub async fn resolve_rooms(state: &AppState, ctx: &RoomContext) -> Result<Vec<String>, ApiError> {
+    resolve_rooms_for(state, ctx, &PlaceLookup::new(state, &ctx.place_id)).await
+}
+
+/// `resolve_rooms` over a place row the caller already shares with its authz step.
+pub async fn resolve_rooms_for(
+    state: &AppState,
+    ctx: &RoomContext,
+    place: &PlaceLookup<'_>,
+) -> Result<Vec<String>, ApiError> {
     if !state.livekit_configured {
         return Ok(Vec::new());
     }
     match plan(ctx) {
         RoomPlan::Skip => Ok(Vec::new()),
         RoomPlan::Scene(room) => {
-            ensure_place_matches_context(state, ctx).await?;
+            ensure_place_matches_context(state, ctx, place).await?;
             Ok(vec![room])
         }
         RoomPlan::World { world, scene_id } => {
-            ensure_place_matches_context(state, ctx).await?;
+            ensure_place_matches_context(state, ctx, place).await?;
             Ok(world_rooms(state, &world, scene_id.as_deref()).await)
         }
-        RoomPlan::FromPlace => Ok(match load_place_info(state, &ctx.place_id).await {
+        RoomPlan::FromPlace => Ok(match place.get().await.ok().flatten() {
             Some(place) if place.world => match place.world_name.as_deref() {
                 Some(world) => world_rooms(state, world, None).await,
                 None => Vec::new(),
@@ -174,16 +186,22 @@ pub async fn kick(state: &AppState, rooms: &[String], address: &str) {
     }
     let client = state.room_service();
     let addr = address.to_lowercase();
-    for room in rooms {
-        if let Err(error) = client.remove_participant(room, &addr).await {
-            tracing::warn!(
-                %error,
-                room = %room,
-                address = %addr,
-                "failed to kick banned participant (best-effort)"
-            );
-        }
-    }
+    futures::stream::iter(rooms)
+        .for_each_concurrent(crate::livekit::KICK_CONCURRENCY, |room| {
+            let client = &client;
+            let addr = &addr;
+            async move {
+                if let Err(error) = client.remove_participant(room, addr).await {
+                    tracing::warn!(
+                        %error,
+                        room = %room,
+                        address = %addr,
+                        "failed to kick banned participant (best-effort)"
+                    );
+                }
+            }
+        })
+        .await;
 }
 
 #[derive(Clone, Copy)]
@@ -198,29 +216,35 @@ async fn mutate(state: &AppState, rooms: &[String], field: &str, address: &str, 
     }
     let client = state.room_service();
     let addr = address.to_lowercase();
-    for room in rooms {
-        let result = match op {
-            Op::Append => {
-                client
-                    .append_to_room_metadata_array(room, field, &addr)
-                    .await
+    futures::stream::iter(rooms)
+        .for_each_concurrent(crate::livekit::KICK_CONCURRENCY, |room| {
+            let client = &client;
+            let addr = &addr;
+            async move {
+                let result = match op {
+                    Op::Append => {
+                        client
+                            .append_to_room_metadata_array(room, field, addr)
+                            .await
+                    }
+                    Op::Remove => {
+                        client
+                            .remove_from_room_metadata_array(room, field, addr)
+                            .await
+                    }
+                };
+                if let Err(error) = result {
+                    tracing::warn!(
+                        %error,
+                        room = %room,
+                        field,
+                        address = %addr,
+                        "failed to sync scene room metadata (best-effort)"
+                    );
+                }
             }
-            Op::Remove => {
-                client
-                    .remove_from_room_metadata_array(room, field, &addr)
-                    .await
-            }
-        };
-        if let Err(error) = result {
-            tracing::warn!(
-                %error,
-                room = %room,
-                field,
-                address = %addr,
-                "failed to sync scene room metadata (best-effort)"
-            );
-        }
-    }
+        })
+        .await;
 }
 
 #[cfg(test)]

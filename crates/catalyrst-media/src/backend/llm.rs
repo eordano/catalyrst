@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 
 use super::{TranslatedItem, TranslationBackend};
 
+#[derive(Clone)]
 pub struct LlmBackend {
     client: reqwest::Client,
     base_url: String,
@@ -170,11 +171,22 @@ impl TranslationBackend for LlmBackend {
         target: &str,
         format: &str,
     ) -> Result<Vec<TranslatedItem>, String> {
-        let mut out = Vec::with_capacity(texts.len());
-        for t in texts {
-            out.push(self.translate_one(t, source, target, format).await?);
+        if let [text] = texts {
+            return Ok(vec![
+                self.translate_one(text, source, target, format).await?,
+            ]);
         }
-        Ok(out)
+        let (source, target, format) = (source.to_string(), target.to_string(), format.to_string());
+        super::translate_concurrently(texts, |text| {
+            let backend = self.clone();
+            let (source, target, format) = (source.clone(), target.clone(), format.clone());
+            async move {
+                backend
+                    .translate_one(&text, &source, &target, &format)
+                    .await
+            }
+        })
+        .await
     }
 }
 

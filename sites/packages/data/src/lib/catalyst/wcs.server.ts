@@ -23,7 +23,7 @@ import {
   type Datum,
 } from "./creator-hub/datum.server";
 
-export type WcsOptions = {
+type WcsOptions = {
   base?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -134,4 +134,3 @@ export async function loadPlatformStatus(
   }
 }
 
-export { wcsBase } from "./wcs";

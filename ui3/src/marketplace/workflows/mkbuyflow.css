@@ -1,23 +1,3 @@
-.mkbuyflow__scrim {
-  --mkbf-divider: #393542;
-  --mkbf-chip: #43404a;
-  --mkbf-mute: #b3aebc;
-  --mkbf-border: #716b7c;
-  --mkbf-green: var(--success);
-  --mkbf-warn: #ff8362;
-  --mkbf-card-on-modal: #1f1d24;
-
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  background: var(--scrim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  font-family: inherit;
-}
-
 .mkbuyflow__modal {
   --mkbf-divider: #393542;
   --mkbf-chip: #43404a;
@@ -470,7 +450,6 @@
 .mkbuyflow__learnmore { margin-top: 16px !important; }
 
 @media (max-width: 480px) {
-  .mkbuyflow__scrim { padding: 0; }
   .mkbuyflow__modal { width: 100%; min-height: 100dvh; max-height: 100dvh; border-radius: 0; }
   .mkbuyflow__selectors { flex-direction: column; }
   .mkbuyflow__selectorcol--token { align-self: stretch; }

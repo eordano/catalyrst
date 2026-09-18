@@ -123,15 +123,15 @@ async fn get_friendships(
     let limit = q.limit.unwrap_or(200).clamp(1, 1000);
     let offset = q.offset.unwrap_or(0).max(0);
 
-    let friends = db.get_friends(&address, limit, offset).await.map_err(|e| {
+    let (friends_page, blocking) = tokio::join!(
+        db.get_friends(&address, limit, offset),
+        db.get_blocking_status(&address)
+    );
+    let (friends, friend_count) = friends_page.map_err(|e| {
         tracing::error!(error = %e, "admin: get_friends failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let friend_count = db.count_friends(&address).await.map_err(|e| {
-        tracing::error!(error = %e, "admin: count_friends failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    let (blocked, blocked_by) = db.get_blocking_status(&address).await.map_err(|e| {
+    let (blocked, blocked_by) = blocking.map_err(|e| {
         tracing::error!(error = %e, "admin: get_blocking_status failed");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;

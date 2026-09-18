@@ -26,7 +26,7 @@ import {
   type TrackFn,
 } from "./machine";
 
-export type SubmitPollWizardProps = {
+type SubmitPollWizardProps = {
   trackCtx: TrackContext;
   gate: GateInput;
   account?: string;
@@ -62,7 +62,6 @@ function SubmitPollWizardInner({
   trackCtx,
   gate,
   account = "0x9f3c\u{2026}7a21",
-  vpLabel = "12,480",
   initialDraft,
   submitPoll,
   track,

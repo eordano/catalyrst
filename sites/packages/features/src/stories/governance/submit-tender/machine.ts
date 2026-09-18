@@ -23,7 +23,7 @@ export type TenderSeed = {
   linkedProposalId: string;
 };
 
-export type TenderInput = {
+type TenderInput = {
   trackCtx: TrackContext;
   seed: TenderSeed;
   form?: Partial<TenderForm>;
@@ -31,7 +31,7 @@ export type TenderInput = {
   track?: TrackFn;
 };
 
-export type TenderContext = {
+type TenderContext = {
   trackCtx: TrackContext;
   seed: TenderSeed;
   submit: SubmitFn;
@@ -41,7 +41,7 @@ export type TenderContext = {
   error?: string;
 };
 
-export type TenderEvent =
+type TenderEvent =
   | { type: "START" }
   | { type: "GATE" }
   | { type: "SET_FORM"; patch: Partial<TenderForm> }
@@ -72,8 +72,8 @@ export const STATE_TO_SLUG = {
   error: "error",
 } as const;
 
-export type TenderStateId = keyof typeof STATE_TO_SLUG;
-export type TenderStepSlug = (typeof STATE_TO_SLUG)[TenderStateId];
+type TenderStateId = keyof typeof STATE_TO_SLUG;
+type TenderStepSlug = (typeof STATE_TO_SLUG)[TenderStateId];
 
 export const FIRST_STEP_SLUG: TenderStepSlug = STATE_TO_SLUG.parent;
 
@@ -245,8 +245,6 @@ export const tenderMachine = setup({
     },
   },
 });
-
-export type TenderMachine = typeof tenderMachine;
 
 export function resolveTenderSnapshot(args: {
   step: TenderStateId;

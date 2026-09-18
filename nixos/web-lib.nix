@@ -46,26 +46,21 @@ let
     '';
   };
 
-  # Built by catalyrst-builder catalog-build; absent catalogs return 404.
-  builderCatalog = {
-    alias = "${cfg.stateDir}/builder-catalog.json";
+  builderApi = {
+    proxyPass = "http://127.0.0.1:5144/";
     extraConfig = ''
-      default_type application/json;
-      ${secHeaders}
-      add_header Access-Control-Allow-Origin "*" always;
-      add_header Cache-Control "public, max-age=3600";
+      proxy_set_header x-original-path $request_uri;
     '';
   };
   builderItems = {
-    alias = "${cfg.stateDir}/builder-items/";
+    proxyPass = "http://127.0.0.1:5144/contents/";
     extraConfig = ''
-      ${secHeaders}
-      add_header Access-Control-Allow-Origin "*" always;
-      add_header Cache-Control "public, max-age=31536000, immutable";
+      proxy_set_header x-original-path $request_uri;
+      proxy_read_timeout 120s;
     '';
   };
   builderLocations = {
-    "= /builder-api/v1/assetPacks" = builderCatalog;
+    "/builder-api/" = builderApi;
     "/builder-items/" = builderItems;
   };
 
@@ -87,7 +82,7 @@ in
     corsFallback
     protectedStorage
     contentReadLocations
-    builderCatalog
+    builderApi
     builderItems
     builderLocations
     ;

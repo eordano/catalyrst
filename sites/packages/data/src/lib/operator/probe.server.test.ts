@@ -47,36 +47,31 @@ function svc(overrides: Partial<OperatorService>): OperatorService {
 }
 
 describe("probeService", () => {
-  it("classifies a 2xx health answer as ok", async () => {
-    const r = await probeService(svc({}));
-    expect(r.state).toBe("ok");
-    expect(r.httpStatus).toBe(200);
-  });
+  it("classifies 2xx as ok, non-2xx as answering under 2xx but ok under any-http, and a closed port as down with a named reason", async () => {
+    const ok = await probeService(svc({}));
+    expect(ok.state).toBe("ok");
+    expect(ok.httpStatus).toBe(200);
 
-  it("classifies a non-2xx answer as answering when 2xx is expected", async () => {
-    const r = await probeService(svc({ healthPath: "/nope" }));
-    expect(r.state).toBe("answering");
-    expect(r.httpStatus).toBe(500);
-    expect(r.detail).toContain("HTTP 500");
-  });
+    const answering = await probeService(svc({ healthPath: "/nope" }));
+    expect(answering.state).toBe("answering");
+    expect(answering.httpStatus).toBe(500);
+    expect(answering.detail).toContain("HTTP 500");
 
-  it("classifies any HTTP answer as ok under any-http", async () => {
-    const r = await probeService(svc({ healthPath: "/nope", expect: "any-http" }));
-    expect(r.state).toBe("ok");
-  });
+    const anyHttp = await probeService(svc({ healthPath: "/nope", expect: "any-http" }));
+    expect(anyHttp.state).toBe("ok");
 
-  it("classifies a closed port as down with a named reason", async () => {
-    const r = await probeService(svc({ port: 1 }));
-    expect(r.state).toBe("down");
-    expect(r.httpStatus).toBeNull();
-    expect(r.detail.length).toBeGreaterThan(0);
+    const down = await probeService(svc({ port: 1 }));
+    expect(down.state).toBe("down");
+    expect(down.httpStatus).toBeNull();
+    expect(down.detail.length).toBeGreaterThan(0);
   });
 });
 
 describe("probeSnapshot", () => {
-  it("scoped recheck re-probes only the named services and keeps the rest cached", async () => {
+  it("a scoped recheck re-probes only the named services, keeps the rest cached, and still probes never-seen services outside the scope", async () => {
     const a = svc({ key: "a" });
     const b = svc({ key: "b", port: 1 });
+    const c = svc({ key: "c", port: 1 });
     const first = await probeSnapshot([a, b]);
     expect(first.map((p) => [p.key, p.state])).toEqual([
       ["a", "ok"],
@@ -94,13 +89,9 @@ describe("probeSnapshot", () => {
 
     const recheckedA = await probeSnapshot([a, b], { only: ["a"] });
     expect(recheckedA.find((p) => p.key === "a")?.state).toBe("answering");
-  });
 
-  it("probes never-seen services even when the scope excludes them", async () => {
-    const a = svc({ key: "a" });
-    const b = svc({ key: "b", port: 1 });
-    await probeSnapshot([a], {});
-    const withNew = await probeSnapshot([a, b], { only: ["a"] });
-    expect(withNew.find((p) => p.key === "b")?.state).toBe("down");
+    const withNew = await probeSnapshot([a, b, c], { only: ["b"] });
+    expect(withNew.find((p) => p.key === "c")?.state).toBe("down");
+    expect(withNew.find((p) => p.key === "a")?.state).toBe("answering");
   });
 });

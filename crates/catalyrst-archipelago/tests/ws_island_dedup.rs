@@ -1,22 +1,24 @@
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use catalyrst_archipelago::config::{
-    AuthConfig, ClusterConfig, Config, GossipConfig, LivekitConfig, ServerConfig,
+    AuthConfig, ClusterConfig, Config, LivekitConfig, NatsConfig, ServerConfig,
 };
+use catalyrst_archipelago::feed::{dispatch, Routed};
+use catalyrst_archipelago::nats::{reannounce_all, FeedPublisher, RecordingPublisher};
 use catalyrst_archipelago::proto::archipelago::{
-    client_packet, server_packet, ChallengeRequestMessage, ClientPacket, Heartbeat, ServerPacket,
-    SignedChallengeMessage,
+    client_packet, server_packet, ChallengeRequestMessage, ClientPacket, IslandChangedMessage,
+    ServerPacket, SignedChallengeMessage,
 };
-use catalyrst_archipelago::proto::Position;
-use catalyrst_archipelago::{api_router, build_state};
+use catalyrst_archipelago::{api_router, build_state_with, AppState};
 use futures::{SinkExt, StreamExt};
 use prost::Message as _;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-fn test_config() -> Config {
+fn test_config(island_changed_dedup_ms: u64) -> Config {
     Config {
         http_host: "127.0.0.1".into(),
         http_port: 0,
@@ -27,18 +29,28 @@ fn test_config() -> Config {
             challenge_ttl_secs: 120,
             signature_max_age_secs: 300,
             deny_list_url: None,
+            ..AuthConfig::default()
         },
         livekit: LivekitConfig::default(),
-        gossip: GossipConfig::default(),
+        nats: NatsConfig {
+            island_changed_dedup_ms,
+            ..NatsConfig::default()
+        },
         content_database_url: None,
         content_base_url: String::new(),
         commit_hash: String::new(),
     }
 }
 
-async fn start_server() -> u16 {
-    let state = build_state(&test_config()).await.expect("state");
-    let app = api_router().with_state(state);
+async fn start_server(dedup_ms: u64) -> (u16, AppState, Arc<RecordingPublisher>) {
+    let publisher = RecordingPublisher::new();
+    let state = build_state_with(
+        &test_config(dedup_ms),
+        Arc::clone(&publisher) as Arc<dyn FeedPublisher>,
+    )
+    .await
+    .expect("state");
+    let app = api_router().with_state(state.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
@@ -46,7 +58,7 @@ async fn start_server() -> u16 {
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    port
+    (port, state, publisher)
 }
 
 fn encode(msg: client_packet::Message) -> tokio_tungstenite::tungstenite::Bytes {
@@ -66,7 +78,33 @@ async fn recv_msg(ws: &mut WsStream, timeout: Duration) -> Option<server_packet:
     }
 }
 
-async fn connect_and_handshake(port: u16, wallet: &PrivateKeySigner) -> WsStream {
+async fn recv_island(ws: &mut WsStream, timeout: Duration) -> Option<String> {
+    match recv_msg(ws, timeout).await {
+        Some(server_packet::Message::IslandChanged(m)) => Some(m.island_id),
+        _ => None,
+    }
+}
+
+struct Device {
+    ephemeral: PrivateKeySigner,
+}
+
+impl Device {
+    fn new() -> Self {
+        Self {
+            ephemeral: PrivateKeySigner::random(),
+        }
+    }
+
+    fn session(&self) -> String {
+        format!("{:#x}", self.ephemeral.address())
+    }
+}
+
+/// A full delegating chain: the wallet signs the ephemeral's mandate, the ephemeral signs the
+/// challenge. This is the only shape that gives one wallet two distinct session keys, which is
+/// what the session-addressed feed subjects are routed on.
+async fn handshake(port: u16, wallet: &PrivateKeySigner, device: &Device) -> WsStream {
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws"))
         .await
         .expect("ws connect");
@@ -85,11 +123,24 @@ async fn connect_and_handshake(port: u16, wallet: &PrivateKeySigner) -> WsStream
         other => panic!("expected ChallengeResponse, got {other:?}"),
     };
 
-    let hash = alloy::primitives::eip191_hash_message(challenge.as_bytes());
-    let sig = wallet.sign_hash_sync(&hash).expect("sign");
+    let mandate = format!(
+        "Decentraland Login\nEphemeral address: {}\nExpiration: 2099-12-31T00:00:00.000Z",
+        device.session()
+    );
+    let mandate_sig = wallet
+        .sign_hash_sync(&alloy::primitives::eip191_hash_message(mandate.as_bytes()))
+        .expect("sign mandate");
+    let challenge_sig = device
+        .ephemeral
+        .sign_hash_sync(&alloy::primitives::eip191_hash_message(
+            challenge.as_bytes(),
+        ))
+        .expect("sign challenge");
+
     let chain = serde_json::json!([
         { "type": "SIGNER", "payload": address, "signature": "" },
-        { "type": "ECDSA_SIGNED_ENTITY", "payload": challenge, "signature": sig.to_string() }
+        { "type": "ECDSA_EPHEMERAL", "payload": mandate, "signature": mandate_sig.to_string() },
+        { "type": "ECDSA_SIGNED_ENTITY", "payload": challenge, "signature": challenge_sig.to_string() }
     ]);
 
     ws.send(WsMessage::Binary(encode(
@@ -107,77 +158,334 @@ async fn connect_and_handshake(port: u16, wallet: &PrivateKeySigner) -> WsStream
     ws
 }
 
-async fn send_heartbeat(ws: &mut WsStream) {
-    ws.send(WsMessage::Binary(encode(
-        client_packet::Message::Heartbeat(Heartbeat {
-            position: Some(Position {
-                x: 1.0,
-                y: 0.0,
-                z: 1.0,
-            }),
-            desired_room: None,
-        }),
-    )))
-    .await
-    .expect("send heartbeat");
-}
-
-async fn count_island_changed(ws: &mut WsStream, window: Duration) -> usize {
-    let mut n = 0;
-    let deadline = tokio::time::Instant::now() + window;
-    loop {
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if left.is_zero() {
-            return n;
-        }
-        if let Some(server_packet::Message::IslandChanged(_)) = recv_msg(ws, left).await {
-            n += 1;
-        }
+fn island_payload(island_id: &str) -> Vec<u8> {
+    IslandChangedMessage {
+        island_id: island_id.into(),
+        conn_str: "livekit:wss://example.invalid?access_token=t".into(),
+        from_island_id: None,
+        peers: Default::default(),
     }
+    .encode_to_vec()
+}
+
+fn session_subject(address: &str, session: &str) -> String {
+    format!("engine.peer.{address}.island_changed.{session}")
+}
+
+fn legacy_subject(address: &str) -> String {
+    format!("engine.peer.{address}.island_changed")
 }
 
 #[tokio::test]
-async fn island_changed_is_delivered_exactly_once() {
-    let port = start_server().await;
+async fn the_feed_delivers_a_room_only_to_the_session_it_names() {
+    let (port, state, _pub) = start_server(10_000).await;
     let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
 
-    let mut ws = connect_and_handshake(port, &wallet).await;
-    send_heartbeat(&mut ws).await;
+    let desktop = Device::new();
+    let mobile = Device::new();
+    let mut ws_desktop = handshake(port, &wallet, &desktop).await;
+    let mut ws_mobile = handshake(port, &wallet, &mobile).await;
 
-    let n = count_island_changed(&mut ws, Duration::from_millis(3500)).await;
     assert_eq!(
-        n, 1,
-        "fresh peer must receive IslandChanged exactly once, got {n}"
+        dispatch(
+            &state,
+            &session_subject(&address, &desktop.session()),
+            &island_payload("island-A"),
+        ),
+        Routed::Delivered
+    );
+
+    assert_eq!(
+        recv_island(&mut ws_desktop, Duration::from_secs(3)).await,
+        Some("island-A".into())
+    );
+    assert_eq!(
+        recv_island(&mut ws_mobile, Duration::from_millis(400)).await,
+        None,
+        "the other device of the same wallet is not told about this assignment"
+    );
+    assert_eq!(
+        state.peers.island_of(&address).as_deref(),
+        Some("island-A"),
+        "the assignment is recorded even though no heartbeat has arrived yet"
     );
 }
 
 #[tokio::test]
-async fn second_socket_same_wallet_gets_one_island_and_survives_stale_close() {
-    let port = start_server().await;
+async fn a_repeated_room_inside_the_window_is_dropped_and_a_new_one_is_not() {
+    let (port, state, _pub) = start_server(10_000).await;
     let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
+    let device = Device::new();
+    let mut ws = handshake(port, &wallet, &device).await;
+    let subject = session_subject(&address, &device.session());
 
-    let mut ws_a = connect_and_handshake(port, &wallet).await;
-    send_heartbeat(&mut ws_a).await;
+    dispatch(&state, &subject, &island_payload("island-A"));
+    dispatch(&state, &subject, &island_payload("island-A"));
+    dispatch(&state, &subject, &island_payload("island-B"));
+
     assert_eq!(
-        count_island_changed(&mut ws_a, Duration::from_millis(3000)).await,
-        1
+        recv_island(&mut ws, Duration::from_secs(3)).await,
+        Some("island-A".into())
+    );
+    assert_eq!(
+        recv_island(&mut ws, Duration::from_secs(3)).await,
+        Some("island-B".into()),
+        "the repeat is dropped, so the next packet is the new room"
+    );
+    assert_eq!(
+        recv_island(&mut ws, Duration::from_millis(400)).await,
+        None,
+        "nothing else follows"
+    );
+    assert_eq!(
+        state.feed.delivered_count(),
+        3,
+        "the feed itself delivered all three; the window is a socket-side filter"
+    );
+    assert_eq!(
+        state.feed.deduplicated_count(),
+        1,
+        "the suppressed repeat is the counter the runbook reads"
+    );
+}
+
+#[tokio::test]
+async fn a_zero_window_forwards_every_repeat() {
+    let (port, state, _pub) = start_server(0).await;
+    let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
+    let device = Device::new();
+    let mut ws = handshake(port, &wallet, &device).await;
+    let subject = session_subject(&address, &device.session());
+
+    dispatch(&state, &subject, &island_payload("island-A"));
+    dispatch(&state, &subject, &island_payload("island-A"));
+
+    assert_eq!(
+        recv_island(&mut ws, Duration::from_secs(3)).await,
+        Some("island-A".into())
+    );
+    assert_eq!(
+        recv_island(&mut ws, Duration::from_secs(3)).await,
+        Some("island-A".into())
+    );
+}
+
+#[tokio::test]
+async fn the_legacy_subject_reaches_the_newest_socket_of_the_wallet() {
+    let (port, state, _pub) = start_server(10_000).await;
+    let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
+
+    let first = Device::new();
+    let second = Device::new();
+    let mut ws_first = handshake(port, &wallet, &first).await;
+    let mut ws_second = handshake(port, &wallet, &second).await;
+
+    assert_eq!(
+        dispatch(
+            &state,
+            &legacy_subject(&address),
+            &island_payload("island-L")
+        ),
+        Routed::Delivered
     );
 
-    let mut ws_b = connect_and_handshake(port, &wallet).await;
-    send_heartbeat(&mut ws_b).await;
-    let n_b = count_island_changed(&mut ws_b, Duration::from_millis(3000)).await;
     assert_eq!(
-        n_b, 1,
-        "reconnect socket must receive its inherited island exactly once, got {n_b}"
+        recv_island(&mut ws_second, Duration::from_secs(3)).await,
+        Some("island-L".into())
+    );
+    assert_eq!(
+        recv_island(&mut ws_first, Duration::from_millis(400)).await,
+        None
+    );
+}
+
+#[tokio::test]
+async fn a_stale_session_and_an_unknown_wallet_are_told_apart() {
+    let (port, state, _pub) = start_server(10_000).await;
+    let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
+    let device = Device::new();
+    let _ws = handshake(port, &wallet, &device).await;
+
+    let stale = format!("{:#x}", PrivateKeySigner::random().address());
+    assert_eq!(
+        dispatch(
+            &state,
+            &session_subject(&address, &stale),
+            &island_payload("island-A")
+        ),
+        Routed::NoSessionSocket
+    );
+    assert_eq!(
+        dispatch(
+            &state,
+            &session_subject("0x00000000000000000000000000000000000000ff", &stale),
+            &island_payload("island-A"),
+        ),
+        Routed::NoSocket
+    );
+    assert_eq!(state.feed.no_session_socket_count(), 1);
+}
+
+#[tokio::test]
+async fn a_reconnect_of_the_same_device_supersedes_the_previous_socket() {
+    let (port, state, _pub) = start_server(10_000).await;
+    let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
+    let device = Device::new();
+
+    let mut old = handshake(port, &wallet, &device).await;
+    let mut fresh = handshake(port, &wallet, &device).await;
+
+    match recv_msg(&mut old, Duration::from_secs(3)).await {
+        Some(server_packet::Message::Kicked(_)) => {}
+        other => panic!("the superseded socket must be kicked, got {other:?}"),
+    }
+
+    assert_eq!(
+        dispatch(
+            &state,
+            &session_subject(&address, &device.session()),
+            &island_payload("island-A"),
+        ),
+        Routed::Delivered
+    );
+    assert_eq!(
+        recv_island(&mut fresh, Duration::from_secs(3)).await,
+        Some("island-A".into())
+    );
+}
+
+#[tokio::test]
+async fn the_socket_announces_its_session_on_connect_and_announces_the_disconnect() {
+    let (port, _state, publisher) = start_server(10_000).await;
+    let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
+    let device = Device::new();
+
+    let mut ws = handshake(port, &wallet, &device).await;
+
+    let connect = publisher
+        .sent()
+        .into_iter()
+        .find(|(subject, _)| subject == &format!("peer.{address}.connect"))
+        .expect("the handshake announces a connect");
+    assert_eq!(
+        String::from_utf8(connect.1).expect("utf8 session payload"),
+        device.session(),
+        "the connect payload is the session key, so the minter can address this device"
     );
 
-    ws_a.close(None).await.ok();
-    send_heartbeat(&mut ws_b).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    send_heartbeat(&mut ws_b).await;
-    let n_after = count_island_changed(&mut ws_b, Duration::from_millis(2500)).await;
+    ws.close(None).await.ok();
+    for _ in 0..60 {
+        if publisher
+            .subjects()
+            .iter()
+            .any(|s| s == &format!("peer.{address}.disconnect"))
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the close never announced a disconnect");
+}
+
+#[tokio::test]
+async fn a_re_announce_pass_publishes_one_connect_per_live_session() {
+    let (port, state, publisher) = start_server(10_000).await;
+    let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
+
+    let desktop = Device::new();
+    let mobile = Device::new();
+    let _ws_desktop = handshake(port, &wallet, &desktop).await;
+    let _ws_mobile = handshake(port, &wallet, &mobile).await;
+
+    let fresh = RecordingPublisher::new();
+    assert_eq!(reannounce_all(&state, fresh.as_ref()), 2);
+
+    let mut sessions: Vec<String> = fresh
+        .sent()
+        .into_iter()
+        .map(|(subject, payload)| {
+            assert_eq!(subject, format!("peer.{address}.connect"));
+            String::from_utf8(payload).expect("utf8 session payload")
+        })
+        .collect();
+    sessions.sort();
+    let mut expected = vec![desktop.session(), mobile.session()];
+    expected.sort();
     assert_eq!(
-        n_after, 0,
-        "stale socket close must not disturb the surviving registration (got {n_after} reassignments)"
+        sessions, expected,
+        "every live session is re-announced, so a connect lost while the link was down is replayed"
+    );
+
+    assert!(
+        publisher
+            .subjects()
+            .iter()
+            .filter(|s| *s == &format!("peer.{address}.connect"))
+            .count()
+            == 2,
+        "the handshakes themselves announced once each"
+    );
+}
+
+#[tokio::test]
+async fn a_live_socket_retains_its_assignment_until_teardown_after_heartbeat_expiry() {
+    let (port, state, _) = start_server(10_000).await;
+    let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
+    let device = Device::new();
+    let mut ws = handshake(port, &wallet, &device).await;
+    let subject = session_subject(&address, &device.session());
+    assert_eq!(
+        dispatch(&state, &subject, &island_payload("island-kept")),
+        Routed::Delivered
+    );
+    assert_eq!(
+        recv_island(&mut ws, Duration::from_secs(3)).await,
+        Some("island-kept".into())
+    );
+    state.peers.upsert_peer_at(
+        address.clone(),
+        [0.0; 3],
+        [0, 0],
+        "realm".into(),
+        chrono::Utc::now() - chrono::Duration::days(1),
+    );
+    assert_eq!(state.peers.expire_stale_once(), 1);
+    assert_eq!(state.peers.island_of(&address), Some("island-kept".into()));
+    ws.close(None).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while state.registry.has_peer(&address) || state.peers.island_of(&address).is_some() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("socket teardown must clear its assignment");
+}
+
+#[tokio::test]
+async fn malformed_assignment_counts_an_error_without_breaking_the_live_socket() {
+    let (port, state, _) = start_server(10_000).await;
+    let wallet = PrivateKeySigner::random();
+    let address = format!("{:#x}", wallet.address());
+    let device = Device::new();
+    let mut ws = handshake(port, &wallet, &device).await;
+    let subject = session_subject(&address, &device.session());
+    assert_eq!(dispatch(&state, &subject, &[255]), Routed::Undecodable);
+    assert_eq!(state.feed.undecodable_count(), 1);
+    assert_eq!(
+        dispatch(&state, &subject, &island_payload("island-valid")),
+        Routed::Delivered
+    );
+    assert_eq!(
+        recv_island(&mut ws, Duration::from_secs(3)).await,
+        Some("island-valid".into())
     );
 }

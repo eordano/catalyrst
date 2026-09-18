@@ -18,8 +18,12 @@ pub struct ExternalClient {
     worlds_content_server_url: String,
     lambdas_url: String,
     place_id_cache: Cache<(String, String), String>,
+    /// A Places miss is remembered briefly so an unknown scene's retries don't fan out.
+    place_miss_cache: Cache<(String, String), ()>,
     world_permission_cache: Cache<(String, String, String), bool>,
 }
+
+const PLACE_MISS_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Deserialize)]
 struct PlacesApiResponse {
@@ -107,6 +111,10 @@ impl ExternalClient {
             worlds_content_server_url: worlds_content_server_url.trim_end_matches('/').to_string(),
             lambdas_url: lambdas_url.trim_end_matches('/').to_string(),
             place_id_cache,
+            place_miss_cache: Cache::builder()
+                .max_capacity(4096)
+                .time_to_live(PLACE_MISS_TTL)
+                .build(),
             world_permission_cache,
         }
     }
@@ -132,6 +140,15 @@ impl ExternalClient {
         let cache_key = (world_name.to_string(), parcel.to_string());
         if let Some(hit) = self.place_id_cache.get(&cache_key).await {
             return Ok(hit);
+        }
+        let not_found = || {
+            ApiError::bad_request(format!(
+                "Scene not found in Places API for world \"{}\" at parcel \"{}\"",
+                world_name, parcel
+            ))
+        };
+        if self.place_miss_cache.contains_key(&cache_key) {
+            return Err(not_found());
         }
 
         let encoded_parcel = urlencoding(parcel);
@@ -164,12 +181,10 @@ impl ExternalClient {
             .await
             .map_err(|e| ApiError::internal(format!("Places API bad body: {e}")))?;
 
-        let place_id = body.data.into_iter().next().map(|p| p.id).ok_or_else(|| {
-            ApiError::bad_request(format!(
-                "Scene not found in Places API for world \"{}\" at parcel \"{}\"",
-                world_name, parcel
-            ))
-        })?;
+        let Some(place_id) = body.data.into_iter().next().map(|p| p.id) else {
+            self.place_miss_cache.insert(cache_key, ()).await;
+            return Err(not_found());
+        };
 
         self.place_id_cache
             .insert(cache_key, place_id.clone())

@@ -41,7 +41,6 @@
 }
 .chtpl__back:hover { background-color: var(--fill-1); }
 .chtpl__backicon { display: inline-flex; }
-.chtpl__backsvg { display: block; }
 .chtpl__titletext { flex: none; }
 
 .chtpl__chip {
@@ -247,9 +246,6 @@
   gap: 16px;
   padding: 16px 32px 8px;
 }
-.chtpl__field { display: flex; flex-direction: column; gap: 6px; }
-.chtpl__fieldlabel { font-size: 14px; color: #fff; }
-.chtpl__inputwrap { position: relative; display: flex; align-items: center; }
 .chtpl__input {
   flex: 1 1 auto;
   width: 100%;
@@ -263,7 +259,6 @@
   font-size: 14px;
 }
 .chtpl__input:focus { outline: none; border-color: var(--brand); }
-.chtpl__inputwrap .chtpl__iconbtn { position: absolute; right: 6px; }
 .chtpl__modalactions {
   display: flex;
   justify-content: flex-end;

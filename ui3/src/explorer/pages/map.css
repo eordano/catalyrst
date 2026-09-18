@@ -32,21 +32,30 @@
 .map__district--blue   { background: #2f5aa8; }
 .map__district--pink   { background: #a83574; }
 
+.map__parcel {
+  position: absolute; z-index: 5; pointer-events: none; box-sizing: border-box;
+  border: calc(2px * var(--inv, 1)) solid var(--explore-orange, #ff7a3d);
+  background: rgba(255, 122, 61, .22);
+  box-shadow: 0 0 0 calc(1px * var(--inv, 1)) rgba(0, 0, 0, .55);
+}
+
 .map__player {
-  position: absolute; transform: translate(-50%, -50%); z-index: 6;
-  width: 38px; height: 38px; border-radius: 11px; pointer-events: none;
+  position: absolute; z-index: 6;
+  transform: translate(-50%, -50%) scale(var(--inv, 1));
+  width: 30px; height: 30px; border-radius: 50%; pointer-events: none;
   display: flex; align-items: center; justify-content: center;
   background: var(--explore-orange, #ff7a3d);
   box-shadow: 0 4px 12px rgba(0, 0, 0, .45), 0 0 0 2px rgba(255, 255, 255, .25);
 }
 
 .map__pin {
-  position: absolute; transform: translate(-50%, -100%); background: none; border: none;
+  position: absolute; transform-origin: 50% 100%;
+  transform: translate(-50%, -100%) scale(var(--inv, 1)); background: none; border: none;
   cursor: pointer; padding: 0; line-height: 0; filter: drop-shadow(0 3px 4px var(--scrim));
   transition: transform .1s ease;
 }
-.map__pin:hover { transform: translate(-50%, -100%) scale(1.12); }
-.map__pin.is-selected { transform: translate(-50%, -100%) scale(1.2); z-index: 5; }
+.map__pin:hover { transform: translate(-50%, -100%) scale(calc(1.12 * var(--inv, 1))); }
+.map__pin.is-selected { transform: translate(-50%, -100%) scale(calc(1.2 * var(--inv, 1))); z-index: 5; }
 .map__pindrop { fill: var(--brand); }
 .map__pin--poi .map__pindrop { fill: #438fff; }
 .map__pin--live .map__pindrop { fill: var(--brand); }
@@ -103,7 +112,6 @@
   filter: drop-shadow(0 0 4px currentColor);
 }
 .map__catglyph--all { color: var(--accent); }
-.map__catglyph--heart { }
 .map__catpill.is-on .map__catglyph { filter: none; }
 .map__catpill.is-on .map__catglyph--all { color: #14121c; }
 .map__catpill.is-on .map__catglyph--heart { color: var(--brand) !important; }
@@ -222,10 +230,7 @@
   width: 150.588%; height: 150.588%;
   image-rendering: pixelated;
 }
-.map__minidot { position: absolute; width: 6px; height: 6px; border-radius: 2px; }
 .map__minidot--a { left: 28%; top: 30%; background: #5a3a86; }
-.map__minidot--b { left: 64%; top: 26%; background: #a83574; }
-.map__minidot--c { left: 56%; top: 62%; background: #2f5aa8; }
 .map__minihere {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 7px; height: 7px; border-radius: 50%;

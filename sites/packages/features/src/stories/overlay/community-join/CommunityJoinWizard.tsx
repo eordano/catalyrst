@@ -4,8 +4,6 @@ import { Link, useSearchParams } from "react-router";
 
 import ExploreChrome from "@ui/explorer/frames/ExploreChrome";
 import SearchField from "@ui/atoms/SearchField";
-import CommunityMembers from "@ui/explorer/pages/CommunityMembers";
-import CommunityStream from "@ui/explorer/components/CommunityStream";
 import "@ui/explorer/pages/communities.css";
 
 import type { TrackContext } from "@core/lib/telemetry/track";
@@ -28,7 +26,7 @@ import type { StoryId } from "@core/lib/telemetry/story-id";
 
 const STORY: StoryId = "overlay/community-join";
 
-export type CommunityJoinWizardProps = {
+type CommunityJoinWizardProps = {
   trackCtx: TrackContext;
   rows: CommunityRow[];
   total?: number;
@@ -596,4 +594,3 @@ const SIM_NOTE: React.CSSProperties = {
   maxWidth: 640,
 };
 
-export const UI3_SURFACES = { CommunityMembers, CommunityStream };

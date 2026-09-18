@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 
 import { envFilePath } from "./env-store.server";
 
-export type DiskStatus = {
+type DiskStatus = {
   path: string;
   totalBytes: number;
   freeBytes: number;

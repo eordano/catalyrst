@@ -1,6 +1,6 @@
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
-export type AuthLinkType = "SIGNER" | "ECDSA_EPHEMERAL" | "ECDSA_SIGNED_ENTITY";
+type AuthLinkType = "SIGNER" | "ECDSA_EPHEMERAL" | "ECDSA_SIGNED_ENTITY";
 
 export type AuthLink = {
   type: AuthLinkType;
@@ -8,7 +8,7 @@ export type AuthLink = {
   signature: string;
 };
 
-export type EphemeralKey = {
+type EphemeralKey = {
   address: string;
   privateKey: `0x${string}`;
 };

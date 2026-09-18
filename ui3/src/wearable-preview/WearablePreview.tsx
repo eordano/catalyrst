@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AvatarScene, AvatarSceneOptions, AvatarStatus } from "./avatar";
+import type {
+  AvatarOutfitOptions,
+  AvatarScene,
+  AvatarSceneOptions,
+  AvatarStatus,
+} from "./avatar";
 
 type WearablePreviewProps = AvatarSceneOptions & {
   emoteNonce?: number;
@@ -45,11 +50,16 @@ export default function WearablePreview({
 
   const cameraRef = useRef({ zoom, yaw, pitch, fov, targetY });
   cameraRef.current = { zoom, yaw, pitch, fov, targetY };
+  const outfitRef = useRef<AvatarOutfitOptions>({ profile, urns, body, outfit });
+  outfitRef.current = { profile, urns, body, outfit };
+  const emoteRef = useRef(emote);
+  emoteRef.current = emote;
 
   const key = JSON.stringify([
-    profile, Array.isArray(urns) ? urns : urns ?? null, body, outfit ?? null, model, base,
-    controls, pan, platform, spin, spinSpeed, background,
-    emotes ?? null,
+    model, base, controls, pan, platform, spin, spinSpeed, background, emotes ?? null,
+  ]);
+  const outfitKey = JSON.stringify([
+    profile, Array.isArray(urns) ? urns : urns ?? null, body, outfit ?? null,
   ]);
 
   useEffect(() => {
@@ -66,12 +76,9 @@ export default function WearablePreview({
         const node = ref.current;
         if (cancelled || !node) return;
         scene = createAvatarScene(node, {
-          profile,
-          urns,
-          body,
-          outfit,
+          ...outfitRef.current,
           model,
-          emote,
+          emote: emoteRef.current,
           emotes,
           base,
           ...cameraRef.current,
@@ -124,6 +131,10 @@ export default function WearablePreview({
     io.observe(el);
     return () => io.disconnect();
   }, [pauseOffscreen]);
+
+  useEffect(() => {
+    void sceneRef.current?.setOutfit(outfitRef.current);
+  }, [outfitKey]);
 
   useEffect(() => {
     sceneRef.current?.setEmote?.(emote);

@@ -11,7 +11,7 @@
     "codegen:abi": "npx --yes @subsquid/evm-typegen@^4.3.0"
   },
   "dependencies": {
-    "@dcl/schemas": "^27.1.0",
+    "@dcl/schemas": "27.2.0",
     "@subsquid/batch-processor": "^1.1.0",
     "@subsquid/evm-abi": "^0.3.1",
     "@subsquid/evm-codec": "^0.3.0",

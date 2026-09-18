@@ -1,7 +1,7 @@
 
 export type RibbonTabId = "home" | "insert" | "interact" | "scene";
 
-export type RibbonCommandKind = "big" | "toggle";
+type RibbonCommandKind = "big" | "toggle";
 
 export type RibbonRequires = "engine" | "selection" | "playing" | "undoable" | "redoable";
 
@@ -14,7 +14,7 @@ export interface RibbonCommand {
   key?: string;
 }
 
-export type RibbonSlot = "numeric" | "wiring" | "selection";
+type RibbonSlot = "numeric" | "wiring" | "selection";
 
 export interface RibbonGroup {
   name: string;
@@ -204,7 +204,16 @@ export const RIBBON_TABS: RibbonTab[] = [
     blurb: "Set up your scene and put it online.",
     empty: "Saving and publishing run from the app bar in this build.",
     groups: [
-      { name: "Project", cmds: [c("save", "Save to disk", { kind: "big" })] },
+      {
+        name: "Project",
+        cmds: [
+          c("save", "Save to disk", { kind: "big" }),
+          c("open", "Open from disk", {
+            kind: "big",
+            hint: "Open a project folder saved on this computer \u{2014} replaces the scene you are editing",
+          }),
+        ],
+      },
       {
         name: "Deploy",
         cmds: [c("publish", "Publish", { kind: "big" })],
@@ -217,7 +226,7 @@ export const DEFAULT_TAB: RibbonTabId = "home";
 
 export const RIBBON_CHROME_IDS: readonly string[] = ["undo", "redo", "play", "stop"];
 
-export interface RibbonDeferred {
+interface RibbonDeferred {
   id: string;
   label: string;
   tab: RibbonTabId;

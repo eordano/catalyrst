@@ -21,11 +21,8 @@
 //!
 //! [`wire`], [`store`], [`poll`] and [`handlers`] are the read mirror: peer world names
 //! and public metadata in their own tables keyed by `(peer_id, world_name)`, served only
-//! on peer-qualified routes. No blobs, no `/about`, no comms, and -- load-bearing --
-//! zero writes to `worlds` or `world_scenes`, because `resolve_world_owner` returns
-//! `stored_owner` **first** and consults squid ENS only when it is `NULL`, so a written
-//! `worlds.owner` would become the permanent authority over the chain. The rule is
-//! "never touch that table", not "don't copy the owner field".
+//! on peer-qualified routes. No blobs, no `/about`, no comms, and zero writes to `worlds`
+//! or `world_scenes`: a stored `worlds.owner` outranks squid ENS in `resolve_world_owner`.
 
 pub mod config;
 pub mod handlers;

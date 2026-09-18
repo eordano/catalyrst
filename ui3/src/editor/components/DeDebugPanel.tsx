@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { DebugSystemsView, EntityDiff } from "../debugger";
 
-export interface DeDebugPanelProps {
+interface DeDebugPanelProps {
   tick: number | null;
   stepping?: boolean;
   error?: string | null;
@@ -23,8 +23,8 @@ export interface DeDebugPanelProps {
 }
 
 export const DEBUG_ROW_CAP = 40;
-export const DEBUG_MIN_HEIGHT = 160;
-export const DEBUG_MAX_HEIGHT = 560;
+const DEBUG_MIN_HEIGHT = 160;
+const DEBUG_MAX_HEIGHT = 560;
 
 const KIND_BADGE: Record<EntityDiff["kind"], { label: string; cls: string } | null> = {
   new: { label: "new", cls: "new" },

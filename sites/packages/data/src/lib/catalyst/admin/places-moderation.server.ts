@@ -3,14 +3,7 @@ import { z } from "zod";
 
 import { catalystBase } from "../client";
 import { warnInvalid } from "../warn";
-import {
-  ReportRowSchema,
-  decisionToStatus,
-  type DisablePlaceBody,
-  type ModerationDecision,
-  type ReportPatchBody,
-  type ReportRow,
-} from "./places-moderation";
+import { ReportRowSchema, type ReportRow } from "./places-moderation";
 import {
   available,
   unavailable,
@@ -126,12 +119,12 @@ const ReportListSchema = z.object({
   total: z.number().nullish().transform((v) => v ?? null),
 });
 
-export type ReportQueue = {
+type ReportQueue = {
   rows: ReportRow[];
   total: number;
 };
 
-export type ReportQueueQuery = {
+type ReportQueueQuery = {
   status?: string;
   entityId?: string;
   limit?: number;
@@ -186,16 +179,16 @@ export async function loadReportQueue(
   return available({ rows, total: parsed.data.total ?? rows.length });
 }
 
-const ReportPatchResponseSchema = z.object({
+z.object({
   ok: z.boolean().nullish(),
   data: ReportRowSchema,
 });
 
-const DisablePlaceResponseSchema = z.object({
+z.object({
   data: z.object({ id: z.string(), disabled: z.boolean() }),
 });
 
-const ModerateInputSchema = z.object({
+z.object({
   reportId: z.string().min(1),
   entityId: z.string().min(1).nullish(),
   decision: z.enum(["resolve", "dismiss", "action", "reopen"]),
@@ -206,130 +199,9 @@ const ModerateInputSchema = z.object({
   disableReason: z.string().optional(),
 });
 
-export type ModerationCommit = {
-  report: ReportRow;
-  placeDisabled: boolean;
-  reportBody: ReportPatchBody;
-  disableBody?: DisablePlaceBody;
-};
-
-export async function commitModerationDecision(
-  raw: unknown,
-  opts: { signal?: AbortSignal } = {},
-): Promise<ControlResult<ModerationCommit>> {
-  assertServerOnly();
-
-  const input = ModerateInputSchema.safeParse(raw);
-  if (!input.success) {
-    return unavailable("backend-error", "Invalid moderation request.", {
-      status: 400,
-      serverCheck: SERVER_CHECK_GATE,
-    });
-  }
-  const args = input.data;
-
-  const decision = args.decision as ModerationDecision;
-  const reopening = decision === "reopen";
-  const reportBody: ReportPatchBody = {
-    status: decisionToStatus(decision),
-    resolution: reopening ? undefined : args.resolution || undefined,
-    notes: args.notes || undefined,
-    resolved_by: reopening ? undefined : args.resolvedBy || "moderator",
-  };
-
-  const patchRes = await adminFetch({
-    method: "PATCH",
-    path: `/places/api/reports/${encodeURIComponent(args.reportId)}`,
-    body: reportBody,
-    signal: opts.signal,
-  });
-  if (!patchRes.ok) {
-    return unavailableFromStatus(
-      patchRes.status,
-      patchRes.message,
-      SERVER_CHECK_GATE,
-    );
-  }
-
-  const patched = ReportPatchResponseSchema.safeParse(patchRes.payload);
-  if (!patched.success) {
-    return unavailable(
-      "backend-error",
-      "Places backend returned an unexpected response to the report patch.",
-      { status: 502, serverCheck: SERVER_CHECK_GATE },
-    );
-  }
-
-  const wantsDisable = args.disablePlace === true && Boolean(args.entityId);
-  const disableBody: DisablePlaceBody | undefined = wantsDisable
-    ? { disabled: true, reason: args.disableReason || undefined }
-    : undefined;
-
-  let placeDisabled = false;
-  if (disableBody && args.entityId) {
-    const disableRes = await adminFetch({
-      method: "PATCH",
-      path: `/places/api/places/${encodeURIComponent(args.entityId)}/disable`,
-      body: disableBody,
-      signal: opts.signal,
-    });
-    if (!disableRes.ok) {
-      return unavailableFromStatus(
-        disableRes.status,
-        `Report was updated, but disabling the place failed: ${disableRes.message}`,
-        SERVER_CHECK_GATE,
-      );
-    }
-    const parsed = DisablePlaceResponseSchema.safeParse(disableRes.payload);
-    placeDisabled = parsed.success ? parsed.data.data.disabled : true;
-  }
-
-  return available({
-    report: liftReason(patched.data.data),
-    placeDisabled,
-    reportBody,
-    disableBody,
-  });
-}
-
-const DisableInputSchema = z.object({
+z.object({
   placeId: z.string().min(1),
   disabled: z.boolean(),
   reason: z.string().optional(),
 });
 
-export async function setPlaceDisabled(
-  raw: unknown,
-  opts: { signal?: AbortSignal } = {},
-): Promise<ControlResult<{ id: string; disabled: boolean }>> {
-  assertServerOnly();
-
-  const input = DisableInputSchema.safeParse(raw);
-  if (!input.success) {
-    return unavailable("backend-error", "Invalid disable request.", {
-      status: 400,
-      serverCheck: SERVER_CHECK_GATE,
-    });
-  }
-  const { placeId, disabled, reason } = input.data;
-
-  const res = await adminFetch({
-    method: "PATCH",
-    path: `/places/api/places/${encodeURIComponent(placeId)}/disable`,
-    body: { disabled, reason: reason?.trim() || undefined },
-    signal: opts.signal,
-  });
-  if (!res.ok) {
-    return unavailableFromStatus(res.status, res.message, SERVER_CHECK_GATE);
-  }
-
-  const parsed = DisablePlaceResponseSchema.safeParse(res.payload);
-  if (!parsed.success) {
-    return unavailable(
-      "backend-error",
-      "Places backend returned an unexpected response to the disable patch.",
-      { status: 502, serverCheck: SERVER_CHECK_GATE },
-    );
-  }
-  return available(parsed.data.data);
-}

@@ -28,7 +28,7 @@ export type UpdateDraft = {
   records: number;
 };
 
-export type UpdateInput = {
+type UpdateInput = {
   trackCtx: TrackContext;
   projectId: string;
   publishUpdate?: PublishFn;
@@ -36,7 +36,7 @@ export type UpdateInput = {
   draft?: Partial<UpdateDraft>;
 };
 
-export type UpdateContext = {
+type UpdateContext = {
   trackCtx: TrackContext;
   projectId: string;
   publishUpdate: PublishFn;
@@ -46,7 +46,7 @@ export type UpdateContext = {
   error?: string;
 };
 
-export type UpdateEvent =
+type UpdateEvent =
   | { type: "SET_GENERAL"; health: string; fields?: Partial<UpdateDraft> }
   | { type: "SET_FINANCIALS"; csv: string; disclosed: number; records: number }
   | { type: "NEXT" }
@@ -71,8 +71,8 @@ export const STATE_TO_SLUG = {
   success: "success",
 } as const;
 
-export type UpdateStateId = keyof typeof STATE_TO_SLUG;
-export type UpdateStepSlug = (typeof STATE_TO_SLUG)[UpdateStateId];
+type UpdateStateId = keyof typeof STATE_TO_SLUG;
+type UpdateStepSlug = (typeof STATE_TO_SLUG)[UpdateStateId];
 
 export const FIRST_STEP_SLUG: UpdateStepSlug = STATE_TO_SLUG.general;
 
@@ -259,8 +259,6 @@ export const projectUpdateMachine = setup({
     },
   },
 });
-
-export type ProjectUpdateMachine = typeof projectUpdateMachine;
 
 export function resolveUpdateSnapshot(args: {
   step: UpdateStateId;

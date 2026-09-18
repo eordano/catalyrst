@@ -8,7 +8,7 @@ import {
   type Notification,
 } from "@data/lib/catalyst/overlay/notifications";
 import { type Assignment } from "@core/lib/experiments/assign";
-import { storyLoader } from "@core/lib/experiments/story-loader";
+import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 import { NotificationsStage as NotificationsStageView } from "@ui/overlay/panels/NotificationsPanel";
 
@@ -31,13 +31,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const filter = parseFilter(url.searchParams.get("filter"));
 
-  const { sid, assignment, wrap } = await storyLoader(
+  const { sid, assignment, wrap, data: feed } = await storyLoaderWith(
     request,
     STORY,
     FALLBACK,
+    () => loadNotifications({ signal: request.signal }),
   );
-
-  const feed = await loadNotifications({ signal: request.signal });
 
   const payload = {
     sid,

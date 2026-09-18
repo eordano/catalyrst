@@ -8,7 +8,11 @@ import {
 } from "@features/stories/client/open-screen/select";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { experimentActive } from "@core/lib/experiments/flags";
-import { parseVariantOverride, storyLoader } from "@core/lib/experiments/story-loader";
+import {
+  parseVariantOverride,
+  sidLoader,
+  storyLoader,
+} from "@core/lib/experiments/story-loader";
 import {
   OPEN_SCREEN_ARMS,
   OPEN_SCREEN_EXPERIMENT_KEY,
@@ -48,20 +52,17 @@ function forcedArm(url: URL): OpenScreenArm | undefined {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
 
-  const { sid, userKey, assignment: resolved, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-    { skipExposure: true },
-  );
-
-  const active = await experimentActive(OPEN_SCREEN_EXPERIMENT_KEY, {
-    envActive:
-      activeOpenScreenExperiment(
-        typeof process !== "undefined" ? process.env?.OPEN_SCREEN_EXPERIMENT : undefined,
-      ) !== null,
-    user: userKey,
-  });
+  const { userKey } = sidLoader(request);
+  const [{ sid, assignment: resolved, wrap }, active] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK, { skipExposure: true }),
+    experimentActive(OPEN_SCREEN_EXPERIMENT_KEY, {
+      envActive:
+        activeOpenScreenExperiment(
+          typeof process !== "undefined" ? process.env?.OPEN_SCREEN_EXPERIMENT : undefined,
+        ) !== null,
+      user: userKey,
+    }),
+  ]);
   let assignment = active ? resolved : FALLBACK;
   const forced = forcedArm(url);
   if (forced) {

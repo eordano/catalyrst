@@ -10,18 +10,6 @@ export function isEthAddress(addr: string): boolean {
   return ETH_ADDRESS_RE.test(addr.trim());
 }
 
-export const RARITIES = [
-  "unique",
-  "mythic",
-  "exotic",
-  "legendary",
-  "epic",
-  "rare",
-  "uncommon",
-  "common",
-] as const;
-export type Rarity = (typeof RARITIES)[number];
-
 export const WEARABLE_CATEGORIES = [
   "body_shape",
   "hair",
@@ -43,7 +31,7 @@ export const WEARABLE_CATEGORIES = [
   "skin",
 ] as const;
 
-export const WearableSchema = z.object({
+const WearableSchema = z.object({
   urn: z.string().min(1),
   name: z.string(),
   thumbnail: z.string().nullish().transform((v) => v ?? null),
@@ -57,7 +45,7 @@ export const WearableSchema = z.object({
 });
 export type Wearable = z.infer<typeof WearableSchema>;
 
-export const CategorySchema = z.object({
+const CategorySchema = z.object({
   id: z.string(),
   label: z.string(),
   slot: z.string(),
@@ -73,23 +61,12 @@ export const EquippedSchema = z.object({
 });
 export type Equipped = z.infer<typeof EquippedSchema>;
 
-export const OwnedElementSchema = z
+const OwnedElementSchema = z
   .object({
     urn: z.string(),
     amount: z.number().nullish().transform((v) => v ?? null),
   })
   .passthrough();
-export type OwnedElement = z.infer<typeof OwnedElementSchema>;
-
-export function parseCatalog(raw: unknown): Wearable[] {
-  if (!Array.isArray(raw)) return [];
-  const out: Wearable[] = [];
-  for (const item of raw) {
-    const r = WearableSchema.safeParse(item);
-    if (r.success) out.push(r.data);
-  }
-  return out;
-}
 
 export function parseOwned(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -110,7 +87,7 @@ export function urnLabel(urn: string): string {
     .trim();
 }
 
-export function findWearable(catalog: Wearable[], urn: string): Wearable | undefined {
+function findWearable(catalog: Wearable[], urn: string): Wearable | undefined {
   return catalog.find((w) => w.urn === urn);
 }
 
@@ -146,10 +123,6 @@ function urnSlotMatches(urn: string, category: string): boolean {
   if (key === "mouth") return tail.includes("mouth");
   if (key === "eyebrows") return tail.includes("eyebrows");
   return false;
-}
-
-export function rarityLabel(rarity: string): string {
-  return rarity.charAt(0).toUpperCase() + rarity.slice(1);
 }
 
 export type InventoryState =

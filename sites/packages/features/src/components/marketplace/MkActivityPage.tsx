@@ -13,7 +13,7 @@ import type { StoryId } from "@core/lib/telemetry/story-id";
 
 const STORY: StoryId = "marketplace/activity";
 
-export type MkActivityPageProps = {
+type MkActivityPageProps = {
   sid: string;
   entries: ActivityEntry[];
   type: ActivityType | "";

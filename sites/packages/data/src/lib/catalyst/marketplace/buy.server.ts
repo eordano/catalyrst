@@ -6,13 +6,13 @@ import {
   type BuyableListing,
 } from "./buy";
 
-export type LoadBuyArgs = {
+type LoadBuyArgs = {
   itemId?: string;
   nftId?: string;
   opts?: GetOptions;
 };
 
-export type LoadBuyResult = {
+type LoadBuyResult = {
   listing: BuyableListing | null;
   source: "catalyst" | "empty" | "unavailable";
   reason?: string;

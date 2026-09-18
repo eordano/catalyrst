@@ -16,6 +16,31 @@ const CONNECTED = "0x000000000000000000000000000000000000c0de";
 const FUTURE = new Date(Date.now() + 5 * 60_000).toISOString();
 const PAST = new Date(Date.now() - 60_000).toISOString();
 
+const PERMIT = JSON.stringify({ primaryType: "Permit", domain: {}, types: {}, message: {} });
+
+const META_TRANSACTION_WITHOUT_SALT_FIELD = JSON.stringify({
+  types: {
+    EIP712Domain: [
+      { name: "name", type: "string" },
+      { name: "version", type: "string" },
+      { name: "verifyingContract", type: "address" },
+    ],
+    MetaTransaction: [
+      { name: "nonce", type: "uint256" },
+      { name: "from", type: "address" },
+      { name: "functionData", type: "bytes" },
+    ],
+  },
+  domain: {
+    name: "DecentralandMarketplacePolygon",
+    version: "1.0.0",
+    verifyingContract: "0xa40b1d129b8906888720686f3a01921ddf37716f",
+    salt: `0x${"00".repeat(31)}89`,
+  },
+  primaryType: "MetaTransaction",
+  message: { nonce: 0, from: SENDER, functionData: `0xdeadbeef${"00".repeat(64)}` },
+});
+
 function request(overrides: Partial<RecoverResponse>): RecoverResponse {
   return {
     expiration: FUTURE,
@@ -50,63 +75,60 @@ describe("recoverAuthRequest", () => {
       { kind: "error", message: "boom" },
     ] as LoadResult[]) {
       const d = deps(result);
-      expect(await recoverAuthRequest(ID, d)).toEqual(result);
-      expect(d.postOutcome).not.toHaveBeenCalled();
+      expect(await recoverAuthRequest(ID, d), result.kind).toEqual(result);
+      expect(d.postOutcome, result.kind).not.toHaveBeenCalled();
     }
   });
 
-  it("readies a canonical request with its verification and acknowledgment needs", async () => {
-    const d = deps({ kind: "ok", request: request({ method: "PERSONAL_SIGN" }) }, {
+  it("readies canonical, typed-data and MetaTransaction requests with their verification and acknowledgment needs", async () => {
+    const canonical = deps({ kind: "ok", request: request({ method: "PERSONAL_SIGN" }) }, {
       requiresValidation: vi.fn(async () => true),
     });
-    const outcome = await recoverAuthRequest(ID, d);
-    expect(outcome).toMatchObject({
+    expect(await recoverAuthRequest(ID, canonical)).toMatchObject({
       kind: "ready",
       request: { method: "personal_sign", sender: SENDER, code: 42 },
       needsValidation: true,
       unverifiable: "unverified_message",
     });
-    expect(d.postOutcome).not.toHaveBeenCalled();
+    expect(canonical.postOutcome).not.toHaveBeenCalled();
+
+    for (const typed of [PERMIT, META_TRANSACTION_WITHOUT_SALT_FIELD]) {
+      const d = deps({
+        kind: "ok",
+        request: request({ method: "eth_signTypedData_v4", params: [SENDER, typed] }),
+      });
+      expect(await recoverAuthRequest(ID, d), typed).toMatchObject({
+        kind: "ready",
+        unverifiable: "unrecognized_typed_data",
+      });
+      expect(d.postOutcome, typed).not.toHaveBeenCalled();
+    }
   });
 
-  it("flags a typed-data request for the effects acknowledgment", async () => {
-    const typed = JSON.stringify({ primaryType: "Permit", domain: {}, types: {}, message: {} });
-    const d = deps({
-      kind: "ok",
-      request: request({ method: "eth_signTypedData_v4", params: [SENDER, typed] }),
-    });
-    expect(await recoverAuthRequest(ID, d)).toMatchObject({
-      kind: "ready",
-      unverifiable: "unrecognized_typed_data",
-    });
-  });
-
-  it("reports an unsupported method once with -32601 using the wallet's account", async () => {
-    const d = deps(
+  it("reports an unsupported method once with -32601 using the wallet's account, or the request's sender without one", async () => {
+    const withWallet = deps(
       { kind: "ok", request: request({ method: "eth_sign", params: [SENDER, "0x00"] }) },
       { connectedAddress: vi.fn(async () => CONNECTED) },
     );
-    const outcome = await recoverAuthRequest(ID, d);
-    expect(outcome).toMatchObject({
+    expect(await recoverAuthRequest(ID, withWallet)).toMatchObject({
       kind: "rejected",
       reported: true,
       rejection: { code: RPC_METHOD_NOT_SUPPORTED, kind: "unsupported_method" },
     });
-    expect(d.postOutcome).toHaveBeenCalledTimes(1);
-    expect(d.postOutcome).toHaveBeenCalledWith(ID, {
+    expect(withWallet.postOutcome).toHaveBeenCalledTimes(1);
+    expect(withWallet.postOutcome).toHaveBeenCalledWith(ID, {
       sender: CONNECTED,
       error: { code: RPC_METHOD_NOT_SUPPORTED, message: 'The "eth_sign" method is not supported' },
     });
-  });
 
-  it("falls back to the request's sender when no wallet account is available", async () => {
-    const d = deps({ kind: "ok", request: request({ method: "dcl_personal_sign" }) });
-    expect(await recoverAuthRequest(ID, d)).toMatchObject({
+    const retired = deps({ kind: "ok", request: request({ method: "dcl_personal_sign" }) });
+    expect(await recoverAuthRequest(ID, retired)).toMatchObject({
       kind: "rejected",
       reported: true,
       rejection: { code: RPC_METHOD_NOT_SUPPORTED, kind: "retired_sign_in" },
     });
-    expect(d.postOutcome).toHaveBeenCalledWith(ID, expect.objectContaining({ sender: SENDER }));
+    expect(retired.postOutcome).toHaveBeenCalledTimes(1);
+    expect(retired.postOutcome).toHaveBeenCalledWith(ID, expect.objectContaining({ sender: SENDER }));
   });
 
   it("reports malformed params once with -32602", async () => {
@@ -125,69 +147,29 @@ describe("recoverAuthRequest", () => {
     });
   });
 
-  it("serves a MetaTransaction whose domain struct misses a domain field", async () => {
-    const typed = JSON.stringify({
-      types: {
-        EIP712Domain: [
-          { name: "name", type: "string" },
-          { name: "version", type: "string" },
-          { name: "verifyingContract", type: "address" },
-        ],
-        MetaTransaction: [
-          { name: "nonce", type: "uint256" },
-          { name: "from", type: "address" },
-          { name: "functionData", type: "bytes" },
-        ],
-      },
-      domain: {
-        name: "DecentralandMarketplacePolygon",
-        version: "1.0.0",
-        verifyingContract: "0xa40b1d129b8906888720686f3a01921ddf37716f",
-        salt: `0x${"00".repeat(31)}89`,
-      },
-      primaryType: "MetaTransaction",
-      message: { nonce: 0, from: SENDER, functionData: `0xdeadbeef${"00".repeat(64)}` },
-    });
-    const d = deps({
-      kind: "ok",
-      request: request({ method: "eth_signTypedData_v4", params: [SENDER, typed] }),
-    });
-    expect(await recoverAuthRequest(ID, d)).toMatchObject({
-      kind: "ready",
-      unverifiable: "unrecognized_typed_data",
-    });
-    expect(d.postOutcome).not.toHaveBeenCalled();
-  });
-
-  it("holds the signature params to the request's sender at recover", async () => {
-    const d = deps({
-      kind: "ok",
-      request: request({ params: ["hello", CONNECTED] }),
-    });
-    expect(await recoverAuthRequest(ID, d)).toMatchObject({
+  it("holds the signature params to the request's sender, and only to the signer shape when it carries none", async () => {
+    const mismatched = deps({ kind: "ok", request: request({ params: ["hello", CONNECTED] }) });
+    expect(await recoverAuthRequest(ID, mismatched)).toMatchObject({
       kind: "rejected",
       rejection: { code: RPC_INVALID_PARAMS, kind: "malformed_signature" },
     });
-  });
 
-  it("only checks the signer shape when the request carries no sender", async () => {
-    const d = deps({
+    const senderless = deps({
       kind: "ok",
       request: request({ sender: undefined, params: ["hello", CONNECTED] }),
     });
-    expect(await recoverAuthRequest(ID, d)).toMatchObject({ kind: "ready" });
+    expect(await recoverAuthRequest(ID, senderless)).toMatchObject({ kind: "ready" });
   });
 
-  it("leaves a rejected request unanswered when there is no sender at all", async () => {
-    const d = deps({ kind: "ok", request: request({ method: "eth_sign", sender: undefined }) });
-    expect(await recoverAuthRequest(ID, d)).toMatchObject({ kind: "rejected", reported: false });
-    expect(d.postOutcome).not.toHaveBeenCalled();
-  });
-
-  it("treats a whitespace-only sender as no sender when nothing is connected", async () => {
-    const d = deps({ kind: "ok", request: request({ method: "eth_sign", sender: "   " }) });
-    expect(await recoverAuthRequest(ID, d)).toMatchObject({ kind: "rejected", reported: false });
-    expect(d.postOutcome).not.toHaveBeenCalled();
+  it("leaves a rejected request unanswered when there is no sender at all, whitespace-only included", async () => {
+    for (const sender of [undefined, "   "]) {
+      const d = deps({ kind: "ok", request: request({ method: "eth_sign", sender }) });
+      expect(await recoverAuthRequest(ID, d), String(sender)).toMatchObject({
+        kind: "rejected",
+        reported: false,
+      });
+      expect(d.postOutcome, String(sender)).not.toHaveBeenCalled();
+    }
   });
 
   it("still rejects when the outcome post fails or throws", async () => {
@@ -204,34 +186,27 @@ describe("recoverAuthRequest", () => {
     expect(await recoverAuthRequest(ID, throwing)).toMatchObject({ kind: "rejected", reported: false });
   });
 
-  it("treats a past expiration as expired before judging the method", async () => {
-    const d = deps({ kind: "ok", request: request({ method: "eth_sign", expiration: PAST }) });
-    expect(await recoverAuthRequest(ID, d)).toEqual({ kind: "expired" });
-    expect(d.postOutcome).not.toHaveBeenCalled();
-  });
+  it("treats a past expiration as expired before judging the method, by the injected clock when given", async () => {
+    const past = deps({ kind: "ok", request: request({ method: "eth_sign", expiration: PAST }) });
+    expect(await recoverAuthRequest(ID, past)).toEqual({ kind: "expired" });
+    expect(past.postOutcome).not.toHaveBeenCalled();
 
-  it("uses the injected clock for the expiration check", async () => {
-    const d = deps({ kind: "ok", request: request({ expiration: FUTURE }) }, {
+    const clocked = deps({ kind: "ok", request: request({ expiration: FUTURE }) }, {
       now: () => Date.parse(FUTURE) + 1,
     });
-    expect(await recoverAuthRequest(ID, d)).toEqual({ kind: "expired" });
+    expect(await recoverAuthRequest(ID, clocked)).toEqual({ kind: "expired" });
+    expect(clocked.postOutcome).not.toHaveBeenCalled();
   });
 });
 
 describe("isRequestExpired", () => {
-  it("holds a request open until the instant it expires", () => {
+  it("holds a request open until the instant it expires, reads an unparsable deadline as none, and defaults to now", () => {
     const at = Date.parse(FUTURE);
     expect(isRequestExpired(FUTURE, at - 1)).toBe(false);
     expect(isRequestExpired(FUTURE, at)).toBe(true);
     expect(isRequestExpired(FUTURE, at + 1)).toBe(true);
-  });
-
-  it("reads an expiration it cannot parse as no deadline at all", () => {
     expect(isRequestExpired("whenever", Date.now())).toBe(false);
     expect(isRequestExpired("", Date.now())).toBe(false);
-  });
-
-  it("answers for a past expiration without being told the time", () => {
     expect(isRequestExpired(PAST)).toBe(true);
     expect(isRequestExpired(FUTURE)).toBe(false);
   });
@@ -247,11 +222,8 @@ describe("parseRecoverResponse", () => {
     challenge: "c",
   };
 
-  it("returns the record the auth server documents", () => {
+  it("returns the record the auth server documents, the fields it omits left undefined", () => {
     expect(parseRecoverResponse(body)).toEqual(body);
-  });
-
-  it("accepts the fields the server omits", () => {
     const { sender, challenge, params, ...rest } = body;
     expect(parseRecoverResponse(rest)).toEqual({
       ...rest,
@@ -261,17 +233,20 @@ describe("parseRecoverResponse", () => {
     });
   });
 
-  it.each([
-    ["nothing at all", null],
-    ["a list", [body]],
-    ["a bare string", "ok"],
-    ["an expiration that is not a string", { ...body, expiration: 1_800_000 }],
-    ["a code that is not a number", { ...body, code: "42" }],
-    ["a method that is not a string", { ...body, method: { name: "personal_sign" } }],
-    ["params that are not a list", { ...body, params: { 0: "hello" } }],
-    ["a sender that is not a string", { ...body, sender: 12 }],
-    ["a challenge that is not a string", { ...body, challenge: ["c"] }],
-  ])("refuses %s", (_label, value) => {
-    expect(parseRecoverResponse(value)).toBeNull();
+  it("refuses anything that is not the documented record", () => {
+    const refused: [string, unknown][] = [
+      ["nothing at all", null],
+      ["a list", [body]],
+      ["a bare string", "ok"],
+      ["an expiration that is not a string", { ...body, expiration: 1_800_000 }],
+      ["a code that is not a number", { ...body, code: "42" }],
+      ["a method that is not a string", { ...body, method: { name: "personal_sign" } }],
+      ["params that are not a list", { ...body, params: { 0: "hello" } }],
+      ["a sender that is not a string", { ...body, sender: 12 }],
+      ["a challenge that is not a string", { ...body, challenge: ["c"] }],
+    ];
+    for (const [label, value] of refused) {
+      expect(parseRecoverResponse(value), label).toBeNull();
+    }
   });
 });

@@ -24,14 +24,14 @@ export type GrantDraft = {
   duration: number;
 };
 
-export type GrantInput = {
+type GrantInput = {
   trackCtx: TrackContext;
   submitGrant?: SubmitFn;
   track?: TrackFn;
   draft?: Partial<GrantDraft>;
 };
 
-export type GrantContext = {
+type GrantContext = {
   trackCtx: TrackContext;
   submitGrant: SubmitFn;
   track: TrackFn;
@@ -40,7 +40,7 @@ export type GrantContext = {
   error?: string;
 };
 
-export type GrantEvent =
+type GrantEvent =
   | { type: "PICK_CATEGORY"; category: string }
   | { type: "SET_FUNDING"; budget: number; duration: number; tier?: string }
   | { type: "NEXT" }
@@ -67,8 +67,8 @@ export const STATE_TO_SLUG = {
   success: "success",
 } as const;
 
-export type GrantStateId = keyof typeof STATE_TO_SLUG;
-export type GrantStepSlug = (typeof STATE_TO_SLUG)[GrantStateId];
+type GrantStateId = keyof typeof STATE_TO_SLUG;
+type GrantStepSlug = (typeof STATE_TO_SLUG)[GrantStateId];
 
 export const FIRST_STEP_SLUG: GrantStepSlug = STATE_TO_SLUG.category;
 
@@ -272,8 +272,6 @@ export const grantMachine = setup({
     },
   },
 });
-
-export type GrantMachine = typeof grantMachine;
 
 export function resolveGrantSnapshot(args: {
   step: GrantStateId;

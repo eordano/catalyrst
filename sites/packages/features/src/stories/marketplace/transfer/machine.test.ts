@@ -56,102 +56,6 @@ const EXPECTED_STATES = new Set([
   "error",
 ]);
 
-describe("transferMachine \u{2014} URL ?step slug map", () => {
-  it("STATE_TO_SLUG covers exactly the machine's states", () => {
-    const machineStates = new Set(Object.keys(transferMachine.states));
-    const mappedStates = new Set(Object.keys(STATE_TO_SLUG));
-    expect(mappedStates).toEqual(machineStates);
-    expect(mappedStates).toEqual(EXPECTED_STATES);
-  });
-
-  it("slugs are unique and round-trip via SLUG_TO_STATE", () => {
-    const slugs = Object.values(STATE_TO_SLUG);
-    expect(new Set(slugs).size).toBe(slugs.length);
-    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
-      expect(SLUG_TO_STATE[slug]).toBe(state);
-      expect(stateToSlug(state)).toBe(slug);
-    }
-  });
-
-  it("slugs match the audit-spec step names", () => {
-    expect(STATE_TO_SLUG.selecting).toBe("select-asset");
-    expect(STATE_TO_SLUG.enteringRecipient).toBe("enter-recipient");
-    expect(STATE_TO_SLUG.reviewing).toBe("review");
-    expect(STATE_TO_SLUG.confirming).toBe("confirm-transfer");
-    expect(STATE_TO_SLUG.submitting).toBe("submit-tx");
-    expect(STATE_TO_SLUG.success).toBe("success");
-  });
-
-  it("unknown/missing ?step falls back to the first step", () => {
-    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.selecting);
-    expect(slugToState(null)).toBe("selecting");
-    expect(slugToState(undefined)).toBe("selecting");
-    expect(slugToState("")).toBe("selecting");
-    expect(slugToState("nope")).toBe("selecting");
-    expect(slugToState("enter-recipient")).toBe("enteringRecipient");
-    expect(slugToState("review")).toBe("reviewing");
-    expect(slugToState("submit-tx")).toBe("submitting");
-    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
-  });
-});
-
-describe("transferMachine \u{2014} deep-link hydration", () => {
-  it("first step needs no snapshot (boots from declared initial)", () => {
-    const snap = resolveTransferSnapshot({
-      step: "selecting",
-      trackCtx: inputFor(okTransfer, () => {}).trackCtx,
-    });
-    expect(snap).toBeUndefined();
-  });
-
-  it("hydrating submit-tx does NOT fire telemetry and does NOT auto-submit", async () => {
-    const track = vi.fn();
-    const transfer = vi.fn(okTransfer);
-    const snapshot = resolveTransferSnapshot({
-      step: "submitting",
-      trackCtx: inputFor(transfer, track).trackCtx,
-      transfer,
-      track,
-      asset: ASSET,
-      recipient: VALID_ADDR,
-    });
-    const actor = createActor(transferMachine, {
-      input: inputFor(transfer, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-    expect(actor.getSnapshot().context.asset?.id).toBe(ASSET.id);
-
-    await Promise.resolve();
-    expect(track).not.toHaveBeenCalled();
-    expect(transfer).not.toHaveBeenCalled();
-    expect(actor.getSnapshot().matches("submitting")).toBe(true);
-  });
-
-  it("real transitions after hydration still fire telemetry", () => {
-    const track = vi.fn();
-    const snapshot = resolveTransferSnapshot({
-      step: "reviewing",
-      trackCtx: inputFor(okTransfer, track).trackCtx,
-      track,
-      asset: ASSET,
-      recipient: VALID_ADDR,
-    });
-    const actor = createActor(transferMachine, {
-      input: inputFor(okTransfer, track),
-      snapshot,
-    }).start();
-
-    expect(actor.getSnapshot().matches("reviewing")).toBe(true);
-    expect(track).not.toHaveBeenCalled();
-
-    actor.send({ type: "CONFIRM" });
-    expect(actor.getSnapshot().matches("confirming")).toBe(true);
-    expect(track.mock.calls.map((c) => c[0])).toContain(TRANSFER_EVENTS.confirmReached);
-  });
-});
-
 const TRAVERSAL_EVENTS = [
   { type: "SELECT_ASSET" as const, asset: ASSET },
   { type: "SUBMIT_RECIPIENT" as const, recipient: VALID_ADDR },
@@ -162,13 +66,85 @@ const TRAVERSAL_EVENTS = [
   { type: "RETRY" as const },
 ];
 
+function names(track: ReturnType<typeof vi.fn>) {
+  return track.mock.calls.map((c) => c[0]);
+}
+
+describe("transferMachine \u{2014} URL ?step slug map", () => {
+  it("uses the audit-spec step names, unique and round-tripping, falling back to select-asset", () => {
+    const mapped = new Set(Object.keys(STATE_TO_SLUG));
+    expect(mapped).toEqual(new Set(Object.keys(transferMachine.states)));
+    expect(mapped).toEqual(EXPECTED_STATES);
+    expect(STATE_TO_SLUG).toMatchObject({
+      selecting: "select-asset",
+      enteringRecipient: "enter-recipient",
+      reviewing: "review",
+      confirming: "confirm-transfer",
+      submitting: "submit-tx",
+      success: "success",
+    });
+    const slugs = Object.values(STATE_TO_SLUG);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    for (const [state, slug] of Object.entries(STATE_TO_SLUG)) {
+      expect(SLUG_TO_STATE[slug]).toBe(state);
+      expect(stateToSlug(state)).toBe(slug);
+      expect(slugToState(slug)).toBe(state);
+    }
+    expect(FIRST_STEP_SLUG).toBe(STATE_TO_SLUG.selecting);
+    for (const bad of [null, undefined, "", "nope"]) expect(slugToState(bad)).toBe("selecting");
+    expect(stateToSlug("bogus")).toBe(FIRST_STEP_SLUG);
+  });
+});
+
+describe("transferMachine \u{2014} deep-link hydration", () => {
+  it("boots selecting without a snapshot, hydrates submit-tx silently, and only real transitions track", async () => {
+    const track = vi.fn();
+    const transfer = vi.fn(okTransfer);
+    const trackCtx = inputFor(transfer, track).trackCtx;
+    expect(resolveTransferSnapshot({ step: "selecting", trackCtx })).toBeUndefined();
+
+    const submitting = createActor(transferMachine, {
+      input: inputFor(transfer, track),
+      snapshot: resolveTransferSnapshot({
+        step: "submitting",
+        trackCtx,
+        transfer,
+        track,
+        asset: ASSET,
+        recipient: VALID_ADDR,
+      }),
+    }).start();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+    expect(submitting.getSnapshot().context.asset?.id).toBe(ASSET.id);
+    await Promise.resolve();
+    expect(track).not.toHaveBeenCalled();
+    expect(transfer).not.toHaveBeenCalled();
+    expect(submitting.getSnapshot().matches("submitting")).toBe(true);
+
+    const reviewing = createActor(transferMachine, {
+      input: inputFor(okTransfer, track),
+      snapshot: resolveTransferSnapshot({
+        step: "reviewing",
+        trackCtx,
+        track,
+        asset: ASSET,
+        recipient: VALID_ADDR,
+      }),
+    }).start();
+    expect(reviewing.getSnapshot().matches("reviewing")).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+    reviewing.send({ type: "CONFIRM" });
+    expect(reviewing.getSnapshot().matches("confirming")).toBe(true);
+    expect(names(track)).toContain(TRANSFER_EVENTS.confirmReached);
+  });
+});
+
 describe("transferMachine \u{2014} model-based path coverage", () => {
-  it("every event-reachable path ends in an expected state", () => {
+  it("every event-reachable path ends in an expected state and submitting needs the full step chain", () => {
     const paths = getShortestPaths(transferMachine, {
       input: inputFor(okTransfer, () => {}),
       events: TRAVERSAL_EVENTS,
     });
-
     expect(paths.length).toBeGreaterThan(0);
     const ends = new Set<string>();
     for (const p of paths) {
@@ -176,59 +152,51 @@ describe("transferMachine \u{2014} model-based path coverage", () => {
       ends.add(value);
       expect(EXPECTED_STATES.has(value)).toBe(true);
     }
-    expect(ends.has("enteringRecipient")).toBe(true);
-    expect(ends.has("reviewing")).toBe(true);
-    expect(ends.has("confirming")).toBe(true);
-    expect(ends.has("submitting")).toBe(true);
-  });
-
-  it("reaching submitting passes through the full step chain", () => {
-    const paths = getShortestPaths(transferMachine, {
-      input: inputFor(okTransfer, () => {}),
-      events: TRAVERSAL_EVENTS,
-    });
+    for (const s of ["enteringRecipient", "reviewing", "confirming", "submitting"]) {
+      expect(ends.has(s)).toBe(true);
+    }
     const submitting = paths.find((p) => (p.state.value as string) === "submitting");
-    expect(submitting).toBeDefined();
     const events = submitting!.steps.map((s) => s.event.type);
-    expect(events).toContain("SELECT_ASSET");
-    expect(events).toContain("SUBMIT_RECIPIENT");
-    expect(events).toContain("CONFIRM");
-    expect(events).toContain("APPROVE");
+    for (const e of ["SELECT_ASSET", "SUBMIT_RECIPIENT", "CONFIRM", "APPROVE"]) {
+      expect(events).toContain(e);
+    }
   });
 });
 
 describe("transferMachine \u{2014} telemetry events (happy path)", () => {
-  it("select -> recipient -> review -> confirm -> approve -> success fires the full funnel", async () => {
+  it("a malformed recipient is rejected in place, then select -> recipient -> review -> confirm -> approve -> success fires the full funnel", async () => {
     const track = vi.fn();
-    const actor = createActor(transferMachine, {
-      input: inputFor(okTransfer, track),
-    }).start();
+    const actor = createActor(transferMachine, { input: inputFor(okTransfer, track) }).start();
 
     actor.send({ type: "SELECT_ASSET", asset: ASSET });
     expect(actor.getSnapshot().matches("enteringRecipient")).toBe(true);
+    actor.send({ type: "SUBMIT_RECIPIENT", recipient: BAD_ADDR });
+    expect(actor.getSnapshot().matches("enteringRecipient")).toBe(true);
+    expect(names(track)).toContain(TRANSFER_EVENTS.invalidRecipient);
+    expect(names(track)).not.toContain(TRANSFER_EVENTS.recipientEntered);
 
     actor.send({ type: "SUBMIT_RECIPIENT", recipient: VALID_ADDR });
     expect(actor.getSnapshot().matches("reviewing")).toBe(true);
-
     actor.send({ type: "CONFIRM" });
     expect(actor.getSnapshot().matches("confirming")).toBe(true);
-
     actor.send({ type: "APPROVE" });
     await waitFor(actor, (s) => s.matches("success"));
 
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(TRANSFER_EVENTS.assetSelected);
-    expect(events).toContain(TRANSFER_EVENTS.started);
-    expect(events).toContain(TRANSFER_EVENTS.recipientEntered);
-    expect(events).toContain(TRANSFER_EVENTS.reviewed);
-    expect(events).toContain(TRANSFER_EVENTS.confirmReached);
-    expect(events).toContain(TRANSFER_EVENTS.submitted);
-    expect(events).toContain(TRANSFER_EVENTS.completed);
-
+    const events = names(track);
+    for (const e of [
+      TRANSFER_EVENTS.assetSelected,
+      TRANSFER_EVENTS.started,
+      TRANSFER_EVENTS.recipientEntered,
+      TRANSFER_EVENTS.reviewed,
+      TRANSFER_EVENTS.confirmReached,
+      TRANSFER_EVENTS.submitted,
+      TRANSFER_EVENTS.completed,
+    ]) {
+      expect(events).toContain(e);
+    }
     expect(events.indexOf(TRANSFER_EVENTS.confirmReached)).toBeLessThan(
       events.indexOf(TRANSFER_EVENTS.completed),
     );
-
     const startedCall = track.mock.calls.find((c) => c[0] === TRANSFER_EVENTS.started);
     expect(startedCall?.[2]).toMatchObject({
       sid: "sid-abc",
@@ -236,26 +204,6 @@ describe("transferMachine \u{2014} telemetry events (happy path)", () => {
       variant: "wizard",
     });
     expect(actor.getSnapshot().context.result).toEqual(RESULT);
-  });
-});
-
-describe("transferMachine \u{2014} invalid recipient guardrail", () => {
-  it("a malformed address stays on enter-recipient and fires the guardrail event", () => {
-    const track = vi.fn();
-    const actor = createActor(transferMachine, {
-      input: inputFor(okTransfer, track),
-    }).start();
-
-    actor.send({ type: "SELECT_ASSET", asset: ASSET });
-    actor.send({ type: "SUBMIT_RECIPIENT", recipient: BAD_ADDR });
-
-    expect(actor.getSnapshot().matches("enteringRecipient")).toBe(true);
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(TRANSFER_EVENTS.invalidRecipient);
-    expect(events).not.toContain(TRANSFER_EVENTS.recipientEntered);
-
-    actor.send({ type: "SUBMIT_RECIPIENT", recipient: VALID_ADDR });
-    expect(actor.getSnapshot().matches("reviewing")).toBe(true);
   });
 });
 
@@ -268,10 +216,7 @@ describe("transferMachine \u{2014} submit failure + retry", () => {
       if (calls === 1) throw new Error("rpc unreachable");
       return okTransfer(args);
     };
-
-    const actor = createActor(transferMachine, {
-      input: inputFor(transfer, track),
-    }).start();
+    const actor = createActor(transferMachine, { input: inputFor(transfer, track) }).start();
 
     actor.send({ type: "SELECT_ASSET", asset: ASSET });
     actor.send({ type: "SUBMIT_RECIPIENT", recipient: VALID_ADDR });
@@ -282,9 +227,7 @@ describe("transferMachine \u{2014} submit failure + retry", () => {
 
     actor.send({ type: "RETRY" });
     await waitFor(actor, (s) => s.matches("success"));
-
-    const events = track.mock.calls.map((c) => c[0]);
-    expect(events).toContain(TRANSFER_EVENTS.completed);
+    expect(names(track)).toContain(TRANSFER_EVENTS.completed);
   });
 });
 

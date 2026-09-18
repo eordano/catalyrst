@@ -3,11 +3,10 @@ use std::sync::Arc;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::Json;
-use serde_json::Value;
 
 use crate::errors::AppResult;
-use crate::handlers::get_entities::entities_cache_control;
-use crate::state::{retain_non_denylisted, AppState};
+use crate::handlers::get_entities::{entities_cache_control, json_docs_response};
+use crate::state::{retain_non_denylisted_docs, AppState};
 use crate::validation::{validate_ids_or_pointers, MAX_IDS_OR_POINTERS};
 
 #[derive(Debug, serde::Deserialize)]
@@ -37,15 +36,18 @@ pub async fn get_active_entities(
             .expect("validate_ids_or_pointers guarantees pointers is present")
     };
 
-    let mut entities: Vec<Value> = if use_ids {
-        state.database.active_entities_by_ids(values).await?
+    let mut entities = if use_ids {
+        state.database.active_entity_docs_by_ids(values).await?
     } else {
-        state.database.active_entities_by_pointers(values).await?
+        state
+            .database
+            .active_entity_docs_by_pointers(values)
+            .await?
     };
 
-    retain_non_denylisted(&mut entities, state.denylist.as_ref());
+    retain_non_denylisted_docs(&mut entities, state.denylist.as_ref());
 
-    let mut response = Json(entities).into_response();
+    let mut response = json_docs_response(&entities);
     if let Some(cache_control) = entities_cache_control(state.entities_cache_control_max_age) {
         if let Ok(hv) = cache_control.parse() {
             response.headers_mut().insert("Cache-Control", hv);

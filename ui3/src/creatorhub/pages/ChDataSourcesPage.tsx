@@ -18,7 +18,7 @@ export const SOURCE_FILTERS: { id: SourceFilter; label: string }[] = [
   { id: "excluded", label: "Excluded" },
 ];
 
-export type ChDataSourcesPageProps = {
+type ChDataSourcesPageProps = {
   groups: readonly SourceLedgerGroup[];
   readAt?: string | null;
   filter?: SourceFilter;

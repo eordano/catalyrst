@@ -5,7 +5,7 @@ vi.mock("../auth/signer", () => ({
 }));
 
 import { signedFetch } from "../auth/signer";
-import { CatalystError, postJSON, signedGetJSON } from "./client";
+import { CatalystError, getJSON, postJSON, signedGetJSON } from "./client";
 import type { AuthIdentity } from "../auth/types";
 
 const mSignedFetch = vi.mocked(signedFetch);
@@ -38,9 +38,9 @@ async function catchErr(p: Promise<unknown>): Promise<CatalystError> {
   throw new Error("expected the request to reject");
 }
 
-describe("postJSON \u{2014} server error-message surfacing (checkout error root cause)", () => {
-  it("surfaces the catalyrst envelope's message on 409 with status intact", async () => {
-    mSignedFetch.mockResolvedValue(
+describe("postJSON server error-message surfacing (checkout error root cause)", () => {
+  it("surfaces only the envelope's message with status intact, on 409 and any other status", async () => {
+    mSignedFetch.mockResolvedValueOnce(
       jsonResponse(409, {
         ok: false,
         message:
@@ -53,20 +53,16 @@ describe("postJSON \u{2014} server error-message surfacing (checkout error root 
     expect(err.serverMessage).toBe(true);
     expect(err.message).toContain("the order total changed after the purchase was signed");
     expect(err.message).not.toMatch(/Catalyst returned/);
-  });
 
-  it("surfaces server messages for non-409 errors too (402, 500, \u{2026})", async () => {
-    mSignedFetch.mockResolvedValue(
+    mSignedFetch.mockResolvedValueOnce(
       jsonResponse(402, { ok: false, message: "insufficient credits balance" }),
     );
-    const err = await catchErr(postJSON("/credits/checkout", {}, { identity: IDENTITY }));
-    expect(err.status).toBe(402);
-    expect(err.message).toBe("insufficient credits balance");
-    expect(err.serverMessage).toBe(true);
-  });
+    const paid = await catchErr(postJSON("/credits/checkout", {}, { identity: IDENTITY }));
+    expect(paid.status).toBe(402);
+    expect(paid.message).toBe("insufficient credits balance");
+    expect(paid.serverMessage).toBe(true);
 
-  it("uses only the message field \u{2014} other body fields never leak", async () => {
-    mSignedFetch.mockResolvedValue(
+    mSignedFetch.mockResolvedValueOnce(
       jsonResponse(500, {
         ok: false,
         message: "database error",
@@ -74,10 +70,10 @@ describe("postJSON \u{2014} server error-message surfacing (checkout error root 
         stack: "at very::internal::frame",
       }),
     );
-    const err = await catchErr(postJSON("/credits/checkout", {}, { identity: IDENTITY }));
-    expect(err.message).toBe("database error");
-    expect(err.message).not.toContain("secret-host");
-    expect(err.message).not.toContain("internal::frame");
+    const leak = await catchErr(postJSON("/credits/checkout", {}, { identity: IDENTITY }));
+    expect(leak.message).toBe("database error");
+    expect(leak.message).not.toContain("secret-host");
+    expect(leak.message).not.toContain("internal::frame");
   });
 
   it("falls back to the generic message when the body is not JSON or has no message", async () => {
@@ -95,7 +91,74 @@ describe("postJSON \u{2014} server error-message surfacing (checkout error root 
   });
 });
 
-describe("signedGetJSON \u{2014} same surfacing on authenticated reads", () => {
+describe("getJSON per-request in-flight dedupe", () => {
+  it("identical concurrent reads under one signal share a single upstream fetch", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { realm: "hela" }));
+    const { signal } = new AbortController();
+    const [a, b] = await Promise.all([
+      getJSON<{ realm: string }>("/about", { fetchImpl, signal }),
+      getJSON<{ realm: string }>("/about", { fetchImpl, signal }),
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(a).toEqual({ realm: "hela" });
+    expect(b).toEqual(a);
+    expect(b).not.toBe(a);
+  });
+
+  it("does not share across signals, without a signal, or once the read settled", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {}));
+    const { signal } = new AbortController();
+    const other = new AbortController().signal;
+    await Promise.all([
+      getJSON("/about", { fetchImpl, signal }),
+      getJSON("/about", { fetchImpl, signal: other }),
+      getJSON("/about", { fetchImpl }),
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    await getJSON("/about", { fetchImpl, signal });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  it("a differing query or header is a different read", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {}));
+    const { signal } = new AbortController();
+    await Promise.all([
+      getJSON("/x", { fetchImpl, signal, query: { a: 1 } }),
+      getJSON("/x", { fetchImpl, signal, query: { a: 2 } }),
+      getJSON("/x", { fetchImpl, signal, query: { a: 1 }, headers: { "x-k": "v" } }),
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("every sharer sees the same CatalystError", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 502, statusText: "Bad Gateway" }));
+    const { signal } = new AbortController();
+    const [a, b] = await Promise.all([
+      catchErr(getJSON("/about", { fetchImpl, signal })),
+      catchErr(getJSON("/about", { fetchImpl, signal })),
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(a.status).toBe(502);
+    expect(a.message).toBe("Catalyst returned 502 Bad Gateway");
+    expect(b).toBe(a);
+  });
+
+  it("keeps the network and invalid-JSON error shapes", async () => {
+    const down = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    });
+    const err = await catchErr(getJSON("/about", { fetchImpl: down }));
+    expect(err.status).toBe(0);
+    expect(err.message).toBe("Catalyst request failed: ECONNREFUSED");
+
+    const bad = vi.fn(async () => new Response("<html>", { status: 200 }));
+    const err2 = await catchErr(getJSON("/about", { fetchImpl: bad }));
+    expect(err2.status).toBe(200);
+    expect(err2.message).toMatch(/^Catalyst returned invalid JSON/);
+  });
+});
+
+describe("signedGetJSON surfaces the server message on authenticated reads", () => {
   it("surfaces the server message", async () => {
     mSignedFetch.mockResolvedValue(
       jsonResponse(403, { ok: false, message: "checkout does not belong to signer" }),

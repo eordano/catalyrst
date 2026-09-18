@@ -3,11 +3,7 @@ import { signedGetJSON } from "../client";
 import type { CreatorScenesStats } from "@ui/creatorhub/lib/scene-analytics";
 import { parseCreatorScenesStats } from "./scene-analytics.gen";
 
-
-export {
-  parseCreatorScenesStats,
-  WireCreatorScenesStatsSchema,
-} from "./scene-analytics.gen";
+export { parseCreatorScenesStats } from "./scene-analytics.gen";
 
 export const SCENE_STATS_PATH = "/creators/me/scenes/stats";
 
@@ -23,7 +19,7 @@ export function creatorsDataBase(override?: string): string {
   return base.replace(/\/$/, "");
 }
 
-export type FetchSceneStatsOptions = {
+type FetchSceneStatsOptions = {
   base?: string;
   signal?: AbortSignal;
 };

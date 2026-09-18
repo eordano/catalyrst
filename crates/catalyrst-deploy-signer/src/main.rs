@@ -2,13 +2,14 @@ use std::{
     collections::HashMap,
     net::SocketAddr,
     path::PathBuf,
-    sync::{Arc, Mutex},
-    time::SystemTime,
+    sync::{Arc, Mutex, OnceLock},
+    time::{Duration, Instant, SystemTime},
 };
 
 use alloy::signers::{local::PrivateKeySigner, Signer};
 use anyhow::{bail, Context, Result};
 use axum::{
+    body::Bytes,
     extract::State,
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse},
@@ -170,7 +171,7 @@ fn collect_files(dir: &std::path::Path, base: &std::path::Path, out: &mut Vec<St
 
 struct Prepared {
     world: String,
-    files: Vec<(String, String, Vec<u8>)>,
+    files: Vec<(String, String, Bytes)>,
     content_server: String,
     pointers: Vec<String>,
     metadata: Value,
@@ -191,7 +192,7 @@ impl Prepared {
     }
 }
 
-fn build_entity(p: &Prepared, timestamp: i64) -> (String, Vec<u8>) {
+fn build_entity(p: &Prepared, timestamp: i64) -> (String, Bytes) {
     let content: Vec<Value> = p
         .files
         .iter()
@@ -207,7 +208,12 @@ fn build_entity(p: &Prepared, timestamp: i64) -> (String, Vec<u8>) {
     });
     let entity_bytes = serde_json::to_vec(&entity).expect("serializing entity");
     let entity_id = hash_bytes_v1(&entity_bytes);
-    (entity_id, entity_bytes)
+    (entity_id, Bytes::from(entity_bytes))
+}
+
+fn http() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new)
 }
 
 fn now_ms() -> i64 {
@@ -264,7 +270,7 @@ fn prepare(args: &Args) -> Result<Prepared> {
             std::fs::read(&p).with_context(|| format!("reading content file {}", p.display()))?
         };
         let hash = hash_bytes_v1(&bytes);
-        files.push((rel.clone(), hash, bytes));
+        files.push((rel.clone(), hash, Bytes::from(bytes)));
     }
 
     let pointers: Vec<String> = scene_meta
@@ -290,10 +296,46 @@ fn prepare(args: &Args) -> Result<Prepared> {
     })
 }
 
+const PENDING_TTL: Duration = Duration::from_secs(5 * 60);
+const PENDING_MAX: usize = 32;
+
+// Entities minted by /api/info awaiting a signature: expire after PENDING_TTL,
+// and the oldest goes when the map is full, so a busy page never wipes all of them.
+#[derive(Default)]
+struct Pending {
+    entities: HashMap<String, (Instant, Bytes)>,
+}
+
+impl Pending {
+    fn insert(&mut self, entity_id: String, bytes: Bytes, now: Instant) {
+        self.entities
+            .retain(|_, (minted, _)| now.duration_since(*minted) < PENDING_TTL);
+        while self.entities.len() >= PENDING_MAX {
+            let oldest = self
+                .entities
+                .iter()
+                .min_by_key(|(_, (minted, _))| *minted)
+                .map(|(id, _)| id.clone());
+            match oldest {
+                Some(id) => self.entities.remove(&id),
+                None => break,
+            };
+        }
+        self.entities.insert(entity_id, (now, bytes));
+    }
+
+    fn get(&self, entity_id: &str, now: Instant) -> Option<Bytes> {
+        self.entities
+            .get(entity_id)
+            .filter(|(minted, _)| now.duration_since(*minted) < PENDING_TTL)
+            .map(|(_, bytes)| bytes.clone())
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
     prepared: Arc<Prepared>,
-    pending: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    pending: Arc<Mutex<Pending>>,
 }
 
 async fn index() -> Html<&'static str> {
@@ -304,13 +346,10 @@ async fn info(State(st): State<AppState>) -> Json<Value> {
     let p = &st.prepared;
     let ts = now_ms();
     let (entity_id, entity_bytes) = build_entity(p, ts);
-    {
-        let mut pending = st.pending.lock().unwrap();
-        if pending.len() > 32 {
-            pending.clear();
-        }
-        pending.insert(entity_id.clone(), entity_bytes);
-    }
+    st.pending
+        .lock()
+        .unwrap()
+        .insert(entity_id.clone(), entity_bytes, Instant::now());
     Json(json!({
         "world": p.world,
         "entityId": entity_id,
@@ -332,7 +371,11 @@ struct SignReq {
 }
 
 async fn sign(State(st): State<AppState>, Json(req): Json<SignReq>) -> Json<Value> {
-    let entity_bytes = st.pending.lock().unwrap().get(&req.entity_id).cloned();
+    let entity_bytes = st
+        .pending
+        .lock()
+        .unwrap()
+        .get(&req.entity_id, Instant::now());
     let Some(entity_bytes) = entity_bytes else {
         return Json(json!({
             "ok": false,
@@ -362,7 +405,7 @@ async fn sign(State(st): State<AppState>, Json(req): Json<SignReq>) -> Json<Valu
 async fn deploy(
     p: &Prepared,
     entity_id: &str,
-    entity_bytes: &[u8],
+    entity_bytes: &Bytes,
     address: &str,
     signature: &str,
 ) -> Result<String> {
@@ -383,14 +426,18 @@ async fn deploy(
 
     form = form.part(
         entity_id.to_string(),
-        reqwest::multipart::Part::bytes(entity_bytes.to_vec())
-            .file_name(entity_id.to_string())
-            .mime_str("application/json")?,
+        reqwest::multipart::Part::stream_with_length(
+            entity_bytes.clone(),
+            entity_bytes.len() as u64,
+        )
+        .file_name(entity_id.to_string())
+        .mime_str("application/json")?,
     );
     for (_rel, hash, bytes) in &p.files {
         form = form.part(
             hash.clone(),
-            reqwest::multipart::Part::bytes(bytes.clone()).file_name(hash.clone()),
+            reqwest::multipart::Part::stream_with_length(bytes.clone(), bytes.len() as u64)
+                .file_name(hash.clone()),
         );
     }
 
@@ -400,7 +447,7 @@ async fn deploy(
         p.world,
         entity_id
     );
-    let resp = reqwest::Client::new()
+    let resp = http()
         .post(&url)
         .multipart(form)
         .send()
@@ -488,7 +535,7 @@ async fn main() -> Result<()> {
     let world_disp = prepared.world.clone();
     let state = AppState {
         prepared,
-        pending: Arc::new(Mutex::new(HashMap::new())),
+        pending: Arc::new(Mutex::new(Pending::default())),
     };
     let app = Router::new()
         .route("/", get(index))
@@ -579,7 +626,7 @@ async fn do_grant(st: &GrantState, req: &GrantReq) -> Result<String> {
         st.deploy_address,
         req.owner_address
     );
-    let resp = reqwest::Client::new()
+    let resp = http()
         .put(&url)
         .header("x-identity-auth-chain-0", link0.to_string())
         .header("x-identity-auth-chain-1", link1.to_string())
@@ -1080,5 +1127,39 @@ mod delegation_tests {
             effective_delegation_token(&Some("s3cr3t".into())),
             Some("s3cr3t".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod pending_tests {
+    use super::*;
+
+    #[test]
+    fn pending_entities_expire_and_evict_oldest_first() {
+        let t0 = Instant::now();
+        let mut pending = Pending::default();
+        pending.insert("a".into(), Bytes::from_static(b"a"), t0);
+        assert_eq!(pending.get("a", t0).as_deref(), Some(&b"a"[..]));
+        assert!(pending.get("a", t0 + PENDING_TTL).is_none());
+
+        for i in 0..PENDING_MAX {
+            pending.insert(
+                format!("e{i}"),
+                Bytes::new(),
+                t0 + Duration::from_millis(1 + i as u64),
+            );
+        }
+        let now = t0 + Duration::from_millis(100);
+        assert!(pending.get("a", now).is_none(), "oldest evicted when full");
+        assert_eq!(pending.entities.len(), PENDING_MAX);
+        assert!(pending.get("e1", now).is_some());
+
+        pending.insert("fresh".into(), Bytes::new(), now + PENDING_TTL);
+        assert_eq!(
+            pending.entities.len(),
+            1,
+            "expired entries pruned on insert"
+        );
+        assert!(pending.get("fresh", now + PENDING_TTL).is_some());
     }
 }

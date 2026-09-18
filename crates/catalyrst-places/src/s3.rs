@@ -43,6 +43,8 @@ pub enum ReportUploadMode {
 
     LocalDev,
 
+    Database,
+
     Misconfigured,
 }
 
@@ -50,10 +52,24 @@ pub const REPORT_LOCAL_FALLBACK_ENV: &str = "PLACES_REPORT_LOCAL_FALLBACK";
 
 impl ReportUploadMode {
     pub fn from_env() -> Self {
-        Self::resolve(
+        Self::resolve_storage(
             S3Config::from_env(),
             std::env::var(REPORT_LOCAL_FALLBACK_ENV).ok(),
+            std::env::var("PLACES_REPORT_STORAGE").ok().as_deref(),
         )
+    }
+
+    pub fn resolve_storage(
+        s3: Option<S3Config>,
+        fallback_flag: Option<String>,
+        storage: Option<&str>,
+    ) -> Self {
+        match storage {
+            Some("database") => Self::Database,
+            Some("s3") => s3.map(Self::S3).unwrap_or(Self::Misconfigured),
+            None | Some("") => Self::resolve(s3, fallback_flag),
+            Some(_) => Self::Misconfigured,
+        }
     }
 
     pub fn resolve(s3: Option<S3Config>, fallback_flag: Option<String>) -> Self {
@@ -427,6 +443,22 @@ x-amz-meta-signer=dcl%3Aexplorer"
     fn uri_escape_path_preserves_slash() {
         assert_eq!(uri_escape_path("a b/c.json"), "a%20b/c.json");
         assert_eq!(uri_escape_path("k.json"), "k.json");
+    }
+
+    #[test]
+    fn database_reports_require_explicit_storage_selection() {
+        assert!(matches!(
+            ReportUploadMode::resolve_storage(None, None, Some("database")),
+            ReportUploadMode::Database
+        ));
+        assert!(matches!(
+            ReportUploadMode::resolve_storage(None, Some("true".into()), Some("s3")),
+            ReportUploadMode::Misconfigured
+        ));
+        assert!(matches!(
+            ReportUploadMode::resolve_storage(None, Some("true".into()), Some("typo")),
+            ReportUploadMode::Misconfigured
+        ));
     }
 
     #[test]

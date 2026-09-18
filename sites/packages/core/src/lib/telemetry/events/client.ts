@@ -55,7 +55,7 @@ export type ClientEvents = {
     action?: "join" | "request";
     community_id?: string;
     pending: boolean;
-    stub: true;
+    stub: boolean;
   };
   cl_community_request_submitted: {
     community_id?: string;

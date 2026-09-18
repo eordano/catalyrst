@@ -5,7 +5,7 @@ use crate::livekit::{
     AccessToken,
 };
 use crate::util::now_ms;
-use crate::voice_db::{DeleteRoomError, VoiceChatUserStatus};
+use crate::voice_db::{DeleteRoomError, PrivateJoin, VoiceChatUserStatus};
 use crate::AppState;
 
 const STALE_LEAVE_SKEW_MS: i64 = 1000;
@@ -160,33 +160,39 @@ pub async fn handle_private_participant_joined(
     user_address: &str,
     room_name: &str,
 ) -> Result<(), crate::http::ApiError> {
-    let is_room_active = state.voice_db.is_private_room_active(room_name).await?;
-    if !is_room_active {
-        tracing::warn!(
-            user = user_address,
-            room = room_name,
-            "user joined an inactive private room, destroying it"
-        );
-        if let Err(e) = state.room_service().delete_room(room_name).await {
-            tracing::warn!(error = %e, room = %room_name, "failed to delete inactive private voice room");
-        }
-        return Ok(());
-    }
-
-    let outcome = state
+    let old_room = match state
         .voice_db
-        .join_user_to_room(user_address, room_name)
-        .await?;
+        .join_user_to_active_room(user_address, room_name)
+        .await?
+    {
+        PrivateJoin::Inactive => {
+            tracing::warn!(
+                user = user_address,
+                room = room_name,
+                "user joined an inactive private room, destroying it"
+            );
+            if let Err(e) = state.room_service().delete_room(room_name).await {
+                tracing::warn!(error = %e, room = %room_name, "failed to delete inactive private voice room");
+            }
+            return Ok(());
+        }
+        PrivateJoin::NotInRoom => {
+            return Err(
+                sqlx::Error::Protocol(format!("User {user_address} is not in a room")).into(),
+            );
+        }
+        PrivateJoin::Joined { old_room } => old_room,
+    };
 
-    if outcome.old_room != room_name {
+    if old_room != room_name {
         tracing::debug!(
             user = user_address,
-            old_room = %outcome.old_room,
+            old_room = %old_room,
             new_room = room_name,
             "user was in another room when joining, destroying old room"
         );
-        if let Err(e) = state.room_service().delete_room(&outcome.old_room).await {
-            tracing::warn!(error = %e, room = %outcome.old_room, "failed to delete old private voice room");
+        if let Err(e) = state.room_service().delete_room(&old_room).await {
+            tracing::warn!(error = %e, room = %old_room, "failed to delete old private voice room");
         }
     }
     Ok(())
@@ -236,13 +242,24 @@ pub async fn handle_private_participant_left(
         .map_err(Into::into)
 }
 
+async fn delete_livekit_rooms(state: &AppState, room_names: &[String], what: &'static str) {
+    use futures::StreamExt;
+    let room_service = state.room_service();
+    futures::stream::iter(room_names)
+        .for_each_concurrent(crate::livekit::KICK_CONCURRENCY, |room_name| {
+            let room_service = &room_service;
+            async move {
+                if let Err(e) = room_service.delete_room(room_name).await {
+                    tracing::warn!(error = %e, room = %room_name, "failed to delete {what}");
+                }
+            }
+        })
+        .await;
+}
+
 pub async fn expire_private_voice_chats(state: &AppState) -> Result<(), crate::http::ApiError> {
     let expired_room_names = state.voice_db.delete_expired_private_voice_chats().await?;
-    for room_name in &expired_room_names {
-        if let Err(e) = state.room_service().delete_room(room_name).await {
-            tracing::warn!(error = %e, room = %room_name, "failed to delete expired private voice room");
-        }
-    }
+    delete_livekit_rooms(state, &expired_room_names, "expired private voice room").await;
     if !expired_room_names.is_empty() {
         tracing::info!(
             count = expired_room_names.len(),
@@ -298,40 +315,79 @@ async fn publish_community_streaming_ended_event(
     room_name: &str,
     participant_count: i64,
 ) {
-    if participant_count == 0 {
-        tracing::debug!(
-            room = room_name,
-            "skipping CommunityStreamingEnded since voice chat was already deleted"
-        );
+    publish_community_streaming_ended_events(state, &[(room_name.to_string(), participant_count)])
+        .await;
+}
+
+/// One INSERT for every room that still had participants; rooms already deleted
+/// (count 0) are skipped.
+async fn publish_community_streaming_ended_events(state: &AppState, rooms: &[(String, i64)]) {
+    let now_ms = now_ms();
+    let mut keys: Vec<String> = Vec::new();
+    let mut payloads: Vec<serde_json::Value> = Vec::new();
+    for (room_name, participant_count) in rooms {
+        if *participant_count == 0 {
+            tracing::debug!(
+                room = %room_name,
+                "skipping CommunityStreamingEnded since voice chat was already deleted"
+            );
+            continue;
+        }
+        let community_id = community_id_from_room_name(room_name);
+        let key = format!("community-streaming-ended-{community_id}-{now_ms}");
+        payloads.push(community_streaming_ended_event(
+            &community_id,
+            *participant_count,
+            &key,
+            now_ms,
+        ));
+        keys.push(key);
+    }
+    if keys.is_empty() {
         return;
     }
 
-    let community_id = community_id_from_room_name(room_name);
-    let now_ms = now_ms();
-    let key = format!("community-streaming-ended-{community_id}-{now_ms}");
-    let event = community_streaming_ended_event(&community_id, participant_count, &key, now_ms);
-
     let res = sqlx::query(
         "INSERT INTO published_events (event_key, event_type, event_subtype, payload) \
-         VALUES ($1, $2, $3, $4) ON CONFLICT (event_key) DO NOTHING",
+         SELECT k, $2, $3, p FROM unnest($1::text[], $4::jsonb[]) AS e(k, p) \
+         ON CONFLICT (event_key) DO NOTHING",
     )
-    .bind(&key)
+    .bind(&keys)
     .bind(EVENT_TYPE_STREAMING)
     .bind(EVENT_SUBTYPE_COMMUNITY_STREAMING_ENDED)
-    .bind(&event)
+    .bind(&payloads)
     .execute(&state.pool)
     .await;
 
     match res {
         Ok(_) => tracing::info!(
-            community = %community_id,
-            participants = participant_count,
-            "published CommunityStreamingEnded event"
+            rooms = keys.len(),
+            "published CommunityStreamingEnded events"
         ),
         Err(e) => {
-            tracing::error!(error = %e, room = room_name, "failed to publish CommunityStreamingEnded event")
+            tracing::error!(error = %e, rooms = keys.len(), "failed to publish CommunityStreamingEnded events")
         }
     }
+}
+
+/// Drops the LiveKit room and the DB rows together; the row count doubles as
+/// the participant count the ended event reports.
+async fn destroy_community_voice_chat(
+    state: &AppState,
+    room_name: &str,
+    what: &'static str,
+) -> Result<(), crate::http::ApiError> {
+    let room_service = state.room_service();
+    let (livekit, deleted) = tokio::join!(
+        room_service.delete_room(room_name),
+        state.voice_db.delete_community_voice_chat(room_name),
+    );
+    if let Err(e) = livekit {
+        tracing::warn!(error = %e, room = %room_name, "failed to delete {what}");
+    }
+    let participant_count = deleted?;
+    publish_community_streaming_ended_event(state, room_name, participant_count).await;
+    Ok(())
 }
 
 pub async fn end_community_voice_chat(
@@ -339,23 +395,7 @@ pub async fn end_community_voice_chat(
     community_id: &str,
 ) -> Result<(), crate::http::ApiError> {
     let room_name = crate::livekit::community_voice_chat_room_name(community_id);
-
-    let participant_count = state
-        .voice_db
-        .get_community_voice_chat_participant_count(&room_name)
-        .await?;
-
-    if let Err(e) = state.room_service().delete_room(&room_name).await {
-        tracing::warn!(error = %e, room = %room_name, "failed to delete livekit community voice room");
-    }
-
-    state
-        .voice_db
-        .delete_community_voice_chat(&room_name)
-        .await?;
-
-    publish_community_streaming_ended_event(state, &room_name, participant_count).await;
-    Ok(())
+    destroy_community_voice_chat(state, &room_name, "livekit community voice room").await
 }
 
 fn is_stale_leave(
@@ -395,10 +435,6 @@ pub async fn handle_community_participant_left(
 
     if disconnect_reason == DisconnectReason::RoomDeleted {
         let participant_count = state
-            .voice_db
-            .get_community_voice_chat_participant_count(room_name)
-            .await?;
-        state
             .voice_db
             .delete_community_voice_chat(room_name)
             .await?;
@@ -459,18 +495,12 @@ pub async fn handle_community_participant_left(
                     room = room_name,
                     "no active moderators left in community room, destroying it"
                 );
-                let participant_count = state
-                    .voice_db
-                    .get_community_voice_chat_participant_count(room_name)
-                    .await?;
-                if let Err(e) = state.room_service().delete_room(room_name).await {
-                    tracing::warn!(error = %e, room = room_name, "failed to delete community voice room on last-moderator leave");
-                }
-                state
-                    .voice_db
-                    .delete_community_voice_chat(room_name)
-                    .await?;
-                publish_community_streaming_ended_event(state, room_name, participant_count).await;
+                destroy_community_voice_chat(
+                    state,
+                    room_name,
+                    "community voice room on last-moderator leave",
+                )
+                .await?;
             }
         }
         return Ok(());
@@ -489,29 +519,28 @@ pub async fn handle_community_participant_left(
 }
 
 pub async fn expire_community_voice_chats(state: &AppState) -> Result<(), crate::http::ApiError> {
-    let active = state
-        .voice_db
-        .get_all_active_community_voice_chats()
-        .await?;
-    let community_ids: Vec<String> = active.into_iter().map(|c| c.community_id).collect();
     let room_counts = state
         .voice_db
-        .get_bulk_community_voice_chat_participant_count(&community_ids)
+        .get_active_community_voice_chat_participant_counts()
         .await?;
 
     let expired_room_names = state
         .voice_db
         .delete_expired_community_voice_chats()
         .await?;
-    for room_name in &expired_room_names {
-        let community_id = community_id_from_room_name(room_name);
-        tracing::info!(room = %room_name, community = %community_id, "expiring community voice chat room");
-        if let Err(e) = state.room_service().delete_room(room_name).await {
-            tracing::warn!(error = %e, room = %room_name, "failed to delete expired community voice room");
-        }
-        let participant_count = room_counts.get(&community_id).copied().unwrap_or(0);
-        publish_community_streaming_ended_event(state, room_name, participant_count).await;
-    }
+    let ended: Vec<(String, i64)> = expired_room_names
+        .iter()
+        .map(|room_name| {
+            let community_id = community_id_from_room_name(room_name);
+            tracing::info!(room = %room_name, community = %community_id, "expiring community voice chat room");
+            let participant_count = room_counts.get(&community_id).copied().unwrap_or(0);
+            (room_name.clone(), participant_count)
+        })
+        .collect();
+    let ((), ()) = tokio::join!(
+        delete_livekit_rooms(state, &expired_room_names, "expired community voice room"),
+        publish_community_streaming_ended_events(state, &ended),
+    );
     Ok(())
 }
 

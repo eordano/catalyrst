@@ -34,14 +34,16 @@ impl WorldsComponent {
             .collect())
     }
 
-    pub async fn get_deployed_world_count(&self) -> Result<WorldsCount, ApiError> {
+    pub async fn deployed_world_names(&self) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query(r#"SELECT DISTINCT lower(world_name) AS name FROM world_scenes"#)
             .fetch_all(self.pool())
             .await?;
+        Ok(rows.iter().map(|r| r.get("name")).collect())
+    }
 
+    pub async fn get_deployed_world_count(&self) -> Result<WorldsCount, ApiError> {
         let mut count = WorldsCount::default();
-        for r in &rows {
-            let name: String = r.get("name");
+        for name in self.deployed_world_names().await? {
             if name.ends_with(".dcl.eth") {
                 count.dcl += 1;
             } else {

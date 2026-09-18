@@ -40,7 +40,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const filter = parseFilter(url.searchParams.get("filter"));
 
-  const { sid, assignment, wrap } = await storyLoader(request, STORY, FALLBACK);
+  const { sid, wrap } = await storyLoader(request, STORY, FALLBACK);
 
   const readAt = new Date().toISOString();
 

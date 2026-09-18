@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import Notifications from "./Notifications";
+import FloatingPanel from "./FloatingPanel";
 import Minimap from "../frames/Minimap";
 import { MinimapVisibilityProvider } from "../../overlay/minimapVisibility";
 import "../../overlay/overlay.css";
@@ -37,7 +38,9 @@ function HudScene({ notifOpen, children }: { notifOpen: boolean; children?: Reac
           </div>
           {notifOpen && (
             <div className="ui3-overlay__widget ui3-overlay__notifications">
-              <Notifications bare floating />
+              <FloatingPanel id="notifications" onClose={() => {}} flush>
+                <Notifications bare floating />
+              </FloatingPanel>
             </div>
           )}
           {children}
@@ -52,8 +55,8 @@ export const ClosedMinimapVisible: Story = {
   render: () => <HudScene notifOpen={false} />,
 };
 
-export const OpenHalfTransparentMinimapHidden: Story = {
-  name: "Open (half-transparent \u{B7} minimap hidden)",
+export const OpenMinimapHidden: Story = {
+  name: "Open (minimap hidden)",
   render: () => <HudScene notifOpen />,
 };
 

@@ -400,3 +400,21 @@ async fn a_size_the_store_provably_lacks_is_still_the_depositors_rejection() {
     assert!(!result.is_unavailable(), "a plain miss is not a node fault");
     assert!(result.errors().unwrap()[0].contains("Couldn't fetch content file with hash"));
 }
+
+#[test]
+fn base_scene_emote_representations_validate_without_skipping_content_checks() {
+    let v = validator(StubExternalCalls::default());
+    let mut d = deployment(
+        EntityType::Emote,
+        vec![mapping("wave.glb", CONTENT_HASH)],
+        HashMap::new(),
+        Some(serde_json::json!({
+            "id": "urn:decentraland:off-chain:base-scene-emotes:wave",
+            "emoteDataADR74": {"representations": [{"contents": ["wave.glb"]}]}
+        })),
+    );
+    d.entity.pointers = vec!["urn:decentraland:off-chain:base-scene-emotes:wave".into()];
+    assert!(v.validate_emote_representations(&d).is_ok());
+    d.entity.content.clear();
+    assert!(!v.validate_emote_representations(&d).is_ok());
+}

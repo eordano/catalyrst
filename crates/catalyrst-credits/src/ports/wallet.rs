@@ -15,13 +15,39 @@ use crate::ports::credits::CreditsComponent;
 /// TRUE, `f64::from_str("1e-400")` is `0.0`. The balance moved, the row was
 /// omitted, and reconcile diverged forever. Keeping the predicate inside the
 /// INSERT makes that divergence unrepresentable.
-pub(crate) const LEDGER_SPLIT_INSERT: &str = "INSERT INTO credit_ledger \
-         (address, kind, amount, tx_ref, bucket, captcha_ok) \
-     SELECT $1, $5, v.amount, $4, v.bucket, FALSE \
-     FROM (VALUES ('earned'::text, $2::numeric), ('paid'::text, $3::numeric)) \
-          AS v(bucket, amount) \
-     WHERE v.amount > 0 \
-     ORDER BY v.bucket";
+macro_rules! ledger_split_insert_sql {
+    () => {
+        "INSERT INTO credit_ledger \
+             (address, kind, amount, tx_ref, bucket, captcha_ok) \
+         SELECT $1, $5, v.amount, $4, v.bucket, FALSE \
+         FROM (VALUES ('earned'::text, $2::numeric), ('paid'::text, $3::numeric)) \
+              AS v(bucket, amount) \
+         WHERE v.amount > 0 \
+         ORDER BY v.bucket"
+    };
+}
+const LEDGER_SPLIT_INSERT_RETURNING_ID: &str = concat!(ledger_split_insert_sql!(), " RETURNING id");
+/// The split plus its audit row in one statement: `$1..$5` as `ledger_split_insert_sql!`, then
+/// `$6` action, `$7` amount, `$8` reason, `$9` actor, `$10` detail.
+pub(crate) const LEDGER_SPLIT_INSERT_WITH_AUDIT: &str = concat!(
+    "WITH l AS (",
+    ledger_split_insert_sql!(),
+    ") INSERT INTO admin_audit (action, address, entity_id, amount, reason, actor, detail) \
+       VALUES ($6, $1, NULL, $7::numeric, $8, $9, $10)"
+);
+/// [`LEDGER_SPLIT_INSERT_WITH_AUDIT`] that also stamps the refund idempotency snapshot:
+/// `$11` available, `$12` applied, `$13` key (NULL matches no row).
+const LEDGER_SPLIT_INSERT_WITH_AUDIT_AND_REFUND_IDEM: &str = concat!(
+    "WITH l AS (",
+    ledger_split_insert_sql!(),
+    "), a AS ( \
+         INSERT INTO admin_audit (action, address, entity_id, amount, reason, actor, detail) \
+         VALUES ($6, $1, NULL, $7::numeric, $8, $9, $10) \
+     ) \
+     UPDATE credit_refund_idempotency \
+     SET available = $11::numeric, applied = $12::numeric \
+     WHERE idempotency_key = $13"
+);
 
 impl CreditsComponent {
     pub async fn balance(&self, address: &str) -> Result<String, ApiError> {
@@ -58,6 +84,21 @@ impl CreditsComponent {
         tx_ref: &str,
         idempotency_key: Option<&str>,
     ) -> Result<GrantOutcome, ApiError> {
+        self.spend_in_tx_with_ledger(tx, address, amount, tx_ref, idempotency_key)
+            .await
+            .map(|(outcome, _)| outcome)
+    }
+
+    /// [`Self::spend_in_tx`] that also returns the id of the last ledger row it wrote
+    /// (`None` for a zero or replayed spend), straight from the insert's RETURNING.
+    pub(crate) async fn spend_in_tx_with_ledger(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        address: &str,
+        amount: &str,
+        tx_ref: &str,
+        idempotency_key: Option<&str>,
+    ) -> Result<(GrantOutcome, Option<i64>), ApiError> {
         let amount = CreditAmount::parse_non_negative(amount)?;
         if amount.is_zero() {
             let available: String = sqlx::query(
@@ -68,11 +109,14 @@ impl CreditsComponent {
             .fetch_one(&mut **tx)
             .await?
             .get("available");
-            return Ok(GrantOutcome {
-                available,
-                applied: amount.to_string(),
-                replayed: false,
-            });
+            return Ok((
+                GrantOutcome {
+                    available,
+                    applied: amount.to_string(),
+                    replayed: false,
+                },
+                None,
+            ));
         }
         let amount = amount.as_str();
         if let Some(key) = idempotency_key {
@@ -110,11 +154,14 @@ impl CreditsComponent {
                         "idempotency key already used for a different spend (address/amount mismatch)",
                     ));
                 }
-                return Ok(GrantOutcome {
-                    available: prior.get("available"),
-                    applied: prior.get("amount"),
-                    replayed: true,
-                });
+                return Ok((
+                    GrantOutcome {
+                        available: prior.get("available"),
+                        applied: prior.get("amount"),
+                        replayed: true,
+                    },
+                    None,
+                ));
             }
         }
 
@@ -157,14 +204,17 @@ impl CreditsComponent {
         .await?;
         let available: String = row.get("available");
 
-        sqlx::query(LEDGER_SPLIT_INSERT)
+        let ledger_id = sqlx::query(LEDGER_SPLIT_INSERT_RETURNING_ID)
             .bind(address)
             .bind(&earned_spent)
             .bind(&paid_spent)
             .bind(tx_ref)
             .bind("spend")
-            .execute(&mut **tx)
-            .await?;
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .map(|r| r.get::<i64, _>("id"))
+            .max();
 
         if let Some(key) = idempotency_key {
             sqlx::query(
@@ -177,11 +227,14 @@ impl CreditsComponent {
             .await?;
         }
 
-        Ok(GrantOutcome {
-            available,
-            applied: amount.to_string(),
-            replayed: false,
-        })
+        Ok((
+            GrantOutcome {
+                available,
+                applied: amount.to_string(),
+                replayed: false,
+            },
+            ledger_id,
+        ))
     }
 
     pub async fn refund(
@@ -301,40 +354,23 @@ impl CreditsComponent {
         let available: String = row.get("available");
         let paid_back: String = row.get("paid_back");
 
-        sqlx::query(LEDGER_SPLIT_INSERT)
+        let detail = json!({ "source": "refund", "txRef": tx_ref, "requested": amount });
+        sqlx::query(LEDGER_SPLIT_INSERT_WITH_AUDIT_AND_REFUND_IDEM)
             .bind(address)
             .bind(&earned_back)
             .bind(&paid_back)
             .bind(tx_ref)
             .bind("refund")
-            .execute(&mut **tx)
-            .await?;
-
-        let detail = json!({ "source": "refund", "txRef": tx_ref, "requested": amount });
-        Self::audit(
-            &mut **tx,
-            "credits.refund",
-            Some(address),
-            None,
-            Some(applied.as_str()),
-            Some("credits refund"),
-            Some("system"),
-            &detail,
-        )
-        .await?;
-
-        if let Some(key) = idempotency_key {
-            sqlx::query(
-                "UPDATE credit_refund_idempotency \
-                 SET available = $2::numeric, applied = $3::numeric \
-                 WHERE idempotency_key = $1",
-            )
-            .bind(key)
+            .bind("credits.refund")
+            .bind(&applied)
+            .bind("credits refund")
+            .bind("system")
+            .bind(&detail)
             .bind(&available)
             .bind(&applied)
+            .bind(idempotency_key)
             .execute(&mut **tx)
             .await?;
-        }
 
         Ok(GrantOutcome {
             available,
@@ -460,15 +496,6 @@ impl CreditsComponent {
         let shortfall: String = row.get("shortfall");
         let has_shortfall: bool = row.get("has_shortfall");
 
-        sqlx::query(LEDGER_SPLIT_INSERT)
-            .bind(address)
-            .bind(&earned_removed)
-            .bind(&paid_removed)
-            .bind(tx_ref)
-            .bind("consume")
-            .execute(&mut **tx)
-            .await?;
-
         let mut detail = detail.clone();
         if let serde_json::Value::Object(map) = &mut detail {
             map.insert("txRef".into(), json!(tx_ref));
@@ -476,17 +503,19 @@ impl CreditsComponent {
             map.insert("removed".into(), json!(removed));
             map.insert("shortfall".into(), json!(shortfall));
         }
-        Self::audit(
-            &mut **tx,
-            "credits.revoke",
-            Some(address),
-            None,
-            Some(removed.as_str()),
-            Some(reason),
-            Some("system"),
-            &detail,
-        )
-        .await?;
+        sqlx::query(LEDGER_SPLIT_INSERT_WITH_AUDIT)
+            .bind(address)
+            .bind(&earned_removed)
+            .bind(&paid_removed)
+            .bind(tx_ref)
+            .bind("consume")
+            .bind("credits.revoke")
+            .bind(&removed)
+            .bind(reason)
+            .bind("system")
+            .bind(&detail)
+            .execute(&mut **tx)
+            .await?;
 
         Ok(RevokeOutcome {
             available,

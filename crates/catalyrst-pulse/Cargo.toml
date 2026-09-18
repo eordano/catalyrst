@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-pulse"
-version = "0.26.0"
+version = "0.27.0"
 edition = "2021"
 description = "Pulse real-time social/MMO server over ENet (port of decentraland/Pulse): sessions, rooms, presence, message routing."
 
@@ -8,9 +8,13 @@ description = "Pulse real-time social/MMO server over ENet (port of decentraland
 path = "src/lib.rs"
 
 [features]
+default = ["nats"]
 # Exposes the in-process fuzzing surface (`fuzz` module helpers) for the `fuzz/` cargo-fuzz
 # target. The proptest suite in that module runs under `cfg(test)` without this feature.
 fuzzing = []
+# The real cluster-feed publisher. The trait, the fake and the whole tracker build without it, so
+# a build with no broker client still derives clusters and reports metrics.
+nats = ["dep:async-nats"]
 
 [[bin]]
 name = "catalyrst-pulse"
@@ -33,8 +37,13 @@ rusty_enet = "0.4"
 # Generic Rust WebTransport server (browser front door), built for Pulse: an ENet-shaped byte
 # pipe over web-transport-quinn (QUIC/HTTP3). Pulse channel semantics live in `transport::webtransport`.
 web_transport = { git = "https://github.com/decentraland/rust-web-transport", rev = "c5416501f6ffc4a11303980f9811426ae34c77ef" }
+# Pinned to the version catalyrst-fed already resolves, so one broker client builds for the tree.
+async-nats = { version = "0.50", optional = true }
 
 [dev-dependencies]
+catalyrst-testgate = { workspace = true }
+# Only the live cluster-feed test needs a stream: it consumes an async-nats subscription.
+futures-util = { version = "0.3", default-features = false }
 tracing-subscriber = { workspace = true }
 alloy = { workspace = true }
 # WebTransport loopback integration test: self-signed dev cert + its SHA-256 for the client to pin.

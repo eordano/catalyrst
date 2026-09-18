@@ -18,6 +18,7 @@ export const siteAliases: Record<string, string> = {
         "@features": p("../../sites/packages/features/src"),
         "@routes": p("../../sites/packages/routes/app"),
         "monaco-editor": p("../../sites/node_modules/monaco-editor"),
+        "node:fs/promises": p("../../sites/packages/routes/app/route-stories/shims/node-fs-promises.ts"),
         "node:fs": p("../../sites/packages/routes/app/route-stories/shims/node-fs.ts"),
         "node:path": p("../../sites/packages/routes/app/route-stories/shims/node-path.ts"),
       }

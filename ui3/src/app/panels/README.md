@@ -4,7 +4,7 @@ The SPA shell auto-discovers every panel via `import.meta.glob<PanelModule>("./p
 
 ## Where
 
-`src/app/panels/<Name>.route.tsx`. The route id (and hash url) is the filename lowercased, minus `.route.tsx` - `Map.route.tsx` -> id `map` -> `#/map`. 15 panels today: Backpack, Camera, Chat, Communities, Events, Friends, Gallery, Map, Notifications, Passport, Places, Settings, Skybox, SmartWearables, VoiceChat.
+`src/app/panels/<Name>.route.tsx`. The route id (and hash url) is the filename lowercased, minus `.route.tsx` - `Map.route.tsx` -> id `map` -> `#/map`. 17 panels today: Backpack, Camera, Chat, Communities, Events, Friends, Gallery, Help, Map, Marketplace, Notifications, Passport, Places, Settings, Skybox, SmartWearables, VoiceChat.
 
 Where a panel corresponds to a chrome tab, the id MUST equal that tab's `id` in `src/explorer/frames/ExploreChrome.tsx` `EXPLORE_TABS` (or the `passport` alias) so the tab highlight + hover-prefetch resolve.
 

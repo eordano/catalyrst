@@ -6,14 +6,14 @@ import {
   type LeasableItem,
 } from "@data/lib/catalyst/marketplace/escrow-lease";
 
-export type LeaseAction = {
+type LeaseAction = {
   key: "sell" | "transfer" | "list";
   label: string;
   href?: string;
   onClick?: () => void;
 };
 
-export type LeaseGatedActionsProps = {
+type LeaseGatedActionsProps = {
   item: LeasableItem | null | undefined;
   lease?: EscrowLease | null;
   actions?: LeaseAction[];

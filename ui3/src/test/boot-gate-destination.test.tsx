@@ -45,15 +45,17 @@ const worldPlace = toPlaceView(
 );
 
 const PICKER_PARAMS = { limit: 48, order_by: "most_active", order: "desc" };
+const PICKER_TITLE = "Where do you want to go?";
 
-function openPicker(harness: BootHarness): void {
-  harness.queryClient.setQueryData(qk.places(PICKER_PARAMS), [
-    parcelPlace,
-    worldPlace,
-  ]);
+function jumpInFromLobby(): void {
   fireEvent.click(screen.getByRole("checkbox"));
   const jump = screen.getByText("Continue as guest");
   fireEvent.click(jump.closest("button") ?? jump);
+}
+
+function openPicker(harness: BootHarness): void {
+  harness.queryClient.setQueryData(qk.places(PICKER_PARAMS), [parcelPlace, worldPlace]);
+  jumpInFromLobby();
 }
 
 function pickCard(title: string): void {
@@ -68,6 +70,7 @@ afterEach(() => {
   delete window.dclEngineReady;
   delete window.dclEngineStart;
   document.getElementById("position")?.remove();
+  window.history.replaceState({}, "", "/");
 });
 
 function installPositionInput(): HTMLInputElement {
@@ -78,23 +81,16 @@ function installPositionInput(): HTMLInputElement {
 }
 
 describe("destination picker jump", () => {
-  test("picker cards come from the places summary cache, no entity fetches", () => {
-    const harness = renderBoot();
-    openPicker(harness);
-    expect(screen.getByText("Plaza Party")).toBeInTheDocument();
-    expect(screen.getByText("Kickoff World")).toBeInTheDocument();
-    expect(fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("entities/active"),
-      expect.anything(),
-    );
-  });
-
-  test("parcel pick primes the engine boot position and skips the Teleport", () => {
+  test("without a deep link the picker shows cached place cards (no entity fetches); a parcel pick primes the engine boot position and skips the Teleport", () => {
     const input = installPositionInput();
     const harness = renderBoot();
     openPicker(harness);
-    pickCard("Plaza Party");
+    expect(screen.getByText(PICKER_TITLE)).toBeInTheDocument();
+    expect(screen.getByText("Plaza Party")).toBeInTheDocument();
+    expect(screen.getByText("Kickoff World")).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining("entities/active"), expect.anything());
 
+    pickCard("Plaza Party");
     expect(input.value).toBe("10,-20");
     expect(window.dclEngineStart).toHaveBeenCalledTimes(1);
 
@@ -115,7 +111,7 @@ describe("destination picker jump", () => {
     harness.bridge.expectSent("Teleport", { x: 10 * 16 + 8, z: -20 * 16 + 8 });
   });
 
-  test("world pick keeps the deferred ChangeRealm and never touches the position input", () => {
+  test("a world pick keeps the deferred ChangeRealm and never touches the position input", () => {
     const input = installPositionInput();
     const harness = renderBoot();
     openPicker(harness);
@@ -130,19 +126,7 @@ describe("destination picker jump", () => {
   });
 });
 
-function jumpInFromLobby(): void {
-  fireEvent.click(screen.getByRole("checkbox"));
-  const jump = screen.getByText("Continue as guest");
-  fireEvent.click(jump.closest("button") ?? jump);
-}
-
-const PICKER_TITLE = "Where do you want to go?";
-
 describe("deep-linked destination", () => {
-  afterEach(() => {
-    window.history.replaceState({}, "", "/");
-  });
-
   test("?realm= skips the picker and lands the ChangeRealm", () => {
     window.history.replaceState({}, "", "/play/?realm=flagtag.dcl.eth");
     const harness = renderBoot();
@@ -170,74 +154,36 @@ describe("deep-linked destination", () => {
     harness.bridge.expectNotSent("ChangeRealm");
     harness.bridge.expectNotSent("Teleport");
   });
-
-  test("no deep link still falls back to the picker", () => {
-    renderBoot();
-    jumpInFromLobby();
-    expect(screen.getByText(PICKER_TITLE)).toBeInTheDocument();
-  });
 });
 
 describe("destinationFromSearch", () => {
-  test("resolves a single-leading-slash realm against this origin, never as a world name", () => {
-    expect(destinationFromSearch("?realm=%2F_project")).toEqual({
-      kind: "world",
-      realm: `${window.location.origin}/_project`,
-    });
-  });
-
-  test("leaves a protocol-relative realm untouched (a host swap is not a path)", () => {
-    expect(destinationFromSearch("?realm=%2F%2Fevil.example%2Fx")).toEqual({
-      kind: "world",
-      realm: "//evil.example/x",
-    });
-  });
-
-  test("reads realm and position, realm wins", () => {
-    expect(destinationFromSearch("?realm=flagtag.dcl.eth")).toEqual({
-      kind: "world",
-      realm: "flagtag.dcl.eth",
-    });
-    expect(destinationFromSearch("?position=-29,55")).toEqual({
-      kind: "parcel",
-      x: -29,
-      y: 55,
-    });
-    expect(destinationFromSearch("?position=1,2&realm=a.dcl.eth")).toEqual({
-      kind: "world",
-      realm: "a.dcl.eth",
-    });
-  });
-
-  test("percent-encoded realm is decoded", () => {
-    expect(destinationFromSearch("?realm=my%20world.dcl.eth")).toEqual({
-      kind: "world",
-      realm: "my world.dcl.eth",
-    });
-  });
-
-  test("absent, blank and malformed values yield no destination", () => {
-    expect(destinationFromSearch("")).toBeNull();
-    expect(destinationFromSearch("?other=1")).toBeNull();
-    expect(destinationFromSearch("?realm=")).toBeNull();
-    expect(destinationFromSearch("?realm=%20%20")).toBeNull();
-    expect(destinationFromSearch("?position=")).toBeNull();
-    expect(destinationFromSearch("?position=nope")).toBeNull();
-    expect(destinationFromSearch("?position=1")).toBeNull();
-    expect(destinationFromSearch("?position=1,2,3")).toBeNull();
+  test("reads realm (decoded, resolving a single leading slash against this origin) and position, realm winning; rejects blank and malformed values", () => {
+    const cases: [string, ReturnType<typeof destinationFromSearch>][] = [
+      ["?realm=%2F_project", { kind: "world", realm: `${window.location.origin}/_project` }],
+      ["?realm=%2F%2Fevil.example%2Fx", { kind: "world", realm: "//evil.example/x" }],
+      ["?realm=flagtag.dcl.eth", { kind: "world", realm: "flagtag.dcl.eth" }],
+      ["?position=-29,55", { kind: "parcel", x: -29, y: 55 }],
+      ["?position=1,2&realm=a.dcl.eth", { kind: "world", realm: "a.dcl.eth" }],
+      ["?realm=my%20world.dcl.eth", { kind: "world", realm: "my world.dcl.eth" }],
+      ["", null],
+      ["?other=1", null],
+      ["?realm=", null],
+      ["?realm=%20%20", null],
+      ["?position=", null],
+      ["?position=nope", null],
+      ["?position=1", null],
+      ["?position=1,2,3", null],
+    ];
+    expect(cases.map(([search]) => [search, destinationFromSearch(search)])).toEqual(cases);
   });
 });
 
 describe("primeBootPosition", () => {
-  test("null and world destinations leave the input alone", () => {
+  test("only a parcel destination writes x,y into the host input and reports success", () => {
     const input = installPositionInput();
     expect(primeBootPosition(null)).toBe(false);
     expect(primeBootPosition({ kind: "world", realm: "a.dcl.eth" })).toBe(false);
     expect(input.value).toBe("");
-  });
-
-  test("parcel destination writes x,y and reports success", () => {
-    const input = installPositionInput();
     expect(primeBootPosition({ kind: "parcel", x: -29, y: 55 })).toBe(true);
     expect(input.value).toBe("-29,55");
   });

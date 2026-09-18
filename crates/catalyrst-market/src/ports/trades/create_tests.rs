@@ -506,3 +506,96 @@ mod checks_input {
         );
     }
 }
+
+#[tokio::test]
+async fn a_bid_persists_its_head_and_every_asset_kind_in_one_statement() {
+    use catalyrst_contract_gate::pg::ScratchDb;
+    let Some(scratch) = ScratchDb::builder("CATALYRST_MARKET_TEST_PG", "trade_create")
+        .schemas(["marketplace"])
+        .build()
+        .await
+    else {
+        return;
+    };
+    scratch
+        .apply_sql(
+            "CREATE TYPE marketplace.trade_type AS ENUM ('bid', 'public_nft_order', 'public_item_order');
+             CREATE TYPE marketplace.asset_direction_type AS ENUM ('sent', 'received');
+             CREATE TABLE marketplace.trades (
+               id uuid PRIMARY KEY DEFAULT gen_random_uuid(), network text NOT NULL,
+               chain_id integer NOT NULL, signature text NOT NULL UNIQUE,
+               hashed_signature text NOT NULL UNIQUE, checks jsonb NOT NULL,
+               signer varchar(42) NOT NULL, type marketplace.trade_type NOT NULL,
+               expires_at timestamptz(3) NOT NULL, effective_since timestamptz(3) NOT NULL,
+               contract text NOT NULL DEFAULT '', trade_digest text,
+               created_at timestamptz(3) NOT NULL DEFAULT now());
+             CREATE TABLE marketplace.trade_assets (
+               id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+               trade_id uuid NOT NULL REFERENCES marketplace.trades(id) ON DELETE CASCADE,
+               direction marketplace.asset_direction_type NOT NULL, asset_type smallint NOT NULL,
+               contract_address varchar(42) NOT NULL, beneficiary varchar(42), extra text);
+             CREATE TABLE marketplace.trade_assets_erc721 (
+               asset_id uuid NOT NULL UNIQUE REFERENCES marketplace.trade_assets(id) ON DELETE CASCADE,
+               token_id text NOT NULL);
+             CREATE TABLE marketplace.trade_assets_erc20 (
+               asset_id uuid NOT NULL UNIQUE REFERENCES marketplace.trade_assets(id) ON DELETE CASCADE,
+               amount numeric(78,0) NOT NULL CHECK (amount >= 0));
+             CREATE TABLE marketplace.trade_assets_item (
+               asset_id uuid NOT NULL UNIQUE REFERENCES marketplace.trade_assets(id) ON DELETE CASCADE,
+               item_id text NOT NULL);",
+        )
+        .await;
+    let wallet = signer();
+    let address = wallet.address().to_checksum(None);
+    let mut trade = parse(&trade_json_on(&address, "0x00", MATIC_MAINNET));
+    trade.trade_type = "bid".to_string();
+    let received = std::mem::take(&mut trade.sent);
+    trade.sent = std::mem::take(&mut trade.received);
+    trade.received = received;
+    trade.received.push(parse_asset(
+        r#"{"assetType": 4, "contractAddress": "0x4444444444444444444444444444444444444444", "itemId": "7", "extra": "0x"}"#,
+    ));
+    let marketplace = offchain_marketplace_v2(MATIC_MAINNET).unwrap();
+    let hash = signing_hash(&trade, &marketplace).unwrap();
+    let sig = wallet.sign_hash_sync(&hash).unwrap();
+    trade.signature = format!("0x{}", hex::encode(sig.as_bytes()));
+
+    let pool = &scratch.pool;
+    let id = super::create::create_trade(pool, &trade, &trade.signer.clone(), 1_000, None)
+        .await
+        .expect("bid is created");
+    let (assets, erc721, erc20, items): (i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM marketplace.trade_assets WHERE trade_id = $1::uuid), \
+                (SELECT COUNT(*) FROM marketplace.trade_assets ta \
+                   JOIN marketplace.trade_assets_erc721 e ON e.asset_id = ta.id \
+                  WHERE ta.trade_id = $1::uuid AND e.token_id = '42' AND ta.direction = 'received'), \
+                (SELECT COUNT(*) FROM marketplace.trade_assets ta \
+                   JOIN marketplace.trade_assets_erc20 e ON e.asset_id = ta.id \
+                  WHERE ta.trade_id = $1::uuid AND e.amount = 1000 AND ta.direction = 'sent'), \
+                (SELECT COUNT(*) FROM marketplace.trade_assets ta \
+                   JOIN marketplace.trade_assets_item i ON i.asset_id = ta.id \
+                  WHERE ta.trade_id = $1::uuid AND i.item_id = '7' AND ta.direction = 'received')",
+    )
+    .bind(&id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!((assets, erc721, erc20, items), (3, 1, 1, 1));
+
+    let again = super::create::create_trade(pool, &trade, &trade.signer.clone(), 1_000, None)
+        .await
+        .unwrap_err();
+    assert!(matches!(again, TradeCreationError::Duplicate), "{again:?}");
+    let (trades, assets): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM marketplace.trades), (SELECT COUNT(*) FROM marketplace.trade_assets)",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!((trades, assets), (1, 3), "a duplicate inserts nothing");
+    scratch.drop().await;
+}
+
+fn parse_asset(json: &str) -> super::create::TradeAssetInput {
+    serde_json::from_str(json).expect("asset parses")
+}

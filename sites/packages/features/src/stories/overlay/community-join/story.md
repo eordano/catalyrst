@@ -6,8 +6,8 @@ hypothesis:
   statement: >-
     A guided communities flow -- browse, open a community, then an explicit
     JOIN (public) or REQUEST TO JOIN (private) confirm step -- increases the
-    share of community views that reach a membership commit, even with the
-    commit simulated.
+    share of community views that reach an acknowledged membership join or
+    pending private-community request.
   because: >-
     Making the join path legible (what kind of community this is, who is in it,
     and exactly what the button will do before it does it) reduces hesitation,
@@ -38,39 +38,27 @@ decision:
     submissions stay healthy); otherwise hold.
 ---
 
-# Browse communities and join (or request to join) one
+# Join a public community or request private membership
 
-The bevy-overlay Communities surface (the in-client `[O]` explore tab) lets a
-player browse communities, open one to see its members / visibility / live
-stream, and then commit: a **Public** community shows a **JOIN** button (POST
-`/v1/communities/{id}/members`, `CommunityJoin`); a **Private** community shows
-**REQUEST TO JOIN** (POST `/v1/communities/{id}/requests`, `CommunityRequest`
-`{ kind: "request_to_join" }`). This story tracks whether the guided flow lifts
-the share of community views that reach a membership commit.
+## Current capability
 
-- **Primary metric:** `cl_community_join_rate` =
-  `cl_community_joined` / `cl_community_detail_viewed`.
-- **Guardrails:** browse volume (`cl_community_browse_viewed`) and private
-  request submissions (`cl_community_request_submitted`) must stay healthy.
-- **Events:** `cl_community_browse_viewed` (browser open, `{ count, search }`),
-  `cl_community_detail_viewed` (`{ community_id, privacy, members_count }`),
-  `cl_community_join_started` (`{ community_id, action }`),
-  `cl_community_request_submitted` (private, `{ community_id }`),
-  `cl_community_joined` (SIMULATED commit, `{ community_id, action, pending, stub }`).
+The production route injects `buildCommunityJoinCommit`, which resolves the
+current identity for each action and uses signed POST requests to
+`/v1/communities/{id}/members` or `/v1/communities/{id}/requests`.
+Signed-out users receive a sign-in error; the route never substitutes a
+simulated membership. Non-success responses remain errors.
 
-## Data reality (deferred / simulated)
+Public joins and private requests have different outcomes: a private request is
+pending and grants no member role. Request payloads use
+`{ type: "request_to_join" }`. The backend owns authorization and admission.
+The standalone machine still has a preview actor; its output is not proof of
+shared membership. A failed browse request currently becomes an empty list,
+which remains a limitation rather than evidence that no communities exist.
 
-The `catalyrst-communities` crate implements the full surface -- `get_communities`
-(browse), `get_community` + `get_members` (detail), `writes::add_member`
-(`CommunityJoin`) and `writes::create_request` (`CommunityRequest`) -- and
-`GET /v1/communities` is now routed on `catalyst.example.com` (probed ->
-200). The loader is wired **live-only**: on failure the route renders the
-honest empty state ("No communities found."), never fixture data.
+## Assumptions and measurement
 
-The join / request commit is **SIMULATED**: both write routes call
-`require_signer()` and demand a DCL auth-chain signature an anonymous browser
-session does not have (fail-closed). The XState `communityJoinMachine` runs a
-simulated commit (`simulateCommit`) -- the flow, states, telemetry, and the
-public-vs-private branch are all real; only the final network write is stubbed,
-and clearly labelled as such in the UI and the `cl_community_joined` event
-(`stub: true`).
+Wallet connection does not imply community membership. Count joined members and
+pending requests separately. `cl_community_join_rate` is `cl_community_joined`
+over `cl_community_detail_viewed`; private request volume is a separate guardrail.
+This single-arm draft cannot establish lift over a control.
+Use the shared [Overlay assumptions](../../../../../../docs/product-capabilities.md#avatar-and-social-overlay).

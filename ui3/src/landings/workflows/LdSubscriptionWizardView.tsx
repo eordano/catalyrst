@@ -3,7 +3,7 @@ import AcSignIn from "../../account/workflows/AcSignIn";
 import AcNotificationGroupSettings from "../../account/pages/AcNotificationGroupSettings";
 import "./ldsubscriptionwizardview.css";
 
-export type LdSubscriptionGroup = {
+type LdSubscriptionGroup = {
   key: string;
   label: string;
   flag?: string;

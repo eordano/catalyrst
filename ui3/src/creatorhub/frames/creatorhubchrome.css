@@ -119,19 +119,6 @@
 .ch__newbtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .ch__newbtn svg { display: block; flex: 0 0 auto; }
 
-.ch__newbadge {
-  flex: 0 0 auto;
-  padding: 2px 7px;
-  border-radius: var(--r-pill);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #0d0c11;
-  background: color-mix(in srgb, #0d0c11 16%, transparent);
-  border: 1px solid color-mix(in srgb, #0d0c11 30%, transparent);
-}
-
 .ch__nav {
   flex: 1 1 auto;
   display: flex;
@@ -275,6 +262,8 @@
   transition: background 0.12s ease;
 }
 .ch__account:hover { background: var(--fill-4); }
+.ch__accountwrap { flex: 1 1 auto; min-width: 0; display: flex; }
+.ch__accountwrap .acm__menu { min-width: 100%; }
 .ch__avatar { border: 2px solid var(--ink-85); }
 .ch__accmeta { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
 .ch__accname { font-size: 13px; font-weight: 700; }
