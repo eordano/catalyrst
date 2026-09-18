@@ -49,65 +49,133 @@ fn prefix_bounds(urns: &[String]) -> (Vec<String>, Vec<String>) {
         .unzip()
 }
 
+macro_rules! ownership_sql_nft {
+    ($nft_walk:literal) => {
+        concat!(
+            "SELECT DISTINCT u.address, u.urn \
+             FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS u(address, urn, lo, hi) \
+             CROSS JOIN LATERAL ( \
+                 (SELECT 1 FROM squid_marketplace.nft n \
+                  WHERE n.owner_address = u.address AND n.urn = u.urn \
+                  LIMIT 1) \
+                 UNION ALL \
+                 (SELECT 1 FROM squid_marketplace.nft n \
+                  WHERE n.owner_address = u.address ",
+            $nft_walk,
+            "AND left(n.urn, length(u.lo)) = u.lo \
+                  LIMIT 1) \
+                 LIMIT 1 \
+             ) owned"
+        )
+    };
+}
+
+macro_rules! ownership_sql_overlay {
+    ($nft_walk:literal, $grant_walk:literal) => {
+        concat!(
+            "SELECT DISTINCT u.address, u.urn \
+             FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS u(address, urn, lo, hi) \
+             CROSS JOIN LATERAL ( \
+                 (SELECT 1 FROM squid_marketplace.nft n \
+                  WHERE n.owner_address = u.address AND n.urn = u.urn \
+                  LIMIT 1) \
+                 UNION ALL \
+                 (SELECT 1 FROM marketplace.usage_grants ug \
+                  WHERE ug.status = 'active' \
+                    AND ug.grantee_address = u.address AND ug.urn = u.urn \
+                  LIMIT 1) \
+                 UNION ALL \
+                 (SELECT 1 FROM squid_marketplace.nft n \
+                  WHERE n.owner_address = u.address ",
+            $nft_walk,
+            "AND left(n.urn, length(u.lo)) = u.lo \
+                  LIMIT 1) \
+                 UNION ALL \
+                 (SELECT 1 FROM marketplace.usage_grants ug \
+                  WHERE ug.status = 'active' \
+                    AND ug.grantee_address = u.address ",
+            $grant_walk,
+            "AND left(ug.urn, length(u.lo)) = u.lo \
+                  LIMIT 1) \
+                 LIMIT 1 \
+             ) owned"
+        )
+    };
+}
+
 /// One row per owned `(address, urn)` pair (exact urn or a token urn under it), one round trip per batch.
-fn ownership_sql(overlay: bool) -> &'static str {
-    if overlay {
-        "SELECT DISTINCT u.address, u.urn \
-         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS u(address, urn, lo, hi) \
-         CROSS JOIN LATERAL ( \
-             (SELECT 1 FROM squid_marketplace.nft n \
-              WHERE n.owner_address = u.address AND n.urn = u.urn \
-              LIMIT 1) \
-             UNION ALL \
-             (SELECT 1 FROM marketplace.usage_grants ug \
-              WHERE ug.status = 'active' \
-                AND ug.grantee_address = u.address AND ug.urn = u.urn \
-              LIMIT 1) \
-             UNION ALL \
-             (SELECT 1 FROM squid_marketplace.nft n \
-              WHERE n.owner_address = u.address \
-                AND n.urn >= u.lo AND n.urn < u.hi \
-                AND left(n.urn, length(u.lo)) = u.lo \
-              LIMIT 1) \
-             UNION ALL \
-             (SELECT 1 FROM marketplace.usage_grants ug \
-              WHERE ug.status = 'active' \
-                AND ug.grantee_address = u.address \
-                AND ug.urn >= u.lo AND ug.urn < u.hi \
-                AND left(ug.urn, length(u.lo)) = u.lo \
-              LIMIT 1) \
-             LIMIT 1 \
-         ) owned"
-    } else {
-        "SELECT DISTINCT u.address, u.urn \
-         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS u(address, urn, lo, hi) \
-         CROSS JOIN LATERAL ( \
-             (SELECT 1 FROM squid_marketplace.nft n \
-              WHERE n.owner_address = u.address AND n.urn = u.urn \
-              LIMIT 1) \
-             UNION ALL \
-             (SELECT 1 FROM squid_marketplace.nft n \
-              WHERE n.owner_address = u.address \
-                AND n.urn >= u.lo AND n.urn < u.hi \
-                AND left(n.urn, length(u.lo)) = u.lo \
-              LIMIT 1) \
-             LIMIT 1 \
-         ) owned"
+/// The `[lo, hi)` walk is only sound where urns compare bytewise; any other collation keeps the
+/// prefix filter alone and reads every urn the owner holds.
+fn ownership_sql(overlay: bool, bytewise: bool) -> &'static str {
+    match (overlay, bytewise) {
+        (false, true) => ownership_sql_nft!("AND n.urn >= u.lo AND n.urn < u.hi "),
+        (false, false) => ownership_sql_nft!(""),
+        (true, true) => ownership_sql_overlay!(
+            "AND n.urn >= u.lo AND n.urn < u.hi ",
+            "AND ug.urn >= u.lo AND ug.urn < u.hi "
+        ),
+        (true, false) => ownership_sql_overlay!("", ""),
     }
+}
+
+/// True when every `urn` column the walk reads exists and sorts bytewise (libc C or POSIX, as a
+/// column collation or as the database default); NULL while a relation is missing, so the probe
+/// retries instead of settling. A linguistic collation such as en_US compares letters and digits
+/// first and ':' only as a tie-break, which breaks the `[lo, hi)` bracket.
+const BYTEWISE_URNS_SQL: &str =
+    "SELECT CASE WHEN count(*) = cardinality($1::text[]) THEN bool_and(CASE \
+         WHEN a.attcollation = 'pg_catalog.\"default\"'::regcollation \
+         THEN d.datlocprovider = 'c' AND d.datcollate IN ('C', 'POSIX') \
+         ELSE c.collprovider = 'c' AND c.collcollate IN ('C', 'POSIX') END) END \
+     FROM pg_attribute a \
+     JOIN pg_collation c ON c.oid = a.attcollation \
+     JOIN pg_database d ON d.datname = current_database() \
+     WHERE a.attname = 'urn' AND NOT a.attisdropped \
+       AND a.attrelid IN (SELECT to_regclass(r)::oid FROM unnest($1::text[]) AS r)";
+
+static BYTEWISE_URNS: super::lease_overlay::LatchedProbe =
+    super::lease_overlay::LatchedProbe::new();
+
+async fn probe_bytewise_urns(pool: &PgPool, overlay: bool) -> Result<bool, sqlx::Error> {
+    let mut relations = vec!["squid_marketplace.nft".to_string()];
+    if overlay {
+        relations.push("marketplace.usage_grants".to_string());
+    }
+    sqlx::query_scalar::<_, Option<bool>>(BYTEWISE_URNS_SQL)
+        .bind(&relations)
+        .fetch_one(pool)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)
+}
+
+async fn urns_compare_bytewise(pool: &PgPool, overlay: bool) -> bool {
+    if let Some(bytewise) = BYTEWISE_URNS.get() {
+        return bytewise;
+    }
+    BYTEWISE_URNS.settle(probe_bytewise_urns(pool, overlay).await)
 }
 
 async fn resolve_ownership_batch(
     pool: &PgPool,
     requested: &std::collections::HashSet<(String, String)>,
 ) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
-    use std::collections::{HashMap, HashSet};
     if requested.is_empty() {
-        return HashMap::new();
+        return std::collections::HashMap::new();
     }
+    let overlay = super::lease_overlay::usage_grants_present(pool).await;
+    let bytewise = urns_compare_bytewise(pool, overlay).await;
+    ownership_batch_with(pool, requested, ownership_sql(overlay, bytewise)).await
+}
+
+async fn ownership_batch_with(
+    pool: &PgPool,
+    requested: &std::collections::HashSet<(String, String)>,
+    sql: &'static str,
+) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
+    use std::collections::{HashMap, HashSet};
     let (addresses, urns): (Vec<_>, Vec<_>) = requested.iter().cloned().unzip();
     let (lows, highs) = prefix_bounds(&urns);
-    let overlay = super::lease_overlay::usage_grants_present(pool).await;
-    let rows: Vec<(String, String)> = sqlx::query_as(ownership_sql(overlay))
+    let rows: Vec<(String, String)> = sqlx::query_as(sql)
         .bind(&addresses)
         .bind(&urns)
         .bind(&lows)
@@ -599,8 +667,8 @@ mod tests {
 
     #[test]
     fn ownership_sql_pairs_each_address_with_its_own_urns() {
-        for overlay in [false, true] {
-            let sql = ownership_sql(overlay);
+        for (overlay, bytewise) in [(false, false), (false, true), (true, false), (true, true)] {
+            let sql = ownership_sql(overlay, bytewise);
             assert!(
                 sql.contains(
                     "FROM unnest($1::text[], $2::text[], $3::text[], $4::text[]) AS u(address, urn, lo, hi)"
@@ -612,13 +680,29 @@ mod tests {
                 sql.contains("n.owner_address = u.address AND n.urn = u.urn"),
                 "exact leg scoped to the pair's address: {sql}"
             );
-            assert!(sql.contains("n.urn >= u.lo AND n.urn < u.hi"), "{sql}");
+            assert_eq!(
+                sql.contains("n.urn >= u.lo AND n.urn < u.hi"),
+                bytewise,
+                "the range walk is for bytewise urns only: {sql}"
+            );
+            assert!(
+                !sql.contains("  "),
+                "fragments join on single spaces: {sql}"
+            );
             assert!(sql.contains("LIMIT 1"), "{sql}");
             assert!(!sql.contains("EXISTS"), "{sql}");
             assert!(!sql.contains("ANY("), "no cross-address ANY() match: {sql}");
             assert!(sql.contains("left(n.urn, length(u.lo)) = u.lo"), "{sql}");
             assert_eq!(sql.contains("marketplace.usage_grants"), overlay);
-            assert_eq!(sql.contains("ug.urn >= u.lo AND ug.urn < u.hi"), overlay);
+            assert_eq!(
+                sql.contains("ug.urn >= u.lo AND ug.urn < u.hi"),
+                overlay && bytewise
+            );
+            assert_eq!(
+                sql.contains("left(ug.urn, length(u.lo)) = u.lo"),
+                overlay,
+                "{sql}"
+            );
             assert_eq!(
                 sql.contains("ug.grantee_address = u.address AND ug.urn = u.urn"),
                 overlay
@@ -697,7 +781,8 @@ mod tests {
             pair(BOB, ITEM2),
             pair(CARL, ITEM1),
         ];
-        let owned = resolve_ownership_batch(&pool, &pairs.iter().cloned().collect()).await;
+        let requested: HashSet<(String, String)> = pairs.iter().cloned().collect();
+        let owned = resolve_ownership_batch(&pool, &requested).await;
         let expect: std::collections::HashMap<String, HashSet<String>> = [
             (ALICE.to_string(), owned_set(&[ITEM1, ITEM2])),
             (BOB.to_string(), owned_set(&[ITEM1])),
@@ -711,6 +796,23 @@ mod tests {
         assert!(resolve_ownership_batch(&pool, &HashSet::new())
             .await
             .is_empty());
+        let bytewise = probe_bytewise_urns(&pool, true)
+            .await
+            .expect("collation probe");
+        for overlay in [false, true] {
+            assert_eq!(
+                ownership_batch_with(&pool, &requested, ownership_sql(overlay, false)).await,
+                expect,
+                "the prefix filter alone holds under any collation"
+            );
+            if bytewise {
+                assert_eq!(
+                    ownership_batch_with(&pool, &requested, ownership_sql(overlay, true)).await,
+                    expect,
+                    "the range walk holds where urns compare bytewise"
+                );
+            }
+        }
 
         let names = fetch_batch_ens_names(&pool, &[ALICE.into(), BOB.into(), CARL.into()]).await;
         for addr in [ALICE, BOB, CARL] {

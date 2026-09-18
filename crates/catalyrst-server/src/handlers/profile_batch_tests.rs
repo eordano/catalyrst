@@ -45,6 +45,7 @@ async fn profiles_batch_preserves_owner_scope_and_limits_queries() {
     sqlx::query("INSERT INTO squid_marketplace.nft (owner_address,urn) VALUES ('other',$1), ('0xowner0',$2)")
         .bind(denied).bind(format!("{denied}0:1")).execute(&db.pool).await.unwrap();
     assert!(super::super::lease_overlay::usage_grants_present(&db.pool).await);
+    BYTEWISE_URNS.settle(probe_bytewise_urns(&db.pool, true).await);
     let capture = catalyrst_testgate::sql_capture::sql_capture();
     let profiles = process_profiles(&entities, Some(&db.pool), "https://cdn").await;
     assert_eq!(capture.count(), 2);

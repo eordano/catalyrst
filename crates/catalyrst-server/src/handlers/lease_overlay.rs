@@ -8,8 +8,52 @@ const ABSENT: u8 = 2;
 const FAILED: u8 = 3;
 const RETRY_AFTER_SECS: u64 = 60;
 
-static STATE: AtomicU8 = AtomicU8::new(UNKNOWN);
-static RETRY_AT: AtomicU64 = AtomicU64::new(0);
+/// A yes/no fact about the database, probed once per process; a failed probe answers `false`
+/// and runs again after `RETRY_AFTER_SECS`.
+pub(crate) struct LatchedProbe {
+    state: AtomicU8,
+    retry_at: AtomicU64,
+}
+
+impl LatchedProbe {
+    pub(crate) const fn new() -> Self {
+        Self {
+            state: AtomicU8::new(UNKNOWN),
+            retry_at: AtomicU64::new(0),
+        }
+    }
+
+    pub(crate) fn get(&self) -> Option<bool> {
+        latched(
+            self.state.load(Ordering::Relaxed),
+            self.retry_at.load(Ordering::Relaxed),
+            now_secs(),
+        )
+    }
+
+    /// A failure never overwrites an answer a concurrent probe already settled.
+    pub(crate) fn settle(&self, probe: Result<bool, sqlx::Error>) -> bool {
+        match probe {
+            Ok(yes) => {
+                self.state
+                    .store(if yes { PRESENT } else { ABSENT }, Ordering::Relaxed);
+                yes
+            }
+            Err(_) => match self.state.load(Ordering::Relaxed) {
+                PRESENT => true,
+                ABSENT => false,
+                _ => {
+                    self.retry_at
+                        .store(now_secs() + RETRY_AFTER_SECS, Ordering::Relaxed);
+                    self.state.store(FAILED, Ordering::Relaxed);
+                    false
+                }
+            },
+        }
+    }
+}
+
+static USAGE_GRANTS: LatchedProbe = LatchedProbe::new();
 
 fn now_secs() -> u64 {
     SystemTime::now()
@@ -29,11 +73,7 @@ fn latched(state: u8, retry_at: u64, now: u64) -> Option<bool> {
 }
 
 pub(crate) async fn usage_grants_present(pool: &PgPool) -> bool {
-    if let Some(present) = latched(
-        STATE.load(Ordering::Relaxed),
-        RETRY_AT.load(Ordering::Relaxed),
-        now_secs(),
-    ) {
+    if let Some(present) = USAGE_GRANTS.get() {
         return present;
     }
 
@@ -44,17 +84,7 @@ pub(crate) async fn usage_grants_present(pool: &PgPool) -> bool {
     .fetch_one(pool)
     .await;
 
-    match probe {
-        Ok(present) => {
-            STATE.store(if present { PRESENT } else { ABSENT }, Ordering::Relaxed);
-            present
-        }
-        Err(_) => {
-            RETRY_AT.store(now_secs() + RETRY_AFTER_SECS, Ordering::Relaxed);
-            STATE.store(FAILED, Ordering::Relaxed);
-            false
-        }
-    }
+    USAGE_GRANTS.settle(probe)
 }
 
 #[cfg(test)]
@@ -73,5 +103,16 @@ mod tests {
             None,
             "retry once the timer lapses"
         );
+    }
+
+    #[test]
+    fn a_failed_probe_never_unsettles_an_answer() {
+        let probe = LatchedProbe::new();
+        assert_eq!(probe.get(), None);
+        assert!(!probe.settle(Err(sqlx::Error::RowNotFound)));
+        assert_eq!(probe.get(), Some(false), "failed, inside its retry window");
+        assert!(probe.settle(Ok(true)));
+        assert!(probe.settle(Err(sqlx::Error::RowNotFound)));
+        assert_eq!(probe.get(), Some(true));
     }
 }
