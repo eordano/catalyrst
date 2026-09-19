@@ -1,0 +1,20 @@
+.activity-inbox { padding: 28px; overflow-y: auto; min-height: 0; }
+.activity-inbox > header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+.activity-inbox h1 { font-size: 26px; }
+.activity-inbox header p, .activity-note { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.6; }
+.activity-inbox header > div:last-child { display: flex; gap: 8px; }
+.activity-inbox ol { padding: 0; list-style: none; margin-top: 20px; }
+.activity-inbox li { border-bottom: 1px solid var(--line); border-left: 3px solid transparent; }
+.activity-inbox li.unread { border-left-color: var(--accent); background: #ff6b8707; }
+.activity-inbox li a { display: flex; justify-content: space-between; gap: 20px; padding: 18px; }
+.activity-inbox li a:hover { background: #ffffff06; }
+.activity-inbox li strong { font-size: 14px; }
+.activity-inbox li p, .activity-inbox time { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.activity-inbox time { flex-shrink: 0; }
+.activity-empty { text-align: center; padding: 70px 16px; color: var(--muted); }
+@media(max-width:760px) { .activity-inbox { padding: 20px 14px; } .activity-inbox > header { align-items: flex-start; flex-direction: column; } .activity-inbox li a { flex-direction: column; gap: 7px; } }
+
+.settings-shortcuts { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+
+.account > button { position: relative; }
+.notification-dot { position: absolute; right: 1px; top: 1px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }

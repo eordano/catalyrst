@@ -1,0 +1,16 @@
+.friends-map { margin: 18px 0; max-width: 480px; text-align: left; }
+.friends-map > header { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 14px; }
+.friends-map h2 { font-size: 18px; }
+.friends-map header p, .friends-map header > span, .friends-map > small { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.friends-map header p { margin: 6px 0 0; }
+.friends-map header > span { white-space: nowrap; }
+.friends-map-canvas { position: relative; height: 240px; border-radius: 14px; border: 1px solid var(--line); background: #211d28; overflow: hidden; }
+.friends-map-canvas > svg { width: 100%; height: 100%; position: absolute; }
+.friends-map-marker { position: absolute; transform: translate(-50%, -50%); width: 36px; height: 36px; padding: 0; border: 2px solid #ff6b87; border-radius: 50%; background: #403144; box-shadow: 0 3px 12px #0008; display: grid; place-items: center; }
+.friends-map-marker img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+.friends-map-marker.selected, .friends-map-marker:focus-visible { outline: 3px solid white; z-index: 2; }
+.friends-map-marker b { position: absolute; right: -7px; bottom: -6px; font-size: 10px; border-radius: 12px; background: var(--accent); color: #17131a; padding: 2px 5px; }
+.friends-map-empty { position: absolute; inset: 20%; display: grid; place-items: center; text-align: center; font-size: 13px; color: var(--muted); line-height: 1.7; }
+.friends-map-detail { padding: 14px 0; }
+.friends-map-detail > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+@media(max-width: 480px) { .friends-map-canvas { height: 180px; } .friends-map { margin: 14px 0; } .friends-map > header { flex-direction: column; } .friends-map-empty { inset: 20%; } }

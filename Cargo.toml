@@ -18,6 +18,7 @@ members = [
     "crates/catalyrst-preview-tunnel",
     "crates/catalyrst-tunnel-protocol",
     "crates/dcl-one-sdk",
+    "crates/dcl-social-api",
     "crates/catalyrst-server",
     "crates/catalyrst-market",
     "crates/catalyrst-fed",

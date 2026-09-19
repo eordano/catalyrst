@@ -1,0 +1,12 @@
+import {useState,useEffect,useRef} from 'react';
+import {Dialog} from './Dialog';
+import {Avatar,Name} from './Profile';
+import {execute,type Community,type WalletIdentity,type MemberAction} from './api';
+export function MemberManager({community,identity,member,onClose,onSaved}: {community:Community;identity:WalletIdentity;member:{address:string;role:string};onClose:()=>void;onSaved:()=>void}) {
+  const [role,setRole]=useState(member.role==='moderator'?'moderator':'member');
+  const [confirm,setConfirm]=useState<'remove'|'ban'|null>(null);
+  const [busy,setBusy]=useState(false),[error,setError]=useState('');
+  const active=useRef(true);useEffect(()=>()=>{active.current=false;},[]);
+  async function act(action:MemberAction){if(busy)return;setBusy(true);setError('');try{await execute(identity,{type:'manage_community',community_id:community.id,action},()=>active.current);if(active.current){onSaved();onClose();}}catch(e){if(active.current)setError(e instanceof Error?e.message:'The member could not be updated.');}finally{if(active.current)setBusy(false);}}
+  return <Dialog title="Manage member" onClose={onClose}><div className="dialog-content community-editor"><h2>Keep the conversation kind.</h2><div className="member-row"><Avatar wallet={member.address}/><strong><Name wallet={member.address}/></strong></div>{confirm?<><p>{confirm==='ban'?'This person will be removed and cannot rejoin until unbanned.':'This person will be removed from the community.'}</p><button className="primary" disabled={busy} onClick={()=>void act({kind:confirm,address:member.address})}>{confirm==='ban'?'Confirm ban':'Confirm removal'}</button><button disabled={busy} onClick={()=>setConfirm(null)}>Cancel</button></>:<><label>Role<select aria-label="Role" value={role} onChange={e=>setRole(e.target.value)} disabled={community.role!=='owner'}><option value="member">Member</option><option value="moderator">Moderator</option></select></label>{community.role==='owner'&&<button className="primary" disabled={busy||role===member.role} onClick={()=>void act({kind:'role',address:member.address,role:role as 'member'|'moderator'})}>Save changes</button>}<div className="call-controls"><button className="outline-button" onClick={()=>setConfirm('remove')}>Remove member</button><button className="outline-button" onClick={()=>setConfirm('ban')}>Ban member</button></div></>}{error&&<p role="alert">{error}</p>}</div></Dialog>;
+}

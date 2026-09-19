@@ -44,6 +44,7 @@ into bundle binaries (one axum port) - see [Service bundles](#service-bundles).
 | `catalyrst-builder` | `builder-server` (`builder-api`) - collection items, newsletter |
 | `catalyrst-camera-reel` | `camera-reel-service` - content-addressed photo store |
 | `catalyrst-social-service` | `social-service-ea` - community REST routes (authority-chain federation) + dcl-rpc WebSocket (friends, blocks, mutes, voice); bins `catalyrst-communities` and `catalyrst-social-rpc` |
+| `dcl-social-api` | Standalone [dcl.social](social/README.md) React app and SQLite-backed community chat API |
 | `catalyrst-comms` | `comms-gatekeeper` - LiveKit tokens, scene bans, voice, Cast 2.0 |
 | `catalyrst-notifications` | `notifications` REST (signed-fetch reader/marker) |
 | `catalyrst-badges` | `badges` REST - profile badge state |
