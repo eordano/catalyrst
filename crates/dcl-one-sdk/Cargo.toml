@@ -50,7 +50,7 @@ rand = "0.10"
 tokio-tungstenite = { workspace = true }
 rolldown = { version = "=1.2.7", optional = true }
 rolldown_common = { version = "=1.2.7", optional = true }
-rolldown_utils = { version = "=1.2.7", optional = true }
+rolldown_utils = { version = "=1.2.8", optional = true }
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 chrono = { workspace = true }
 # The scene's server-side storage (`dcl-one-sdk storage`, the preview's /values
