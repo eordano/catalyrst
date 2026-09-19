@@ -1,6 +1,6 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import SmartWearablesPanel from "./SmartWearables.route";
 import { FakeBridge } from "../../test/fakeBridge";
@@ -20,10 +20,24 @@ const row = (name: string) =>
 
 afterEach(async () => {
   delete window.dclBridge;
+  delete window.engine_console_command;
   await new Promise((r) => setTimeout(r, 0));
 });
 
 describe("portables stop pending state", () => {
+  test("activates only a valid source and reports engine lookup failures", async () => {
+    const { user } = setup();
+    const command = vi.fn().mockRejectedValue(new Error("World does not exist"));
+    window.engine_console_command = command;
+    await user.type(screen.getByLabelText("Activate an experience"), "demo.dcl.eth");
+    await user.click(screen.getByRole("button", { name: "Activate" }));
+    expect(command).toHaveBeenCalledWith("/spawn demo.dcl.eth");
+    expect(await screen.findByRole("status")).toHaveTextContent("World does not exist");
+    command.mockResolvedValue("");
+    await user.click(screen.getByRole("button", { name: "Activate" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Experience requested");
+    expect(screen.getByLabelText("Activate an experience")).toHaveValue("");
+  });
   test("Stop goes pending per row until the next portables push reconciles, and a survivor gets its Stop back", async () => {
     const { bridge, user } = setup();
     act(() => {

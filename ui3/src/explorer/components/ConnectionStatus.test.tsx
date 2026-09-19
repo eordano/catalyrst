@@ -39,6 +39,7 @@ function mount(over: Partial<Props> = {}) {
 }
 
 function rowValue(label: string): string | null {
+  if (!["Page frame rate", "Page frame interval"].includes(label)) fireEvent.click(screen.getByRole("tab", { name: "Connection" }));
   const dt = screen.getByText(label, { selector: "dt" });
   return dt.nextElementSibling?.textContent ?? null;
 }
@@ -48,21 +49,25 @@ afterEach(() => {
 });
 
 describe("ConnectionStatus", () => {
-  test("keeps the four status rows", () => {
+  test("keeps connection status without duplicating realm or room facts", () => {
     mount();
-    for (const title of ["Scene", "Scene Room", "Global Room", "Realm"]) {
+    fireEvent.click(screen.getByRole("tab", { name: "Connection" }));
+    for (const title of ["Scene", "Scene Room", "Global Room"]) {
       expect(screen.getByText(title, { selector: ".xcs__rowtitle" })).toBeTruthy();
     }
     expect(screen.getAllByText("Connected")).toHaveLength(2);
+    expect(screen.queryByText("Realm", { selector: ".xcs__rowtitle" })).toBeNull();
+    expect(screen.queryByText("Scene health", { selector: "dt" })).toBeNull();
   });
 
-  test("shows page fps, frame time and engine fps with the page tone", () => {
+  test("prioritizes engine fps and labels page timing separately", () => {
     mount();
     const fps = screen.getByTestId("xcs-fps");
     expect(fps.className).toContain("is-good");
-    expect(fps.querySelector(".xcs__fpsnum")?.textContent).toBe("58");
-    expect(screen.getByText("17.2ms")).toBeTruthy();
-    expect(fps.querySelector(".xcs__fpsengine")?.textContent).toBe("61");
+    expect(fps.querySelector(".xcs__fpsnum")?.textContent).toBe("61");
+    expect(rowValue("Page frame rate")).toBe("58 fps");
+    expect(rowValue("Page frame interval")).toBe("17.2 ms");
+    expect(screen.getByText(/not GPU render time/)).toBeTruthy();
   });
 
   test("grades a slow page as bad and hides the engine reading without an engine", () => {
@@ -70,7 +75,8 @@ describe("ConnectionStatus", () => {
     const fps = screen.getByTestId("xcs-fps");
     expect(fps.className).toContain("is-bad");
     expect(fps.querySelector(".xcs__fpsengine")).toBeNull();
-    expect(rowValue("FPS")).toBe("page 12 \u00b7 engine n/a \u00b7 83.1 ms/frame");
+    expect(fps.querySelector(".xcs__fpsnum")?.textContent).toBe("\u{2014}");
+    expect(rowValue("Page frame rate")).toBe("12 fps");
   });
 
   test("renders the debug block from the realm, scene and comms facts", () => {
@@ -79,21 +85,21 @@ describe("ConnectionStatus", () => {
     expect(rowValue("Scene id")).toBe("bafkreiscene");
     expect(rowValue("Comms")).toBe("v3 \u00b7 archipelago:archipelago:wss://catalyst.example.com/ws");
     expect(rowValue("Server")).toBe("content 8.0.3 \u00b7 lambdas 4.12.0 \u00b7 comms 24.18.0");
-    expect(rowValue("FPS")).toBe("page 58 \u00b7 engine 61 \u00b7 17.2 ms/frame");
+    expect(screen.queryByText("FPS", { selector: "dt" })).toBeNull();
   });
 
-  test("renders the pinned build, browser and capture time verbatim", () => {
+  test("shows build but leaves browser and capture time in copied diagnostics only", () => {
     mount();
     expect(rowValue("Overlay build")).toBe("AppShell-CSUtUagR");
-    expect(rowValue("Browser")).toBe("Mozilla/5.0 pinned");
-    expect(rowValue("Captured")).toBe("2026-09-17T17:01:29.000Z");
+    expect(screen.queryByText("Browser", { selector: "dt" })).toBeNull();
+    expect(screen.queryByText("Captured", { selector: "dt" })).toBeNull();
   });
 
   test("reads build, browser and capture time from the client only after mount", () => {
     mount({ at: undefined, userAgent: undefined, overlayBuild: undefined });
     expect(rowValue("Overlay build")).toBe("ConnectionStatus");
-    expect(rowValue("Browser")).toBe(navigator.userAgent);
-    expect(rowValue("Captured")).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(screen.queryByText("Browser", { selector: "dt" })).toBeNull();
+    expect(screen.queryByText("Captured", { selector: "dt" })).toBeNull();
   });
 
   test("omits a null browser row", () => {
@@ -105,8 +111,8 @@ describe("ConnectionStatus", () => {
     const html = renderToString(
       <ConnectionStatus {...props({ at: undefined, userAgent: undefined, overlayBuild: undefined })} />,
     );
-    expect(html).toContain("Realm");
-    expect(html).toContain("bafkreiscene");
+    expect(html).toContain("Performance");
+    expect(html).toContain("Connection");
     expect(html).not.toContain("Browser");
     expect(html).not.toContain("Overlay build");
     expect(html).not.toContain("Captured");
@@ -142,14 +148,14 @@ describe("ConnectionStatus", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-17T18:00:00.000Z"));
     mount({ at: undefined });
-    expect(rowValue("Captured")).toBe("2026-09-17T18:00:00.000Z");
+    expect(screen.queryByText("Captured", { selector: "dt" })).toBeNull();
     vi.setSystemTime(new Date("2026-09-17T18:00:05.000Z"));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Copy debug info" }));
     });
     vi.useRealTimers();
     expect(String(writeText.mock.calls[0]?.[0])).toContain("Captured: 2026-09-17T18:00:05.000Z");
-    expect(rowValue("Captured")).toBe("2026-09-17T18:00:05.000Z");
+    expect(screen.queryByText("Captured", { selector: "dt" })).toBeNull();
   });
 
   test("reports a clipboard failure on the button", async () => {

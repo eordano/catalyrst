@@ -18,6 +18,7 @@ export const PlaceSchema = z.object({
   user_count: nullableNum,
   user_visits: z.number(),
   favorites: z.number(),
+  user_favorite: z.boolean().optional(),
   likes: z.number(),
   like_rate: nullableNum,
   highlighted: z.boolean(),

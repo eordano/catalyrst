@@ -267,6 +267,11 @@ describe("scene-drafts route: authenticated PUT + GET round trip", () => {
       params: { "*": "-86,78" },
     });
     expect(missing.status).toBe(404);
+    const signedOptional=await signedReq(key,"GET",idPath);
+    const optional=await loader({request:new Request(signedOptional.url+"?optional=1",{headers:signedOptional.headers}),params:{"*":"-86,78"}});
+    expect(optional.status).toBe(204);
+    expect(await optional.text()).toBe("");
+    expect(optional.headers.get("cache-control")).toBe("private, no-store");
 
     const putReq = await signedReq(key, "PUT", idPath, {
       baseVersion: 0,

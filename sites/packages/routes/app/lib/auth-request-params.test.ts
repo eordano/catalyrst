@@ -474,7 +474,7 @@ describe("isOpaqueSignatureMessage", () => {
         "decentraland.org wants you to sign in with your Ethereum account.\n\nURI: https://decentraland.org\nVersion: 1",
       ],
       ["a short nonce-like token", "nonce-1234"],
-      ["text with a non-breaking space", "Sign in to Decentraland today please"],
+      ["text with a non-breaking space", "Sign\u00a0in to Decentraland today please"],
       ["a URL with a scheme", "https://decentraland.org/auth/requests/abc"],
       ["31 characters with no whitespace", "a".repeat(31)],
     ];
@@ -485,25 +485,25 @@ describe("isOpaqueSignatureMessage", () => {
 
   it("flags what the user cannot check the meaning of, hex-decoded bytes included", () => {
     const c1 = decodeSignatureMessage(`0x${toHex("authorize")}c285${toHex("withdrawal")}`);
-    expect(c1).toBe("authorizewithdrawal");
+    expect(c1).toBe("authorize\u0085withdrawal");
     const opaque: [string, string][] = [
       ["still raw hex", `0x${"ab".repeat(32)}`],
       ["an uppercase 0X prefix", `0X${"ab".repeat(32)}`],
       ["an empty hex payload", "0x"],
-      ["bytes that are not text", "abc def"],
-      ["the replacement character left by invalid UTF-8", "abc�def"],
-      ["a C1 control character", "authorizewithdrawal"],
-      ["the last C1 control character", "abcdef"],
-      ["a zero-width space", "abc​def"],
-      ["a bidi override", "abc‮def"],
-      ["a byte order mark", "﻿abc"],
-      ["a private-use code point", "abcdef"],
-      ["an unassigned code point", "abc͸def"],
-      ["a line separator", "abc def"],
+      ["bytes that are not text", "abc\u0000\u0007def"],
+      ["the replacement character left by invalid UTF-8", "abc\ufffddef"],
+      ["a C1 control character", "authorize\u0085withdrawal"],
+      ["the last C1 control character", "abc\u009fdef"],
+      ["a zero-width space", "abc\u200bdef"],
+      ["a bidi override", "abc\u202edef"],
+      ["a byte order mark", "\ufeffabc"],
+      ["a private-use code point", "abc\ue000def"],
+      ["an unassigned code point", "abc\u0378def"],
+      ["a line separator", "abc\u2028def"],
       ["32 printable bytes with no whitespace", "a".repeat(32)],
       ["32 printable bytes that include a space", `${"a".repeat(15)} ${"b".repeat(16)}`],
       ["32 printable bytes that include a newline", `${"a".repeat(31)}\n`],
-      ["32 bytes of multibyte characters", "é".repeat(16)],
+      ["32 bytes of multibyte characters", "\u00e9".repeat(16)],
       ["a 32-byte sentence with spaces", "Sign in to Decentraland today!!!"],
       ["a 64-character unprefixed hex digest", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"],
       ["a base64 digest", "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="],

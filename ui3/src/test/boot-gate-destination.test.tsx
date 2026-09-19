@@ -81,6 +81,16 @@ function installPositionInput(): HTMLInputElement {
 }
 
 describe("destination picker jump", () => {
+  test("the default lobby replaces the destination picker after onboarding without a preview flag", () => {
+    const harness = renderBoot({ legacyLobby: false });
+    jumpInFromLobby();
+    expect(screen.queryByText(PICKER_TITLE)).not.toBeInTheDocument();
+    expect(window.dclEngineStart).toHaveBeenCalledTimes(1);
+    harness.bridge.pushIdentity({ isGuest: true, name: "guest" });
+    harness.bridge.expectNotSent("Teleport");
+    harness.bridge.expectNotSent("ChangeRealm");
+  });
+
   test("without a deep link the picker shows cached place cards (no entity fetches); a parcel pick primes the engine boot position and skips the Teleport", () => {
     const input = installPositionInput();
     const harness = renderBoot();
@@ -179,6 +189,16 @@ describe("destinationFromSearch", () => {
 });
 
 describe("primeBootPosition", () => {
+  test("a running avatar preview must receive a destination through the engine bridge", () => {
+    const input = installPositionInput();
+    const canvas = document.createElement("canvas") as HTMLCanvasElement & { started: boolean };
+    canvas.id = "mygame-canvas";
+    canvas.started = true;
+    document.body.append(canvas);
+    expect(primeBootPosition({ kind: "parcel", x: -29, y: 55 })).toBe(false);
+    expect(input.value).toBe("");
+    canvas.remove();
+  });
   test("only a parcel destination writes x,y into the host input and reports success", () => {
     const input = installPositionInput();
     expect(primeBootPosition(null)).toBe(false);

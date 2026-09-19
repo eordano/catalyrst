@@ -5,12 +5,12 @@ export interface HistoryEntry {
   after?: unknown;
 }
 
-type HistoryWrite = (entity: string, name: string, value: unknown) => void;
+type HistoryWrite = (entity: string, name: string, value: unknown) => unknown;
 
 export interface HistoryEngine {
   push(batch: HistoryEntry[]): void;
-  undo(): boolean;
-  redo(): boolean;
+  undo(): Promise<boolean>;
+  redo(): Promise<boolean>;
   canUndo(): boolean;
   canRedo(): boolean;
   isSuppressed(): boolean;
@@ -27,6 +27,7 @@ export function createHistory(
   const undoStack: HistoryEntry[][] = [];
   const redoStack: HistoryEntry[][] = [];
   let suppress = false;
+  let generation = 0;
 
   const notify = () => {
     try {
@@ -35,14 +36,36 @@ export function createHistory(
     }
   };
 
-  const applyBatch = (batch: HistoryEntry[], dir: "before" | "after") => {
+  const replay = async (from: HistoryEntry[][], to: HistoryEntry[][], dir: "before" | "after") => {
+    if (suppress || !from.length) return false;
+    const batch = from[from.length - 1]!;
+    const version = generation;
+    const completed: HistoryEntry[] = [];
     suppress = true;
+    notify();
     try {
-      for (const e of batch) {
-        write(e.entity, e.name, dir === "before" ? e.before : e.after);
+      for (const entry of batch) {
+        if (version !== generation) return false;
+        await write(entry.entity, entry.name, entry[dir]);
+        completed.push(entry);
       }
+      if (version !== generation) return false;
+      from.pop();
+      to.push(batch);
+      return true;
+    } catch (error) {
+      if (version === generation) {
+        const failures: unknown[] = [];
+        for (const entry of completed.reverse()) {
+          try { await write(entry.entity, entry.name, entry[dir === "before" ? "after" : "before"]); }
+          catch (rollbackError) { failures.push(rollbackError); }
+        }
+        if (failures.length) throw new Error(`History could not be fully restored. Reconnect and check the scene. ${String(error)}`);
+      }
+      throw error;
     } finally {
       suppress = false;
+      notify();
     }
   };
 
@@ -54,26 +77,13 @@ export function createHistory(
       redoStack.length = 0;
       notify();
     },
-    undo() {
-      const batch = undoStack.pop();
-      if (batch === undefined) return false;
-      redoStack.push(batch);
-      notify();
-      applyBatch(batch, "before");
-      return true;
-    },
-    redo() {
-      const batch = redoStack.pop();
-      if (batch === undefined) return false;
-      undoStack.push(batch);
-      notify();
-      applyBatch(batch, "after");
-      return true;
-    },
-    canUndo: () => undoStack.length > 0,
-    canRedo: () => redoStack.length > 0,
+    undo: () => replay(undoStack, redoStack, "before"),
+    redo: () => replay(redoStack, undoStack, "after"),
+    canUndo: () => !suppress && undoStack.length > 0,
+    canRedo: () => !suppress && redoStack.length > 0,
     isSuppressed: () => suppress,
     clear() {
+      generation++;
       undoStack.length = 0;
       redoStack.length = 0;
       notify();

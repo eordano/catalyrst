@@ -35,6 +35,8 @@
 
           librusty_v8 = pkgs.callPackage ./crates/catalyrst-scene-state/nix/librusty_v8.nix { };
 
+          releaseVersion = (builtins.fromTOML (builtins.readFile ./crates/catalyrst-types/Cargo.toml)).package.version;
+
           commonArgs = {
             src = rustSrc;
             strictDeps = true;
@@ -54,7 +56,7 @@
 
           cargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
             pname = "catalyrst-workspace-deps";
-            version = "0.1.0";
+            version = releaseVersion;
             cargoExtraArgs = "--locked --workspace --features catalyrst-social-service/rpc";
           });
 
@@ -62,7 +64,7 @@
 
           svc = name: mkPkg {
             pname = name;
-            version = "0.1.0";
+            version = releaseVersion;
             cargoExtraArgs = "--locked -p ${name} --bin ${name}";
           };
 
@@ -78,14 +80,14 @@
 
             pulse = mkPkg {
               pname = "catalyrst-pulse";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-pulse --bin catalyrst-pulse";
               meta.mainProgram = "catalyrst-pulse";
             };
 
             catalyrst = mkPkg {
               pname = "catalyrst";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-server --bin catalyrst-live";
               postInstall = migrationsPostInstall;
             };
@@ -102,7 +104,7 @@
 
             catalyrst-communities = mkPkg {
               pname = "catalyrst-communities";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-social-service --bin catalyrst-communities";
             };
 
@@ -128,7 +130,7 @@
 
             catalyrst-worlds = mkPkg {
               pname = "catalyrst-worlds";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-worlds --bin catalyrst-worlds --bin worlds-mirror";
             };
 
@@ -144,7 +146,7 @@
 
             catalyrst-preview-tunnel = mkPkg {
               pname = "catalyrst-preview-tunnel";
-              version = "0.14.1";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-preview-tunnel --bin catalyrst-preview-tunnel";
             };
 
@@ -152,7 +154,7 @@
 
             catalyrst-all = mkPkg {
               pname = "catalyrst-all";
-              version = "0.1.0";
+              version = releaseVersion;
               cargoExtraArgs = "--locked -p catalyrst-server --bin catalyrst-live -p catalyrst-explore --bin catalyrst-explore -p catalyrst-create --bin catalyrst-create -p catalyrst-data --bin catalyrst-data -p catalyrst-social --bin catalyrst-social -p catalyrst-social-service --features catalyrst-social-service/rpc --bin catalyrst-social-rpc -p catalyrst-explorer-api --bin catalyrst-explorer-api -p catalyrst-profile-images --bin catalyrst-profile-images -p catalyrst-scene-state --bin catalyrst-scene-state -p catalyrst-signatures --bin catalyrst-signatures -p catalyrst-telemetry --bin catalyrst-telemetry -p catalyrst-worlds --bin catalyrst-world-storage -p catalyrst-land-authz --bin catalyrst-land-authz-index";
               postInstall = migrationsPostInstall;
             };
@@ -194,6 +196,7 @@
         }
         // pkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
           module-first-boot = import ./nixos/tests/first-boot.nix { inherit pkgs self; };
+          module-comms-wiring = import ./nixos/tests/comms-wiring.nix { inherit pkgs; };
         });
 
       devShells = forAllSystems (pkgs:

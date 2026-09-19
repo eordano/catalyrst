@@ -26,7 +26,7 @@ afterEach(() => {
   delete (window as unknown as WinWithBridge).dclBridge;
 });
 
-test("an empty catalog renders without tiles, and clicking an equipped tile unequips it through the bridge", async () => {
+test("an empty catalog renders without tiles, and the explicit Unequip button removes an item through the bridge", async () => {
   const empty = render(<Backpack catalog={[]} equipped={BASE} />);
   expect(screen.getByRole("heading", { name: "Backpack" })).toBeInTheDocument();
   expect(document.querySelectorAll("[role=listitem]").length).toBe(0);
@@ -41,6 +41,8 @@ test("an empty catalog renders without tiles, and clicking an equipped tile uneq
     />,
   );
   await userEvent.click(screen.getByTitle("Cool Hat"));
+  expect(send).not.toHaveBeenCalledWith("SetAvatar", expect.anything());
+  await userEvent.click(screen.getByRole("button", { name: "Unequip Cool Hat" }));
   expect(onEquippedChange).toHaveBeenCalledWith([]);
   expect(send).toHaveBeenCalledWith(
     "SetAvatar",
@@ -60,6 +62,7 @@ test("a second hat replaces the first, and hovering previews without persisting"
     />,
   );
   await userEvent.click(screen.getByTitle("Party Hat"));
+  await userEvent.click(screen.getByRole("button", { name: "Equip Party Hat" }));
   expect(onReplace).toHaveBeenCalledWith([HAT2.urn]);
   replace.unmount();
   send.mockClear();
@@ -79,4 +82,24 @@ test("the MARKETPLACE button links to the marketplace page through the shared st
   const link = screen.getByRole("button", { name: /Marketplace/ });
   expect(link).toHaveClass("bp__marketplace");
   expect(link.getAttribute("data-sb-linkto")).toBe("Explorer/Pages/Marketplace");
+});
+
+test("body tiles replace the base and repair body shapes incorrectly saved as clothing", async () => {
+  const female = { urn: "urn:decentraland:off-chain:base-avatars:BaseFemale", name: "Female", category: "body_shape" };
+  const male = { urn: BASE.bodyShape, name: "Male", category: "body_shape" };
+  const onBaseChange = vi.fn();
+  const onEquippedChange = vi.fn();
+  render(<Backpack catalog={[male, female, HAT]} equipped={{ ...BASE, wearables: [HAT.urn, female.urn] }} onBaseChange={onBaseChange} onEquippedChange={onEquippedChange} />);
+  await userEvent.click(screen.getByTitle("Female"));
+  await userEvent.click(screen.getByRole("button", { name: "Equip Female" }));
+  expect(onBaseChange).toHaveBeenLastCalledWith(expect.objectContaining({ bodyShape: female.urn }));
+  expect(onEquippedChange).toHaveBeenLastCalledWith([HAT.urn]);
+  expect(send).toHaveBeenLastCalledWith("SetAvatar", expect.objectContaining({
+    base: expect.objectContaining({ bodyShapeUrn: female.urn }),
+    equip: expect.objectContaining({ wearableUrns: [HAT.urn] }),
+  }));
+  await userEvent.click(screen.getByTitle("Male"));
+  await userEvent.click(screen.getByRole("button", { name: "Equip Male" }));
+  expect(onBaseChange).toHaveBeenLastCalledWith(expect.objectContaining({ bodyShape: male.urn }));
+  expect(onEquippedChange).toHaveBeenLastCalledWith([HAT.urn]);
 });

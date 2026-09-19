@@ -1703,7 +1703,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-archipelago"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -1745,7 +1745,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-auth-chain"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "hex",
  "serde",
@@ -1755,7 +1755,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-authenticated-admin"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "axum",
  "catalyrst-authenticated-principal",
@@ -1765,7 +1765,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-authenticated-principal"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "catalyrst-crypto",
  "catalyrst-types",
@@ -1776,7 +1776,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-badges"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1798,7 +1798,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-bench"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "async-trait",
@@ -1821,11 +1821,12 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-builder"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "anyhow",
  "axum",
+ "catalyrst-contract-gate",
  "catalyrst-crypto",
  "catalyrst-db",
  "catalyrst-envcfg",
@@ -1845,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-bvimposters"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1866,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-camera-reel"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1894,7 +1895,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-commons"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1911,7 +1912,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-comms"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -1956,7 +1957,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-conformance"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1978,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-contract-gate"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "axum",
  "catalyrst-crypto",
@@ -1993,7 +1994,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-create"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2008,7 +2009,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-credits"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2043,7 +2044,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-crypto"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2065,7 +2066,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-data"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2083,7 +2084,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-db"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "bytes",
  "catalyrst-contract-gate",
@@ -2100,7 +2101,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-deploy-signer"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2121,7 +2122,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-drpc"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "async-channel",
  "async-trait",
@@ -2139,7 +2140,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-economy"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2166,7 +2167,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-envcfg"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2179,7 +2180,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-events"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2217,7 +2218,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-explore"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2236,7 +2237,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-explorer-api"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2260,7 +2261,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-fed"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "async-nats",
@@ -2285,7 +2286,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-fuzz"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2298,7 +2299,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-governance"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2322,7 +2323,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-hashing"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "bs58",
  "data-encoding",
@@ -2331,7 +2332,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-land-authz"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "async-trait",
  "catalyrst-contract-gate",
@@ -2348,7 +2349,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-livekit"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "base64 0.23.1",
  "hmac 0.13.0",
@@ -2363,7 +2364,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-map"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2386,7 +2387,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-market"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -2427,7 +2428,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-media"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2447,7 +2448,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-notifications"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2471,7 +2472,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-oracle-tests"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -2488,7 +2489,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-places"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2525,7 +2526,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-presence"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2549,7 +2550,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-preview-tunnel"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2567,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-price"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2586,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-profile-images"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2604,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-pulse"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2634,7 +2635,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-quests"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2663,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-rpc"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2678,7 +2679,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-scene-state"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2705,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-server"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2757,7 +2758,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-signatures"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -2779,7 +2780,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-social"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2797,7 +2798,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-social-service"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2847,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-storage"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "bytes",
  "catalyrst-hashing",
@@ -2864,7 +2865,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-telemetry"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2886,7 +2887,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-testgate"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "axum",
  "reqwest",
@@ -2896,7 +2897,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-tunnel-protocol"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2904,7 +2905,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-types"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "axum",
  "catalyrst-auth-chain",
@@ -2920,7 +2921,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-validator"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "alloy-primitives",
  "async-trait",
@@ -2938,7 +2939,7 @@ dependencies = [
 
 [[package]]
 name = "catalyrst-worlds"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -3684,7 +3685,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "dcl-one-sdk"
-version = "0.27.0"
+version = "0.29.0"
 dependencies = [
  "anyhow",
  "axum",

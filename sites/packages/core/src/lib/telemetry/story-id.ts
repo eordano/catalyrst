@@ -112,6 +112,7 @@ export type StoryId =
   | "marketplace/rent-land"
   | "marketplace/sell-list"
   | "marketplace/settings"
+  | "marketplace/shop"
   | "marketplace/transfer"
   | "misc/blog"
   | "misc/blog-shop-entry"

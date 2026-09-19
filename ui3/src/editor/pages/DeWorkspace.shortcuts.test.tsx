@@ -63,3 +63,13 @@ describe("DeWorkspace discrete shortcuts", () => {
     expect(screen.queryByText(/Keyboard & mouse shortcuts/)).toBeNull();
   });
 });
+
+
+it.each(["scene", "assets"] as const)("returns to the hierarchy from assets entered via %s", (left) => {
+  render(<DeWorkspace title="Asset navigation" left={left} tree={[]} inspector={{}} />);
+  if (left === "scene") fireEvent.click(screen.getByRole("button", { name: "Browse asset catalog" }));
+  fireEvent.click(screen.getByRole("button", { name: "Back to scene" }));
+  expect(screen.getByPlaceholderText("Search entities\u{2026}")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Browse asset catalog" }));
+  expect(screen.getByRole("button", { name: "Back to scene" })).toBeTruthy();
+});

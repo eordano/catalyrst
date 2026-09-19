@@ -17,11 +17,18 @@ import {
   type EventsParams,
 } from "../catalyst/events";
 import { qk, STALE } from "../queryKeys";
+import { useBridgeState } from "../../overlay/bridge";
+import { playScreenEnabled, playSection } from "../screens/play-client";
 
 export function useEvents(params: EventsParams = {}) {
+  const client = useQueryClient();
+  const address = useBridgeState((state) => state.identity.address);
+  const lobby = Object.keys(params).length === 2 && params.list === "live" && params.limit === 12;
   return useQuery({
     queryKey: qk.events(params),
-    queryFn: ({ signal }) => fetchEvents(params, { signal }),
+    queryFn: ({ signal }) => playScreenEnabled(client) && lobby
+      ? playSection(client, address, "events", signal)
+      : fetchEvents(params, { signal }),
     staleTime: STALE.events,
   });
 }

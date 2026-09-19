@@ -1,0 +1,11 @@
+.editor-wizard__project-tools {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 13px;
+}
+.editor-wizard__project-tools a { color: inherit; text-underline-offset: 3px; }
+.editor-wizard__project-tools a:focus-visible { outline: 2px solid var(--brand-cta, #ff2d68); outline-offset: 3px; }
+.editor-wizard__project-tools span { color: var(--ink-7); font-size: 11px; }

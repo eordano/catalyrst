@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 
 import { DeInspectorPanel } from "./DeInspectorPanel";
@@ -61,5 +61,24 @@ describe("DeInspectorPanel component picker", () => {
     expect(screen.getByTitle("Billboard")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add component" }));
     expect(screen.queryByTitle("Billboard")).toBeNull();
+  });
+});
+
+describe("inspector authoring permissions", () => {
+  it.each(["GltfContainerLoadingState", "core::GltfContainerLoadingState"])("keeps %s inspectable but prevents edits and deletion", name => {
+    const write = vi.fn(), remove = vi.fn(), copy = vi.fn(), paste = vi.fn();
+    render(<DeInspectorPanel id="512" live components={[name, "AudioSource"]}
+      writableComponents={new Set(["AudioSource"])}
+      componentValues={{ [name]: { currentState: 3 }, AudioSource: { audioClipUrl: "tone.wav" } }}
+      onAuthorComponent={write} onDeleteComponent={remove} clipboard={{ copy, paste }} />);
+    const loading = screen.getByText("Gltf Container Loading State").closest(".eui-comp")! as HTMLElement;
+    expect(within(loading).getByRole("button", { name: "Remove component" })).toBeDisabled();
+    expect(within(loading).queryByRole("button", { name: "Edit as JSON" })).toBeNull();
+    expect(within(loading).queryByRole("button", { name: /paste/i })).toBeNull();
+    expect(loading.textContent).toMatch(/Model/);
+    const audio = screen.getByText("Audio Source").closest(".eui-comp")! as HTMLElement;
+    fireEvent.click(within(audio).getByRole("button", { name: "Remove component" }));
+    expect(remove).toHaveBeenCalledExactlyOnceWith("512", "AudioSource");
+    expect(write).not.toHaveBeenCalled();
   });
 });

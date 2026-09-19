@@ -46,8 +46,8 @@ describe("loadWorldsStorage", () => {
     const { fetchImpl, stats } = gated(healthy());
     const data = await loadWorldsStorage(ADDR, { fetchImpl });
 
-    expect(stats.peak).toBe(6);
-    expect(stats.urls).toHaveLength(7);
+    expect(stats.peak).toBe(7);
+    expect(stats.urls).toHaveLength(8);
     expect(data.source).toBe("live");
     expect(data.fallback).toBe(false);
     expect(data.values).toEqual([{ key: "k", value: 1 }]);
@@ -74,12 +74,36 @@ describe("loadWorldsStorage", () => {
 });
 
 describe("loadManageWorlds", () => {
-  it("reads names and realm status together before resolving worlds", async () => {
+  it("combines directory counts for many worlds in the first request stage", async () => {
+    const names = Array.from({ length: 30 }, (_, i) => `world${i}`);
+    const { fetchImpl, stats } = gated({
+      "/names": json({ elements: names.map((name) => ({ name })) }),
+      "/status": json({ ok: true }),
+      "/worlds?": json({ worlds: names.map((name, i) => ({ name: `${name}.dcl.eth`, deployed_scenes: i })) }),
+    });
+    const data = await loadManageWorlds(ADDR, undefined, { fetchImpl });
+    expect(stats.peak).toBe(3);
+    expect(stats.urls).toHaveLength(3);
+    expect(data.worlds.map((world) => world.deployedScenes)).toEqual(names.map((_, i) => i));
+    expect(stats.urls.some((url) => url.includes("/about"))).toBe(false);
+  });
+
+  it("resolves missing entries without dropping undeployed names or using another world's count", async () => {
+    const { fetchImpl, stats } = gated({
+      ...healthy(),
+      "/worlds?": json({ worlds: [{ name: "someoneelse.dcl.eth", deployed_scenes: 99 }] }),
+    });
+    const data = await loadManageWorlds(ADDR, undefined, { fetchImpl });
+    expect(data.worlds.map((world) => [world.name, world.deployedScenes])).toEqual([["petbarn.dcl.eth", 2]]);
+    expect(stats.urls).toHaveLength(4);
+  });
+
+  it("falls back to world about when the directory is unavailable", async () => {
     const { fetchImpl, stats } = gated(healthy());
     const data = await loadManageWorlds(ADDR, undefined, { fetchImpl });
 
-    expect(stats.peak).toBe(2);
-    expect(stats.urls).toHaveLength(3);
+    expect(stats.peak).toBe(3);
+    expect(stats.urls).toHaveLength(4);
     expect(data.worlds.map((w) => [w.name, w.deployedScenes])).toEqual([
       ["petbarn.dcl.eth", 2],
     ]);

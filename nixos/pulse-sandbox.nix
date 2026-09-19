@@ -23,12 +23,18 @@ lib.mkIf (cfg.enable && cfg.subServices.comms && cfg.pulse.sandbox) {
     "${pkgs.writeShellScript "runsc-host" ''exec ${pkgs.gvisor}/bin/runsc --network=host "$@"''}"
   ];
 
+  systemd.services.podman-pulse = {
+    after = [ "nats.service" ];
+    wants = [ "nats.service" ];
+  };
+
   virtualisation.oci-containers.containers.pulse = {
     image = "catalyrst-pulse:latest";
     imageFile = pulseImage;
     environment = {
       RUST_LOG = "info";
       PULSE_BIND = "${cfg.pulse.bindAddress}:${toString cfg.pulse.port}";
+      PULSE_NATS_URL = "nats://127.0.0.1:4222";
     };
     extraOptions = [
       "--runtime=runsc-host"

@@ -70,7 +70,7 @@ describe("Minimap scene options", () => {
     ownerState.world = true;
     await openMenu();
     expect(screen.getByRole("menuitem", { name: /^Send feedback to scene owner/ })).toBeDisabled();
-    expect(screen.getAllByRole("menuitem", { name: /not available in worlds/ })).toHaveLength(2);
+    expect(screen.getAllByRole("menuitem", { name: /world owner unknown/ })).toHaveLength(2);
   });
 
   it("opens the feedback and tip dialogs for the resolved owner", async () => {

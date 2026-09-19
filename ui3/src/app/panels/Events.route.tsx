@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import EventDetail from "../../explorer/pages/EventDetail";
 import JumpLoading, { useJump } from "../../explorer/components/JumpLoading";
@@ -208,7 +208,7 @@ function EventCard({ ev, featured, onOpen, onJump }: EventCardProps) {
           }}
           onKeyDown={(e) => e.stopPropagation()}
         >
-          jump in
+          Jump in
         </button>
       </div>
     </div>
@@ -258,7 +258,8 @@ function Notice({ children }: { children: ReactNode }) {
 export default function EventsPanel() {
   const navigate = useNavigate();
   const [category, setCategory] = useState("");
-  const [selected, setSelected] = useState<EventItem | null>(null);
+  const location = useLocation();
+  const [selected, setSelected] = useState<EventItem | null>(() => location.state?.event ?? null);
   const [confirmWorld, setConfirmWorld] = useState<{ realm: string; title?: string } | null>(null);
 
   const { jumping, stalled, beginJump, cancelJump, confirmJump } = useJump(() => navigate("/"));
@@ -275,7 +276,7 @@ export default function EventsPanel() {
       if (!teleportTo(ev, domEvent)) return false;
       const { x, y } = eventXY(ev);
       warmSceneAtParcel(x, y);
-      beginJump(ev?.name || "event");
+      beginJump(ev?.name || "event", `${x},${y}`);
       return true;
     },
     [beginJump],
@@ -442,7 +443,7 @@ export default function EventsPanel() {
                     if (!jumpTo(featured, e)) onOpen(featured);
                   }}
                 >
-                  jump in
+                  Jump in
                 </button>
                 <button type="button" className="ev__iconbtn" aria-label="Details" onClick={() => onOpen(featured)}>
                   &#x2197;

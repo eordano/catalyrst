@@ -37,6 +37,8 @@ export default defineConfig({
     strictPort: true,
     fs: { allow: [".", "../ui3"] },
     proxy: {
+      "/_play": { target: CATALYST_PROXY_TARGET, changeOrigin: true },
+      "/builder-items": { target: CATALYST_PROXY_TARGET, changeOrigin: true },
       "/lambdas": { target: CATALYST_PROXY_TARGET, changeOrigin: true },
       "/content": { target: CATALYST_PROXY_TARGET, changeOrigin: true },
       "/auth-api": { target: CATALYST_PROXY_TARGET, changeOrigin: true },

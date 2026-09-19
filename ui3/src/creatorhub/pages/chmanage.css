@@ -252,4 +252,15 @@
 @media (max-width: 720px) {
   .chm__container { padding: 24px 20px 36px; }
   .chm__title { font-size: 26px; }
+  .chm__filtersleft { flex-wrap: wrap; }
+  .chm__chipsfilter { margin: 0; flex-wrap: wrap; gap: 10px; }
+  .chm__filterlabel { white-space: nowrap; }
+  .chm__filtersright {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .chm__filtersright .search { grid-column: 1 / -1; width: 100%; box-sizing: border-box; }
+  .chm__filtersright .dropdown { min-width: 0; width: 100%; }
 }

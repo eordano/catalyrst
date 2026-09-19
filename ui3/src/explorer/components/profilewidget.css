@@ -30,6 +30,9 @@
   font-size: var(--fs-sm); font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
 }
 .pw__profile:hover { background: rgba(255,255,255,.10); border-color: #fff; }
+.pw__shortcuts { display: flex; gap: 8px; }
+.pw__shortcuts .pw__profile { flex: 1; min-width: 0; }
+.pw { overflow-y: auto; }
 
 .pw__item {
   display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer;

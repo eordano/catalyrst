@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { sendBridge, useBridgeState } from "../../overlay/bridge";
 import { FLOATING_PANEL_TITLES } from "../../explorer/components/FloatingPanel";
+import { portableSource } from "../../data/portableSource";
 import "./smartwearablespanel.css";
 
 type SmartWearablesPanelProps = {
@@ -15,6 +16,25 @@ function shortPid(pid: string): string {
 
 export default function SmartWearablesPanel({ floating = false }: SmartWearablesPanelProps = {}) {
   const portables = useBridgeState((s) => s.portables);
+  const [source, setSource] = useState("");
+  const [activating, setActivating] = useState(false);
+  const [activationMessage, setActivationMessage] = useState("");
+  const activate = async () => {
+    if (activating) return;
+    setActivationMessage("");
+    try {
+      const target = portableSource(source);
+      if (!window.engine_console_command) throw new Error("Activation is unavailable in this client.");
+      setActivating(true);
+      await window.engine_console_command(`/spawn ${target}`);
+      setActivationMessage("Experience requested. It will appear above when it starts.");
+      setSource("");
+    } catch (error) {
+      setActivationMessage(error instanceof Error ? error.message : "The experience could not be activated.");
+    } finally {
+      setActivating(false);
+    }
+  };
   const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set());
   const lastPushRef = useRef(portables);
   useEffect(() => {
@@ -57,6 +77,9 @@ export default function SmartWearablesPanel({ floating = false }: SmartWearables
                   <span className="swpanel__name">
                     {p.name || p.ens || shortPid(p.pid)}
                   </span>
+                  {p.name === "Basic Controller" && (
+                    <span className="swpanel__hint">The explorer&#x2019;s system experience. It runs alongside the scene to provide shared controls.</span>
+                  )}
                   {p.parentCid ? (
                     <span className="swpanel__source">spawned by the scene</span>
                   ) : p.ens ? (
@@ -79,6 +102,13 @@ export default function SmartWearablesPanel({ floating = false }: SmartWearables
           </p>
         </>
       )}
+      <form className="swpanel__activate" onSubmit={(e) => { e.preventDefault(); void activate(); }}>
+        <label htmlFor="portable-source">Activate an experience</label>
+        <p className="swpanel__hint">Enter its world name or realm URL. Only activate experiences you trust; they run alongside your current scene.</p>
+        <input id="portable-source" value={source} onChange={(e) => setSource(e.target.value)} placeholder="experience.dcl.eth" disabled={activating} autoComplete="off" />
+        <button className="swpanel__stop" type="submit" disabled={activating || !source.trim()}>{activating ? "Activating\u{2026}" : "Activate"}</button>
+        {activationMessage && <p className="swpanel__hint" role="status">{activationMessage}</p>}
+      </form>
     </div>
   );
 }

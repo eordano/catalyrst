@@ -60,3 +60,8 @@
   color: #a09ba8;
   font-size: 13px;
 }
+
+.claim-name-wizard .assetaction__title,
+.claim-name-wizard .assetaction__subtitle {
+  overflow-wrap: anywhere;
+}

@@ -9,6 +9,7 @@ import {
 } from "../catalyst/creator-hub/scene-composite";
 import {
   normalizeEngineComposite,
+  requireEngineComposite,
   saveSceneFromEngine,
   ENGINE_GAP_SAVE_ERROR,
   type SceneHierarchyNode,
@@ -28,6 +29,8 @@ describe("saveSceneFromEngine \u{2014} author \u{2192} save \u{2192} reopen \u{2
       return "written" as const;
     };
     const exportComposite = vi.fn(async () => ENGINE_COMPOSITE);
+    expect(await requireEngineComposite(12000, exportComposite)).toBe(ENGINE_COMPOSITE);
+    exportComposite.mockClear();
 
     const res = await saveSceneFromEngine(SEED, {}, { writer, exportComposite });
 
@@ -57,6 +60,7 @@ describe("saveSceneFromEngine \u{2014} author \u{2192} save \u{2192} reopen \u{2
     };
     for (const reply of [null, "", "   ", "not-json"]) {
       expect(normalizeEngineComposite(reply)).toBeNull();
+      await expect(requireEngineComposite(12000, async () => reply)).rejects.toThrow(ENGINE_GAP_SAVE_ERROR);
       captured.length = 0;
       await expect(
         saveSceneFromEngine(SEED, {}, {

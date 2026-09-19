@@ -1,52 +1,14 @@
+import { ACTION_SCHEMAS, COMPONENT_SCHEMAS, fieldLabel } from "../authoring-schema";
+import { DeSchemaFields } from "./DeSchemaFields";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { IconPlus, IconTrash } from "./DeIcons";
 import { NumField, PropRow, TextField, type CompValue } from "./DeInspectorFields";
 
-export const ACTION_TYPE_OPTIONS: readonly string[] = [
-  "play_animation", "stop_animation", "set_state", "start_tween", "set_counter",
-  "increment_counter", "decrease_counter", "play_sound", "stop_sound", "set_visibility",
-  "attach_to_player", "detach_from_player", "play_video_stream", "stop_video_stream",
-  "play_audio_stream", "stop_audio_stream", "teleport_player", "move_player",
-  "play_default_emote", "play_custom_emote", "open_link", "show_text", "hide_text",
-  "start_delay", "stop_delay", "start_loop", "stop_loop", "clone_entity", "remove_entity",
-  "show_image", "hide_image", "damage", "move_player_here", "player_face_item",
-  "place_on_player", "rotate_as_player", "place_on_camera", "rotate_as_camera",
-  "set_position", "set_rotation", "set_scale", "follow_player", "stop_following_player",
-  "random", "batch", "heal_player", "claim_airdrop", "lights_on", "lights_off",
-  "lights_modify", "change_camera", "change_text", "stop_tween", "slide_texture",
-  "freeze_player", "unfreeze_player", "change_collisions", "change_skybox",
-  "reset_skybox", "call_script_method", "log_to_console", "delete",
-];
-
-const TRIGGER_TYPE_OPTIONS: readonly { value: string; label: string }[] = [
-  { value: "on_click", label: "on_click (item clicked)" },
-  { value: "on_input_action", label: "on_input_action (E pressed)" },
-  { value: "on_state_change", label: "on_state_change" },
-  { value: "on_spawn", label: "on_spawn" },
-  { value: "on_tween_end", label: "on_tween_end" },
-  { value: "on_counter_change", label: "on_counter_change" },
-  { value: "on_player_enters_area", label: "on_player_enters_area" },
-  { value: "on_player_leaves_area", label: "on_player_leaves_area" },
-  { value: "on_delay", label: "on_delay" },
-  { value: "on_loop", label: "on_loop" },
-  { value: "on_clone", label: "on_clone" },
-  { value: "on_click_image", label: "on_click_image" },
-  { value: "on_damage", label: "on_damage" },
-  { value: "on_global_click", label: "on_global_click" },
-  { value: "on_global_primary", label: "on_global_primary" },
-  { value: "on_global_secondary", label: "on_global_secondary" },
-  { value: "on_tick", label: "on_tick" },
-  { value: "on_heal_player", label: "on_heal_player" },
-  { value: "on_player_spawn", label: "on_player_spawn" },
-];
-
-const CONDITION_TYPE_OPTIONS: readonly string[] = [
-  "when_state_is", "when_state_is_not", "when_counter_equals", "when_counter_is_greater_than",
-  "when_counter_is_less_than", "when_distance_to_player_less_than",
-  "when_distance_to_player_greater_than", "when_previous_state_is",
-  "when_previous_state_is_not",
-];
+export const ACTION_TYPE_OPTIONS: readonly string[] = Object.keys(ACTION_SCHEMAS);
+const triggerSchema = COMPONENT_SCHEMAS["asset-packs::Triggers"]!.schema.properties!.value!.items!;
+const TRIGGER_TYPE_OPTIONS = (triggerSchema.properties!.type!.enum ?? []).map(value => ({ value: String(value), label: fieldLabel(String(value)) }));
+const CONDITION_TYPE_OPTIONS = (triggerSchema.properties!.conditions!.items!.properties!.type!.enum ?? []).map(String);
 
 export function entryList(v: CompValue, key = "value"): Record<string, unknown>[] {
   const val = v[key];
@@ -179,7 +141,10 @@ export function ActionEntry({ entry, uid, readonly, onPatch, onRemove }: ActionE
   const type = typeof entry.type === "string" ? entry.type : "";
   const setField = (k: string, val: unknown) => onPatch({ ...entry, [k]: val });
   const setF = readonly ? undefined : (val: unknown) => setField("name", val);
-  const setTypeF = readonly ? undefined : (val: unknown) => setField("type", val);
+  const setTypeF = readonly ? undefined : (val: unknown) => onPatch({ ...entry, type: val, jsonPayload: JSON.stringify(ACTION_SCHEMAS[String(val)]?.defaults ?? {}) });
+  const definition = ACTION_SCHEMAS[type];
+  let payload: unknown = {};
+  try { payload = typeof entry.jsonPayload === "string" ? JSON.parse(entry.jsonPayload) : entry.jsonPayload ?? {}; } catch { }
   return (
     <div className="eui-group">
       <div className="eui-prop">
@@ -213,11 +178,12 @@ export function ActionEntry({ entry, uid, readonly, onPatch, onRemove }: ActionE
           onCommit={setTypeF}
         />
       </PropRow>
-      <PayloadField
+      {definition ? <DeSchemaFields schema={definition.schema} value={payload} onChange={readonly ? undefined : value => setField("jsonPayload", JSON.stringify(value))} /> : <PayloadField
         id={uid + "-payload"}
         raw={entry["jsonPayload"]}
         onCommit={readonly ? undefined : (s) => setField("jsonPayload", s)}
-      />
+      />}
+
     </div>
   );
 }

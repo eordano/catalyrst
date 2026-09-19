@@ -10,6 +10,17 @@
   display: flex; flex-direction: column; align-items: center;
   padding: 8px 0 22px; gap: 4px; z-index: 5;
 }
+.sb { zoom: var(--sidebar-scale, 1); overflow-y: auto; scrollbar-width: thin; }
+.sb > *, .sb__group { flex-shrink: 0; }
+.sb__options { position: absolute; left: calc(var(--sidebar-width, 46px) + 10px); top: 8px; pointer-events: auto; z-index: var(--z-overlay); }
+.sb__stage[data-auto-hide="true"][data-panel-open="false"] .sb:not(:hover):not(:has(:focus-visible)):not(:has(.sb__pop.is-open)),
+.sb__stage[data-auto-hide="true"][data-panel-open="false"][data-pointer-locked="true"] .sb {
+  transform: translateX(calc(-100% + 8px));
+}
+.sb__stage[data-auto-hide="true"] .sb { transition: transform .15s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .sb__stage[data-auto-hide="true"] .sb { transition: none; }
+}
 
 .sb__cfg {
   width: 32px; height: 18px; border: none; cursor: pointer; padding: 0;
@@ -64,8 +75,9 @@
 .sb__pop { position: relative; display: flex; }
 .sb__pop.is-open .tt__tip { display: none; }
 .sb__menu {
-  position: absolute; left: calc(100% + 10px); top: 0;
+  position: fixed; left: calc(var(--sidebar-width, 46px) + 10px); top: 0;
   z-index: var(--z-overlay);
+  pointer-events: auto;
 }
 .sb__menu .ctx { min-width: 176px; }
 .sb__menuicon { display: block; width: 16px; height: 16px; fill: currentColor; }

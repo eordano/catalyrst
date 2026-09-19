@@ -9,6 +9,7 @@ declare module "monaco-editor" {
   export interface ITextModel {
     readonly uri: Uri;
     getValue(): string;
+    setValue(value: string): void;
     dispose(): void;
   }
 

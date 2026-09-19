@@ -6,9 +6,10 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type { TrackFn };
 
-type AvailabilityResult = { available: boolean };
+type AvailabilityResult = { available: boolean; priceMana?: string; pendingRegistration?: boolean };
 
-export type MintResult = { txHash: string; tokenId: string };
+export type MintResult = { txHash: string; tokenId: string; simulated?: boolean };
+export type ApproveFn = (args: { name: string; priceMana: string; signal?: AbortSignal }) => Promise<void>;
 
 export type CheckAvailabilityFn = (args: {
   name: string;
@@ -17,6 +18,7 @@ export type CheckAvailabilityFn = (args: {
 
 export type MintFn = (args: {
   name: string;
+  priceMana?: string;
   signal?: AbortSignal;
 }) => Promise<MintResult>;
 
@@ -25,6 +27,7 @@ type ClaimInput = {
   takenNames?: string[];
   check?: CheckAvailabilityFn;
   mint?: MintFn;
+  approve?: ApproveFn;
   track?: TrackFn;
 };
 
@@ -33,6 +36,9 @@ type ClaimContext = {
   taken: Set<string>;
   check: CheckAvailabilityFn;
   mint: MintFn;
+  approve?: ApproveFn;
+  priceMana: string;
+  retryStep: "checking" | "approvalPending" | "submitting";
   track: TrackFn;
   name: string;
   result?: MintResult;
@@ -62,6 +68,7 @@ export const STATE_TO_SLUG = {
   checking: "check-availability",
   unavailable: "unavailable",
   approving: "approve-mana",
+  approvalPending: "approval-pending",
   confirming: "confirm-mint",
   submitting: "submit-tx",
   success: "success",
@@ -94,6 +101,7 @@ export const simulateMint: MintFn = async ({ name, signal }) => {
   return {
     txHash: `0x${hashHex(seed)}`,
     tokenId: BigInt(`0x${hashHex(name)}`).toString(),
+    simulated: true,
   };
 };
 
@@ -108,8 +116,11 @@ export const claimNameMachine = setup({
       AvailabilityResult,
       { name: string; check: CheckAvailabilityFn }
     >(({ input, signal }) => input.check({ name: input.name, signal })),
-    runMint: fromPromise<MintResult, { name: string; mint: MintFn }>(
-      ({ input, signal }) => input.mint({ name: input.name, signal }),
+    runMint: fromPromise<MintResult, { name: string; priceMana: string; mint: MintFn }>(
+      ({ input, signal }) => input.mint({ name: input.name, priceMana: input.priceMana, signal }),
+    ),
+    runApproval: fromPromise<void, { name: string; priceMana: string; approve: ApproveFn }>(
+      ({ input, signal }) => input.approve({ name: input.name, priceMana: input.priceMana, signal }),
     ),
   },
   actions: {
@@ -131,19 +142,19 @@ export const claimNameMachine = setup({
     trackManaApproved: ({ context }) =>
       context.track(
         CLAIM_EVENTS.manaApproved,
-        { name: context.name, price_mana: "100", simulated: true },
+        { name: context.name, price_mana: context.priceMana, simulated: context.mint === simulateMint },
         context.trackCtx,
       ),
     trackConfirmReached: ({ context }) =>
       context.track(
         CLAIM_EVENTS.confirmReached,
-        { name: context.name, price_mana: "100" },
+        { name: context.name, price_mana: context.priceMana },
         context.trackCtx,
       ),
     trackSubmitted: ({ context }) =>
       context.track(
         CLAIM_EVENTS.submitted,
-        { name: context.name, simulated: true },
+        { name: context.name, simulated: context.mint === simulateMint },
         context.trackCtx,
       ),
     trackCompleted: ({ context }) =>
@@ -153,7 +164,7 @@ export const claimNameMachine = setup({
           name: context.name,
           tx_hash: context.result?.txHash,
           token_id: context.result?.tokenId,
-          stub: true,
+          stub: context.result?.simulated ?? false,
         },
         context.trackCtx,
       ),
@@ -165,6 +176,9 @@ export const claimNameMachine = setup({
     taken: new Set((input.takenNames ?? []).map((n) => n.toLowerCase())),
     check: input.check ?? makeSimulateCheck(new Set((input.takenNames ?? []).map((n) => n.toLowerCase()))),
     mint: input.mint ?? simulateMint,
+    approve: input.approve,
+    priceMana: "100",
+    retryStep: "checking",
     track: input.track ?? defaultTrack,
     name: "",
   }),
@@ -179,19 +193,25 @@ export const claimNameMachine = setup({
       },
     },
     checking: {
+      entry: assign({ retryStep: "checking", error: undefined }),
       invoke: {
         id: "runCheck",
         src: "runCheck",
         input: ({ context }) => ({ name: context.name, check: context.check }),
         onDone: [
           {
+            guard: ({ event }) => !!event.output.pendingRegistration,
+            target: "submitting",
+            actions: assign({ priceMana: ({ event }) => event.output.priceMana ?? "100" }),
+          },
+          {
             guard: ({ event }) => event.output.available,
             target: "approving",
-            actions: "trackAvailable",
+            actions: [assign({ priceMana: ({ event }) => event.output.priceMana ?? "100" }), "trackAvailable"],
           },
           { target: "unavailable", actions: "trackUnavailable" },
         ],
-        onError: { target: "unavailable", actions: "trackUnavailable" },
+        onError: { target: "error", actions: assign({ error: ({ event }) => toErrorMessage(event.error, "Availability check failed") }) },
       },
     },
     unavailable: {
@@ -202,8 +222,20 @@ export const claimNameMachine = setup({
     },
     approving: {
       on: {
-        APPROVE_MANA: { target: "confirming", actions: "trackManaApproved" },
+        APPROVE_MANA: [
+          { guard: ({ context }) => !!context.approve, target: "approvalPending" },
+          { target: "confirming", actions: "trackManaApproved" },
+        ],
         BACK: { target: "entering" },
+      },
+    },
+    approvalPending: {
+      entry: assign({ retryStep: "approvalPending", error: undefined }),
+      invoke: {
+        src: "runApproval",
+        input: ({ context }) => ({ name: context.name, priceMana: context.priceMana, approve: context.approve! }),
+        onDone: { target: "confirming", actions: "trackManaApproved" },
+        onError: { target: "error", actions: assign({ error: ({ event }) => toErrorMessage(event.error, "MANA approval failed") }) },
       },
     },
     confirming: {
@@ -214,10 +246,11 @@ export const claimNameMachine = setup({
       },
     },
     submitting: {
+      entry: assign({ retryStep: "submitting", error: undefined }),
       invoke: {
         id: "runMint",
         src: "runMint",
-        input: ({ context }) => ({ name: context.name, mint: context.mint }),
+        input: ({ context }) => ({ name: context.name, priceMana: context.priceMana, mint: context.mint }),
         onDone: {
           target: "success",
           actions: [assign({ result: ({ event }) => event.output }), "trackCompleted"],
@@ -236,7 +269,12 @@ export const claimNameMachine = setup({
     },
     error: {
       on: {
-        RETRY: { target: "submitting" },
+        RETRY: [
+          { guard: ({ context }) => context.retryStep === "checking", target: "checking" },
+          { guard: ({ context }) => context.retryStep === "approvalPending", target: "approvalPending" },
+          { target: "submitting" },
+        ],
+        BACK: { target: "entering" },
       },
     },
   },
@@ -248,10 +286,11 @@ export function resolveClaimSnapshot(args: {
   takenNames?: string[];
   check?: CheckAvailabilityFn;
   mint?: MintFn;
+  approve?: ApproveFn;
   track?: TrackFn;
   name?: string;
 }) {
-  const { step, trackCtx, takenNames, check, mint, track, name = "myWorld" } = args;
+  const { step, trackCtx, takenNames, check, mint, approve, track, name = "myWorld" } = args;
   if (step === "entering") return undefined;
   const taken = new Set((takenNames ?? []).map((n) => n.toLowerCase()));
   const context: ClaimContext = {
@@ -259,6 +298,9 @@ export function resolveClaimSnapshot(args: {
     taken,
     check: check ?? makeSimulateCheck(taken),
     mint: mint ?? simulateMint,
+    approve,
+    priceMana: "100",
+    retryStep: "checking",
     track: track ?? defaultTrack,
     name,
   };

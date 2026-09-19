@@ -98,6 +98,13 @@ export function sendBridge(action: BridgeAction, payload?: unknown): void {
   if (!bridge) return;
   try {
     bridge.send(action, payload);
+    if (action === "SetAvatar") {
+      const base = (payload as SetAvatarPayload | undefined)?.base;
+      if (base) {
+        snapshot = { ...snapshot, avatarBase: { ...snapshot.avatarBase, ...base } };
+        emit();
+      }
+    }
   } catch {
   }
 }
@@ -254,6 +261,7 @@ export type BridgeState = {
   connection: BridgeConnection | null;
   loginCode: BridgeLoginCode | null;
   avatarPreview: string | null;
+  avatarBase: SetAvatarPayload["base"] | null;
   avatarLoadout: BridgeAvatarLoadout | null;
   playerPosition: BridgePlayerPosition | null;
   toasts: BridgeToast[];
@@ -289,6 +297,7 @@ export const FALLBACK_STATE: BridgeState = {
   connection: null,
   loginCode: null,
   avatarPreview: null,
+  avatarBase: null,
   avatarLoadout: null,
   playerPosition: null,
   toasts: [],
@@ -330,6 +339,7 @@ function applyState(prev: BridgeState, push: unknown): BridgeState {
           isGuest,
         },
         loginCode: isGuest ? prev.loginCode : null,
+        avatarBase: push.address !== prev.identity.address ? null : prev.avatarBase,
       };
     }
     case "scene":

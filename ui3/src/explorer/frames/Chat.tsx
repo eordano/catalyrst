@@ -1,5 +1,5 @@
 
-import type { ButtonHTMLAttributes, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type { ButtonHTMLAttributes, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { NearbyPlayer } from "../../generated/bridge/NearbyPlayer";
@@ -20,7 +20,7 @@ export type ChatIo = {
   me: { address: string; name: string } | null;
   blocked: string[];
   live: boolean;
-  send: (message: string) => void;
+  send: (message: string) => void | Promise<void>;
   console?: ConsoleSource;
   teleport?: (x: number, z: number) => void;
   changeRealm?: (realm: string) => void;
@@ -346,24 +346,43 @@ export function ChatView({
   hidden = false,
   io,
   docked = false,
+  header = true,
   title = "Nearby",
   membersTitle,
   membersEmpty,
   emptyLine,
   profileCard,
+  commands = true,
+  draftValue,
+  onDraftChange,
 }: {
   open: boolean;
   onToggle: () => void;
   hidden?: boolean;
   io: ChatIo;
   docked?: boolean;
+  header?: boolean;
   title?: string;
   membersTitle?: string;
   membersEmpty?: string;
   emptyLine?: string;
   profileCard?: (props: ProfileCardProps) => ReactNode;
+  commands?: boolean;
+  draftValue?: string;
+  onDraftChange?: (value: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const [localDraft, setLocalDraft] = useState("");
+  const draft = draftValue ?? localDraft;
+  const setDraft = (value: SetStateAction<string>) => {
+    const next = typeof value === "function" ? value(draft) : value;
+    if (onDraftChange) onDraftChange(next);
+    else setLocalDraft(next);
+  };
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+  const followTail = useRef(true);
+  const scrollPosition = useRef(0);
+  const [newMessages, setNewMessages] = useState(false);
   const [picker, setPicker] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [emojiReady, setEmojiReady] = useState(() => getEmojiData() != null);
@@ -398,7 +417,7 @@ export function ChatView({
     [emojiReady, scQuery],
   );
 
-  const active = open && (hovered || focused || picker);
+  const active = open && (docked || hovered || focused || picker);
   const bare = !active;
 
   const nameByAddr = useMemo(() => {
@@ -469,18 +488,23 @@ export function ChatView({
   }, [lines]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || hidden) return;
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [lines, open, active]);
+    if (!el) return;
+    if (followTail.current) el.scrollTop = el.scrollHeight;
+    else {
+      el.scrollTop = scrollPosition.current;
+      setNewMessages(true);
+    }
+  }, [lines, open, hidden]);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (open && !hidden && !sending) inputRef.current?.focus({ preventScroll: true });
     else setHovered(false);
-  }, [open]);
+  }, [open, hidden, sending]);
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open || hidden) return undefined;
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey) return;
       const ae = document.activeElement;
@@ -496,7 +520,7 @@ export function ChatView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, hidden]);
 
   useEffect(() => {
     if (!active) setShowMembers(false);
@@ -561,10 +585,11 @@ export function ChatView({
     });
   };
 
-  const send = (): void => {
+  const send = async (): Promise<void> => {
     const message = draft.trim();
-    if (!message) return;
-    const action = dispatchCommand(message);
+    if (!message || sending) return;
+    setSendError("");
+    const action = commands ? dispatchCommand(message) : { kind: "send" as const, message };
     const anchor = chatPushes[chatPushes.length - 1] ?? null;
     if (action.kind === "clear") {
       setClearedAfter({ line: anchor });
@@ -575,8 +600,19 @@ export function ChatView({
       if (io.console) askEngineHelp(io.console, anchor);
       else printLocal(helpText(), anchor);
     } else {
-      io.send(action.message);
+      setSending(true);
+      try {
+        await io.send(action.message);
+      } catch (error) {
+        setSendError(error instanceof Error ? error.message : "Message not sent. Try again.");
+        return;
+      } finally {
+        setSending(false);
+      }
     }
+    followTail.current = true;
+    setNewMessages(false);
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
     setDraft("");
     setScQuery(null);
     setMentionSug([]);
@@ -585,13 +621,14 @@ export function ChatView({
 
   const onKeyDown = (e: ReactKeyboardEvent): void => {
     e.stopPropagation();
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter") {
       e.preventDefault();
       const firstMention = mentionSug[0];
       const firstEmoji = suggestions[0];
       if (firstMention) applyMention(firstMention);
       else if (firstEmoji) applyEmoji(firstEmoji.emoji);
-      else send();
+      else void send();
     } else if (e.key === "Escape") {
       if (mentionQuery != null) {
         setMentionQuery(null);
@@ -622,7 +659,7 @@ export function ChatView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {open && active && (
+      {header && open && active && (
         <header className={styles.nav}>
           <div className={styles.navLeft}>
             <DclLogomark size={26} className={styles.channelIcon} />
@@ -649,7 +686,13 @@ export function ChatView({
       )}
 
       {open && (
-        <div ref={listRef} className={styles.messages}>
+        <div ref={listRef} className={styles.messages} role="log" aria-label={`${title} messages`} aria-live="polite" onScroll={() => {
+          const el = listRef.current;
+          if (!el) return;
+          scrollPosition.current = el.scrollTop;
+          followTail.current = el.scrollHeight - el.clientHeight - el.scrollTop < 40;
+          if (followTail.current) setNewMessages(false);
+        }}>
           {rows.length === 0 ? (
             <div className={styles.empty}>
               {live
@@ -678,6 +721,12 @@ export function ChatView({
           )}
         </div>
       )}
+
+      {newMessages && <button type="button" className={styles.latest} onClick={() => {
+        followTail.current = true;
+        setNewMessages(false);
+        if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+      }}>New messages &#xb7; Jump to latest</button>}
 
       {active && picker && (
         <div className={styles.pickerWrap}>
@@ -731,9 +780,10 @@ export function ChatView({
         className={styles.inputRow}
         onSubmit={(e) => {
           e.preventDefault();
-          send();
+          void send();
         }}
       >
+        <div className={styles.composerField}>
         <input
           ref={inputRef}
           className={`${styles.input} ${bare ? styles.inputBare : ""}`.trim()}
@@ -744,18 +794,22 @@ export function ChatView({
             openIfClosed();
           }}
           onBlur={() => setFocused(false)}
-          placeholder={focused ? "Message Nearby" : "Press Enter to chat"}
+          placeholder={`Message ${title}`}
+          disabled={sending}
           maxLength={MAX_LEN}
           onKeyDown={onKeyDown}
-          aria-label="Send a message to Nearby chat"
+          aria-label={`Send a message to ${title} chat`}
         />
         {!bare && draft.length > 0 && <CharRing len={draft.length} />}
         {!bare && (
-          <CtrlButton variant="ghost" size="sm" active={picker} className={styles.emojiBtn} aria-label="Emoji" onClick={toggleEmoji}>
+          <CtrlButton variant="ghost" size="sm" active={picker} className={styles.emojiBtn} aria-label="Emoji" onClick={toggleEmoji} disabled={sending}>
             <Smiley />
           </CtrlButton>
         )}
+        </div>
+        <button type="submit" className={styles.send} disabled={sending || !draft.trim()} aria-label={`Send message to ${title}`}>{sending ? "Sending\u2026" : "Send"}</button>
       </form>
+      {sendError && <p className={styles.sendError} role="alert">{sendError}</p>}
 
       {open && active && showMembers && (
         <MembersOverlay
@@ -788,4 +842,3 @@ export function ChatView({
     </div>
   );
 }
-

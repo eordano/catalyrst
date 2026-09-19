@@ -75,6 +75,7 @@ interface PublishOption {
 }
 
 interface DeEditorAppBarProps {
+  projectTools?: ReactNode;
   title: string;
   viewportSrc?: string;
   previewSrc?: string;
@@ -104,6 +105,7 @@ type PreviewState = {
 };
 
 export default function DeEditorAppBar({
+  projectTools,
   title,
   viewportSrc,
   previewSrc = undefined,
@@ -140,6 +142,7 @@ export default function DeEditorAppBar({
       <span className="editor-wizard__appbar-title" title={title}>
         {title}
       </span>
+      {projectTools}
       <div className="editor-wizard__appbar-actions" ref={actionsRef}>
         {onExit && (
           <button type="button" className="editor-wizard__btn" onClick={onExit}>

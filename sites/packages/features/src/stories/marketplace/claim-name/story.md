@@ -6,7 +6,7 @@ hypothesis:
   statement: >-
     A guided multi-step claim flow (enter name -> check availability -> approve
     MANA -> confirm -> mint) increases the share of started NAME claims that
-    reach the on-chain confirm step once real registration is enabled.
+    reach the on-chain confirm step.
   because: >-
     Minting a NAME bundles an unfamiliar ENS purchase with a MANA approval and a
     100 MANA spend; splitting it into explicit, legible steps (each making the
@@ -42,14 +42,11 @@ decision:
 
 ## Current capability
 
-The production route uses `checkNameAvailability` and owned-name reads. NAME
-registration is **unavailable**: `unavailableNameClaim` refuses the mint without
-requesting a signature. It never derives a token ID from signature bytes, reports
-a successful mint, or treats a URL preview as proof of ownership.
+The production route reads availability and PRICE from the Ethereum registrar/controller. It verifies the controller's accepted MANA token and registrar, the connected account and the chain before sending. Approval requests only the quoted amount; registration waits for a successful receipt and verifies the token owner before enabling return to World publishing.
 
-The wizard can demonstrate approval/mint states in Storybook; those states do
-not establish registrar integration. NAMEs cannot be purchased with Credits in
-this flow.
+Wallet rejection, unavailable RPC, insufficient balance, changed price/account, reverts and pending receipts are distinct failures. Retry resumes the failed step and checks an already-submitted transaction rather than submitting it again, including after a page reload in the same browser tab. Storybook retains explicit simulations. NAMEs cannot be purchased with Credits here.
+
+The local browser proof uses a mock Ethereum wallet, including a taken-name edit, rejected approval, delayed receipt, pending-registration reload, encoded approval/registration calls, mobile layout and return to the originating project. Mainnet configuration was checked read-only; no paid mainnet registration was performed. This does not establish a completed production rollout.
 
 ## Assumptions and measurement
 
@@ -58,6 +55,5 @@ Availability, payment approval, transaction submission and confirmed ownership
 are distinct. Returning to world publishing must require a real owned NAME.
 
 `mk_claim_name_confirm_rate` measures intent to confirm, not a minted NAME.
-The current single-arm draft establishes no comparative improvement; a real
-registrar writer and comparison design are prerequisites for the ship decision.
+The current single-arm draft establishes no comparative improvement; a comparison design and production measurements remain prerequisites for the experiment decision.
 Use the shared [Marketplace assumptions](../../../../../../docs/product-capabilities.md#marketplace).

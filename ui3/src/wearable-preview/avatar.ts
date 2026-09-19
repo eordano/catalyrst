@@ -12,7 +12,9 @@ import {
   representationMainFile,
   resolveOutfit,
 } from "./outfit";
-import type { AvatarColors, Entity, HidingRules, OutfitData, ResolvedOutfit } from "./outfit";
+import type { Entity, HidingRules, OutfitData, ResolvedOutfit } from "./outfit";
+
+type AvatarColors = { skin: THREE.Color | null; hair: THREE.Color | null; eyes: THREE.Color | null };
 
 const idleUrl = new URL("./emotes/idle.glb", import.meta.url).href;
 const waveUrl = new URL("./emotes/wave.glb", import.meta.url).href;
@@ -311,7 +313,8 @@ export function createAvatarScene(
   }
 
   function frame() {
-    const box = new THREE.Box3().setFromObject(avatarGroup);
+    avatarGroup.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(avatarGroup, true);
     if (box.isEmpty()) return;
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
@@ -572,6 +575,7 @@ export function createAvatarScene(
     currentClip = clip;
     for (const part of mounted.values()) mixers.set(part.key, bindClip(part, clip, 0));
     lastFrame = performance.now();
+    if (!revealed) frame();
     reveal();
     renderOnce();
   }
@@ -630,7 +634,9 @@ export function createAvatarScene(
   }
 
   async function reconcile(target: ResolvedOutfit, gen: number): Promise<{ count: number; bodyChanged: boolean } | null> {
-    const { bodyShape, wearables, colors } = target;
+    const { bodyShape, wearables } = target;
+    const color = (c: { r: number; g: number; b: number } | null) => c ? new THREE.Color(c.r, c.g, c.b) : null;
+    const colors: AvatarColors = { skin: color(target.colors.skin), hair: color(target.colors.hair), eyes: color(target.colors.eyes) };
     const bodyLc = bodyShape.toLowerCase();
     const byPointer = await fetchEntities(base, [bodyShape, ...wearables]);
     if (stale(gen)) return null;
@@ -645,6 +651,7 @@ export function createAvatarScene(
       const e = byPointer.get(urn.toLowerCase());
       if (!e) continue;
       const cat = categoryOf(e);
+      if (cat === "body_shape") continue;
       if (cat !== null && rules.hidden.has(cat)) continue;
       if (cat !== null && FACIAL_CATS.has(cat))
         wantFeatures.push({ key: partKey(urn, bodyLc), cat, entity: e });
@@ -712,11 +719,18 @@ export function createAvatarScene(
       if (stale(gen)) return;
       const result = await reconcile(target, gen);
       if (!result) return;
+      if (!result.count) {
+        scene.visible = false;
+        setStatus("empty");
+        return;
+      }
       if (initial || result.bodyChanged) frame();
       if (initial) {
         await bindInitialEmote();
         if (stale(gen)) return;
       }
+      scene.visible = true;
+      renderOnce();
       setStatus(result.count ? "ready" : "empty");
     } catch (err) {
       if (stale(gen)) return;

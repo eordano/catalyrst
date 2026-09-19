@@ -30,16 +30,17 @@ function toScene(p: Place): CreatorScene {
 export async function loadCreatorScenes(opts: {
   creator?: string;
   limit?: number;
+  signal?: AbortSignal;
 } = {}): Promise<CreatorScene[]> {
   const limit = opts.limit ?? 12;
   const creator = opts.creator?.trim();
   if (!creator) return [];
 
   const needle = creator.toLowerCase();
-  const { data } = await loadPlaces({ owner: creator, limit });
+  const { data } = await loadPlaces({ owner: creator, limit }, { signal: opts.signal });
   if (data.length > 0) return data.slice(0, limit).map(toScene);
 
-  const { data: window } = await loadPlaces({ limit: 60 });
+  const { data: window } = await loadPlaces({ limit: 60 }, { signal: opts.signal });
   const places = window.filter((p) => {
     const owner = (p.owner ?? "").toLowerCase();
     const contact = (p.contact_name ?? "").toLowerCase();

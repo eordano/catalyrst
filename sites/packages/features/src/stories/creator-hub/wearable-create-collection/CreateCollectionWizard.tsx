@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMachine } from "@xstate/react";
 import { Link, useSearchParams } from "react-router";
 
-import CreateCollectionView from "@ui/creatorhub/workflows/CreateCollectionView";
+import CreateCollectionView, { type CollectionProvider } from "@ui/creatorhub/workflows/CreateCollectionView";
 
 import type { TrackContext } from "@core/lib/telemetry/track";
 import {
@@ -31,6 +31,7 @@ type CreateCollectionWizardProps = {
   initialStep?: string;
   initialType?: string;
   mint?: MintFn;
+  provider?: CollectionProvider;
   track?: TrackFn;
 };
 
@@ -51,6 +52,7 @@ export default function CreateCollectionWizard({
   initialStep,
   initialType,
   mint,
+  provider,
   track,
 }: CreateCollectionWizardProps) {
   const [searchParams] = useSearchParams();
@@ -65,6 +67,7 @@ export default function CreateCollectionWizard({
   if (stateId !== "naming" && !urlName) stateId = "naming";
   const urlType = (searchParams.get("type")?.trim() || initialType) ?? undefined;
   const collectionType = parseCollectionType(urlType);
+  if (collectionType === "linked" && mint && !provider?.value) stateId = "naming";
 
   return (
     <CreateCollectionWizardInner
@@ -75,6 +78,7 @@ export default function CreateCollectionWizard({
       trackCtx={trackCtx}
       options={options}
       mint={mint}
+      provider={provider}
       track={track}
     />
   );
@@ -87,6 +91,7 @@ type InnerProps = {
   trackCtx: TrackContext;
   options: WizardOptions;
   mint?: MintFn;
+  provider?: CollectionProvider;
   track?: TrackFn;
 };
 
@@ -97,6 +102,7 @@ function CreateCollectionWizardInner({
   trackCtx,
   options,
   mint,
+  provider,
   track,
 }: InnerProps) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -190,6 +196,7 @@ function CreateCollectionWizardInner({
         name: file.name,
         size: file.size,
         fileType: ext.slice(1),
+        file,
         thumbnail: ext === ".png" ? URL.createObjectURL(file) : undefined,
       });
     }
@@ -210,6 +217,8 @@ function CreateCollectionWizardInner({
 
   return (
     <CreateCollectionView
+      live={!!mint}
+      provider={provider}
       view={value}
       step={step}
       name={state.context.name}

@@ -4,12 +4,26 @@ import {
   asAddress,
   deployerFromAuthChain,
   fetchSceneDeployment,
+  fetchWorldOwner,
+  worldRealmBase,
   homeRealmFromAbout,
   isHomeRealm,
   sceneEntityForParcel,
 } from "./sceneOwner";
 
 const DEPLOYER = "0xD6EFF8F07CAF3443A1178407D3DE4129149D6EF6";
+
+it("resolves a matching world's owner, never a deployer allow-list or a stale realm", async () => {
+  const base = "https://catalyst.test/world/tophub.dcl.eth";
+  expect(worldRealmBase("tophub", `${base}/about`)).toBe(base);
+  expect(worldRealmBase("tophub", "https://catalyst.test")).toBeNull();
+  const fetchImpl = vi.fn(async (url: string | URL | Request) => new Response(JSON.stringify(
+    String(url).endsWith("/about") ? { configurations: { realmName: "tophub" } } : { owner: DEPLOYER, permissions: { deployment: { wallets: ["someone else"] } } },
+  )));
+  expect(await fetchWorldOwner("tophub", base, { fetchImpl })).toEqual({ deployer: DEPLOYER.toLowerCase(), title: "tophub" });
+  expect(await fetchWorldOwner("previous-world", base, { fetchImpl })).toBeNull();
+  expect(fetchImpl).toHaveBeenCalledTimes(3);
+});
 
 const AUDIT = {
   version: "v3",
@@ -130,4 +144,12 @@ describe("home realm detection", () => {
     expect(isHomeRealm("dcl-one", null)).toBe(false);
     expect(isHomeRealm("dcl-one", { name: null, base: "" })).toBe(false);
   });
+});
+
+
+it("recognizes the public content origin when the player uses the site proxy", () => {
+  const home = homeRealmFromAbout({ configurations: { realmName: "dcl-one" }, content: { publicUrl: "https://catalyst.example.com/content" } }, "https://catalyst.example.com");
+  expect(isHomeRealm("https://catalyst.example.com", home)).toBe(true);
+  expect(isHomeRealm("https://catalyst.example.com/about", home)).toBe(true);
+  expect(isHomeRealm("https://another.example", home)).toBe(false);
 });

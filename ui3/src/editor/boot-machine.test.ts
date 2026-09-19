@@ -34,7 +34,7 @@ describe("boot-machine", () => {
     expect(bootOverlay(handshaking).text).toBe("Starting scene\u{2026}");
   });
 
-  it("becomes ready on scene-ready (live editing) or engine-ready alone, and tears down on viewport(null)", () => {
+  it("requires the scene handshake after engine startup and tears down on viewport(null)", () => {
     const live = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
@@ -49,22 +49,22 @@ describe("boot-machine", () => {
       { type: "progress", pct: 100 },
       { type: "engine-ready" },
     ]);
-    expect(engineOnly.phase).toBe("ready");
-    expect(isEditorReady(engineOnly)).toBe(true);
+    expect(engineOnly.phase).toBe("handshaking");
+    expect(isEditorReady(engineOnly)).toBe(false);
     expect(isLiveEditing(engineOnly)).toBe(false);
-    expect(bootOverlay(engineOnly).show).toBe(false);
+    expect(bootOverlay(engineOnly).show).toBe(true);
     expect(bootReducer(live, { type: "viewport", src: null })).toEqual(INITIAL_BOOT);
   });
 
-  it("times out into a soft error that engine-ready heals, and never dead-ends when the engine is already up", () => {
+  it("requires a real scene handshake to recover from a timeout", () => {
     const healthy = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
       { type: "engine-ready" },
       { type: "timeout" },
     ]);
-    expect(healthy.phase).toBe("ready");
-    expect(bootOverlay(healthy).show).toBe(false);
+    expect(healthy.phase).toBe("error");
+    expect(bootOverlay(healthy).show).toBe(true);
     const timedOut = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
@@ -72,21 +72,22 @@ describe("boot-machine", () => {
     ]);
     expect(timedOut.phase).toBe("error");
     expect(bootOverlay(timedOut)).toMatchObject({ show: true, kind: "error" });
-    const healed = bootReducer(timedOut, { type: "engine-ready" });
+    expect(bootReducer(timedOut, { type: "engine-ready" }).phase).toBe("error");
+    const healed = bootReducer(timedOut, { type: "scene-ready" });
     expect(healed.phase).toBe("ready");
     expect(bootOverlay(healed).show).toBe(false);
   });
 
-  it("bus-reset drops live editing after ready but re-blocks before the engine is up", () => {
+  it("bus-reset waits for a fresh handshake", () => {
     const ready = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
       { type: "scene-ready" },
     ]);
     const reset = bootReducer(ready, { type: "bus-reset" });
-    expect(reset.phase).toBe("ready");
+    expect(reset.phase).toBe("handshaking");
     expect(isLiveEditing(reset)).toBe(false);
-    expect(bootOverlay(reset).show).toBe(false);
+    expect(bootOverlay(reset).show).toBe(true);
     const early = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
@@ -96,7 +97,7 @@ describe("boot-machine", () => {
     expect(early.sceneReady).toBe(false);
   });
 
-  it("retry re-kicks from error, and an engine-error while interactive is ignored", () => {
+  it("retry resets the previous engine state and an engine error remains visible", () => {
     const errored = run([
       { type: "viewport", src: "/_play" },
       { type: "progress", pct: 100 },
@@ -104,11 +105,12 @@ describe("boot-machine", () => {
     ]);
     expect(errored.phase).toBe("error");
     expect(bootReducer(errored, { type: "retry" }).phase).toBe("booting");
-    expect(bootReducer({ ...errored, engineReady: true }, { type: "retry" }).phase).toBe("handshaking");
+    expect(bootReducer({ ...errored, engineReady: true }, { type: "retry" })).toMatchObject({ phase: "booting", engineReady: false, sceneReady: false });
     const ready = run([
       { type: "viewport", src: "/_play" },
       { type: "scene-ready" },
     ]);
-    expect(bootReducer(ready, { type: "engine-error" }).phase).toBe("ready");
+    expect(bootReducer(ready, { type: "engine-error" }).phase).toBe("error");
+    expect(bootReducer(ready, { type: "viewport", src: "/_play?project=other" })).toMatchObject({ phase: "booting", engineReady: false, sceneReady: false });
   });
 });

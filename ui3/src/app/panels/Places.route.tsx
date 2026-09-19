@@ -13,43 +13,22 @@ import { fetchPlaces } from "../../data/catalyst/placesSchema";
 import type { PlaceView } from "../../data/catalyst/places";
 import { sendBridge, getDeployIdentity } from "../../overlay/bridge";
 import { qk, STALE } from "../../data/queryKeys";
-import { RecentPlacesSchema } from "../../data/persisted-schemas";
-import { check } from "../../validate";
+import { PLAY_PLACES_PARAMS } from "../../data/screens/play";
+import { playScreenEnabled, playSection } from "../../data/screens/play-client";
+import { getRecent, pushRecent } from "../../data/recentPlaces";
 
-const LIST_PARAMS = { limit: 60 };
+const LIST_PARAMS = PLAY_PLACES_PARAMS;
 const PARCEL_SIZE = 16;
-const RECENT_KEY = "dcl.recentPlaces";
 
 const CONTENTS_STYLE: CSSProperties = { display: "contents" };
-
-function getRecent(): PlaceView[] {
-  if (typeof localStorage === "undefined") return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  const recents = check(RecentPlacesSchema, parsed, "persisted/recent-places");
-  return recents.map((p) => ({ ...p, image: p.image }));
-}
-
-function pushRecent(p: PlaceView): void {
-  if (typeof localStorage === "undefined") return;
-  const cur = getRecent().filter((x) => x.id !== p.id);
-  cur.unshift(p);
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(cur.slice(0, 24)));
-  } catch {
-  }
-}
 
 export function prefetch(queryClient: QueryClient) {
   try {
     queryClient.prefetchQuery({
       queryKey: qk.places(LIST_PARAMS),
-      queryFn: ({ signal }) => fetchPlaces(LIST_PARAMS, { signal }),
+      queryFn: ({ signal }) => playScreenEnabled(queryClient)
+        ? playSection(queryClient, getDeployIdentity()?.signerAddress, "places", signal)
+        : fetchPlaces(LIST_PARAMS, { signal }),
       staleTime: STALE.places,
     });
   } catch {
@@ -125,7 +104,7 @@ export default function PlacesPanel() {
       }
     }
     if (!jumped) return;
-    beginJump(place.title || place.name || "destination");
+    beginJump(place.title || place.name || "destination", place.world ? undefined : `${place.x},${place.y}`);
   }, [selected, beginJump]);
 
   const requestJumpIn = useCallback(() => {

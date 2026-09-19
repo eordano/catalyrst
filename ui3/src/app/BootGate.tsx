@@ -12,8 +12,11 @@ import {
   IDENTITY_STORAGE_KEY,
   initEngineAuth,
   shouldAutoJumpIn,
+  getEngineAuthState,
+  subscribeEngineAuth,
 } from "../data/auth/engineLogin";
 import { randomName } from "../data/randomIdentity";
+import { lobbyEnabled } from "../data/lobbyFlag";
 import "./bootgate.css";
 
 function bootWin(): Window | null {
@@ -106,6 +109,8 @@ export function destinationFromSearch(search: string): PickedDestination {
 
 export function primeBootPosition(dest: PickedDestination): boolean {
   if (dest?.kind !== "parcel") return false;
+  const canvas = document.getElementById("mygame-canvas") as (HTMLCanvasElement & { started?: boolean }) | null;
+  if (canvas?.started) return false;
   const input =
     typeof document !== "undefined" ? document.getElementById("position") : null;
   if (!(input instanceof HTMLInputElement)) return false;
@@ -132,6 +137,8 @@ export default function BootGate({ children }: BootGateProps) {
 }
 
 function BootPhases({ children }: BootGateProps) {
+  const [auth, setAuth] = useState(getEngineAuthState);
+  useEffect(() => subscribeEngineAuth(setAuth), []);
   const [autoJump] = useState(() => {
     let raw: string | null = null;
     try {
@@ -329,7 +336,7 @@ function BootPhases({ children }: BootGateProps) {
       wearables: Array.isArray(wearables) ? wearables : null,
     };
     avatarAppliedRef.current = false;
-    if (deepLink) {
+    if (deepLink || lobbyEnabled()) {
       handleDestinationChosen(deepLink);
       return;
     }
@@ -345,6 +352,12 @@ function BootPhases({ children }: BootGateProps) {
     startEngine();
     if (engineLive) applyPendingDestination();
   };
+
+  useEffect(() => {
+    if (phase !== "lobby" || !auth.address) return;
+    pendingAvatarRef.current = null;
+    handleDestinationChosen(deepLink);
+  }, [phase, auth.address]);
 
   if (phase === "lobby") {
     return (

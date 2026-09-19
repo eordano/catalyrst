@@ -1,4 +1,4 @@
-import { getJSON, serviceBase, type RequestOpts } from "./client";
+import { getJSON, sendSignedJSON, serviceBase, type RequestOpts } from "./client";
 import { field, hasId, isRecord, keepRows } from "./rows";
 import {
   CommunityEventSchema,
@@ -123,12 +123,20 @@ function unwrapData(env: unknown): unknown {
   return (env as { data?: unknown } | null | undefined)?.data ?? env;
 }
 
+type CommunityReadOpts = RequestOpts & { authenticated?: boolean };
+
+function communityJSON(path: string, opts: CommunityReadOpts) {
+  const { authenticated, ...request } = opts;
+  return authenticated
+    ? sendSignedJSON(path, { ...request, service: "communities", method: "GET" })
+    : getJSON(path, { ...request, service: "communities" });
+}
+
 export async function loadCommunities(
   params: RequestOpts["query"] = {},
-  opts: RequestOpts = {},
+  opts: CommunityReadOpts = {},
 ): Promise<Community[]> {
-  const raw = await getJSON("/v1/communities", {
-    service: "communities",
+  const raw = await communityJSON("/v1/communities", {
     ...opts,
     query: params,
   });
@@ -142,13 +150,13 @@ export async function loadCommunities(
 
 export async function loadCommunity(
   id?: string | null,
-  opts: RequestOpts = {},
+  opts: CommunityReadOpts = {},
 ): Promise<CommunityDetail | null> {
   if (!id) return null;
   try {
     const svcOpts = { service: "communities" as const, ...opts };
     const [cRaw, mRaw] = await Promise.all([
-      getJSON(`/v1/communities/${encodeURIComponent(id)}`, svcOpts),
+      communityJSON(`/v1/communities/${encodeURIComponent(id)}`, svcOpts),
       getJSON(`/v1/communities/${encodeURIComponent(id)}/members`, svcOpts).catch(
         () => null,
       ),

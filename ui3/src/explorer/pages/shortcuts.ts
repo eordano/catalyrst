@@ -18,6 +18,10 @@ const MOVEMENT_SHORTCUTS: Shortcut[] = [
 const CAMERA_SHORTCUTS: Shortcut[] = [
   { action: "Look around", keys: ["Mouse"] },
   { action: "Mouse look (hold)", keys: ["Right Mouse"] },
+  { action: "Pan camera (drag)", keys: ["Left Mouse"] },
+  { action: "Switch camera", keys: ["V"] },
+  { action: "Switch shoulder", keys: ["."] },
+  { action: "Free camera", keys: ["F11"] },
   { action: "Turn the camera", keys: ["\u2190", "\u2191", "\u2193", "\u2192"] },
   { action: "Zoom", keys: ["Scroll"] },
   { action: "Roll camera", keys: ["T", "/", "G"] },
@@ -27,7 +31,7 @@ const CAMERA_SHORTCUTS: Shortcut[] = [
 
 const SOCIAL_SHORTCUTS: Shortcut[] = [
   { action: "Open chat", keys: ["Enter"] },
-  { action: "Microphone", keys: ["V"] },
+  { action: "Microphone", keys: ["P"] },
   { action: "Emote wheel", keys: ["B"] },
   { action: "Map", keys: ["M", "/", "Tab"] },
   { action: "Close a panel", keys: ["Esc"] },

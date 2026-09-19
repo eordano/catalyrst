@@ -1,7 +1,8 @@
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import JumpLoading, { useJump } from "./JumpLoading";
+import JumpLoading, { JumpCompleteContext, useJump } from "./JumpLoading";
+import { EMPTY_TRANSFERS, LOADING_TRANSFER_EVENT } from "../../overlay/loadingTransferProtocol";
 import { FakeBridge } from "../../test/fakeBridge";
 
 const INSTANT_FALLBACK_MS = 3500;
@@ -15,6 +16,7 @@ function withBridge() {
 
 afterEach(() => {
   delete window.dclBridge;
+  delete window.__dclLoadingTransfers;
   vi.useRealTimers();
 });
 
@@ -35,7 +37,38 @@ function stalledJump(bridge: FakeBridge) {
 }
 
 describe("useJump", () => {
-  it("finishes through the fallback when the engine never reports loading, and is cancellable before the ceiling", () => {
+  it("enters the world after completing a panel jump, but not when cancelled", () => {
+    const bridge = withBridge();
+    const enterWorld = vi.fn();
+    const hook = renderHook(() => useJump(), {
+      wrapper: ({ children }) => <JumpCompleteContext value={enterWorld}>{children}</JumpCompleteContext>,
+    });
+    act(() => hook.result.current.beginJump("Plaza"));
+    act(() => hook.result.current.cancelJump());
+    expect(enterWorld).not.toHaveBeenCalled();
+    act(() => hook.result.current.beginJump("Plaza"));
+    act(() => bridge.pushLoading({ ready: false, percent: 20 }));
+    expect(enterWorld).not.toHaveBeenCalled();
+    act(() => bridge.pushLoading({ ready: true, percent: 100 }));
+    expect(enterWorld).toHaveBeenCalledOnce();
+  });
+  it("accepts an already-loaded destination only after the scene changes, or when already on its parcel", () => {
+    const bridge = withBridge();
+    const onDone = vi.fn();
+    const hook = renderHook(() => useJump(onDone));
+    act(() => {
+      bridge.pushScene({ coords: "0,0" });
+      bridge.push({ kind: "loading", percent: 100, ready: true, avatarLoaded: true });
+    });
+    act(() => hook.result.current.beginJump("Cached scene", "3,4"));
+    expect(onDone).not.toHaveBeenCalled();
+    act(() => { bridge.pushScene({ coords: "3,4" }); });
+    expect(onDone).toHaveBeenCalledOnce();
+    act(() => hook.result.current.beginJump("Here", "3,4"));
+    expect(onDone).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.jumping).toBeNull();
+  });
+  it("keeps the destination covered without a fresh loading acknowledgement, and remains cancellable", () => {
     vi.useFakeTimers();
     const onDone = vi.fn();
     const fallback = renderHook(() => useJump(onDone));
@@ -44,8 +77,10 @@ describe("useJump", () => {
     act(() => {
       vi.advanceTimersByTime(INSTANT_FALLBACK_MS);
     });
-    expect(onDone).toHaveBeenCalledTimes(1);
-    expect(fallback.result.current.jumping).toBeNull();
+    expect(onDone).not.toHaveBeenCalled();
+    expect(fallback.result.current.jumping).toBe("Plaza");
+    act(() => { vi.advanceTimersByTime(CEILING_MS); });
+    expect(fallback.result.current.stalled).toBe(true);
     fallback.unmount();
 
     const onCancelled = vi.fn();
@@ -54,6 +89,23 @@ describe("useJump", () => {
     act(() => cancelled.result.current.cancelJump());
     expect(onCancelled).not.toHaveBeenCalled();
     expect(cancelled.result.current.jumping).toBeNull();
+  });
+
+  it("does not label an active long download stalled, but warns after 30 seconds without progress", () => {
+    vi.useFakeTimers();
+    const bridge = withBridge();
+    const hook = renderHook(() => useJump());
+    act(() => hook.result.current.beginJump("Large scene"));
+    act(() => bridge.pushLoading({ ready: false, percent: 10 }));
+    act(() => vi.advanceTimersByTime(20000));
+    act(() => {
+      window.__dclLoadingTransfers = { ...EMPTY_TRANSFERS, started: 1, active: 1, receivedBytes: 100000 };
+      window.dispatchEvent(new Event(LOADING_TRANSFER_EVENT));
+    });
+    act(() => vi.advanceTimersByTime(20000));
+    expect(hook.result.current.stalled).toBe(false);
+    act(() => vi.advanceTimersByTime(10000));
+    expect(hook.result.current.stalled).toBe(true);
   });
 
   it("warns at the ceiling instead of faking success; from there Enter anyway finishes, Cancel dismisses, and a late ready still finishes", () => {
@@ -88,7 +140,7 @@ describe("JumpLoading", () => {
     const onCancel = vi.fn();
     const onEnterAnyway = vi.fn();
     const { rerender } = render(<JumpLoading name="Plaza" onCancel={onCancel} />);
-    expect(screen.getByRole("status")).toHaveTextContent("Teleporting to Plaza");
+    expect(screen.getAllByRole("status")[0]).toHaveTextContent("Teleporting to Plaza");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(window, { key: "Escape" });
@@ -98,7 +150,7 @@ describe("JumpLoading", () => {
       <JumpLoading name="Plaza" stalled onCancel={onCancel} onEnterAnyway={onEnterAnyway} />,
     );
     expect(
-      screen.getByText("This scene is taking too long\u{2026} enter anyway?"),
+      screen.getByText("No loading progress for 30 seconds. Keep waiting or enter anyway."),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Enter anyway" }));
     expect(onEnterAnyway).toHaveBeenCalledTimes(1);

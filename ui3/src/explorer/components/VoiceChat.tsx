@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import Toggle from "../../atoms/Toggle";
 import Slider from "../../atoms/Slider";
 import { Mute } from "../../atoms/icons";
@@ -41,7 +42,42 @@ function RailBtn({ item }: { item: RailItem }) {
 export function VoiceControls() {
   const mic = useBridgeState((s) => s.mic);
   const micOn = !!mic?.enabled;
-  const toggleMic = () => sendBridge("SetMic", { enabled: !micOn });
+  const [pending, setPending] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  const mounted = useRef(true);
+  const attempt = useRef(0);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; attempt.current++; }; }, []);
+  useEffect(() => {
+    if (pending == null) return;
+    if (micOn === pending) { setPending(null); return; }
+    const timer = setTimeout(() => {
+      attempt.current++;
+      setPending(null);
+      setError("The client did not enable voice. Check microphone access and your connection, then retry.");
+      sendBridge("SetMic", { enabled: false });
+    }, 12000);
+    return () => clearTimeout(timer);
+  }, [pending, micOn]);
+  const toggleMic = async () => {
+    if (pending != null) return;
+    const enable = !micOn;
+    const request = ++attempt.current;
+    setError("");
+    setPending(enable);
+    try {
+      if (enable && navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      } else if (enable && !mic.available) {
+        throw new Error("No microphone is available. Check your browser\u{2019}s microphone permission and audio device.");
+      }
+      if (mounted.current && request === attempt.current) sendBridge("SetMic", { enabled: enable });
+    } catch (e) {
+      if (!mounted.current || request !== attempt.current) return;
+      setPending(null);
+      setError(e instanceof Error ? `Microphone: ${e.message}` : "Microphone access was denied.");
+    }
+  };
   return (
     <div className="vc__controls">
       <div className="vc__row">
@@ -50,7 +86,7 @@ export function VoiceControls() {
           <path d="M9.8 9.5a2.2 2.2 0 0 1 4.2.9c0 1.3-1.5 1.7-1.9 2.7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
         <span className="vc__label">Microphone</span>
-        <span className="vc__ctl"><Toggle checked={micOn} onChange={toggleMic} ariaLabel="Microphone" /></span>
+        <span className="vc__ctl"><Toggle checked={micOn} disabled={pending != null} onChange={() => { void toggleMic(); }} ariaLabel="Microphone" /></span>
       </div>
 
       <div className="vc__row vc__row--slider">
@@ -66,7 +102,8 @@ export function VoiceControls() {
         className={"vc__speak" + (micOn ? " is-active" : "")}
         type="button"
         aria-pressed={micOn}
-        onClick={toggleMic}
+        disabled={pending != null}
+        onClick={() => { void toggleMic(); }}
       >
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <rect x="3.5" y="3.5" width="17" height="17" rx="5" fill="none" stroke="currentColor" strokeWidth="1.8"/>
@@ -74,10 +111,11 @@ export function VoiceControls() {
           <circle cx="15" cy="10" r="1.2" fill="currentColor"/>
           <path d="M9 14a3.2 3.2 0 0 0 6 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
         </svg>
-        <span>{micOn ? "Mic on \u{2014} click to mute" : "Speak"}</span>
+        <span>{pending != null ? "Updating microphone\u{2026}" : micOn ? "Mic on \u{2014} click to mute" : "Speak"}</span>
       </button>
 
       <div className="vc__hint">Click <b>Microphone</b> to talk to people nearby</div>
+      {error && <p className="vc__hint" role="alert">{error}</p>}
     </div>
   );
 }

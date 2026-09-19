@@ -18,6 +18,10 @@ const ENV_DOCS: &[(&str, &str)] = &[
         "optional \u{2014} marketplace Postgres connection string",
     ),
     (
+        "BUILDER_POLYGON_RPC_URL",
+        "optional Polygon RPC endpoint for publication receipt verification",
+    ),
+    (
         "BUILDER_CONTENT_BUCKET_URL",
         "item content bucket base URL (REQUIRED; no default)",
     ),

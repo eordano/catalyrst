@@ -7,7 +7,6 @@ import MkClaimNameWizardView from "@ui/marketplace/workflows/MkClaimNameWizardVi
 
 import { openSignIn } from "../../../components/auth/signin-store";
 import { useAuth } from "@data/lib/auth/index";
-import { NAME_ECONOMICS } from "@data/lib/catalyst/marketplace/names";
 import { track as trackEvent } from "@core/lib/telemetry/track";
 import type { TrackContext } from "@core/lib/telemetry/track";
 import {
@@ -17,6 +16,7 @@ import {
   stateToSlug,
   type CheckAvailabilityFn,
   type MintFn,
+  type ApproveFn,
   type TrackFn,
 } from "./machine";
 
@@ -28,6 +28,7 @@ type ClaimNameWizardProps = {
   allowStepPreview?: boolean;
   check?: CheckAvailabilityFn;
   mint?: MintFn;
+  approve?: ApproveFn;
   track?: TrackFn;
   banner?: ReactNode;
   creditsNote?: string;
@@ -42,6 +43,7 @@ export default function ClaimNameWizard({
   allowStepPreview = true,
   check,
   mint,
+  approve,
   track,
   banner,
   creditsNote,
@@ -50,7 +52,7 @@ export default function ClaimNameWizard({
   const [searchParams] = useSearchParams();
 
   const urlStep = allowStepPreview ? (searchParams.get("step")?.trim() || initialStep) ?? undefined : undefined;
-  const TRANSIENT = new Set(["checking", "submitting"]);
+  const TRANSIENT = new Set(["checking", "approvalPending", "submitting"]);
   const rawState = slugToState(urlStep);
   const stateId = TRANSIENT.has(rawState) ? "entering" : rawState;
 
@@ -62,6 +64,7 @@ export default function ClaimNameWizard({
       sampleName={sampleName}
       check={check}
       mint={mint}
+      approve={approve}
       track={track}
       banner={banner}
       creditsNote={creditsNote}
@@ -77,6 +80,7 @@ type InnerProps = {
   sampleName: string;
   check?: CheckAvailabilityFn;
   mint?: MintFn;
+  approve?: ApproveFn;
   track?: TrackFn;
   banner?: ReactNode;
   creditsNote?: string;
@@ -90,6 +94,7 @@ function ClaimNameWizardInner({
   sampleName,
   check,
   mint,
+  approve,
   track,
   banner,
   creditsNote,
@@ -107,13 +112,14 @@ function ClaimNameWizardInner({
       takenNames,
       check,
       mint,
+      approve,
       track,
       name: sampleName,
     }),
   ).current;
 
   const [state, send] = useMachine(claimNameMachine, {
-    input: { trackCtx, takenNames, check, mint, track },
+    input: { trackCtx, takenNames, check, mint, approve, track },
     snapshot,
   });
 
@@ -130,11 +136,12 @@ function ClaimNameWizardInner({
         const params = new URLSearchParams(prev);
         if (params.get("step") === step) return params;
         params.set("step", step);
+        if (state.context.name) params.set("name", state.context.name);
         return params;
       },
       { replace: true, preventScrollReset: true },
     );
-  }, [step, setSearchParams]);
+  }, [step, state.context.name, setSearchParams]);
 
   return (
     <MkClaimNameWizardView
@@ -142,7 +149,9 @@ function ClaimNameWizardInner({
       step={step}
       activeName={activeName}
       initialName={draft || sampleName}
-      priceMana={NAME_ECONOMICS.priceMana}
+      priceMana={state.context.priceMana}
+      live={!!approve}
+      error={state.context.error}
       banner={banner}
       creditsNote={creditsNote}
       onClaim={(name: string) => {

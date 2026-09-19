@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, useContext, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import Spinner from "../../atoms/Spinner";
+import JumpProgress from "./JumpProgress";
+import { useLoadingTransfers } from "../../overlay/loadingTransfers";
 import { useBridgeState } from "../../overlay/bridge";
 import "./jumploading.css";
 
-const INSTANT_JUMP_FALLBACK_MS = 3500;
+export const JumpCompleteContext = createContext<(() => void) | undefined>(undefined);
 
 const JUMP_MAX_MS = 30000;
 
@@ -35,22 +36,25 @@ export function usePanelJumpActive(): boolean {
 export function useJump(onDone?: () => void): {
   jumping: string | null;
   stalled: boolean;
-  beginJump: (name: string) => void;
+  beginJump: (name: string, targetParcel?: string) => void;
   cancelJump: () => void;
   confirmJump: () => void;
 } {
   const [jumping, setJumping] = useState<string | null>(null);
   const [stalled, setStalled] = useState(false);
   const loading = useBridgeState((s) => s.loading);
+  const transfers = useLoadingTransfers(jumping != null);
+  const scene = useBridgeState((s) => s.scene);
+  const origin = useRef(scene);
   const sawLoadingRef = useRef(false);
-  const timerRef = useRef<number | undefined>(undefined);
   const maxTimerRef = useRef<number | undefined>(undefined);
+  const onComplete = useContext(JumpCompleteContext);
+  const completeRef = useRef(onComplete);
+  completeRef.current = onComplete;
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
 
   const clearTimers = useCallback(() => {
-    if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
-    timerRef.current = undefined;
     if (maxTimerRef.current !== undefined) window.clearTimeout(maxTimerRef.current);
     maxTimerRef.current = undefined;
   }, []);
@@ -61,6 +65,7 @@ export function useJump(onDone?: () => void): {
     setJumping(null);
     setStalled(false);
     doneRef.current?.();
+    completeRef.current?.();
   }, [clearTimers]);
 
   const cancelJump = useCallback(() => {
@@ -72,35 +77,37 @@ export function useJump(onDone?: () => void): {
 
   const confirmJump = finish;
 
-  const beginJump = useCallback((name: string) => {
+  const beginJump = useCallback((name: string, targetParcel?: string) => {
+    if (targetParcel && scene.coords === targetParcel && loading?.ready) { finish(); return; }
+    origin.current = scene;
     setPanelJumpActive(true);
     sawLoadingRef.current = false;
     setJumping(name || "destination");
     setStalled(false);
-    if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => {
-      if (!sawLoadingRef.current) finish();
-    }, INSTANT_JUMP_FALLBACK_MS);
     if (maxTimerRef.current !== undefined) window.clearTimeout(maxTimerRef.current);
     maxTimerRef.current = window.setTimeout(() => setStalled(true), JUMP_MAX_MS);
-  }, [finish]);
+  }, [scene, loading?.ready, finish]);
+
+  useEffect(() => {
+    if (jumping == null) return;
+    setStalled(false);
+    clearTimers();
+    maxTimerRef.current = window.setTimeout(() => setStalled(true), JUMP_MAX_MS);
+    return clearTimers;
+  }, [jumping, loading?.percent, loading?.pendingAssets, transfers.receivedBytes, transfers.completed, clearTimers]);
 
   useEffect(() => {
     if (jumping == null || !loading) return;
     if (!loading.ready) {
       sawLoadingRef.current = true;
-      if (timerRef.current !== undefined) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = undefined;
-      }
       return;
     }
-    if (sawLoadingRef.current) finish();
-  }, [jumping, loading, finish]);
+    const moved = scene.realm !== origin.current.realm || scene.coords !== origin.current.coords;
+    if (sawLoadingRef.current || moved) finish();
+  }, [jumping, loading, scene, finish]);
 
   useEffect(
     () => () => {
-      if (timerRef.current !== undefined) window.clearTimeout(timerRef.current);
       if (maxTimerRef.current !== undefined) window.clearTimeout(maxTimerRef.current);
       setPanelJumpActive(false);
     },
@@ -137,35 +144,15 @@ export default function JumpLoading({
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
-  if (stalled) {
-    return (
-      <div className="jl" role="alertdialog" aria-label="Teleport is taking too long">
-        <div className="jl__text">This scene is taking too long&#x2026; enter anyway?</div>
-        <div className="jl__actions">
-          {onEnterAnyway && (
-            <button type="button" className="jl__btn jl__btn--primary" onClick={onEnterAnyway}>
-              Enter anyway
-            </button>
-          )}
-          {onCancel && (
-            <button type="button" className="jl__btn" onClick={onCancel}>
-              Cancel
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="jl" role="status" aria-live="polite">
-      <Spinner size={54} aria-hidden />
-      <div className="jl__text">Teleporting{name ? ` to ${name}` : ""}&#x2026;</div>
-      {onCancel && (
-        <button type="button" className="jl__btn" onClick={onCancel}>
-          Cancel
-        </button>
-      )}
+    <div className="jl" role={stalled ? "alertdialog" : undefined} aria-label={stalled ? "Teleport is taking too long" : undefined}>
+      <div className="jl__text" role="status">Teleporting{name ? ` to ${name}` : ""}&#x2026;</div>
+      <JumpProgress />
+      {stalled && <p className="jl__stalled">No loading progress for 30 seconds. Keep waiting or enter anyway.</p>}
+      <div className="jl__actions">
+        {stalled && onEnterAnyway && <button type="button" className="jl__btn jl__btn--primary" onClick={onEnterAnyway}>Enter anyway</button>}
+        {onCancel && <button type="button" className="jl__btn" onClick={onCancel}>Cancel</button>}
+      </div>
     </div>
   );
 }

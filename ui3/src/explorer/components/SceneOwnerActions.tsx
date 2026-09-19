@@ -14,6 +14,8 @@ import {
   SCENE_OWNER_STALE_MS,
   fetchHomeRealm,
   fetchSceneDeployment,
+  fetchWorldOwner,
+  worldRealmBase,
   isHomeRealm,
   sceneOwnerKeys,
 } from "../../data/catalyst/sceneOwner";
@@ -53,6 +55,13 @@ export function useSceneOwner(
     enabled: wanted,
   });
   const land = home.data != null && isHomeRealm(realm, home.data);
+  const worldBase = realm ? worldRealmBase(realm, typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("realm")) : null;
+  const worldOwner = useQuery({
+    queryKey: sceneOwnerKeys.world(realm, worldBase),
+    queryFn: ({ signal }) => fetchWorldOwner(realm ?? "", worldBase ?? "", { signal }),
+    staleTime: SCENE_OWNER_STALE_MS,
+    enabled: wanted && home.data != null && !land && worldBase != null,
+  });
   const deployment = useQuery({
     queryKey: sceneOwnerKeys.deployment(parcel),
     queryFn: ({ signal }) => fetchSceneDeployment(parcel ?? "", { signal }),
@@ -60,9 +69,9 @@ export function useSceneOwner(
     enabled: wanted && land,
   });
   return {
-    address: land ? (deployment.data?.deployer ?? null) : null,
-    sceneTitle: land ? (deployment.data?.title ?? null) : null,
-    loading: wanted && (home.isFetching || (land && deployment.isFetching)),
+    address: (land ? deployment.data?.deployer : worldOwner.data?.deployer) ?? null,
+    sceneTitle: (land ? deployment.data?.title : worldOwner.data?.title) ?? null,
+    loading: wanted && (home.isFetching || (land ? deployment.isFetching : worldOwner.isFetching)),
     world: realmKnown && home.data != null && !land,
   };
 }

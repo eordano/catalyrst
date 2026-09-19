@@ -121,7 +121,7 @@ impl ItemRow {
 }
 
 pub struct ItemsComponent {
-    pool: PgPool,
+    pub(crate) pool: PgPool,
 }
 
 impl ItemsComponent {

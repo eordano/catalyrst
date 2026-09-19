@@ -1,4 +1,4 @@
-import { getJSON, type QueryParams, type RequestOpts } from "./client";
+import { getJSON, sendSignedJSON, type QueryParams, type RequestOpts } from "./client";
 import {
   PLACES_LIMIT,
   isRenderablePlace,
@@ -22,9 +22,10 @@ export { PlaceSchema };
 
 export async function fetchPlaces(
   params: QueryParams = {},
-  opts: RequestOpts = {},
+  opts: RequestOpts & { authenticated?: boolean } = {},
 ): Promise<PlaceView[]> {
-  const env = await getJSON("/api/places", {
+  const env = await (opts.authenticated ? sendSignedJSON : getJSON)("/api/places", {
+    method: "GET",
     service: "places",
     ...opts,
     query: { limit: PLACES_LIMIT, ...params, ...(opts.query ?? {}) },

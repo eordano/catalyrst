@@ -33,6 +33,7 @@ type WearableItemEditorWizardProps = {
   rarities: readonly string[];
   initialStep?: string;
   save?: SaveFn;
+  onSelectExisting?: (id: string) => void;
   track?: TrackFn;
 };
 
@@ -72,6 +73,7 @@ function WearableItemEditorWizardInner({
   categories,
   rarities,
   save,
+  onSelectExisting,
   track,
 }: InnerProps) {
   const [, setSearchParams] = useSearchParams();
@@ -111,7 +113,7 @@ function WearableItemEditorWizardInner({
   const [free, setFree] = useState(d.free);
 
   const selectedCollection =
-    collections.find((c) => c.id === d.collectionId) ?? collections[0];
+    collections.find((c) => c.id === d.collectionId);
 
   const doneCollectionId = selectedCollection?.id ?? d.collectionId;
   const doneTarget = doneCollectionId
@@ -120,10 +122,13 @@ function WearableItemEditorWizardInner({
 
   return (
     <WearableItemEditorView
+      key={d.itemId}
+      live={!!save}
       value={value}
       step={step}
       draft={{
         name: d.name,
+        modelFile: d.modelFile,
         rarity: d.rarity,
         price: d.price,
         free: d.free,
@@ -163,7 +168,7 @@ function WearableItemEditorWizardInner({
         })
       }
       onSelectItem={(it: CollectionOption["items"][number]) =>
-        send({
+        onSelectExisting ? onSelectExisting(it.id) : send({
           type: "SELECT_ITEM",
           collectionId: selectedCollection?.id ?? d.collectionId,
           itemId: it.id,
@@ -172,8 +177,8 @@ function WearableItemEditorWizardInner({
       }
       onBack={() => send({ type: "BACK" })}
       onNameChange={(name: string) => send({ type: "SET_NAME", name })}
-      onSetModel={(fileName?: string) =>
-        send({ type: "SET_MODEL", modelFile: fileName ?? `male/${d.itemId}.glb` })
+      onSetModel={(fileName?: string, model?: File) =>
+        send({ type: "SET_MODEL", modelFile: fileName ?? d.modelFile, model })
       }
       onCategoryChange={setCategory}
       onContinueCategory={() => send({ type: "SET_CATEGORY", category })}

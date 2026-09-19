@@ -28,9 +28,9 @@ describe("buildOutfitsMetadata", () => {
     expect(entry.outfit.forceRender).toEqual([]);
     expect(entry.outfit.skin.color).toEqual({ r: 1, g: 1, b: 1 });
     expect(entry.outfit.hair.color).toEqual({ r: 0, g: 0, b: 0 });
-    expect(entry.outfit.eyes.color.r).toBeCloseTo(0x3a / 255, 5);
-    expect(entry.outfit.eyes.color.g).toBeCloseTo(0x6e / 255, 5);
-    expect(entry.outfit.eyes.color.b).toBeCloseTo(0xa5 / 255, 5);
+    expect(entry.outfit.eyes.color.r).toBeCloseTo(0.0423114, 5);
+    expect(entry.outfit.eyes.color.g).toBeCloseTo(0.155926, 5);
+    expect(entry.outfit.eyes.color.b).toBeCloseTo(0.376262, 5);
   });
 
   it("drops entries without a bodyShape or out-of-range slots, keeps the first of a duplicated slot, and tolerates nullish input", () => {

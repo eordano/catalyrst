@@ -443,7 +443,7 @@ function ScenesView({
     track("ch_scenes_clicked", { to: "editor", seeded: Boolean(pointer) }, { sid, story: STORY });
     navigate(
       pointer
-        ? `/creator-hub/scene-editor?pointer=${encodeURIComponent(pointer)}&from=scenes`
+        ? `/creator-hub/scene-editor?pointer=${encodeURIComponent(pointer)}${scene?.world_name ? `&world=${encodeURIComponent(scene.world_name)}` : ""}&from=scenes`
         : "/creator-hub/scene-editor?from=scenes",
     );
   }

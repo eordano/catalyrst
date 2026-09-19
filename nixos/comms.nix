@@ -209,13 +209,20 @@ lib.mkIf (cfg.enable && cfg.subServices.comms) {
   systemd.services.catalyrst-archipelago = {
     description = "catalyrst-archipelago (clustering + ws-connector + stats, port 5139)";
     wantedBy = [ "multi-user.target" ];
-    after = [ "livekit.service" ];
-    wants = [ "livekit.service" ];
+    after = [
+      "livekit.service"
+      "nats.service"
+    ];
+    wants = [
+      "livekit.service"
+      "nats.service"
+    ];
     environment = {
       HTTP_SERVER_PORT = "5139";
       HTTP_SERVER_HOST = "127.0.0.1";
       LIVEKIT_WS_URL = d.lkWsUrl;
       COMMS_GATEKEEPER_URL = "http://127.0.0.1:5145";
+      NATS_URL = "nats://127.0.0.1:4222";
       RUST_LOG = "catalyrst_archipelago=info,tower_http=info";
     };
     serviceConfig = noPgSandbox // {
@@ -241,11 +248,18 @@ lib.mkIf (cfg.enable && cfg.subServices.comms) {
   systemd.services.pulse = lib.mkIf (!cfg.pulse.sandbox) {
     description = "Pulse authoritative comms server (rust, ENet/UDP)";
     wantedBy = [ "multi-user.target" ];
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
+    after = [
+      "network-online.target"
+      "nats.service"
+    ];
+    wants = [
+      "network-online.target"
+      "nats.service"
+    ];
     environment = {
       RUST_LOG = "info";
       PULSE_BIND = "${cfg.pulse.bindAddress}:${toString cfg.pulse.port}";
+      PULSE_NATS_URL = "nats://127.0.0.1:4222";
     };
     serviceConfig = noJitHardening // {
       ExecStart = "${pulsePatched}/bin/catalyrst-pulse";

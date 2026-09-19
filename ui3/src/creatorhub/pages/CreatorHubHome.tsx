@@ -542,7 +542,7 @@ export default function CreatorHubHome({
   const hasScenes = scenes.length > 0;
   const greeting =
     signedIn && (name || account)
-      ? `Welcome back, ${name || shortAddress(account)}`
+      ? <>Welcome back, {name || <span className="chh__account-name">{shortAddress(account)}</span>}</>
       : "Welcome to Creator Hub";
   return (
     <CreatorHubChromeMaybe chrome={chrome} active="home" signedIn={signedIn} account={account} name={name} committee={isCommittee} onSignIn={onSignIn}>

@@ -14,6 +14,8 @@ let bridge: FakeBridge;
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
   localStorage.setItem("dcl.minimap.userHidden", "0");
+  localStorage.setItem("dcl.feature.2026-09-lobby", "0");
+  localStorage.setItem("dcl.feature.2026-09-sidebar-design", "0");
   canvas = document.createElement("canvas");
   canvas.id = WORLD_CANVAS_ID;
   canvas.tabIndex = 0;
@@ -27,6 +29,8 @@ afterEach(async () => {
   delete window.dclBridge;
   canvas.remove();
   localStorage.removeItem("dcl.minimap.userHidden");
+  localStorage.removeItem("dcl.feature.2026-09-lobby");
+  localStorage.removeItem("dcl.feature.2026-09-sidebar-design");
   vi.unstubAllGlobals();
   await new Promise((r) => setTimeout(r, 0));
 });

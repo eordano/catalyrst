@@ -1,21 +1,20 @@
+import { useMemo, useRef } from "react";
+import { useAuth } from "@data/lib/auth/context";
+import { walletProvider } from "@data/lib/auth/wallet";
+import { nameClaimWallet } from "@data/lib/catalyst/marketplace/name-claim";
 import { Link, redirect, useNavigate, useSearchParams } from "react-router";
 
 import MkFlowBanner from "@ui/marketplace/components/MkFlowBanner";
 
 import {
-  checkNameAvailability,
   fetchOwnedNames,
   NAME_REGEX,
 } from "@data/lib/catalyst/marketplace/names";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
-import { unavailableNameClaim } from "@data/lib/catalyst/marketplace/unavailable-actions";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoaderWith } from "@core/lib/experiments/story-loader";
 import { track } from "@core/lib/telemetry/track";
 import ClaimNameWizard from "@features/stories/marketplace/claim-name/ClaimNameWizard";
-import type {
-  CheckAvailabilityFn,
-} from "@features/stories/marketplace/claim-name/machine";
 
 import type { Route } from "./+types/marketplace.claim-name";
 import type { StoryId } from "@core/lib/telemetry/story-id";
@@ -80,6 +79,13 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
   const { sid, step, assignment, takenNames, sampleName, from } =
     loaderData;
   const navigate = useNavigate();
+  const auth = useAuth();
+  const authRef = useRef(auth);
+  authRef.current = auth;
+  const claim = useMemo(() => nameClaimWallet(() => {
+    if (!authRef.current.address || !authRef.current.isConnected) throw new Error("Sign in with your wallet to register a NAME.");
+    return { provider: walletProvider(), address: authRef.current.address };
+  }), [auth.address]);
   const [searchParams] = useSearchParams();
 
   const fromDeploy = from === "deploy-world";
@@ -114,11 +120,6 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
     navigate(url.pathname + url.search);
   };
 
-  const realCheck: CheckAvailabilityFn = async ({ name, signal }) => {
-    const res = await checkNameAvailability(name, { signal });
-    return { available: res.kind === "claimable" };
-  };
-
 
   return (
     <main className="marketplace-claim-name" onClickCapture={carryDeployContext}>
@@ -127,22 +128,19 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
           role="navigation"
           aria-label="Back to publishing"
           style={{
-            position: "fixed",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 1000,
             display: "flex",
             alignItems: "center",
             padding: "12px 20px",
             background: "var(--panel, #16121c)",
-            borderTop: "1px solid var(--line, rgba(255,255,255,0.18))",
-            boxShadow: "0 -6px 18px rgba(0,0,0,0.4)",
+            borderBottom: "1px solid var(--line, rgba(255,255,255,0.18))",
           }}
         >
           <Link
             to={returnToPublishUrl()}
             style={{
+              display: "inline-flex",
+              alignItems: "center",
+              minHeight: 44,
               color: "var(--brand, #ff2d55)",
               textDecoration: "none",
               fontSize: 14,
@@ -154,6 +152,7 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
         </div>
       ) : null}
       <ClaimNameWizard
+        key={auth.address ?? "anonymous"}
         allowStepPreview={false}
         trackCtx={{
           sid,
@@ -163,14 +162,13 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
         }}
         takenNames={takenNames}
         sampleName={sampleName}
-        check={realCheck}
-        mint={unavailableNameClaim}
+        check={claim.check}
+        approve={claim.approve}
+        mint={claim.mint}
         initialStep={step ?? undefined}
         banner={
           <MkFlowBanner>
-            <strong>NAME registration is not available here yet.</strong> You can
-            check availability, but no signature will be requested and no NAME
-            will be minted.
+            Register your NAME with MANA on Ethereum. Your wallet will confirm approval, registration and gas fees.
           </MkFlowBanner>
         }
         creditsNote={"Credits can't be used for NAMEs yet \u{2014} Credits checkout only supports collection items."}
@@ -179,7 +177,7 @@ export default function MarketplaceClaimName({ loaderData }: Route.ComponentProp
             ? (worldName) => {
                 track(
                   "ch_claim_name_returned_to_publish",
-                  { name: worldName, simulated: true },
+                  { name: worldName, simulated: false },
                   { sid, story: "creator-hub/claim-name" },
                 );
                 navigate(returnToPublishUrl(worldName));

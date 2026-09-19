@@ -7,18 +7,10 @@ import { track as defaultTrack, type TrackContext, type TrackFn } from "@core/li
 
 export type { TrackFn };
 
-export type WearableDraft = {
-  collectionId: string;
-  itemId: string;
-  name: string;
-  modelFile: string;
-  category: string;
-  rarity: string;
-  price: string;
-  free: boolean;
-};
+import type { WearableDraft } from "@data/lib/catalyst/builder/drafts";
+export type { WearableDraft };
 
-export type SaveResult = { itemId: string; urn: string };
+export type SaveResult = { itemId: string; urn: string; simulated?: boolean };
 
 export type SaveFn = (args: {
   draft: WearableDraft;
@@ -45,7 +37,7 @@ type WearableEditorContext = {
 type WearableEditorEvent =
   | { type: "SELECT_ITEM"; collectionId: string; itemId: string; name: string }
   | { type: "SET_NAME"; name: string }
-  | { type: "SET_MODEL"; modelFile: string }
+  | { type: "SET_MODEL"; modelFile: string; model?: File }
   | { type: "SET_CATEGORY"; category: string }
   | { type: "SET_RARITY"; rarity: string }
   | { type: "SET_PRICE"; price: string; free: boolean }
@@ -98,6 +90,7 @@ export const simulateSave: SaveFn = async ({ draft, signal }) => {
   });
   return {
     itemId: draft.itemId,
+    simulated: true,
     urn: `urn:decentraland:matic:collections-v2:0x${draft.collectionId}:${draft.itemId}`,
   };
 };
@@ -121,6 +114,8 @@ export const wearableEditorMachine = setup({
         collectionId: event.collectionId,
         itemId: event.itemId,
         name: event.name,
+        modelFile: event.itemId === context.draft.itemId ? context.draft.modelFile : "",
+        model: event.itemId === context.draft.itemId ? context.draft.model : undefined,
       };
       return { draft, baseline: draft };
     }),
@@ -141,7 +136,7 @@ export const wearableEditorMachine = setup({
     setModel: assign({
       draft: ({ context, event }) =>
         event.type === "SET_MODEL"
-          ? { ...context.draft, modelFile: event.modelFile }
+          ? { ...context.draft, modelFile: event.modelFile, model: event.model }
           : context.draft,
     }),
     trackModelSet: ({ context }) =>
@@ -210,7 +205,7 @@ export const wearableEditorMachine = setup({
           rarity: context.draft.rarity,
           price: context.draft.free ? "free" : context.draft.price,
           urn: context.result?.urn,
-          stub: true,
+          stub: context.result?.simulated ?? false,
         },
         context.trackCtx,
       ),

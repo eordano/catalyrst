@@ -33,6 +33,7 @@ interface DeRibbonProps {
   saveLabel?: string;
   saveClass?: string;
   playing?: boolean;
+  paused?: boolean;
   canUndo?: boolean;
   canRedo?: boolean;
   meters?: RibbonMeter[];
@@ -104,6 +105,7 @@ export default function DeRibbon({
   saveLabel = "Saved",
   saveClass = "ok",
   playing = false,
+  paused = false,
   canUndo = false,
   canRedo = false,
   meters = [],
@@ -297,6 +299,15 @@ export default function DeRibbon({
         </div>
 
         <div className="rb-always" role="group" aria-label="Always available">
+          {playing && chromeButton(
+            paused ? "play" : "pause",
+            paused ? "Resume preview" : "Pause preview",
+            paused ? "Resume" : "Pause",
+            "rb-btn",
+            paused ? "Resume the scene" : "Pause the scene",
+            "Playback is not available here",
+            busLive,
+          )}
           {playing
             ? chromeButton(
                 "stop",
@@ -319,7 +330,7 @@ export default function DeRibbon({
             type="button"
             className={"rb-icon" + (showDeveloper ? " on" : "")}
             title={
-              showDeveloper ? "Hide the code tools in Test & Code" : "Show the code tools in Test & Code"
+              showDeveloper ? "Hide the code tools in Interact" : "Show the code tools in Interact"
             }
             aria-label="Code tools"
             aria-pressed={showDeveloper}

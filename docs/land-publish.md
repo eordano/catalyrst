@@ -2,7 +2,7 @@
 
 Status: IMPLEMENTED server-side (catalyrst-server, catalyrst-validator,
 catalyrst-worlds); live behavior gated on applying migration 0003 and bumping the
-:5141 binary (restart request). Binding design: `~/one/docs/land-publish-design.md`.
+:5141 binary (restart request). Binding design: `../../docs/land-publish-design.md`.
 
 ## Publish
 

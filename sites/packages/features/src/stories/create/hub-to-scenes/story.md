@@ -50,3 +50,14 @@ manager.
 Live data: deployed scenes are read from the live Catalyst Places API
 (`/places/api/places`); a wallet's own scenes are filtered by creator. When no
 scenes are present we render the ui3 empty state (graceful, never crashes).
+
+
+## Screen-data implementation (2026-09-18)
+
+The `/create` loader and `/api/screens/v1/create` share server composition for
+scene cards, viewer profile name, network and events. Public feeds are cached
+for 30 seconds and bounded independently. A browser-known wallet reloads the
+combined route once; it no longer starts a separate profile read. Viewer and
+viewed creator remain distinct. Concurrency, partial failure and cache reuse
+are covered by `screens/create.server.test.ts`. This changes the current data
+path, not the experiment allocation; no measured conversion gain is claimed.

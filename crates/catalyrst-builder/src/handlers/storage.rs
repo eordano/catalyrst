@@ -28,6 +28,26 @@ pub async fn get_storage_content(
     Path(hash): Path<String>,
     Query(params): Query<ContentParams>,
 ) -> Response {
+    match state.items.uploaded_content(&hash).await {
+        Ok(Some(bytes)) => {
+            let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+                "image/png"
+            } else {
+                "application/octet-stream"
+            };
+            return (
+                [
+                    (header::CONTENT_TYPE, mime),
+                    (header::CACHE_CONTROL, "public,max-age=31536000,immutable"),
+                    (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+                ],
+                bytes,
+            )
+                .into_response();
+        }
+        Ok(None) => {}
+        Err(error) => return error.into_response(),
+    }
     let target = content_url(&state, &hash, &params);
 
     let mut resp = (StatusCode::MOVED_PERMANENTLY, ()).into_response();
@@ -118,6 +138,12 @@ pub async fn head_storage_content_exists(
 ) -> Response {
     if !is_valid_content_hash(&hash) {
         return StatusCode::NOT_FOUND.into_response();
+    }
+
+    match state.items.uploaded_content_exists(&hash).await {
+        Ok(true) => return exists_status(true),
+        Ok(false) => {}
+        Err(error) => return error.into_response(),
     }
 
     let cell = match exists_cache().lock() {

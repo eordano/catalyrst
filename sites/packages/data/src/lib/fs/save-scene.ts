@@ -293,6 +293,15 @@ async function readEngineComposite(
   }
 }
 
+export async function requireEngineComposite(
+  timeoutMs = 12000,
+  inject?: (() => Promise<unknown>) | null,
+): Promise<string> {
+  const composite = await readEngineComposite(timeoutMs, inject);
+  if (!composite) throw new Error(ENGINE_GAP_SAVE_ERROR);
+  return composite;
+}
+
 const builderAssetCache = new Map<
   string,
   { token: string; ext: string; buf: ArrayBuffer }
@@ -491,10 +500,7 @@ export async function saveSceneFromEngine(
     exportComposite?: (() => Promise<unknown>) | null;
   } = {},
 ): Promise<SaveSceneFromEngineResult> {
-  let text = await readEngineComposite(opts.timeoutMs ?? 12000, opts.exportComposite);
-  if (text === null) {
-    throw new Error(ENGINE_GAP_SAVE_ERROR);
-  }
+  let text = await requireEngineComposite(opts.timeoutMs ?? 12000, opts.exportComposite);
 
   try {
     text = await persistBuilderAssets(text);

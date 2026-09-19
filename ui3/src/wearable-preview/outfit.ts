@@ -1,4 +1,4 @@
-import * as THREE from "three";
+type Rgb = { r: number; g: number; b: number };
 
 interface ColorWrapper {
   color?: { r: number; g: number; b: number };
@@ -15,9 +15,9 @@ export interface OutfitData {
 }
 
 export type AvatarColors = {
-  skin: THREE.Color | null;
-  hair: THREE.Color | null;
-  eyes: THREE.Color | null;
+  skin: Rgb | null;
+  hair: Rgb | null;
+  eyes: Rgb | null;
 };
 
 interface Representation {
@@ -92,18 +92,24 @@ const itemUrn = (urn: string): string => {
     : urn;
 };
 
-const colorOf = (c: ColorWrapper | null | undefined): THREE.Color | null =>
+const colorOf = (c: ColorWrapper | null | undefined): Rgb | null =>
   c && c.color && typeof c.color.r === "number"
-    ? new THREE.Color(c.color.r, c.color.g, c.color.b)
+    ? { r: c.color.r, g: c.color.g, b: c.color.b }
     : null;
 
 export const categoryOf = (e: Entity | undefined): string | null =>
   e?.metadata?.data?.category || null;
 
 async function getJSON<T>(url: string, opts?: RequestInit): Promise<T> {
-  const r = await fetch(url, opts);
-  if (!r.ok) throw new Error(`${url} -> ${r.status}`);
-  return r.json() as Promise<T>;
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), 20000);
+  try {
+    const r = await fetch(url, { ...opts, signal: controller.signal });
+    if (!r.ok) throw new Error(`${url} -> ${r.status}`);
+    return await r.json() as T;
+  } finally {
+    clearTimeout(deadline);
+  }
 }
 
 const entityCache = new Map<string, Promise<Entity | null>>();

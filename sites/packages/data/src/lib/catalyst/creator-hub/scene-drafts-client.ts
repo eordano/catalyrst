@@ -93,14 +93,14 @@ export async function listServerDrafts(): Promise<ServerDraftMeta[] | null> {
   }
 }
 
-export async function fetchServerDraft(id: string): Promise<ServerDraft | null> {
+export async function fetchServerDraft(id: string, signal?: AbortSignal): Promise<ServerDraft | null> {
   const identity = getIdentity();
   if (!identity || typeof fetch === "undefined") return null;
   try {
     const path = draftPath(id);
     const { headers } = await signRequest(identity, "GET", path);
-    const res = await fetch(path, { headers });
-    if (!res.ok) return null;
+    const res = await fetch(`${path}?optional=1`, { headers, signal });
+    if (!res.ok || res.status === 204) return null;
     const raw = (await res.json()) as Draft;
     const blob = parseServerDraftBlob(raw?.blob);
     if (!blob || typeof raw.version !== "number") return null;

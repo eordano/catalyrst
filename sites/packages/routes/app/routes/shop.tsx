@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useNavigation, useSearchParams } from "react-router";
+import { data, Link, useNavigate, useNavigation, useSearchParams } from "react-router";
 import { href, searchHref } from "@core/lib/router/routes";
 
 import ChromeShell from "@ui/components/ChromeShell";
@@ -33,16 +33,9 @@ import { openSignIn } from "@features/components/auth/signin-store";
 import { useAuth } from "@data/lib/auth/index";
 import { getIdentity } from "@data/lib/auth/session";
 import { parseItemRef } from "@data/lib/catalyst/marketplace/cart";
-import { tryQuoteCreditItems } from "@data/lib/catalyst/marketplace/credit-quotes";
-import { loadCatalogRail } from "@data/lib/catalyst/marketplace/catalog-rails.server";
-import {
-  fetchCatalog,
-  isCatalogItemBuyable,
-  parseItemId,
-  toCollectibleCard,
-  type CatalogItem,
-  type CollectibleCard,
-} from "@data/lib/catalyst/marketplace/index";
+import type { CollectibleCard } from "@data/lib/catalyst/marketplace/index";
+import { SHOP_PAGE_SIZE, type ShopFilters as Filters } from "@data/lib/screens/shop";
+import { loadShopScreen } from "@data/lib/screens/shop.server";
 import { sidLoader } from "@core/lib/experiments/story-loader";
 import { collectibleToShopCard } from "@features/lib/marketplace/favorites";
 import { useFavorites } from "@features/lib/marketplace/use-favorites";
@@ -51,14 +44,13 @@ import { track } from "@core/lib/telemetry/track";
 import type { Route } from "./+types/shop";
 
 const STORY = "marketplace/shop";
-const CATALOG_LIMIT = 40;
 
 type ShopTabId = "overview" | "all-assets" | "names" | "my-assets" | "my-favorites" | "cart";
 
 const TABS: readonly NewShopTab<ShopTabId>[] = [
   { id: "overview", label: "Overview" },
   { id: "all-assets", label: "All Assets" },
-  { id: "names", label: "NAMEs", href: "/marketplace/names" },
+  { id: "names", label: "Names", href: "/marketplace/names" },
   { id: "my-assets", label: "My Assets" },
   { id: "my-favorites", label: "My Favorites" },
   { id: "cart", label: "Cart", href: "/marketplace/cart" },
@@ -82,82 +74,23 @@ const SORT: { id: string; label: string }[] = [
 ];
 const SORT_LABELS = SORT.map((s) => s.label);
 
-type Filters = {
-  tab: string;
-  category: string;
-  rarity: string;
-  sortBy: string;
-  search: string;
-  page: number;
-};
-
-function readFilters(params: URLSearchParams): Filters {
-  const page = Number.parseInt(params.get("page") ?? "0", 10);
-  return {
-    tab: params.get("tab")?.trim() || "overview",
-    category: params.get("category")?.trim() ?? "",
-    rarity: params.get("rarity")?.trim() ?? "",
-    sortBy: params.get("sortBy")?.trim() || "recently_listed",
-    search: params.get("search")?.trim() ?? "",
-    page: Number.isFinite(page) && page > 0 ? page : 0,
-  };
+export async function loader({ request }: Route.LoaderArgs) {
+  const { sid, wrap } = sidLoader(request);
+  const result = await loadShopScreen(new URL(request.url).searchParams, request.signal);
+  const response = wrap({ sid, ...result.data });
+  const headers = new Headers(response.init?.headers);
+  headers.set("Server-Timing", result.serverTiming);
+  headers.set("Cache-Control", "private, no-store");
+  return data(response.data, { ...response.init, headers });
 }
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const url = new URL(request.url);
-  const f = readFilters(url.searchParams);
-  const { sid, wrap } = sidLoader(request);
-
-  let items: CatalogItem[] = [];
-  let total = 0;
-  let fallback = false;
-  let top: CatalogItem[] = [];
-  let trending: CatalogItem[] = [];
-  const isOverview = f.tab === "overview";
-  const none = Promise.resolve({ data: [] as CatalogItem[], total: 0 });
-  try {
-    const [result, topResult, trendingResult] = await Promise.all([
-      fetchCatalog({
-        first: CATALOG_LIMIT,
-        skip: f.page * CATALOG_LIMIT,
-        category: f.category || undefined,
-        rarity: f.rarity || undefined,
-        isOnSale: true,
-        sortBy: f.sortBy || undefined,
-        search: f.search || undefined,
-      }),
-      isOverview ? loadCatalogRail({ first: 6, isOnSale: true, sortBy: "most_expensive" }) : none,
-      isOverview ? loadCatalogRail({ first: 8, isOnSale: true, sortBy: "cheapest" }) : none,
-    ]);
-    items = result.data.filter(isCatalogItemBuyable);
-    total = result.total;
-    top = topResult.data.filter(isCatalogItemBuyable);
-    trending = trendingResult.data.filter(isCatalogItemBuyable);
-  } catch {
-    fallback = true;
+export function headers({ loaderHeaders, parentHeaders }: Route.HeadersArgs) {
+  const headers = new Headers(parentHeaders);
+  for (const name of ["Cache-Control", "Server-Timing"]) {
+    const value = loaderHeaders.get(name);
+    if (value) headers.set(name, value);
   }
-
-  const uniq = new Map<string, CatalogItem>();
-  for (const it of [...items, ...top, ...trending]) {
-    if (!uniq.has(it.id)) uniq.set(it.id, it);
-  }
-  const quotables = [...uniq.values()];
-  const credits = await tryQuoteCreditItems(
-    quotables.map((it) => {
-      const ref = parseItemId(it.id);
-      return ref ? { itemId: ref.itemId, collection: ref.contractAddress } : null;
-    }),
-  );
-  const creditsById = new Map<string, string | null>();
-  quotables.forEach((it, i) => creditsById.set(it.id, credits[i] ?? null));
-  const withCredits = (it: CatalogItem) =>
-    toCollectibleCard(it, creditsById.get(it.id) ?? null);
-
-  const cards = items.map(withCredits);
-  const topCards = top.map(withCredits);
-  const trendingCards = trending.map(withCredits);
-  const payload = { sid, filters: f, cards, topCards, trendingCards, total, fallback };
-  return wrap(payload);
+  return headers;
 }
 
 const toShopCard = (c: CollectibleCard): ShopCard => collectibleToShopCard(c);
@@ -365,7 +298,9 @@ function OverviewTab({
       />
       {fallback ? (
         <p className="mk" style={FALLBACK_STYLE} role="alert">
-          Couldn&apos;t load the catalog right now. Please try again.
+          {cards.length || trending.length || rankRows.length
+            ? "Some shop sections couldn't load. Please try again."
+            : "Couldn't load the catalog right now. Please try again."}
         </p>
       ) : null}
     </>
@@ -436,7 +371,7 @@ function BrowseTab({
     setMany({ sortBy: id === "recently_listed" ? "" : id, page: "" });
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / CATALOG_LIMIT));
+  const totalPages = Math.max(1, Math.ceil(total / SHOP_PAGE_SIZE));
 
   return (
     <>

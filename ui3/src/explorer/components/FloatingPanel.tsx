@@ -2,14 +2,15 @@ import type { ReactNode, RefObject } from "react";
 import { useLayoutEffect, useRef } from "react";
 import "./floatingpanel.css";
 
-export type FloatingPanelId = "notifications" | "voice" | "portables" | "skybox" | "friends";
+export type FloatingPanelId = "notifications" | "voice" | "portables" | "skybox" | "friends" | "chat";
 
 export const FLOATING_PANEL_TITLES: Record<FloatingPanelId, string> = {
-  notifications: "NOTIFICATIONS",
-  voice: "NEARBY VOICE",
+  notifications: "Notifications",
+  voice: "Nearby voice",
   portables: "Portable experiences",
-  skybox: "NIGHT/DAY",
+  skybox: "Time of day",
   friends: "Friends",
+  chat: "Chat",
 };
 
 export const PANEL_MARGIN = 16;
@@ -41,15 +42,16 @@ function sidebarButtonFor(id: string): Element | null {
   return document.querySelector(`[data-sb-panel="${id}"]`);
 }
 
-function useSidebarAnchor(id: string, ref: RefObject<HTMLElement | null>): void {
+export function useSidebarAnchor(id: string, ref: RefObject<HTMLElement | null>, enabled = true): void {
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!el) return undefined;
+    if (!el || !enabled) return undefined;
     const measure = () => {
       if (!el.isConnected) return;
-      el.style.maxHeight = "";
       const btn = sidebarButtonFor(id);
-      const h = el.getBoundingClientRect().height;
+      const body = el.querySelector<HTMLElement>(".fp__body");
+      const h = Math.max(el.scrollHeight, el.getBoundingClientRect().height)
+        + (body ? Math.max(0, body.scrollHeight - body.clientHeight) : 0);
       const { top, maxHeight } = anchorBeside(
         btn ? btn.getBoundingClientRect() : null,
         h,
@@ -58,26 +60,36 @@ function useSidebarAnchor(id: string, ref: RefObject<HTMLElement | null>): void 
       el.style.top = `${top}px`;
       el.style.maxHeight = `${maxHeight}px`;
     };
+    const onScroll = (event: Event) => {
+      if (event.target instanceof Node && el.contains(event.target)) return;
+      measure();
+    };
     measure();
     window.addEventListener("resize", measure);
+    window.addEventListener("scroll", onScroll, true);
     const ro =
       typeof ResizeObserver === "function"
         ? new ResizeObserver(() => window.requestAnimationFrame(measure))
         : null;
     ro?.observe(el);
+    const button = sidebarButtonFor(id);
+    if (button) ro?.observe(button);
     return () => {
       window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", onScroll, true);
       ro?.disconnect();
     };
-  }, [id, ref]);
+  }, [id, ref, enabled]);
 }
 
 type FloatingPanelProps = {
   id: FloatingPanelId;
   onClose: () => void;
   title?: string;
+  closeLabel?: string;
   flush?: boolean;
   actions?: ReactNode;
+  anchorEnabled?: boolean;
   children: ReactNode;
 };
 
@@ -85,12 +97,14 @@ export default function FloatingPanel({
   id,
   onClose,
   title,
+  closeLabel = "Close",
   flush = false,
   actions,
+  anchorEnabled = true,
   children,
 }: FloatingPanelProps) {
   const ref = useRef<HTMLElement>(null);
-  useSidebarAnchor(id, ref);
+  useSidebarAnchor(id, ref, anchorEnabled);
   const heading = title ?? FLOATING_PANEL_TITLES[id];
   return (
     <section
@@ -102,7 +116,7 @@ export default function FloatingPanel({
       <header className="fp__head">
         <h2 className="fp__title">{heading}</h2>
         {actions}
-        <button type="button" className="fp__close" aria-label="Close" onClick={onClose}>
+        <button type="button" className="fp__close" aria-label={closeLabel} onClick={onClose}>
           <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"
             fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 5l10 10M15 5L5 15" />

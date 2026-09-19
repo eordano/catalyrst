@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { worldsBase } from "@data/lib/catalyst/client";
+
 import {
   loadSceneEditorSeed,
   newSceneSeed,
@@ -19,9 +21,12 @@ import {
 } from "@data/lib/fs/template-composites";
 import { type Assignment } from "@core/lib/experiments/assign";
 import { storyLoader } from "@core/lib/experiments/story-loader";
+import type { ServerDraft } from "@data/lib/catalyst/creator-hub/scene-drafts-client";
+import { withDeadline } from "@data/lib/request-deadline";
 
 import { resolveBreadcrumbOrigin } from "@features/components/creator-hub/breadcrumbOrigins";
 import EditorWizard from "@features/stories/creator-hub/scene-editor-place-items/EditorWizard";
+import SdkEditorWorkspace from "@features/stories/creator-hub/scene-editor-place-items/SdkEditorWorkspace";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
 
@@ -49,43 +54,51 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const step = url.searchParams.get("step")?.trim() || null;
   const pointer = url.searchParams.get("pointer")?.trim() || undefined;
+  const world = url.searchParams.get("world")?.trim() || undefined;
   const isLocal = url.searchParams.get("source") === "local";
   const isNew = url.searchParams.get("new") === "1" || (!isLocal && !pointer);
   const newName = url.searchParams.get("name")?.trim() || undefined;
   const newTemplate = url.searchParams.get("template")?.trim() || undefined;
   const newLayout = url.searchParams.get("layout")?.trim() || undefined;
   const projectSlug = url.searchParams.get("project")?.trim() || undefined;
+  const sdkProjectUrl = url.searchParams.get("source") === "sdk" ? url.searchParams.get("projectUrl") || undefined : undefined;
   const from = url.searchParams.get("from")?.trim() || null;
 
-  const { sid, assignment, wrap } = await storyLoader(
-    request,
-    STORY,
-    FALLBACK,
-  );
-
-  let seed: SceneEditorSeed;
-  let rawComposite: string | undefined;
-  if (isNew) {
-    seed = newSceneSeed({ name: newName, template: newTemplate, layout: newLayout });
-    if (newTemplate && hasTemplateComposite(newTemplate)) {
-      const text = buildTemplateCompositeText(newTemplate);
-      if (text) {
+  const [{ sid, assignment, wrap }, { seed, rawComposite }, catalog] = await Promise.all([
+    storyLoader(request, STORY, FALLBACK),
+    (async () => {
+      let seed: SceneEditorSeed;
+      let rawComposite: string | undefined;
+      if (isNew) {
+        seed = newSceneSeed({ name: newName, template: newTemplate, layout: newLayout });
+        if (newTemplate && hasTemplateComposite(newTemplate)) {
+          const text = buildTemplateCompositeText(newTemplate);
+          if (text) {
+            try {
+              seed = seedFromCompositeJSON(JSON.parse(text), seed, []);
+              rawComposite = text;
+            } catch {
+            }
+          }
+        }
+      } else if (isLocal) {
+        seed = emptySeed(pointer);
+      } else {
         try {
-          seed = seedFromCompositeJSON(JSON.parse(text), seed, []);
-          rawComposite = text;
+          seed = await withDeadline((signal) => loadSceneEditorSeed({ pointer, world, signal }), 5000, request.signal);
         } catch {
+          request.signal.throwIfAborted();
+          seed = emptySeed(pointer);
+          if (world) seed.scene.pointer = world;
         }
       }
-    }
-  } else if (isLocal) {
-    seed = emptySeed(pointer);
-  } else {
-    try {
-      seed = await loadSceneEditorSeed({ pointer, signal: request.signal });
-    } catch {
-      seed = emptySeed(pointer);
-    }
-  }
+      return { seed, rawComposite };
+    })(),
+    withDeadline((signal) => loadAssetCatalog({ signal }), 3000, request.signal).catch(() => {
+      request.signal.throwIfAborted();
+      return null;
+    }),
+  ]);
 
   const editorSceneUrl =
     process.env.BEVY_EDITOR_SCENE_URL ||
@@ -101,15 +114,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   const projectBase = seed.scene.base || "0,0";
   const launch = {
     playUrl: process.env.BEVY_PLAY_URL || "/_play",
-    realm: useProjectRealm ? projectRealm : publicRealm,
+    realm: useProjectRealm ? projectRealm : world ? `${worldsBase()}/world/${encodeURIComponent(world)}` : publicRealm,
     position: useProjectRealm ? projectBase : seed.scene.base || pointer || "0,0",
     preview: useProjectRealm,
+    portables: process.env.BEVY_CONTROLLER_REALM_URL || "",
   };
   const viewportSrc = buildViewportUrl({ ...launch, systemScene: editorSceneUrl, editorUi: true });
   const previewSrc = buildViewportUrl(launch);
-
-  const catalog: CatalogItem[] | undefined =
-    (await loadAssetCatalog({ signal: request.signal })) ?? undefined;
 
   const payload = {
     sid,
@@ -120,13 +131,15 @@ export async function loader({ request }: Route.LoaderArgs) {
     previewSrc,
     from,
     projectSlug,
-    catalog,
+    sdkProjectUrl,
+    catalog: catalog ?? undefined,
     ...(rawComposite ? { rawComposite } : {}),
   };
   return wrap(payload);
 }
 
 type LoaderData = {
+  sdkProjectUrl?: string;
   sid: string;
   step: string | null;
   assignment: Assignment;
@@ -242,8 +255,8 @@ async function seedFromPersistedHandle(
 }
 
 async function seedFromServerDraft(
-  slug: string,
   fallback: SceneEditorSeed,
+  pending: Promise<ServerDraft | null>,
 ): Promise<{
   seed: SceneEditorSeed;
   rawComposite?: string;
@@ -251,10 +264,7 @@ async function seedFromServerDraft(
   serverUpdatedAt: number;
 } | null> {
   try {
-    const { fetchServerDraft } = await import(
-      "@data/lib/catalyst/creator-hub/scene-drafts-client"
-    );
-    const draft = await fetchServerDraft(slug);
+    const draft = await pending;
     if (!draft) return null;
     const parsed = safeJson(draft.blob.composite);
     if (parsed === null) return null;
@@ -294,8 +304,18 @@ async function localMetaUpdatedAt(slug: string): Promise<number> {
 }
 
 export async function clientLoader({ request, serverLoader }: Route.ClientLoaderArgs) {
-  const base = (await serverLoader()) as LoaderData;
   const url = new URL(request.url);
+  const basePromise = serverLoader();
+  const draftSlug = url.searchParams.get("draft")?.trim();
+  const projectSlug = url.searchParams.get("source") === "local"
+    ? url.searchParams.get("project")?.trim() : undefined;
+  const drafts = new Map<string, Promise<ServerDraft | null>>();
+  for (const slug of [draftSlug, projectSlug]) {
+    if (!slug || drafts.has(slug)) continue;
+    drafts.set(slug, import("@data/lib/catalyst/creator-hub/scene-drafts-client")
+      .then(({ fetchServerDraft }) => fetchServerDraft(slug, request.signal)).catch(() => null));
+  }
+  const base = (await basePromise) as LoaderData;
 
   const pickNewest = async (
     slug: string,
@@ -306,14 +326,15 @@ export async function clientLoader({ request, serverLoader }: Route.ClientLoader
       failedToLoadLocal?: boolean;
     } | null,
   ) => {
-    const server = await seedFromServerDraft(slug, base.seed);
+    const [server, localAt] = await Promise.all([
+      seedFromServerDraft(base.seed, drafts.get(slug)!),
+      localMetaUpdatedAt(slug),
+    ]);
     if (!server) return local;
     if (!local || local.failedToLoadLocal) return server;
-    const localAt = await localMetaUpdatedAt(slug);
     return server.serverUpdatedAt > localAt ? server : local;
   };
 
-  const draftSlug = url.searchParams.get("draft")?.trim();
   if (draftSlug) {
     const seededDraft = await pickNewest(
       draftSlug,
@@ -324,7 +345,6 @@ export async function clientLoader({ request, serverLoader }: Route.ClientLoader
 
   if (url.searchParams.get("source") !== "local") return base;
 
-  const projectSlug = url.searchParams.get("project")?.trim();
   if (projectSlug) {
     const local =
       (await seedFromPersistedHandle(projectSlug)) ??
@@ -506,6 +526,10 @@ export default function CreatorHubSceneEditor({ loaderData }: Route.ComponentPro
       </main>
     );
   }
+
+  if (loaderData.sdkProjectUrl) return <main className="creator-hub-scene-editor">
+    <SdkEditorWorkspace projectUrl={loaderData.sdkProjectUrl} viewportSrc={viewportSrc} catalog={catalog} onExit={handleExit} />
+  </main>;
 
   return (
     <main className="creator-hub-scene-editor">

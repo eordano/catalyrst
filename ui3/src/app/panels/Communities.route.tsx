@@ -67,12 +67,6 @@ function visLabel(c: Community): string {
   return c.privacy === "private" ? "Private" : "Public";
 }
 
-const BULLETS = [
-  { icon: "\u{2665}", text: "Connect over shared interests" },
-  { icon: "\u{2691}", text: "Get notified about community events" },
-  { icon: "\u{2726}", text: "Chat in a shared channel" },
-];
-
 type SidebarProps = {
   onCreate: () => void;
   mine: Community[];
@@ -132,14 +126,6 @@ function Sidebar({ onCreate, mine, showingMine, onToggleMine, onOpen }: SidebarP
         </div>
         <div className="cm__promosub">Find your people. Join the fun.</div>
 
-        <ul className="cm__bullets">
-          {BULLETS.map((b) => (
-            <li className="cm__bullet" key={b.text}>
-              <span className="cm__bicon" aria-hidden="true">{b.icon}</span>
-              {b.text}
-            </li>
-          ))}
-        </ul>
       </div>
     </aside>
   );

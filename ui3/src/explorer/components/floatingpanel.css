@@ -1,6 +1,6 @@
 .fp {
-  position: absolute; left: 56px; top: 16px;
-  width: 340px; max-width: calc(100vw - 72px);
+  position: absolute; left: calc(var(--sidebar-width, 46px) + 10px); top: 16px;
+  width: 340px; max-width: calc(100vw - var(--sidebar-width, 46px) - 26px);
   max-height: calc(100vh - 32px);
   display: flex; flex-direction: column;
   background: var(--panel); color: #fff;
@@ -24,9 +24,9 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .fp__close {
-  flex: none; width: 26px; height: 26px; border-radius: 8px;
+  flex: none; width: 32px; height: 32px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  border: none; background: none; cursor: pointer; padding: 0;
+  border: none; background: var(--fill-5); cursor: pointer; padding: 0;
   color: rgba(255, 255, 255, .65);
   transition: background .12s ease, color .12s ease;
 }
@@ -43,6 +43,8 @@
   scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .28) transparent;
 }
 .fp--flush .fp__body { padding: 0; }
+
+.fp--chat { top: auto; bottom: 16px; }
 
 .fp--friends { width: 320px; }
 .fp--notifications { width: 410px; }

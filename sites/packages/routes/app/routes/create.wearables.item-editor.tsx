@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { href } from "@core/lib/router/routes";
 
@@ -13,6 +13,8 @@ import {
   fetchCollections,
   type BuilderCollection,
 } from "@data/lib/catalyst/builder/collections";
+import { listCollectionDrafts } from "@data/lib/catalyst/builder/collection-drafts";
+import { loadWearableDraft, saveWearableDraft } from "@data/lib/catalyst/builder/drafts";
 import { fetchCollectionItems } from "@data/lib/catalyst/builder/collection-detail";
 import { useAuth } from "@data/lib/auth/context";
 import { readWallet } from "@data/lib/auth/wallet-cookie";
@@ -87,12 +89,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const fallback = !needsConnect && (error || collections.length === 0);
 
   const collectionOptions = toCollectionOptions(collections);
-  const selectedId =
-    collectionId && collections.some((c) => c.id === collectionId)
-      ? collectionId
-      : (collections[0]?.id ?? "");
+  const selectedId = collectionId ?? "";
 
-  const draft: WearableDraft = {
+  const draft: Omit<WearableDraft, "model"> = {
     collectionId: selectedId,
     itemId: itemId ?? "",
     name: "",
@@ -182,13 +181,46 @@ export default function CreateWearableItemEditorRoute({
   loaderData,
 }: Route.ComponentProps) {
   const d = loaderData;
+  const [draftCollectionsError, setDraftCollectionsError] = useState(false);
+  const [collectionsRetry, setCollectionsRetry] = useState(0);
+  const [draftCollections, setDraftCollections] = useState<CollectionOption[]>([]);
   const { collections, itemsError } = useCollectionItems(
-    d.collections,
+    [...draftCollections, ...d.collections.filter(collection => !draftCollections.some(draft => draft.id === collection.id))],
     d.draft.collectionId,
   );
 
   const [, setSearchParams] = useSearchParams();
-  const { isConnected, address } = useAuth();
+  const auth = useAuth();
+  const { isConnected, address } = auth;
+  useEffect(() => {
+    setDraftCollections([]);
+    setDraftCollectionsError(false);
+    if (!isConnected) return;
+    const controller = new AbortController();
+    listCollectionDrafts({ fetch: auth.fetch, signal: controller.signal })
+      .then(rows => { if (!controller.signal.aborted) setDraftCollections(rows.map(row => ({ id: row.id, name: row.name, items: [], status: "draft" }))); })
+      .catch(() => { if (!controller.signal.aborted) setDraftCollectionsError(true); });
+    return () => controller.abort();
+  }, [isConnected, auth.fetch, collectionsRetry]);
+  const authRef = useRef(auth);
+  authRef.current = auth;
+  const [loaded, setLoaded] = useState<WearableDraft | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    setLoaded(null);
+    setLoadError("");
+    if (!d.draft.itemId || !isConnected) return;
+    const controller = new AbortController();
+    loadWearableDraft(d.draft.itemId, { fetch: auth.fetch, signal: controller.signal })
+      .then(value => { if (!controller.signal.aborted) setLoaded(value); })
+      .catch(error => { if (!controller.signal.aborted) setLoadError(error.message); });
+    return () => controller.abort();
+  }, [d.draft.itemId, isConnected, auth.fetch, retry]);
+  const save = useCallback(async ({ draft, signal }: { draft: WearableDraft; signal?: AbortSignal }) => {
+    if (!authRef.current.isConnected) throw new Error("Sign in to save this wearable.");
+    return saveWearableDraft(draft, { fetch: authRef.current.fetch, signal });
+  }, []);
   const name = useProfileName(address, isConnected);
   useEffect(() => {
     if (isConnected && address && d.address === "") {
@@ -220,6 +252,9 @@ export default function CreateWearableItemEditorRoute({
       />
 
       <main className="create-wearable-item-editor">
+        {draftCollectionsError && <div role="alert" style={ALERT_STYLE}>
+          Couldn&#x2019;t load your draft collections. <button type="button" onClick={() => setCollectionsRetry(value => value + 1)}>Retry</button>
+        </div>}
         {d.needsConnect ? (
           <div role="status" style={CONNECT_NOTICE_STYLE}>
             Sign in to pick a collection and list its items. You can
@@ -230,7 +265,7 @@ export default function CreateWearableItemEditorRoute({
             Couldn&#x2019;t load Builder collections for this address &#x2014; showing an empty
             picker. You can still draft a brand-new wearable below.
           </div>
-        ) : d.fallback ? (
+        ) : d.fallback && draftCollections.length === 0 ? (
           <div role="status" style={CONNECT_NOTICE_STYLE}>
             No Builder collections found for this address yet &#x2014; the picker is
             empty. You can still draft a brand-new wearable below.
@@ -243,8 +278,21 @@ export default function CreateWearableItemEditorRoute({
           </div>
         ) : null}
 
-        <WearableItemEditorWizard
-          draft={d.draft}
+        {d.draft.itemId && !loaded ? (
+          <div role={loadError ? "alert" : "status"} style={CONNECT_NOTICE_STYLE}>
+            {loadError || (isConnected ? "Loading your wearable\u2026" : "Sign in to open this wearable.")}
+            {loadError && <button type="button" onClick={() => setRetry(value => value + 1)}>Retry</button>}
+          </div>
+        ) : <WearableItemEditorWizard
+          key={`${address}:${loaded?.itemId ?? "new"}`}
+          draft={loaded ?? d.draft}
+          save={save}
+          onSelectExisting={itemId => setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            next.set("item", itemId);
+            next.set("step", "model");
+            return next;
+          })}
           collections={collections}
           categories={d.categories}
           rarities={d.rarities}
@@ -254,8 +302,8 @@ export default function CreateWearableItemEditorRoute({
             variant: d.assignment.variant,
             experimentKey: d.assignment.experimentKey,
           }}
-          initialStep={d.step ?? undefined}
-        />
+          initialStep={d.step ?? (loaded ? "model" : undefined)}
+        />}
       </main>
     </CreatorHubChrome>
   );

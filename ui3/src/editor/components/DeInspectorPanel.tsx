@@ -1,10 +1,17 @@
+import { COMPONENT_SCHEMAS, componentFields } from "../authoring-schema";
+import { DeSchemaFields } from "./DeSchemaFields";
 import type { ReactNode } from "react";
 import { useId, useMemo, useState } from "react";
-import type { AuthorComponentFn, DeleteComponentFn, EditorTransform } from "../types";
+import type { AuthorComponentFn, AuthorComponentsFn, DeleteComponentFn, EditorTransform, ProjectAssets } from "../types";
+import { DeGltfNodeModifiers } from "./DeGltfNodeModifiers";
+import { DeMaterialEditor } from "./DeMaterialEditor";
+import { DeMaterialSelection } from "./DeMaterialSelection";
+import type { AuthorMaterialSelection, MaterialSelection } from "../material-selection";
 import Modal from "../../components/Modal";
 import DeInteractionsPanel, { type DeInteractionsPreset } from "./DeInteractionsPanel";
 import { IconBolt, IconPlus, IconTrash } from "./DeIcons";
 import { useOneShot } from "../use-one-shot";
+import ComponentClipboardControls, { type ComponentClipboard } from "./ComponentClipboardControls";
 import {
   AxisRow,
   BoolField,
@@ -12,8 +19,6 @@ import {
   PropRow,
   TextField,
   atPath,
-  hexToRgb,
-  rgbToHex,
   withPath,
   type CompValue,
   type NudgeFieldFn,
@@ -87,6 +92,7 @@ function ComponentJsonModal({ name, value, onClose, onSave }: ComponentJsonModal
 }
 
 interface CompCardProps {
+  clipboard?: ComponentClipboard;
   ns?: string | null;
   name: string;
   rawName?: string | null;
@@ -102,6 +108,7 @@ interface CompCardProps {
 }
 
 function CompCard({
+  clipboard,
   ns = null,
   name,
   rawName = null,
@@ -130,6 +137,7 @@ function CompCard({
           {name}
         </span>
         <span className="spacer" />
+        {clipboard && rawName && entityId != null && !readonly && <ComponentClipboardControls entity={entityId} name={rawName} actions={clipboard} />}
         {open && !readonly && hasJson && (
           <button
             className="eui-link"
@@ -182,7 +190,6 @@ const HIDDEN_COMPONENTS = new Set<string>([
   "composite::root",
   "core-schema::Name",
   "core-schema::Network-Entity",
-  "core-schema::Sync-Components",
   "core-schema::Tags",
   "inspector::Selection",
   "inspector::Nodes",
@@ -301,55 +308,6 @@ function bodyFor(
           />
         </>
       );
-    case "core::Material": {
-      const pbr = ["material", "pbr"];
-      return (
-        <>
-          <div className="eui-group-label">pbr</div>
-          <PropRow label="albedo color" htmlFor={uid + "-albedo"}>
-            <input
-              id={uid + "-albedo"}
-              type="color"
-              className="eui-color-swatch"
-              value={rgbToHex(atPath(v, [...pbr, "albedoColor"]))}
-              disabled={onWrite === undefined}
-              onChange={(e) => set([...pbr, "albedoColor"])?.(hexToRgb(e.target.value, num([...pbr, "albedoColor", "a"], 1)))}
-            />
-            <span className="eui-axis">
-              <span className="ax">A</span>
-              <NumField
-                id={uid + "-albedo-a"}
-                value={num([...pbr, "albedoColor", "a"], 1)}
-                onCommit={set([...pbr, "albedoColor", "a"])}
-              />
-            </span>
-          </PropRow>
-          <PropRow label="metallic" htmlFor={uid + "-metallic"}>
-            <span className="eui-axis">
-              <span className="ax">N</span>
-              <NumField id={uid + "-metallic"} value={num([...pbr, "metallic"], 0.5)} onCommit={set([...pbr, "metallic"])} />
-            </span>
-          </PropRow>
-          <PropRow label="roughness" htmlFor={uid + "-roughness"}>
-            <span className="eui-axis">
-              <span className="ax">N</span>
-              <NumField id={uid + "-roughness"} value={num([...pbr, "roughness"], 0.5)} onCommit={set([...pbr, "roughness"])} />
-            </span>
-          </PropRow>
-          <PropRow label="cast shadows">
-            <BoolField checked={bool([...pbr, "castShadows"], true)} label="cast shadows" onCommit={set([...pbr, "castShadows"])} />
-          </PropRow>
-          <PropRow label="texture" htmlFor={uid + "-tex"}>
-            <TextField
-              id={uid + "-tex"}
-              value={str([...pbr, "texture", "tex", "texture", "src"])}
-              placeholder="texture.png"
-              onCommit={set([...pbr, "texture", "tex", "texture", "src"])}
-            />
-          </PropRow>
-        </>
-      );
-    }
     case "core::MeshRenderer":
       return (
         <>
@@ -496,12 +454,21 @@ function bodyFor(
         </>
       );
     }
-    default:
-      return null;
+    default: {
+      const canonical = CANONICAL_COMPONENT[name] ?? (name.includes("::") ? name : `core::${name}`);
+      const schema = componentFields(canonical, v);
+      return schema ? <DeSchemaFields schema={schema} value={v} onChange={onWrite ? value => onWrite(value as CompValue) : undefined} /> : null;
+    }
   }
 }
 
 interface RealComponentCardsProps {
+  writableComponents?: ReadonlySet<string>;
+  assets?: ProjectAssets;
+  materialSelection?: MaterialSelection[];
+  onAuthorMaterialSelection?: AuthorMaterialSelection;
+  onAuthorComponents?: AuthorComponentsFn;
+  clipboard?: ComponentClipboard;
   componentValues?: Record<string, unknown>;
   components?: string[] | null;
   transform?: EditorTransform | null;
@@ -513,6 +480,12 @@ interface RealComponentCardsProps {
 }
 
 function RealComponentCards({
+  writableComponents,
+  assets,
+  materialSelection,
+  onAuthorMaterialSelection,
+  onAuthorComponents,
+  clipboard,
   componentValues,
   components,
   transform,
@@ -535,35 +508,57 @@ function RealComponentCards({
       {ordered.map((cname) => {
         const { nsLabel, label } = splitComp(cname);
         const isTransform = isTransformName(cname);
+        const coreName = cname.startsWith("core::") ? cname.slice(6) : COMPONENT_SCHEMAS[`core::${cname}`] ? cname : null;
+        const readOnly = coreName !== null && writableComponents !== undefined && !writableComponents.has(coreName);
         const raw = componentValues?.[cname];
         const compValue =
           raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
-        const body = bodyFor(
+        const loading = componentValues?.GltfContainerLoadingState ?? componentValues?.["core::GltfContainerLoadingState"];
+        const nodePaths = loading && typeof loading === "object" && "nodePaths" in loading && Array.isArray(loading.nodePaths) ? loading.nodePaths.filter((path): path is string => typeof path === "string") : [];
+        const body = cname === "GltfNodeModifiers" || cname === "core::GltfNodeModifiers" ? <DeGltfNodeModifiers
+          key={`${entityId}/${cname}`}
+          value={compValue}
+          nodePaths={nodePaths}
+          assets={assets}
+          onApply={!readOnly && onAuthorComponents && entityId != null ? next => onAuthorComponents(entityId, [{ name: cname, json: JSON.stringify(next) }]) : undefined}
+        /> : cname === "Material" || cname === "core::Material" ? materialSelection && materialSelection.length > 1 ? <DeMaterialSelection
+          key="material-selection"
+          selection={materialSelection}
+          assets={assets}
+          onApply={onAuthorMaterialSelection}
+        /> : <DeMaterialEditor
+          key={`${entityId}/${cname}`}
+          value={compValue}
+          assets={assets}
+          onApply={!readOnly && onAuthorComponents && entityId != null ? next => onAuthorComponents(entityId, [{ name: cname, json: JSON.stringify(next) }]) : undefined}
+        /> : bodyFor(
           cname,
           transform,
           live,
           uid + cname.replace(/[^a-zA-Z0-9]+/g, "-"),
-          isTransform ? onNudgeTransform : undefined,
+          isTransform && !readOnly ? onNudgeTransform : undefined,
           compValue,
-          onAuthorComponent && entityId != null
+          !readOnly && onAuthorComponent && entityId != null
             ? (next) => onAuthorComponent(entityId, cname, JSON.stringify(next))
             : undefined,
           componentValues ?? {},
         );
         return (
           <CompCard
+            clipboard={clipboard}
             key={cname}
             ns={nsLabel}
             name={label}
             rawName={cname}
             entityId={entityId}
-            value={isTransform ? transform : undefined}
+            value={isTransform ? transform : raw}
             expanded={isTransform || body !== null}
             hasJson={!isTransform}
             live={live}
-            onAuthorComponent={onAuthorComponent}
+            readonly={readOnly}
+            onAuthorComponent={readOnly ? undefined : onAuthorComponent}
             onDelete={
-              onDeleteComponent && entityId != null
+              !readOnly && onDeleteComponent && entityId != null
                 ? () => onDeleteComponent(entityId, cname)
                 : undefined
             }
@@ -602,6 +597,11 @@ function RealComponentCards({
 }
 
 interface DeInspectorPanelProps {
+  writableComponents?: ReadonlySet<string>;
+  assets?: ProjectAssets;
+  materialSelection?: MaterialSelection[];
+  onAuthorMaterialSelection?: AuthorMaterialSelection;
+  clipboard?: ComponentClipboard;
   componentValues?: Record<string, unknown>;
   name?: string;
   id?: string | number;
@@ -610,6 +610,7 @@ interface DeInspectorPanelProps {
   transform?: EditorTransform | null;
   live?: boolean;
   onAuthorComponent?: AuthorComponentFn;
+  onAuthorComponents?: AuthorComponentsFn;
   onDeleteComponent?: DeleteComponentFn;
   onNudgeTransform?: NudgeFieldFn;
   interactionsOpen?: boolean;
@@ -618,6 +619,11 @@ interface DeInspectorPanelProps {
 }
 
 export function DeInspectorPanel({
+  writableComponents,
+  assets,
+  materialSelection,
+  onAuthorMaterialSelection,
+  clipboard,
   name = "",
   id = "",
   addOpen = false,
@@ -626,6 +632,7 @@ export function DeInspectorPanel({
   transform = null,
   live = false,
   onAuthorComponent = undefined,
+  onAuthorComponents = undefined,
   onDeleteComponent = undefined,
   onNudgeTransform = undefined,
   interactionsOpen = false,
@@ -683,7 +690,10 @@ export function DeInspectorPanel({
             onPick={
               onAuthorComponent
                 ? (compName) => {
-                    onAuthorComponent(id, compName, "{}");
+                    const definition = COMPONENT_SCHEMAS[compName.includes("::") ? compName : `core::${compName}`];
+                    const defaults = structuredClone(definition?.defaults ?? {}) as Record<string, unknown>;
+                    if (["asset-packs::Actions", "asset-packs::States", "asset-packs::Counter"].includes(compName)) defaults.id = Number(id);
+                    onAuthorComponent(id, compName, JSON.stringify(defaults));
                     setLocalAddOpen(false);
                   }
                 : undefined
@@ -692,8 +702,12 @@ export function DeInspectorPanel({
         )}
         {interOpen && (
           <DeInteractionsPanel
+            key={id}
             entityId={id}
+            existingActions={componentValues?.["asset-packs::Actions"] as { id?: number; value?: unknown[] } | undefined}
+            existingTriggers={componentValues?.["asset-packs::Triggers"] as { value?: unknown[] } | undefined}
             entityName={name}
+            onWriteBatch={onAuthorComponents ? changes => onAuthorComponents(id, changes) : undefined}
             onWrite={
               onAuthorComponent ? (cname, json) => onAuthorComponent(id, cname, json) : null
             }
@@ -702,6 +716,12 @@ export function DeInspectorPanel({
         )}
 
         <RealComponentCards
+          writableComponents={writableComponents}
+          assets={assets}
+          materialSelection={materialSelection}
+          onAuthorMaterialSelection={onAuthorMaterialSelection}
+          onAuthorComponents={onAuthorComponents}
+          clipboard={clipboard}
           componentValues={componentValues}
           components={components ?? []}
           transform={transform}
@@ -716,7 +736,7 @@ export function DeInspectorPanel({
   );
 }
 
-type AddComponentGroup = "3D Content" | "Interaction";
+type AddComponentGroup = "3D Content" | "Interaction" | "Smart item";
 
 interface AddComponentDef {
   name: string;
@@ -726,16 +746,28 @@ interface AddComponentDef {
 
 const ADD_COMPONENTS: readonly AddComponentDef[] = [
   { name: "GltfContainer", label: "3D model", group: "3D Content" },
+  { name: "GltfNodeModifiers", label: "Swap model materials", group: "3D Content" },
   { name: "VisibilityComponent", label: "Show / hide", group: "3D Content" },
   { name: "Animator", label: "Animation", group: "3D Content" },
   { name: "Billboard", label: "Always face the player", group: "3D Content" },
   { name: "NftShape", label: "NFT picture frame", group: "3D Content" },
+  { name: "LightSource", label: "Light", group: "3D Content" },
+  { name: "ParticleSystem", label: "Particles", group: "3D Content" },
+  { name: "VirtualCamera", label: "Virtual camera", group: "3D Content" },
+  { name: "AvatarAttach", label: "Avatar attachment", group: "3D Content" },
+  { name: "asset-packs::States", label: "States", group: "Smart item" },
+  { name: "asset-packs::Counter", label: "Counter", group: "Smart item" },
+  { name: "asset-packs::Actions", label: "Actions", group: "Smart item" },
+  { name: "asset-packs::Triggers", label: "Triggers", group: "Smart item" },
+  { name: "asset-packs::Rewards", label: "Rewards", group: "Smart item" },
+  { name: "asset-packs::Script", label: "Scripts", group: "Smart item" },
+  { name: "core-schema::Sync-Components", label: "Synchronized components", group: "Smart item" },
   { name: "PointerEvents", label: "Clickable", group: "Interaction" },
   { name: "AudioSource", label: "Sound", group: "Interaction" },
   { name: "TextShape", label: "Text label", group: "Interaction" },
 ];
 
-const ADD_GROUP_ORDER: readonly AddComponentGroup[] = ["3D Content", "Interaction"];
+const ADD_GROUP_ORDER: readonly AddComponentGroup[] = ["3D Content", "Interaction", "Smart item"];
 
 function DeAddComponentPicker({ onPick = undefined }: { onPick?: (name: string) => void }) {
   return (

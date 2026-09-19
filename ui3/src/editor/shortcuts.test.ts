@@ -120,6 +120,25 @@ describe("typing guard", () => {
     expect(dispatchOn(document.createElement("button"), "q")).toEqual({ type: "tool", tool: "select" });
     expect(shortcutActionFor(key({ key: "q" }), ctx())).toEqual({ type: "tool", tool: "select" });
   });
+
+  it("leaves modern EditContext and nested textbox editing to the code editor", () => {
+    for (const attribute of [{ role: "textbox" }, { class: "monaco-editor" }]) {
+      const surface = document.createElement("div");
+      for (const [name, value] of Object.entries(attribute)) surface.setAttribute(name, value);
+      const target = document.createElement("div");
+      surface.appendChild(target);
+      for (const key of ["q", "w", "e", "r", "Delete", "Backspace", "Escape", "F5"]) {
+        document.body.appendChild(surface);
+        let action: unknown;
+        const listener = (event: KeyboardEvent) => { action = shortcutActionFor(event, ctx()); };
+        window.addEventListener("keydown", listener, true);
+        target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+        window.removeEventListener("keydown", listener, true);
+        surface.remove();
+        expect(action, `${JSON.stringify(attribute)} ${key}`).toBeNull();
+      }
+    }
+  });
 });
 
 describe("cheatsheet completeness", () => {

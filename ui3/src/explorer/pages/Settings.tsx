@@ -6,6 +6,7 @@ import Dropdown from "../../components/Dropdown";
 import VoiceParticipantList from "../components/VoiceParticipantList";
 import type { EngineSetting, EngineSettingInfo } from "../../overlay/engineSettings";
 import type { SettingGroup, SettingModule, SettingsTab } from "../../data/settings/catalog";
+import FeatureFlags from "./FeatureFlags";
 import "./settings.css";
 
 type SettingsPanelProps = {
@@ -173,7 +174,7 @@ export default function SettingsPanel({
             </button>
           ))}
         </div>
-        {onReset && (
+        {onReset && tab !== "flags" && (
           <button type="button" className="set__reset" onClick={onReset}>
             &#x21BA; Reset {activeLabel} defaults
           </button>
@@ -182,12 +183,13 @@ export default function SettingsPanel({
 
       <div className="set__card">
         <div className="set__content">
-          {engineConnected === false && (
+          {tab !== "flags" && engineConnected === false && (
             <div className="set__offline" role="note">
               Not connected to the engine &#x2014; changes won&apos;t be saved.
             </div>
           )}
-          {groups.length === 0 && (
+          {tab === "flags" && <FeatureFlags />}
+          {tab !== "flags" && groups.length === 0 && (
             <div className="set__empty">No settings in this section yet.</div>
           )}
           {groups.map((g, gi) => (

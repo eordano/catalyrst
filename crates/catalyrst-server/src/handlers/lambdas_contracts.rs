@@ -245,10 +245,8 @@ fn keccak256(input: &[u8]) -> [u8; 32] {
 }
 
 fn absorb_block(state: &mut [u64; 25], block: &[u8]) {
-    for (i, word) in block.chunks_exact(8).enumerate() {
-        let mut w = [0u8; 8];
-        w.copy_from_slice(word);
-        state[i] ^= u64::from_le_bytes(w);
+    for (i, word) in block.as_chunks::<8>().0.iter().enumerate() {
+        state[i] ^= u64::from_le_bytes(*word);
     }
 }
 

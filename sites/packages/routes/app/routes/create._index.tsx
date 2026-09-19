@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useRevalidator, useSearchParams } from "react-router";
+import { data, useNavigate, useRevalidator, useSearchParams } from "react-router";
 
 import CreatorHubHome, {
   type ChHappening,
@@ -13,12 +13,8 @@ import { STARTER_TEMPLATES } from "@ui/creatorhub/pages/ChTemplates";
 import { useAuth } from "@data/lib/auth/index";
 import { isDesktopShell } from "@data/lib/auth/native-shell";
 import { openSignIn } from "@features/components/auth/signin-store";
-import { loadCreatorScenes, type CreatorScene } from "@data/lib/catalyst/create/index.server";
-import { fetchMostActivePlaces } from "@data/lib/catalyst/places/index";
-import { fetchEvents, type Event } from "@data/lib/catalyst/places/events";
-import { blogPostCards } from "@core/lib/content/blog";
-import { fetchProfile } from "@data/lib/catalyst/overlay/profile";
-import { readWallet } from "@data/lib/auth/wallet-cookie";
+import type { CreatorScene } from "@data/lib/catalyst/create/index.server";
+import { loadCreateScreen } from "@data/lib/screens/create.server";
 import { resolveAssignment } from "@core/lib/experiments/assign";
 import { parseStory } from "@core/lib/experiments/context";
 import { sidLoader } from "@core/lib/experiments/story-loader";
@@ -31,6 +27,8 @@ import {
   type CreateEntryConfig,
 } from "@core/lib/experiments/create-entry";
 import { supportsDirectoryPicker } from "@data/lib/fs/disk";
+import { SdkProjectConnection } from "@data/lib/fs/sdk-project";
+import SdkProjectConnect from "@ui/creatorhub/components/SdkProjectConnect";
 import { track, trackExposure } from "@core/lib/telemetry/track";
 
 import { creatorHubMeta } from "@core/lib/seo/creator-hub-meta";
@@ -42,67 +40,8 @@ export const meta = () => creatorHubMeta("Creator Hub");
 
 const STORY: StoryId = "create/hub-to-scenes";
 
-const NETWORK_STRIP_LIMIT = 6;
-const HAPPENING_EVENTS_LIMIT = 3;
-const HAPPENING_POSTS_LIMIT = 3;
-
-function happeningDate(value: string | null): string {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (isNaN(parsed.getTime())) return "";
-  return parsed.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-}
-
-function eventToHappening(e: Event): ChHappening {
-  return {
-    id: e.id,
-    kind: "event",
-    title: e.name ?? "Untitled event",
-    image: e.image,
-    meta: e.live ? "Happening now" : happeningDate(e.next_start_at ?? e.start_at),
-    href: `/whats-on/${encodeURIComponent(e.id)}`,
-    live: e.live,
-  };
-}
-
-async function loadNetworkStrip(signal: AbortSignal): Promise<ChNetworkScene[]> {
-  const places = await fetchMostActivePlaces({ limit: NETWORK_STRIP_LIMIT }, { signal });
-  return places.map((p) => ({
-    id: p.id,
-    title: p.title ?? "Untitled scene",
-    image: p.image,
-    users: p.user_count ?? 0,
-    href: `/places/${encodeURIComponent(p.id)}`,
-  }));
-}
-
-async function loadHappeningEvents(signal: AbortSignal): Promise<ChHappening[]> {
-  for (const list of ["trending", "active"] as const) {
-    try {
-      const { data } = await fetchEvents({ list, limit: HAPPENING_EVENTS_LIMIT }, { signal });
-      if (data.length > 0) return data.map(eventToHappening);
-    } catch {
-    }
-  }
-  return [];
-}
-
-function loadHappeningPosts(): ChHappening[] {
-  return blogPostCards()
-    .slice(0, HAPPENING_POSTS_LIMIT)
-    .map((p) => ({
-      id: p.id,
-      kind: "post" as const,
-      title: p.title,
-      hue: p.hue,
-      meta: [p.category.title, happeningDate(p.publishedDate)].filter(Boolean).join(" \u{B7} "),
-      href: `/blog/${encodeURIComponent(p.slug)}`,
-    }));
-}
-
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const creator = url.searchParams.get("creator")?.trim() || readWallet(request) || "";
 
   const { sid, wrap } = sidLoader(request);
 
@@ -149,23 +88,21 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   })();
 
-  let scenes: CreatorScene[] = [];
-  let scenesError = false;
-  const [scenesResult, network, happeningEvents, entry] = await Promise.all([
-    loadCreatorScenes({ creator: creator || undefined, limit: 6 }).catch(() => null),
-    loadNetworkStrip(request.signal).catch(() => [] as ChNetworkScene[]),
-    loadHappeningEvents(request.signal),
-    entryP,
-  ]);
-  if (scenesResult === null) {
-    scenesError = true;
-  } else {
-    scenes = scenesResult;
-  }
-  const happenings = [...happeningEvents, ...loadHappeningPosts()];
+  const [screen, entry] = await Promise.all([loadCreateScreen(request), entryP]);
+  const response = wrap({ sid, entry, ...screen.data });
+  const headers = new Headers(response.init?.headers);
+  headers.set("Server-Timing", screen.serverTiming);
+  headers.set("Cache-Control", "private, no-store");
+  return data(response.data, { ...response.init, headers });
+}
 
-  const payload = { sid, creator, scenes, scenesError, entry, network, happenings };
-  return wrap(payload);
+export function headers({ loaderHeaders, parentHeaders }: Route.HeadersArgs) {
+  const headers = new Headers(parentHeaders);
+  for (const name of ["Cache-Control", "Server-Timing"]) {
+    const value = loaderHeaders.get(name);
+    if (value) headers.set(name, value);
+  }
+  return headers;
 }
 
 export default function CreateHome({ loaderData }: Route.ComponentProps) {
@@ -175,6 +112,8 @@ export default function CreateHome({ loaderData }: Route.ComponentProps) {
     <HubHomeView
       sid={d.sid}
       creator={d.creator}
+      profileAddress={d.profileAddress}
+      profileName={d.profileName}
       scenes={d.scenes}
       scenesError={d.scenesError}
       entry={d.entry}
@@ -195,6 +134,8 @@ const TEMPLATE_CARDS: ChTemplateCard[] = STARTER_TEMPLATES.map((t) => ({
 function HubHomeView({
   sid,
   creator,
+  profileAddress,
+  profileName,
   scenes,
   scenesError,
   entry,
@@ -203,6 +144,8 @@ function HubHomeView({
 }: {
   sid: string;
   creator: string;
+  profileAddress: string;
+  profileName: string;
   scenes: CreatorScene[];
   scenesError: boolean;
   entry: CreateEntryConfig | null;
@@ -211,10 +154,10 @@ function HubHomeView({
 }) {
   const navigate = useNavigate();
   const revalidator = useRevalidator();
-  const [, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isConnected, address } = useAuth();
 
-  const [name, setName] = useState("");
+  const name = isConnected && address?.toLowerCase() === profileAddress ? profileName : "";
 
   useEffect(() => {
     if (!isDesktopShell()) return;
@@ -233,33 +176,18 @@ function HubHomeView({
   }, []);
 
   useEffect(() => {
-    if (isConnected && address && !creator) {
+    if (isConnected && address && (!creator || address.toLowerCase() !== profileAddress)) {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          next.set("creator", address);
+          if (!creator) next.set("creator", address);
+          next.set("viewer", address);
           return next;
         },
         { replace: true, preventScrollReset: true },
       );
     }
-  }, [isConnected, address, creator, setSearchParams]);
-
-  useEffect(() => {
-    if (!isConnected || !address) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const avatar = await fetchProfile(address);
-        const resolved = avatar?.name?.trim() ?? "";
-        if (!cancelled && resolved) setName(resolved);
-      } catch {
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isConnected, address]);
+  }, [isConnected, address, creator, profileAddress, setSearchParams]);
 
   const fired = useRef(false);
   useEffect(() => {
@@ -284,7 +212,7 @@ function HubHomeView({
     id: s.id,
     title: s.title,
     href: s.base_position
-      ? `/creator-hub/scene-editor?pointer=${encodeURIComponent(s.base_position)}&from=home`
+      ? `/creator-hub/scene-editor?pointer=${encodeURIComponent(s.base_position)}${s.world_name ? `&world=${encodeURIComponent(s.world_name)}` : ""}&from=home`
       :
         `/creator-hub/scene-editor?new=1&name=${encodeURIComponent(s.title)}&from=home`,
   }));
@@ -300,7 +228,14 @@ function HubHomeView({
 
   return (
       <CreatorHubHome
-        banner={entry?.entry ? <CreateEntrySurface sid={sid} entry={entry} /> : null}
+        banner={<>
+          {entry?.entry ? <CreateEntrySurface sid={sid} entry={entry} /> : null}
+          <SdkProjectConnect initialUrl={searchParams.get("projectUrl") || ""} onOpen={async (url) => {
+            const connection = new SdkProjectConnection(url);
+            await connection.connect();
+            navigate(`/creator-hub/scene-editor?source=sdk&projectUrl=${encodeURIComponent(connection.url)}&from=home`);
+          }} />
+        </>}
         scenes={sceneRows}
         scenesError={scenesError}
         rescoping={rescoping}

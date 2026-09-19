@@ -1,4 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import FloatingPanel from "../components/FloatingPanel";
+import ConversationChat from "./ConversationChat";
 
 import { sendBridge, subscribeBridge, useBridgeState } from "../../overlay/bridge";
 import ProfileCard from "../components/ProfileCard";
@@ -19,11 +21,16 @@ export default function Chat(props: {
   onToggle: () => void;
   hidden?: boolean;
 }) {
+  const [channel, setChannel] = useState<"nearby" | "direct" | "community">("nearby");
   const chat = useBridgeState((s) => s.chat);
   const players = useBridgeState((s) => s.players);
   const identity = useBridgeState((s) => s.identity);
   const blocked = useBridgeState((s) => s.friends.blocked);
+  const hasFriends = useBridgeState((s) => s.friends.friends.length > 0);
   const live = useBridgeState((s) => s.live);
+  useEffect(() => {
+    if (!hasFriends && channel === "direct") setChannel("nearby");
+  }, [hasFriends, channel]);
   const io = useMemo<ChatIo>(
     () => ({
       chat,
@@ -38,5 +45,15 @@ export default function Chat(props: {
     }),
     [chat, players, blocked, live, identity.address, identity.name],
   );
-  return <ChatView {...props} io={io} profileCard={ProfileCard} />;
+  return <div hidden={!props.open || props.hidden}>
+    <FloatingPanel id="chat" onClose={props.onToggle} closeLabel="Close chat" flush anchorEnabled={false}>
+      <div className="chat-channels" role="group" aria-label="Chat channels">
+        {(["nearby", "direct", "community"] as const).filter(id => id !== "direct" || hasFriends).map((id) => <button key={id} type="button" aria-pressed={channel === id} onClick={() => setChannel(id)}>{id === "nearby" ? "Nearby" : id === "direct" ? "Friends" : "Communities"}</button>)}
+      </div>
+      <ChatView {...props} hidden={props.hidden || channel !== "nearby"} io={io} emptyLine="No messages yet. Say hello to people nearby." profileCard={ProfileCard} docked header={false} />
+      {(["direct", "community"] as const).map((kind) => <div key={`${identity.address}:${identity.isGuest}:${kind}`} className="chat-channel" hidden={channel !== kind}>
+        <ConversationChat kind={kind} active={props.open && !props.hidden && channel === kind} />
+      </div>)}
+    </FloatingPanel>
+  </div>;
 }

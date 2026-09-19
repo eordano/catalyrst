@@ -1,6 +1,4 @@
-import type { RefObject } from "react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EditorBridgeAction, EditorBridgeRequest } from "../../overlay/editor-bridge-types";
 import type { EditorTool } from "../bus-protocol";
 import type { EditorBus, EditorCamMode } from "../editor-bus";
 import type {
@@ -16,7 +14,7 @@ import type {
   EditorVec,
 } from "../types";
 import DclEditorChrome, { type EditorEngineStatus } from "../frames/DclEditorChrome";
-import { createHistory, cloneValue, type HistoryEngine, type HistoryEntry } from "../history";
+import { createHistory, cloneValue, type HistoryEngine } from "../history";
 import { forwardEngineKeys } from "../shortcuts";
 import { quatToEulerDeg, eulerDegToQuat, isQuat, tidy } from "../transform-nudge";
 import { attachCameraInput } from "../camera-input";
@@ -30,7 +28,7 @@ import {
   type SnapState,
 } from "../snap";
 import { loadCameraPrefs, saveCameraPrefs } from "../camera-prefs";
-import { placeAssetOnBus, setProjectPlayState } from "../project-cache";
+import { placeAssetOnBus, registerProjectContents, setProjectPlayState } from "../project-cache";
 import { findNodeName } from "../live-tree";
 import DeSceneCard, {
   countPlaced,
@@ -45,10 +43,16 @@ import { engineConsoleRunner } from "../debugger";
 import DeShortcutsOverlay from "../components/DeShortcutsOverlay";
 import { DeAssetsPanel, usePlaceStatus, type DeAssetsPreset } from "../components/DeAssetsPanel";
 import type { DeInteractionsPreset } from "../components/DeInteractionsPanel";
+import { readEntityClipboard, writeEntityClipboard } from "../entity-clipboard";
+import type { HierarchyPlacement } from "../hierarchy-selection";
+import { folderProject } from "../folder-project";
+import type { MaterialChange, MaterialSelection } from "../material-selection";
+import type { MaterialValue } from "../gltf-materials";
+import { DeAssetCleanup } from "../components/DeAssetCleanup";
+import { DeCustomItems } from "../components/DeCustomItems";
 import { DeHierarchyPanel } from "../components/DeHierarchyPanel";
 import {
   DeInspectorPanel,
-  DUPLICATE_SKIP,
   isTransformComp,
   type NudgeFieldFn,
 } from "../components/DeInspectorPanel";
@@ -65,7 +69,9 @@ import { docsUrl } from "../../data/docs";
 
 export { DeToolbar } from "../components/DeToolbar";
 
+const DeUIDesigner = lazy(() => import("../components/DeUIDesigner"));
 const DeCodeWorkspace = lazy(() => import("../code/DeCodeWorkspace"));
+const SceneAssistantPanel = lazy(() => import("../components/SceneAssistantPanel"));
 
 const PLAY_EDIT_WARNED_KEY = "dcl-editor:play-edit-warned";
 
@@ -107,6 +113,7 @@ interface DeWorkspaceProps {
   onPublish?: (() => void) | null;
   saveState?: "idle" | "saving" | "saved" | "error";
   sceneInfo?: DeSceneInfo | null;
+  onSceneSettings?: () => void;
 }
 
 export default function DeWorkspace({
@@ -127,10 +134,13 @@ export default function DeWorkspace({
   onPublish = null,
   saveState = "idle",
   sceneInfo = null,
+  onSceneSettings,
 }: DeWorkspaceProps) {
   const viewportRef = useRef<HTMLIFrameElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [runPaused, setRunPaused] = useState(false);
+  const [playError, setPlayError] = useState<string | null>(null);
+  const playTransition = useRef(false);
   const [mcpConsent, setMcpConsent] = useState<{ host: string; resolve: (ok: boolean) => void } | null>(null);
   const playStateRef = useRef({ playing: false, paused: false });
   playStateRef.current = { playing, paused: runPaused };
@@ -166,6 +176,31 @@ export default function DeWorkspace({
   snapRef.current = snap;
   const applySnap = (next: SnapState) => setSnap(saveSnap(next));
   const [codeOpen, setCodeOpen] = useState(false);
+  const [uiDesignerOpen, setUIDesignerOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const assistantBridgeRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => assistantBridgeRef.current?.(), [code?.project?.id]);
+  const pairAssistant = async (url: string) => {
+    const project = code?.project;
+    if (!project) throw new Error("Open an SDK project before pairing scene tools.");
+    const expected = new URL(`${project.id.replace(/\/$/, "")}/api/project/assistant/bridge`);
+    expected.protocol = expected.protocol === "https:" ? "wss:" : "ws:";
+    if (new URL(url).href !== expected.href) throw new Error("The scene tools bridge must belong to this SDK project.");
+    const { connect } = await import("../mcp-bridge");
+    assistantBridgeRef.current?.();
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        assistantBridgeRef.current?.();
+        reject(new Error("The scene tools server did not pair. Check the SDK's scene tools configuration and retry."));
+      }, 15000);
+      assistantBridgeRef.current = connect({ url, token: "sdk-project", getViewportEl: () => viewportRef.current,
+        onPairingChange: (paired, error) => {
+          if (paired) { clearTimeout(timer); resolve(); }
+          else if (error) { clearTimeout(timer); reject(new Error(error)); }
+        },
+      });
+    });
+  };
   const [tool, setTool] = useState<EditorTool>("translate");
   const [devTab, setDevTab] = useState(false);
   const [hideLeft, setHideLeft] = useState(false);
@@ -184,24 +219,6 @@ export default function DeWorkspace({
   }, []);
 
   const live = !!effViewportSrc;
-  const postToFrame = (
-    ref: RefObject<HTMLIFrameElement | null>,
-    src: string | null | undefined,
-    action: EditorBridgeAction,
-    extra?: { count?: number; requestId?: string | number },
-  ) => {
-    const f = ref.current;
-    if (!f || !f.contentWindow) return;
-    let target = "*";
-    try {
-      target = new URL(String(src)).origin;
-    } catch {
-    }
-    const msg = { type: "dcl-bridge", action, ...(extra || {}) } as EditorBridgeRequest;
-    f.contentWindow.postMessage(msg, target);
-  };
-  const postToViewport = (action: EditorBridgeAction, extra?: { count?: number }) =>
-    postToFrame(viewportRef, effViewportSrc, action, extra);
   const prePlayRef = useRef<string | null>(null);
 
   const busRef = useRef<EditorBus | null>(null);
@@ -215,59 +232,76 @@ export default function DeWorkspace({
     enterDebug,
     exitDebug,
     debugStep,
-  } = useDebugSession({ viewportRef, busRef, playStateRef, postToViewport, setRunPaused });
+  } = useDebugSession({ viewportRef, busRef, playStateRef, setRunPaused });
 
   const controls: Partial<DeToolbarProps> = live
     ? {
         playing: playing && !runPaused,
         onPlay: () => {
+          if (!sceneReady || engineStatus !== "online" || playTransition.current) return;
           if (playing && !runPaused) return;
-          if (playing && runPaused) {
-            if (debugOpenRef.current) exitDebug();
-            postToViewport("UnfreezeScene");
-            setRunPaused(false);
-            busRef.current?.announcePlayState(true, false);
-            return;
-          }
           const bus = busRef.current;
-          const begin = () => {
-            void setProjectPlayState(true);
-            postToViewport("UnfreezeScene");
+          if (!bus) return;
+          playTransition.current = true;
+          setPlayError(null);
+          void (async () => {
+            if (!playing) {
+              try {
+                const c = await bus.exportComposite();
+                if (typeof c !== "string" || !c.trim()) throw new Error("Missing scene snapshot");
+                if (busRef.current !== bus) return;
+                prePlayRef.current = c;
+              } catch {
+                throw new Error("The editor could not preserve your scene before Play. Try again once the scene is connected.");
+              }
+            }
+            await setProjectPlayState(true);
+            if (busRef.current !== bus) return;
+            await bus.rpc("setPlayback", [true, false]);
+            if (busRef.current !== bus) return;
+            if (debugOpenRef.current) exitDebug();
+            playStateRef.current = { playing: true, paused: false };
             setRunPaused(false);
             setPlaying(true);
             playEditNotedRef.current = false;
-            busRef.current?.announcePlayState(true, false);
-          };
-          if (bus?.exportComposite) {
-            bus
-              .exportComposite()
-              .then((c) => {
-                prePlayRef.current = typeof c === "string" && c.trim() !== "" ? c : null;
-              })
-              .catch(() => {
-                prePlayRef.current = null;
-              })
-              .finally(begin);
-          } else {
-            prePlayRef.current = null;
-            begin();
-          }
+            bus.announcePlayState(true, false);
+            viewportRef.current?.focus();
+          })().catch((error: unknown) => {
+            if (busRef.current !== bus) return;
+            if (!playing) void setProjectPlayState(false);
+            setPlayError(`Play failed: ${error instanceof Error ? error.message : String(error)}`);
+          }).finally(() => { if (busRef.current === bus) playTransition.current = false; });
         },
         onPause: () => {
-          if (!playing || runPaused) return;
-          postToViewport("FreezeScene");
-          setRunPaused(true);
-          busRef.current?.announcePlayState(true, true);
+          const bus = busRef.current;
+          if (!playing || runPaused || playTransition.current || !bus) return;
+          playTransition.current = true;
+          setPlayError(null);
+          void bus.rpc("setPlayback", [true, true]).then(() => {
+            if (busRef.current !== bus) return;
+            playStateRef.current = { playing: true, paused: true };
+            setRunPaused(true);
+            bus.announcePlayState(true, true);
+          }).catch(() => {
+            if (busRef.current === bus) setPlayError("The scene could not be paused. Try Pause again.");
+          }).finally(() => { if (busRef.current === bus) playTransition.current = false; });
         },
         onStep: () => {
+          if (!playing || !runPaused || playTransition.current) return;
           if (debugOpenRef.current) {
             debugStep(1);
             return;
           }
-          postToViewport("TickScene", { count: 1 });
+          const bus = busRef.current;
+          if (!bus) return;
+          playTransition.current = true;
+          void bus.rpc("stepPlayback", [1]).catch(() => {
+            if (busRef.current === bus) setPlayError("The scene could not advance one tick. Try again.");
+          }).finally(() => { if (busRef.current === bus) playTransition.current = false; });
         },
         onDebug: playing
           ? () => {
+              if (playTransition.current) return;
               if (debugOpenRef.current) exitDebug();
               else enterDebug();
             }
@@ -275,17 +309,32 @@ export default function DeWorkspace({
         debugActive: debugOpen,
         onStop: playing
           ? () => {
+              if (playTransition.current) return;
               if (debugOpenRef.current) exitDebug(false);
-              void setProjectPlayState(false);
-              if (runPaused) postToViewport("UnfreezeScene");
               const pre = prePlayRef.current;
-              prePlayRef.current = null;
-              if (pre) busRef.current?.loadScene?.(pre, true);
-              setPlaying(false);
-              setRunPaused(false);
-              playEditNotedRef.current = false;
-              setPlayEditWarn(false);
-              busRef.current?.announcePlayState(false, false);
+              if (!pre || !busRef.current) {
+                setPlayError("The scene snapshot is unavailable. Reconnect the editor before continuing.");
+                return;
+              }
+              playTransition.current = true;
+              const bus = busRef.current;
+              void (async () => {
+                await setProjectPlayState(false);
+                if (busRef.current !== bus) return;
+                await bus.rpc("stopPlayback", [pre], 45000);
+                if (busRef.current !== bus) return;
+                prePlayRef.current = null;
+                playStateRef.current = { playing: false, paused: false };
+                setPlaying(false);
+                setRunPaused(false);
+                playEditNotedRef.current = false;
+                setPlayEditWarn(false);
+                setPlayError(null);
+                busRef.current?.announcePlayState(false, false);
+              })().catch(() => {
+                if (busRef.current !== bus) return;
+                setPlayError("The scene could not be restored. Try Stop again before making further edits.");
+              }).finally(() => { if (busRef.current === bus) playTransition.current = false; });
             }
           : undefined,
       }
@@ -294,7 +343,7 @@ export default function DeWorkspace({
   const rawCompositeRef = useRef<string | null>(rawComposite);
   rawCompositeRef.current = rawComposite;
   const [camMode, setCamMode] = useState<EditorCamMode>("target");
-  const [assetsOverride, setAssetsOverride] = useState(false);
+  const [assetsOverride, setAssetsOverride] = useState<boolean | null>(null);
   const [camPrefs, setCamPrefs] = useState<CameraPrefs>(() => loadCameraPrefs());
   const [camSettingsOpen, setCamSettingsOpen] = useState(false);
   const [renderTuningOpen, setRenderTuningOpen] = useState(false);
@@ -326,10 +375,11 @@ export default function DeWorkspace({
 
   const [, setHistoryVersion] = useState(0);
   const compValuesRef = useRef<Record<string, Record<string, unknown>>>({});
-  const applyHistoryWriteRef = useRef<(entity: string, name: string, value: unknown) => void>(
-    () => {},
+  const applyHistoryWriteRef = useRef<(entity: string, name: string, value: unknown) => Promise<void>>(
+    async () => {},
   );
   const historyRef = useRef<HistoryEngine | null>(null);
+  const hierarchyPendingRef = useRef(false);
   if (historyRef.current === null) {
     historyRef.current = createHistory(
       (entity, name, value) => applyHistoryWriteRef.current(entity, name, value),
@@ -338,8 +388,29 @@ export default function DeWorkspace({
   }
   const history = historyRef.current;
 
+  const [folderFiles, setFolderFiles] = useState<NonNullable<DeWorkspaceCode["project"]> | null>(null);
+  const folderPromise = useRef<Promise<NonNullable<DeWorkspaceCode["project"]> | null> | null>(null);
+  useEffect(() => {
+    let current = true;
+    setFolderFiles(null);
+    const pending = !code?.project && code?.getDir
+      ? code.getDir().then(directory => directory ? folderProject(directory) : null)
+      : Promise.resolve(null);
+    folderPromise.current = pending;
+    void pending.then(project => { if (current) setFolderFiles(project); }).catch(() => {});
+    return () => { current = false; };
+  }, [code]);
+  const projectFiles = code?.project ?? folderFiles;
+  const prepareScene = code?.getDir || code?.project?.assets?.preparePreview ? async () => {
+    const project = code?.project ?? await folderPromise.current;
+    await registerProjectContents(busRef, project?.assets);
+  } : undefined;
+
   const {
     sceneReady,
+    sceneError,
+    onViewportLoad,
+    session,
     liveSel,
     setLiveSel,
     liveComps,
@@ -352,9 +423,10 @@ export default function DeWorkspace({
     orientGlobal,
     setOrientGlobal,
   } = useEditorBusBridge({
+    prepareScene,
     live,
+    viewportSrc: effViewportSrc,
     title,
-    viewportRef,
     busRef,
     prefsRef,
     rawCompositeRef,
@@ -368,11 +440,28 @@ export default function DeWorkspace({
   });
   activeIdRef.current = liveSel?.active ?? null;
 
-  applyHistoryWriteRef.current = (entity, name, value) => {
+  useEffect(() => {
+    setPlaying(false);
+    setRunPaused(false);
+    setPlayError(null);
+    prePlayRef.current = null;
+    playTransition.current = false;
+  }, [effViewportSrc, session]);
+
+
+  applyHistoryWriteRef.current = async (entity, name, value) => {
     notePlayEdit();
+    const bus = busRef.current;
+    if (!bus) throw new Error("Reconnect the editor before restoring history.");
+    if (playStateRef.current.playing) throw new Error("Stop the preview before restoring history.");
+    if (name === "@scene") {
+      if (typeof value !== "string") throw new Error("The scene history is invalid.");
+      await bus.rpc("restoreComposite", [value]);
+      return;
+    }
     const key = String(entity);
     if (value === undefined) {
-      busRef.current?.deleteComponent(entity, name);
+      await bus.rpc("removeComponent", [String(entity), name]);
       const vals = compValuesRef.current[key];
       if (vals) delete vals[name];
       setLiveComps((prev) => {
@@ -381,7 +470,7 @@ export default function DeWorkspace({
       });
       return;
     }
-    busRef.current?.setComponent(entity, name, JSON.stringify(value));
+    await bus.rpc("writeComponents", [String(entity), [{ name, value }]]);
     (compValuesRef.current[key] ??= {})[name] = cloneValue(value);
     setLiveComps((prev) => {
       const cur = prev[key] ?? [];
@@ -425,27 +514,33 @@ export default function DeWorkspace({
 
   useEffect(() => {
     if (!live || !sceneReady || typeof document === "undefined") return undefined;
+    const bus = busRef.current;
+    if (!bus) return undefined;
     let suspended = false;
+    const pause = (paused: boolean) => {
+      void bus.rpc("setPlayback", [true, paused]).catch(() => {
+        if (busRef.current === bus) setPlayError("The scene could not update its playback state after switching tabs. Retry Play or Pause.");
+      });
+    };
     const onVis = () => {
       const ps = playStateRef.current;
       const pausedByUser = ps.playing && ps.paused;
       if (document.visibilityState === "hidden") {
-        if (!pausedByUser && !suspended) {
-          postToViewport("FreezeScene");
+        if (ps.playing && !pausedByUser && !suspended) {
+          pause(true);
           suspended = true;
         }
       } else if (suspended) {
         suspended = false;
         const now = playStateRef.current;
-        if (!(now.playing && now.paused)) postToViewport("UnfreezeScene");
+        if (now.playing && !now.paused) pause(false);
       }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
       document.removeEventListener("visibilitychange", onVis);
-      if (suspended) postToViewport("UnfreezeScene");
     };
-  }, [live, sceneReady]);
+  }, [live, sceneReady, session]);
 
   useEffect(() => {
     if (!live || !sceneReady) return undefined;
@@ -456,44 +551,81 @@ export default function DeWorkspace({
       cw,
       bus,
       () => prefsRef.current,
-      () => ({ camMode: camModeRef.current, activeId: activeIdRef.current }),
+      () => ({ camMode: camModeRef.current, activeId: activeIdRef.current, playing: playStateRef.current.playing }),
     );
-    forwardEngineKeys(cw);
+    const detachKeys = forwardEngineKeys(cw, {
+      iframe: viewportRef.current,
+      isEditingEnabled: () => !playStateRef.current.playing &&
+        camModeRef.current !== "free" && !cw.document.pointerLockElement,
+    });
     bus.setCamMode(camModeRef.current);
-    return detach;
-  }, [live, sceneReady]);
+    return () => { detach(); detachKeys(); };
+  }, [live, sceneReady, session]);
 
   const handleTool = (t: EditorTool) => {
     setTool(t);
     busRef.current?.setTool(t);
   };
 
-  const authorComponent: AuthorComponentFn = (entity, name, json) => {
-    notePlayEdit();
-    busRef.current?.setComponent(entity, name, json);
-    if (entity != null) {
-      try {
-        const after = JSON.parse(json) as unknown;
-        const key = String(entity);
-        const before = cloneValue(compValuesRef.current[key]?.[name]);
-        historyRef.current?.push([{ entity: key, name, before, after: cloneValue(after) }]);
-        (compValuesRef.current[key] ??= {})[name] = after;
-      } catch {
-      }
-    }
+
+  const authorComponents = async (entity: string | number | null | undefined, changes: { name: string; json: string }[]) => {
+    const bus = busRef.current;
+    if (!bus || entity == null) throw new Error("Reconnect the editor before changing components.");
+    if (playing) throw new Error("Stop the preview before changing components.");
+    if (history.isSuppressed() || hierarchyPendingRef.current) throw new Error("Wait for the current edit to finish before changing components.");
     const key = String(entity);
-    setLiveComps((prev) => {
-      const cur = prev[key] ?? [];
-      return cur.includes(name) ? prev : { ...prev, [key]: [...cur, name] };
-    });
+    const updates = changes.map(change => ({ name: change.name, value: JSON.parse(change.json) as unknown }));
+    const batch = updates.map(change => ({ entity: key, name: change.name, before: cloneValue(compValuesRef.current[key]?.[change.name]), after: cloneValue(change.value) }));
+    await bus.rpc("writeComponents", [key, updates]);
+    if (busRef.current !== bus) throw new Error("The editor reconnected while saving. Check the component values.");
+    notePlayEdit();
+    historyRef.current?.push(batch);
+    for (const update of updates) (compValuesRef.current[key] ??= {})[update.name] = update.value;
+    setLiveComps(prev => ({ ...prev, [key]: [...new Set([...(prev[key] ?? []), ...updates.map(update => update.name)])] }));
+    const transform = updates.find(update => isTransformComp(update.name));
+    if (transform) setLiveXform(prev => ({ ...prev, [key]: transform.value as EditorTransform }));
+  };
+  const authorMaterialSelection = async (changes: MaterialChange[]) => {
+    const bus = busRef.current;
+    if (!bus) throw new Error("Reconnect the editor before changing materials.");
+    if (playStateRef.current.playing) throw new Error("Stop the preview before changing materials.");
+    if (history.isSuppressed() || hierarchyPendingRef.current) throw new Error("Wait for the current edit to finish before changing materials.");
+    hierarchyPendingRef.current = true;
+    try {
+      await bus.rpc("writeMaterials", [changes], 90000);
+      if (busRef.current !== bus) throw new Error("The editor reconnected while saving. Check the selected materials.");
+      historyRef.current?.push(changes.map(change => ({ entity: change.entity, name: change.name, before: cloneValue(change.before), after: cloneValue(change.value) })));
+      for (const change of changes) (compValuesRef.current[change.entity] ??= {})[change.name] = cloneValue(change.value);
+      notePlayEdit();
+      setLiveComps(previous => ({ ...previous }));
+    } finally { hierarchyPendingRef.current = false; }
+  };
+  const authorComponent: AuthorComponentFn = (entity, name, json) => {
+    void authorComponents(entity, [{ name, json }]).catch(error => setPlayError(error instanceof Error ? error.message : "The component could not be changed. Try again."));
   };
 
   const placeAsset = (asset: DeCatalogItem, drop?: { x: number; y: number } | null) => {
     notePlayEdit();
-    return placeAssetOnBus(busRef, asset, drop ?? null);
+    return placeAssetOnBus(busRef, asset, drop ?? null, projectFiles?.assets);
   };
 
-  const busLive = live && sceneReady;
+  const busLive = live && sceneReady && engineStatus === "online";
+  const [writableComponents, setWritableComponents] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    let current = true;
+    setWritableComponents(new Set());
+    if (busLive) {
+      const run = engineConsoleRunner(viewportRef.current);
+      void (run ? run("/component_names") : Promise.reject(new Error("Engine console unavailable")))
+        .then(result => {
+          const names: unknown = JSON.parse(result);
+          if (!Array.isArray(names) || !names.every(name => typeof name === "string")) throw new Error("Invalid component permissions");
+          if (current) setWritableComponents(new Set(names));
+        })
+        .catch(() => { if (current) setPlayError("Could not load component editing permissions. Reopen the editor to retry."); });
+    }
+    return () => { current = false; };
+  }, [busLive, session]);
   const { status: placeStatus, place: placeTracked } = usePlaceStatus(
     busLive ? placeAsset : undefined,
   );
@@ -515,11 +647,46 @@ export default function DeWorkspace({
     placeTracked(asset, { x, y });
   };
   const activeId = liveSel?.active ?? null;
-  const onHierSelect = busLive
-    ? (id: string | number) => busRef.current?.setSelection([String(id)], String(id))
+  const onHierSelection = busLive && !playing
+    ? (ids: string[], active: string | null) => {
+        busRef.current?.setSelection(ids, active);
+        setLiveSel({ selected: ids, active });
+      }
+    : undefined;
+  const authorHierarchy = async (method: string, args: unknown[]) => {
+    const bus = busRef.current;
+    if (!bus || playing) throw new Error("Stop the preview and reconnect before editing the hierarchy.");
+    if (history.isSuppressed()) throw new Error("Wait for Undo or Redo to finish before editing the hierarchy.");
+    if (hierarchyPendingRef.current) throw new Error("Wait for the current hierarchy edit to finish.");
+    hierarchyPendingRef.current = true;
+    try {
+      const before = await bus.exportComposite();
+      if (typeof before !== "string") throw new Error("The scene could not be saved for Undo.");
+      let result: unknown;
+      try { result = await bus.rpc(method, args); }
+      catch (error) {
+        try { await bus.rpc("restoreComposite", [before]); }
+        catch { throw new Error(`The operation failed and the scene could not be restored. Reconnect and inspect the scene. ${String(error)}`); }
+        throw error;
+      }
+      if (bus !== busRef.current) throw new Error("The editor reconnected during the operation.");
+      const after = await bus.exportComposite();
+      if (typeof after !== "string") throw new Error("The updated scene could not be saved for Undo.");
+      history.push([{ entity: "0", name: "@scene", before, after }]);
+      return result;
+    } finally { hierarchyPendingRef.current = false; }
+  };
+  const onHierarchyMove = busLive && !playing
+    ? async (ids: string[], target: string, placement: HierarchyPlacement) => {
+        const bus = busRef.current;
+        if (!bus) throw new Error("Reconnect the editor before moving entities.");
+        await authorHierarchy("moveHierarchy", [ids, target, placement]);
+        if (busRef.current !== bus) return;
+        onHierSelection?.(ids, ids[0] ?? null);
+      }
     : undefined;
 
-  const handleCamMode = busLive
+  const handleCamMode = busLive && !playing
     ? (m: EditorCamMode) => {
         setCamMode(m);
         busRef.current?.setCamMode(m);
@@ -528,23 +695,23 @@ export default function DeWorkspace({
   const deleteComponent: DeleteComponentFn | undefined = busLive
     ? (entity, name) => {
         notePlayEdit();
+        const bus = busRef.current;
+        if (!bus || history.isSuppressed() || hierarchyPendingRef.current) return;
         const key = String(entity);
         const before = cloneValue(compValuesRef.current[key]?.[name]);
-        if (before !== undefined) {
-          historyRef.current?.push([{ entity: key, name, before, after: undefined }]);
-          const vals = compValuesRef.current[key];
-          if (vals) delete vals[name];
-        }
-        busRef.current?.deleteComponent(entity, name);
-        setLiveComps((prev) =>
-          prev[key] ? { ...prev, [key]: prev[key].filter((c) => c !== name) } : prev,
-        );
+        void bus.rpc("removeComponent", [key, name]).then(() => {
+          if (bus !== busRef.current) return;
+          if (before !== undefined) historyRef.current?.push([{ entity: key, name, before, after: undefined }]);
+          const values = compValuesRef.current[key];
+          if (values) delete values[name];
+          setLiveComps(previous => previous[key] ? { ...previous, [key]: previous[key].filter(component => component !== name) } : previous);
+        }).catch(error => setPlayError(error instanceof Error ? error.message : "The component could not be removed."));
       }
     : undefined;
   const addRootEntity = busLive
     ? () => {
         notePlayEdit();
-        busRef.current?.addEntity("Entity", 0);
+        void authorHierarchy("addEntity", ["Entity", 0, null, null]).catch(error => setPlayError(error instanceof Error ? error.message : "The scene could not create the entity."));
       }
     : undefined;
   const renameScene = busLive
@@ -557,9 +724,13 @@ export default function DeWorkspace({
           ),
         )
     : undefined;
-  const undo = busLive && history.canUndo() ? () => history.undo() : undefined;
-  const redo = busLive && history.canRedo() ? () => history.redo() : undefined;
-  const effLeft = assetsOverride ? "assets" : left;
+  const restoreHistory = (direction: "undo" | "redo") => {
+    if (hierarchyPendingRef.current) { setPlayError("Wait for the current hierarchy edit to finish."); return; }
+    void history[direction]().catch(error => setPlayError(error instanceof Error ? error.message : "History could not be restored."));
+  };
+  const undo = busLive && history.canUndo() ? () => restoreHistory("undo") : undefined;
+  const redo = busLive && history.canRedo() ? () => restoreHistory("redo") : undefined;
+  const effLeft = assetsOverride === null ? left : assetsOverride ? "assets" : "scene";
   const showScene = busLive ? () => setAssetsOverride(false) : undefined;
 
   const effTree = live && liveTree != null ? liveTree : tree;
@@ -574,48 +745,33 @@ export default function DeWorkspace({
     : activeId != null
       ? [String(activeId)]
       : [];
+  const materialSelection: MaterialSelection[] = [...selectedIds].sort((a, b) => Number(b === String(activeId)) - Number(a === String(activeId))).map(entity => {
+    const values = compValuesRef.current[entity] ?? {};
+    const name = values.Material !== undefined ? "Material" : "core::Material";
+    return { entity, name, value: values[name] as MaterialValue | undefined };
+  });
   const rootActive =
     activeId != null ? String(activeId) === "0" : !live && String(inspector.id ?? "") === "0";
   const placeableIds = selectedIds.filter((id) => String(id) !== "0");
-  const activePlaceable =
-    activeId != null && String(activeId) !== "0" ? String(activeId) : null;
-  const deleteSelected =
-    busLive && placeableIds.length > 0
-      ? () => {
-          notePlayEdit();
-          const batch: HistoryEntry[] = [];
-          for (const id of placeableIds) {
-            const comps = compValuesRef.current[String(id)];
-            if (comps) {
-              for (const [cname, value] of Object.entries(comps)) {
-                batch.push({ entity: String(id), name: cname, before: cloneValue(value), after: undefined });
-              }
-            }
-            busRef.current?.deleteEntity(id, true);
-            delete compValuesRef.current[String(id)];
-          }
-          if (batch.length > 0) historyRef.current?.push(batch);
-          busRef.current?.setSelection([], null);
-          setLiveSel({ selected: [], active: null });
-        }
-      : undefined;
-  const duplicateSelected =
-    busLive && activePlaceable !== null && compValuesRef.current[activePlaceable] !== undefined
-      ? () => {
-          const src = activePlaceable;
-          const comps = compValuesRef.current[src];
-          if (!comps) return;
-          notePlayEdit();
-          const copy: Record<string, unknown> = {};
-          for (const [cname, value] of Object.entries(comps)) {
-            if (DUPLICATE_SKIP.has(cname)) continue;
-            copy[cname] = cloneValue(value);
-          }
-          const baseName = findNodeName(effTree, src) ?? `Entity ${src}`;
-          const t = comps.Transform as { parent?: number } | undefined;
-          busRef.current?.addEntity(`${baseName} copy`, Number(t?.parent ?? 0) || 0, copy);
-        }
-      : undefined;
+  const deleteSelected = busLive && !playing && placeableIds.length > 0
+    ? () => {
+        notePlayEdit();
+        void authorHierarchy("removeEntities", [placeableIds]).catch(error => setPlayError(error instanceof Error ? error.message : "The selection could not be removed."));
+      }
+    : undefined;
+  const duplicateHierarchy = busLive && !playing && placeableIds.length
+    ? async () => {
+        const bus = busRef.current;
+        if (!bus) throw new Error("Reconnect the editor before duplicating entities.");
+        const payload = await bus.rpc("copyEntities", [placeableIds]);
+        if (busRef.current !== bus) throw new Error("The editor reconnected. Duplicate again.");
+        const parent = String((compValuesRef.current[placeableIds[0] ?? ""]?.Transform as { parent?: number } | undefined)?.parent ?? 0);
+        await authorHierarchy("pasteEntities", [payload, parent]);
+      }
+    : undefined;
+  const duplicateSelected = duplicateHierarchy ? () => {
+    void duplicateHierarchy().catch(error => setPlayError(error instanceof Error ? error.message : "The selection could not be duplicated. Try again."));
+  } : undefined;
   const clearSelection =
     busLive && (selectedIds.length > 0 || activeId != null)
       ? () => {
@@ -767,8 +923,8 @@ export default function DeWorkspace({
   };
 
   const ribbonCommands: Record<string, (() => void) | undefined> = {
-    undo: busLive ? () => history.undo() : undefined,
-    redo: busLive ? () => history.redo() : undefined,
+    undo: busLive ? () => restoreHistory("undo") : undefined,
+    redo: busLive ? () => restoreHistory("redo") : undefined,
     duplicate: () => duplicateSelected?.(),
     delete: () => deleteSelected?.(),
     "tool.translate": () => handleTool("translate"),
@@ -779,7 +935,7 @@ export default function DeWorkspace({
     "snap.step": () => applySnap({ ...snap, step: nextIn(SNAP_STEPS, snap.step) }),
     "snap.angle": () => applySnap({ ...snap, angle: nextIn(SNAP_ANGLES, snap.angle) }),
     "align.world": toggleAlignWorld,
-    "item.focus": () => {
+    "item.focus": playing ? undefined : () => {
       if (activeId != null) busRef.current?.focus(String(activeId), true);
     },
     "item.inspector": () => setHideRight(false),
@@ -806,12 +962,14 @@ export default function DeWorkspace({
     stop: () => controls.onStop?.(),
     debug: () => controls.onDebug?.(),
     code: code ? () => setCodeOpen((v) => !v) : undefined,
+    agent: code?.project?.assistant ? () => setAssistantOpen((value) => !value) : undefined,
     "render.tuning": () => setRenderTuningOpen((v) => !v),
     "ref.docs": () => openDocs(docsUrl("creator")),
     "ref.playground": () => openDocs("https://playground.decentraland.org/"),
     save: onSaveToDisk ?? undefined,
     open: onOpenFromDisk ?? undefined,
     publish: onPublish ?? undefined,
+    "scene.settings": onSceneSettings,
   };
 
   const saveChip = SAVE_CHIP[saveState] ?? SAVE_CHIP.idle!;
@@ -826,10 +984,16 @@ export default function DeWorkspace({
       viewportSrc={effViewportSrc}
       viewportRef={viewportRef}
       sceneReady={sceneReady}
+      sceneError={sceneError}
+      onViewportLoad={onViewportLoad}
       loading={!!viewportSrc && !effViewportSrc}
       loadError={realmStatus === "error"}
       onEngineStatus={handleEngineStatus}
     >
+      {playError && <div className="eui-boot eui-boot--error" role="alert">
+        <span>{playError}</span>
+        <button className="eui-btn" type="button" onClick={() => setPlayError(null)}>Dismiss</button>
+      </div>}
       {
 }
       <DeRibbon
@@ -850,6 +1014,7 @@ export default function DeWorkspace({
         saveLabel={chipHidden ? "" : saveChip.label}
         saveClass={saveChip.cls}
         playing={playing}
+        paused={runPaused}
         canUndo={history.canUndo()}
         canRedo={history.canRedo()}
         meters={meters}
@@ -902,16 +1067,36 @@ export default function DeWorkspace({
         onToggleLeft={() => setHideLeft((v) => !v)}
         hideRight={hideRight}
         onToggleRight={() => setHideRight((v) => !v)}
-        onCode={code ? () => setCodeOpen((v) => !v) : undefined}
+        onCode={code ? () => { setUIDesignerOpen(false); setCodeOpen((v) => !v); } : undefined}
         codeActive={codeOpen}
+        onUIDesigner={code?.project?.uiDesigner ? () => { setCodeOpen(false); setUIDesignerOpen(value => !value); } : undefined}
+        uiDesignerActive={uiDesignerOpen}
       />
       {!hideLeft &&
         (effLeft === "assets" ? (
           <DeAssetsPanel
+            cleanup={projectFiles?.assets ? <DeAssetCleanup project={projectFiles} exportComposite={busLive && !playing ? async () => {
+              const composite = await busRef.current?.exportComposite();
+              if (typeof composite !== "string") throw new Error("The current scene could not be inspected. Reconnect and try again.");
+              return composite;
+            } : undefined} /> : undefined}
+            customItems={code ? <DeCustomItems code={code} selectionName={activeName}
+              onCapture={busLive && !playing && placeableIds.length ? async () => {
+                const bus = busRef.current;
+                if (!bus) throw new Error("Reconnect the editor before saving a custom item.");
+                return bus.rpc("copyEntities", [placeableIds]);
+              } : undefined}
+              onPlace={busLive && !playing ? async payload => {
+                const bus = busRef.current;
+                if (!bus) throw new Error("Reconnect the editor before placing a custom item.");
+                await authorHierarchy("pasteEntities", [payload, "0"]);
+              } : undefined}
+            /> : undefined}
             catalog={catalog}
             local={local}
             live={live}
             preset={assetsPreset}
+            onBack={() => setAssetsOverride(false)}
             onPlace={placeTracked}
             placeStatus={placeStatus}
             onDragAsset={busLive ? setDragAsset : undefined}
@@ -922,7 +1107,23 @@ export default function DeWorkspace({
             title={title}
             tree={effTree}
             live={live}
-            onSelect={onHierSelect}
+            onSelectionChange={onHierSelection}
+            selectedIds={selectedIds}
+            onMove={onHierarchyMove}
+            onCopy={busLive && !playing && placeableIds.length ? async () => {
+              const bus = busRef.current;
+              if (!bus) throw new Error("Reconnect the editor before copying entities.");
+              await writeEntityClipboard(await bus.rpc("copyEntities", [placeableIds]));
+            } : undefined}
+            onPaste={busLive && !playing ? async () => {
+              const bus = busRef.current;
+              if (!bus) throw new Error("Reconnect the editor before pasting entities.");
+              const payload = await readEntityClipboard();
+              if (busRef.current !== bus) throw new Error("The editor reconnected. Paste again.");
+              await authorHierarchy("pasteEntities", [payload, activeId ?? "0"]);
+            } : undefined}
+            onDuplicate={duplicateHierarchy}
+            onUnparent={onHierarchyMove && placeableIds.length ? () => onHierarchyMove(placeableIds, "0", "inside") : undefined}
             onFocus={
               busLive
                 ? (id) => {
@@ -948,6 +1149,13 @@ export default function DeWorkspace({
       )}
       {!hideRight && !rootActive && (
         <DeInspectorPanel
+          assets={projectFiles?.assets}
+          materialSelection={materialSelection}
+          onAuthorMaterialSelection={busLive && !playing ? authorMaterialSelection : undefined}
+          clipboard={busLive && !playing ? {
+            copy: (entity, name) => busRef.current!.rpc("copyComponent", [String(entity), name]),
+            paste: (name, payload) => busRef.current!.rpc("pasteComponent", [selectedIds.map(String), name, payload]),
+          } : undefined}
           name={effInspector.name}
           id={effInspector.id}
           addOpen={addOpen || reveal?.target === "add"}
@@ -955,12 +1163,14 @@ export default function DeWorkspace({
           revealNonce={reveal?.n ?? 0}
           interactionsPreset={interPreset}
           components={effInspector.components}
+          writableComponents={live ? writableComponents : undefined}
           componentValues={
             activeId != null ? compValuesRef.current[String(activeId)] : undefined
           }
           transform={effInspector.transform}
           live={live}
-          onAuthorComponent={busLive ? authorComponent : undefined}
+          onAuthorComponent={busLive && !playing ? authorComponent : undefined}
+          onAuthorComponents={busLive && !playing ? authorComponents : undefined}
           onDeleteComponent={deleteComponent}
           onNudgeTransform={busLive ? nudgeTransform : undefined}
         />
@@ -1082,6 +1292,10 @@ export default function DeWorkspace({
       {mcpConsent && (
         <McpPairingConsentModal host={mcpConsent.host} onAnswer={answerMcpConsent} />
       )}
+      {assistantOpen && code?.project?.assistant && <Suspense fallback={<div role="status">Loading scene assistant&#x2026;</div>}>
+        <SceneAssistantPanel selectedEntities={selectedIds.slice(0, 100).map(id => ({ id: String(id), name: findNodeName(effTree, id) || `Entity ${id}` }))} assistant={code.project.assistant} onPair={pairAssistant} onClose={() => setAssistantOpen(false)} />
+      </Suspense>}
+      {uiDesignerOpen && code?.project?.uiDesigner && <Suspense fallback={<div role="status">Loading UI Designer&#x2026;</div>}><DeUIDesigner project={code.project} onClose={() => setUIDesignerOpen(false)} /></Suspense>}
       {codeOpen && code && (
         <Suspense
           fallback={

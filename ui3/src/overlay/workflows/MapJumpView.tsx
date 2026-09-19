@@ -235,7 +235,7 @@ export default function MapJumpView<P extends MjPin>({
                     className="map__jump"
                     onClick={onConfirm}
                   >
-                    jump in
+                    Jump in
                   </button>
                 </div>
               )}

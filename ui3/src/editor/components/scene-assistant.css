@@ -1,0 +1,27 @@
+.eui-assistant {
+  position: absolute;
+  inset-block: var(--eui-top-inset, 12px) 16px;
+  inset-inline-end: 16px;
+  z-index: 45;
+  pointer-events: auto;
+  width: min(440px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px #0006;
+}
+.eui-assistant header, .eui-assistant__actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.eui-assistant h2 { font-size: 16px; margin: 0; }
+.eui-assistant p { margin: 6px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.eui-assistant label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.eui-assistant__conversation { overflow: auto; flex: 1; min-height: 80px; }
+.eui-assistant__entry { padding: 12px 0; border-block-end: 1px solid var(--line); }
+.eui-assistant__entry p { white-space: pre-wrap; }
+.eui-assistant__entry strong { font-size: 12px; }
+.eui-assistant textarea { width: 100%; resize: vertical; margin: 6px 0 10px; }
+.eui-assistant [role="alert"] { color: var(--error, #ff9caa); }

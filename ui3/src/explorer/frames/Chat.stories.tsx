@@ -15,10 +15,11 @@ const meta = {
           "Nearby-chat island actually wired into the HUD: it reads " +
           "`useBridgeState().chat` / `.players` and submits via `sendBridge(\"SendChat\", \u{2026})`, " +
           "and it is the chat that `app/AppLayout.tsx` mounts at runtime. Closed, it renders " +
-          "nothing: Enter or the sidebar Chat button opens it with the input focused. Two " +
-          "visible states: open + idle (translucent \u{2014} bubbles float over the world), and " +
-          "open + active on hover/focus (solid panel with navbar, emoji picker, and the " +
-          "nearby-members list). The log auto-scrolls to the newest message.",
+          "nothing: Enter or the sidebar Chat button opens it with the input focused. " +
+          "Nearby, Messages and Communities share the ui3 message layout and composer. " +
+          "Signed-in users can search friends and communities, open a conversation, " +
+          "and retain their drafts across channel switches. New messages preserve " +
+          "the reader's scroll position and offer a jump to the latest message.",
       },
     },
   },

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DeWorkspace from "./DeWorkspace";
@@ -14,6 +14,7 @@ class FakeChannel {
   }
   postMessage(data: Envelope): void {
     FakeChannel.posted.push(data);
+    if (data.msg.type === "rpc" && data.msg.method === "exportComposite") queueMicrotask(() => deliver({ type: "rpc-reply", id: data.msg.id, ok: true, result: '{"version":1,"components":[]}' }));
   }
   close(): void {}
 }
@@ -31,7 +32,7 @@ function bootLive(selected: string[], active: string | null) {
   deliver({
     type: "scene-ready",
     bridge: 8,
-    scene: null,
+    scene: { hash: "scene-a", title: "Scene", parcels: [], isPortable: false, isBroken: false, isBlocked: false, isSuper: false, sdkVersion: "7" },
     frozen: true,
     tool: "translate",
     orientGlobal: false,
@@ -57,6 +58,21 @@ afterEach(() => {
 });
 
 describe("scene root is never deleted or duplicated", () => {
+  it("does not clear a new selection while deletion finishes saving undo history", async () => {
+    bootLive(["512"], "512");
+    deliver({ type: "entities", entities: [{ id: "512", name: "Palm", parent: "0" }, { id: "513", name: "Fern", parent: "0" }] });
+    deliver({ type: "selection", selected: ["512"], active: "512", components: { "512": PALM } });
+    fireEvent.keyDown(window, { key: "Delete" });
+    await waitFor(() => expect(sent("rpc").some(msg => msg.method === "removeEntities")).toBe(true));
+    const remove = sent("rpc").find(msg => msg.method === "removeEntities")!;
+    deliver({ type: "selection", selected: [], active: null, components: {} });
+    deliver({ type: "selection", selected: ["513"], active: "513", components: { "513": PALM } });
+    deliver({ type: "rpc-reply", id: remove.id, ok: true, result: ["512"] });
+    await waitFor(() => expect(screen.getByLabelText("Undo").hasAttribute("disabled")).toBe(false));
+    expect(sent("set-selection").some(message => Array.isArray(message.selected) && !message.selected.length)).toBe(false);
+    expect(screen.getByText("#513")).toBeTruthy();
+  });
+
   it("Delete and Ctrl+D with the root selected send nothing to the scene", () => {
     bootLive(["0"], "0");
     expect(FakeChannel.instances.length).toBeGreaterThan(0);
@@ -66,23 +82,33 @@ describe("scene root is never deleted or duplicated", () => {
     fireEvent.keyDown(window, { key: "d", ctrlKey: true });
     expect(sent("entity-deleted")).toEqual([]);
     expect(sent("add-entity")).toEqual([]);
+    expect(sent("rpc").filter(msg => msg.method === "copyEntities" || msg.method === "pasteEntities")).toEqual([]);
     const del = screen.getByLabelText("Delete") as HTMLButtonElement;
     expect(del.disabled).toBe(true);
   });
 
-  it("a root + item multi-selection deletes only the item, and a placed item still deletes and duplicates", () => {
+  it("a root + item multi-selection deletes only the item, and a placed item still deletes and duplicates", async () => {
     bootLive(["0", "512"], "512");
     deliver({ type: "entities", entities: [{ id: "512", name: "Palm", parent: "0" }] });
     deliver({ type: "selection", selected: ["0", "512"], active: "512", components: { "512": PALM } });
     fireEvent.keyDown(window, { key: "Delete" });
-    expect(sent("entity-deleted")).toEqual([{ type: "entity-deleted", entity: "512", recursive: true }]);
+    await waitFor(() => expect(sent("rpc").find(msg => msg.method === "removeEntities")?.args).toEqual([["512"]]));
+    const remove = sent("rpc").find(msg => msg.method === "removeEntities")!;
+    deliver({ type: "rpc-reply", id: remove.id, ok: true, result: ["512"] });
+    await waitFor(() => expect(screen.getByLabelText("Undo").hasAttribute("disabled")).toBe(false));
 
     deliver({ type: "selection", selected: ["512"], active: "512", components: { "512": PALM } });
     fireEvent.keyDown(window, { key: "d", ctrlKey: true });
-    expect(sent("add-entity")).toEqual([
-      { type: "add-entity", name: "Palm copy", parent: 0, components: { Transform: PALM.Transform } },
-    ]);
+    const copy = sent("rpc").find(msg => msg.method === "copyEntities")!;
+    expect(copy.args).toEqual([["512"]]);
+    expect(sent("rpc").filter(msg => msg.method === "pasteEntities")).toEqual([]);
+    const subtree = { version: 1, roots: ["512"], composite: "{\"version\":1,\"components\":[]}" };
+    deliver({ type: "rpc-reply", id: copy.id, ok: true, result: subtree });
+    await waitFor(() => expect(sent("rpc").find(msg => msg.method === "pasteEntities")?.args).toEqual([subtree, "0"]));
+    const paste = sent("rpc").find(msg => msg.method === "pasteEntities")!;
+    deliver({ type: "rpc-reply", id: paste.id, ok: true, result: ["600"] });
+    await act(async () => {});
     fireEvent.keyDown(window, { key: "Delete" });
-    expect(sent("entity-deleted")).toHaveLength(2);
+    await waitFor(() => expect(sent("rpc").filter(msg => msg.method === "removeEntities")).toHaveLength(2));
   });
 });

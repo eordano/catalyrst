@@ -90,17 +90,17 @@ describe("events jump in", () => {
     await user.click(within(modal).getByRole("button", { name: "CONTINUE" }));
     bridge.expectSent("ChangeRealm", { realm: "kickoff.dcl.eth" });
     bridge.expectNotSent("Teleport");
-    expect(screen.getByRole("status")).toHaveTextContent("Teleporting to World Bash");
+    expect(screen.getByText("Teleporting to World Bash\u2026")).toHaveAttribute("role", "status");
   });
 
   test("parcel event teleports on the current realm", async () => {
     const { bridge, user } = renderEvents();
     const featured = screen.getByRole("complementary", { name: "Featured event" });
-    await user.click(within(featured).getByRole("button", { name: "jump in" }));
+    await user.click(within(featured).getByRole("button", { name: "Jump in" }));
 
     bridge.expectSent("Teleport", { x: 10 * 16 + 8, z: -20 * 16 + 8 });
     bridge.expectNotSent("ChangeRealm");
     expect(screen.queryByRole("dialog", { name: "Visit world" })).toBeNull();
-    expect(screen.getByRole("status")).toHaveTextContent("Teleporting to Plaza Party");
+    expect(screen.getByText("Teleporting to Plaza Party\u2026")).toHaveAttribute("role", "status");
   });
 });

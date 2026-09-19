@@ -35,7 +35,7 @@ type GuideEntry = {
 };
 
 const SIDEBAR_TOP: GuideEntry[] = [
-  { icon: "overflow", label: "More options", help: "Opens Settings." },
+  { icon: "overflow", label: "More options", help: "Enlarge the sidebar to 150% or hide it automatically. Move to the screen edge to reveal it." },
   { label: "Profile", help: "Your name, wallet and sign-out. Opens your profile card; VIEW PROFILE opens the full passport." },
   { icon: "bell", label: "Notifications", help: "Friend requests, event reminders and rewards. The badge counts unread items." },
 ];

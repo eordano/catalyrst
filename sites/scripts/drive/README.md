@@ -43,6 +43,25 @@ fresh session, all surfaces incl. /docs) and a wrong route guess (/account ->
 /marketplace/account). Keep `allowConsole` entries NARROW and commented -- a
 blanket allow defeats the sweep.
 
+`--hud` adds the engine page after the sweep (`--hud-only` runs it alone):
+lobby -> every HUD panel by hash, the panel list read from
+`../ui3/src/app/panels/*.route.{jsx,tsx}` exactly as ui3's router does. The
+lobby has two screens and a fresh profile meets both: the guest form, then --
+once the world has loaded -- LobbyHome, whose "Enter the world" is what mounts
+the HUD; a profile that already holds an identity starts at LobbyHome. A router
+bounce or a main-thread console error fails; `HUD_ALLOW` in `smoke-routes.mts`
+is the engine-page noise list. The HUD mounts only after the engine reports
+world-ready and the browser launched here runs `--disable-gpu`, so on its own
+the lane gets through the lobby and then FAILS with no panel walked, naming what
+the page said -- the repo's skip contract (`test/e2e/require-dep.ts`):
+`ALLOW_SKIPPED_INTEGRATION=1` downgrades that to a `SKIPPED smoke-hud: ...`
+marker line and exit 0. To walk the panels, attach to a browser that has WebGPU:
+`--cdp-port <port>` (or `SMOKE_CDP_PORT`) uses a running chromium instead of
+launching one and closes only its own tab. `rig/bevy/hud-smoke.sh` is that,
+packaged: bench lock, the rig's GPU chromium on the bench compositor,
+`--hud-only --cdp-port`, teardown (17 panels in ~22 s).
+`deploy/scripts/check-all.sh smoke` runs the sweep, then that script.
+
 Scheduled: `deploy-smoke.timer` (systemd user, hourly at :06 via OnCalendar,
 Persistent) -- a non-zero exit leaves the unit failed, which the manager's
 supervisor ticks and the hourly `lore-drift-check` catch. (Was OnUnitActiveSec=1h: a failed oneshot never re-arms that, so one red sweep silently

@@ -14,14 +14,14 @@ import {
   buildWearableCatalogs,
   selectRandomWearables,
 } from "../../data/avatarRandomizer";
-import { loadBackpack } from "../../data/catalyst/backpack";
+import { useQueryClient } from "@tanstack/react-query";
+import { readWearables } from "../../data/hooks/useOwnedItems";
 import {
   getEngineAuthState,
   signOutEngineAuth,
   subscribeEngineAuth,
   type EngineAuthState,
 } from "../../data/auth/engineLogin";
-import { sendBridge } from "../../overlay/bridge";
 import WearablePreview from "../../wearable-preview/WearablePreview";
 import "./lobbynew.css";
 
@@ -47,12 +47,13 @@ export default function LobbyNew({ onJumpIn }: LobbyNewProps = {}) {
   const [signInOpen, setSignInOpen] = useState(false);
   const [identityTouched, setIdentityTouched] = useState(false);
   const catalogsRef = useRef<WearableCatalogs | null>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => subscribeEngineAuth(setAuth), []);
 
   useEffect(() => {
     let cancelled = false;
-    loadBackpack()
+    readWearables(queryClient)
       .then((bp) => {
         if (!cancelled) catalogsRef.current = buildWearableCatalogs(bp?.catalog);
       })
@@ -61,7 +62,7 @@ export default function LobbyNew({ onJumpIn }: LobbyNewProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [queryClient]);
 
   function touchIdentity() {
     setIdentityTouched(true);
@@ -72,11 +73,6 @@ export default function LobbyNew({ onJumpIn }: LobbyNewProps = {}) {
     touchIdentity();
     setBase(nextBase);
     setWearables(nextWears);
-    sendBridge("SetAvatar", {
-      base: { ...nextBase, name: name.trim() || nextBase.name },
-      equip: { wearableUrns: nextWears, emoteUrns: [], forceRender: [] },
-    });
-    sendBridge("RequestAvatarPreview", {});
   }
 
   function randomizeAvatar() {
@@ -129,6 +125,7 @@ export default function LobbyNew({ onJumpIn }: LobbyNewProps = {}) {
           spin
           controls={false}
           zoom={1.05}
+          pitch={18}
         />
       </div>
       <div className="lobbynew__avatarbar">
@@ -308,10 +305,10 @@ export default function LobbyNew({ onJumpIn }: LobbyNewProps = {}) {
               (jumpLeads ? "is-primary" : "is-secondary")
             }
             data-sb-linkto="Explorer/Workflows/Loading"
-            disabled={!agreed}
+            disabled={!agreed || !!auth.address}
             onClick={() => onJumpIn?.({ name: name.trim(), body, base, wearables })}
           >
-            <span className="lobbynew__jump-label">Continue as guest</span>
+            <span className="lobbynew__jump-label">{auth.address ? "Entering Decentraland\u2026" : "Continue as guest"}</span>
             <span className="lobbynew__jump-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16">
                 <path

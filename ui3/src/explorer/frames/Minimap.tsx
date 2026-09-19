@@ -31,7 +31,7 @@ export function jumpUrl(coords: string): string {
 }
 
 const MINIMAP_PX = 472;
-const MINIMAP_PARCEL_PX = 24;
+const MINIMAP_PARCEL_PX = 8;
 const MINIMAP_PCT_PER_PARCEL = (MINIMAP_PARCEL_PX / MINIMAP_PX) * 100;
 const MINIMAP_VIEW_RADIUS_PCT = 44;
 
@@ -61,9 +61,9 @@ function MenuLabel({ main, hint }: { main: string; hint: string }) {
 
 type OwnerModal = "feedback" | "tip" | null;
 
-type MinimapProps = { place?: string; coords?: string; heading?: number };
+type MinimapProps = { place?: string; coords?: string; heading?: number; inline?: boolean };
 
-export default function Minimap({ place = "", coords = "", heading }: MinimapProps) {
+export default function Minimap({ place = "", coords = "", heading, inline = false }: MinimapProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [ownerModal, setOwnerModal] = useState<OwnerModal>(null);
   const kebabRef = useRef<HTMLDivElement>(null);
@@ -107,7 +107,7 @@ export default function Minimap({ place = "", coords = "", heading }: MinimapPro
     : owner.loading
       ? "finding the owner\u{2026}"
       : owner.world
-        ? "not available in worlds"
+        ? "world owner unknown"
         : "owner unknown";
 
   const menuItems: ContextMenuItem[] = [
@@ -143,15 +143,9 @@ export default function Minimap({ place = "", coords = "", heading }: MinimapPro
   const modalScene = place || owner.sceneTitle || "";
 
   return (
-    <div className="mm__stage">
+    <div className={"mm__stage" + (inline ? " mm__stage--inline" : "")}>
       <div className="mm">
-        <div className="mm__header">
-          <button className="mm__expand" aria-label="Expand map" title="Expand" data-sb-linkto="Explorer/Pages/Map">
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-              <path d="M7 8l4 4-4 4M13 8l4 4-4 4" fill="none" stroke="currentColor"
-                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+        {!inline && <div className="mm__header">
           <div className="mm__place">
             <span className="mm__name u-truncate">{place}</span>
             <span className="mm__coords">
@@ -199,7 +193,7 @@ export default function Minimap({ place = "", coords = "", heading }: MinimapPro
               )}
             </div>
           </div>
-        </div>
+        </div>}
 
         <button
           type="button"

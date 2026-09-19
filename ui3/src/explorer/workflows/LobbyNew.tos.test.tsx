@@ -1,8 +1,11 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import LobbyNew from "./LobbyNew";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+vi.mock("../../wearable-preview/WearablePreview", () => ({ default: () => null }));
+const renderLobby = () => render(<QueryClientProvider client={new QueryClient()}><LobbyNew /></QueryClientProvider>);
 
 const checks = (root: HTMLElement) =>
   root.querySelector(".lobbynew__checks")?.className ?? "";
@@ -15,7 +18,7 @@ const TRIGGERS: Array<[string, "button" | "radio"]> = [
 
 describe("LobbyNew terms nudge", () => {
   test("the terms sit quiet until typing raises them once, and accepting the terms clears the nudge", async () => {
-    const { container } = render(<LobbyNew />);
+    const { container } = renderLobby();
     expect(checks(container)).not.toContain("is-nudged");
     expect(screen.queryByRole("alert")).toBeNull();
 
@@ -33,7 +36,7 @@ describe("LobbyNew terms nudge", () => {
 
   test("the random-name and body-shape controls raise the terms too", async () => {
     for (const [name, role] of TRIGGERS) {
-      const view = render(<LobbyNew />);
+      const view = renderLobby();
       await userEvent.click(screen.getByRole(role, { name }));
       expect(checks(view.container), name).toContain("is-nudged");
       expect(screen.getByRole("alert").textContent, name).toMatch(/accept the terms/i);
@@ -42,7 +45,7 @@ describe("LobbyNew terms nudge", () => {
   });
 
   test("with the terms already accepted, neither typing nor the other controls raise anything", async () => {
-    const typed = render(<LobbyNew />);
+    const typed = renderLobby();
     await userEvent.click(screen.getByRole("checkbox"));
     await userEvent.type(screen.getByLabelText("Username"), "a");
     expect(checks(typed.container)).not.toContain("is-nudged");
@@ -50,7 +53,7 @@ describe("LobbyNew terms nudge", () => {
     typed.unmount();
 
     for (const [name, role] of TRIGGERS) {
-      const view = render(<LobbyNew />);
+      const view = renderLobby();
       await userEvent.click(screen.getByRole("checkbox"));
       await userEvent.click(screen.getByRole(role, { name }));
       expect(checks(view.container), name).not.toContain("is-nudged");

@@ -45,7 +45,7 @@ export const NAME_ECONOMICS = {
   network: "ETHEREUM" as const,
   chainId: 1,
   registrarContractAddress: "0x2a187453064356c898cae034eaed119e1663acb8",
-  creditCompatible: true,
+  creditCompatible: false,
   maxNameSize: 15,
   minNameSize: 2,
 } as const;

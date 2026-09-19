@@ -194,24 +194,24 @@ fn build_min_price_where(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
         let bi = b.bind_string(mp);
 
         b.push_sql(&format!(
-            "(price >= ${} AND price IS DISTINCT FROM '{}')",
+            "(price >= ${}::numeric AND price IS DISTINCT FROM '{}')",
             bi, MAX_NUMERIC_NUMBER
         ));
         return;
     }
     if f.only_listing {
         let bi = b.bind_string(mp);
-        b.push_sql(&format!("min_price >= ${}", bi));
+        b.push_sql(&format!("min_price >= ${}::numeric", bi));
         return;
     }
     let bi = b.bind_string(mp);
     let mut s = format!(
-        "(min_price >= ${0} OR (price >= ${0} AND available > 0 AND (search_is_store_minter = true OR search_is_marketplace_v3_minter = true))",
+        "(min_price >= ${0}::numeric OR (price >= ${0}::numeric AND available > 0 AND (search_is_store_minter = true OR search_is_marketplace_v3_minter = true))",
         bi
     );
     if is_v2 {
         s.push_str(&format!(
-            " OR offchain_orders.min_order_amount_received >= ${}",
+            " OR offchain_orders.min_order_amount_received >= ${}::numeric",
             bi
         ));
     }
@@ -223,22 +223,22 @@ fn build_max_price_where(b: &mut Builder, f: &CatalogFilters, is_v2: bool) {
     let mp = f.max_price.clone().unwrap_or_default();
     if f.only_minting {
         let bi = b.bind_string(mp);
-        b.push_sql(&format!("price <= ${}", bi));
+        b.push_sql(&format!("price <= ${}::numeric", bi));
         return;
     }
     if f.only_listing {
         let bi = b.bind_string(mp);
-        b.push_sql(&format!("max_price <= ${}", bi));
+        b.push_sql(&format!("max_price <= ${}::numeric", bi));
         return;
     }
     let bi = b.bind_string(mp);
     let mut s = format!(
-        "(max_price <= ${0} OR (price <= ${0} AND available > 0 AND (search_is_store_minter = true OR search_is_marketplace_v3_minter = true))",
+        "(max_price <= ${0}::numeric OR (price <= ${0}::numeric AND available > 0 AND (search_is_store_minter = true OR search_is_marketplace_v3_minter = true))",
         bi
     );
     if is_v2 {
         s.push_str(&format!(
-            " OR offchain_orders.max_order_amount_received <= ${}",
+            " OR offchain_orders.max_order_amount_received <= ${}::numeric",
             bi
         ));
     }
@@ -518,17 +518,17 @@ fn build_order_range_price_where(b: &mut Builder, f: &CatalogFilters) {
     match (f.min_price.as_deref(), f.max_price.as_deref()) {
         (Some(mn), None) => {
             let bi = b.bind_string(mn.to_string());
-            b.push_sql(&format!(" AND orders.price >= ${}", bi));
+            b.push_sql(&format!(" AND orders.price >= ${}::numeric", bi));
         }
         (None, Some(mx)) => {
             let bi = b.bind_string(mx.to_string());
-            b.push_sql(&format!(" AND orders.price <= ${}", bi));
+            b.push_sql(&format!(" AND orders.price <= ${}::numeric", bi));
         }
         (Some(mn), Some(mx)) => {
             let bin = b.bind_string(mn.to_string());
             let bix = b.bind_string(mx.to_string());
             b.push_sql(&format!(
-                " AND orders.price >= ${} AND orders.price <= ${}",
+                " AND orders.price >= ${}::numeric AND orders.price <= ${}::numeric",
                 bin, bix
             ));
         }
@@ -663,11 +663,11 @@ pub(super) fn build_trades_join(b: &mut Builder, f: &CatalogFilters) {
     }
     if let Some(mn) = &f.min_price {
         let bi = b.bind_string(mn.clone());
-        b.push_sql(&format!(" AND amount_received >= ${}", bi));
+        b.push_sql(&format!(" AND amount_received >= ${}::numeric", bi));
     }
     if let Some(mx) = &f.max_price {
         let bi = b.bind_string(mx.clone());
-        b.push_sql(&format!(" AND amount_received <= ${}", bi));
+        b.push_sql(&format!(" AND amount_received <= ${}::numeric", bi));
     }
     b.push_sql(
         " GROUP BY contract_address_sent, assets -> 'sent' ->> 'item_id') AS offchain_orders ON offchain_orders.contract_address_sent = items.collection_id AND offchain_orders.item_id::numeric = items.blockchain_id LEFT JOIN ut_min_item ON offchain_orders.contract_address_sent = ut_min_item.contract_address_sent AND offchain_orders.item_id = ut_min_item.item_id ",
@@ -759,7 +759,7 @@ pub(super) fn build_get_min_price_case(b: &mut Builder, f: &CatalogFilters) {
     );
     if let Some(mn) = &f.min_price {
         let bi = b.bind_string(mn.clone());
-        expr.push_str(&format!(" AND items.price >= ${}", bi));
+        expr.push_str(&format!(" AND items.price >= ${}::numeric", bi));
     }
     expr.push_str(
         " THEN LEAST(items.price, nfts_with_orders.min_price) ELSE nfts_with_orders.min_price END)",
@@ -776,7 +776,7 @@ pub(super) fn build_get_max_price_case(b: &mut Builder, f: &CatalogFilters) {
         );
         if let Some(mx) = &f.max_price {
             let bi = b.bind_string(mx.clone());
-            expr.push_str(&format!(" AND items.price <= ${}", bi));
+            expr.push_str(&format!(" AND items.price <= ${}::numeric", bi));
         }
         expr.push_str(" THEN items.price ELSE NULL END)");
         b.push_sql(&format!(
@@ -788,7 +788,7 @@ pub(super) fn build_get_max_price_case(b: &mut Builder, f: &CatalogFilters) {
         );
         if let Some(mx) = &f.max_price {
             let bi = b.bind_string(mx.clone());
-            expr.push_str(&format!(" AND items.price <= ${}", bi));
+            expr.push_str(&format!(" AND items.price <= ${}::numeric", bi));
         }
         expr.push_str(
             " THEN GREATEST(items.price, nfts_with_orders.max_price) ELSE nfts_with_orders.max_price END)",
@@ -805,7 +805,7 @@ pub(super) fn build_get_min_price_case_with_trades(b: &mut Builder, f: &CatalogF
     );
     if let Some(mn) = &f.min_price {
         let bi = b.bind_string(mn.clone());
-        expr.push_str(&format!(" AND items.price >= ${}", bi));
+        expr.push_str(&format!(" AND items.price >= ${}::numeric", bi));
     }
     if f.only_minting {
         expr.push_str(&format!(
@@ -828,7 +828,7 @@ pub(super) fn build_get_max_price_case_with_trades(b: &mut Builder, f: &CatalogF
         let mut expr = String::from(" (CASE WHEN items.available > 0 AND (items.search_is_store_minter = true OR items.search_is_marketplace_v3_minter = true) ");
         if let Some(mx) = &f.max_price {
             let bi = b.bind_string(mx.clone());
-            expr.push_str(&format!(" AND items.price <= ${}", bi));
+            expr.push_str(&format!(" AND items.price <= ${}::numeric", bi));
         }
         expr.push_str(" THEN GREATEST(items.price, offchain_orders.max_order_amount_received, offchain_orders.open_item_trade_price) ELSE GREATEST(offchain_orders.max_order_amount_received, offchain_orders.open_item_trade_price) END)");
         b.push_sql(&format!(
@@ -838,7 +838,7 @@ pub(super) fn build_get_max_price_case_with_trades(b: &mut Builder, f: &CatalogF
         let mut expr = String::from(" (CASE WHEN items.available > 0 AND (items.search_is_store_minter = true OR items.search_is_marketplace_v3_minter = true) ");
         if let Some(mx) = &f.max_price {
             let bi = b.bind_string(mx.clone());
-            expr.push_str(&format!(" AND items.price <= ${}", bi));
+            expr.push_str(&format!(" AND items.price <= ${}::numeric", bi));
         }
         expr.push_str(" THEN GREATEST(items.price, nfts_with_orders.max_price, offchain_orders.max_order_amount_received, offchain_orders.open_item_trade_price) ELSE GREATEST(nfts_with_orders.max_price, offchain_orders.max_order_amount_received, offchain_orders.open_item_trade_price) END)");
         b.push_sql(&format!(

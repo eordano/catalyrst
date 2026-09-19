@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 
 import DeWorkspace from "@ui/editor/pages/DeWorkspace";
+import type { DeWorkspaceCode } from "@ui/editor/types";
+import DeSceneSettings from "@ui/editor/components/DeSceneSettings";
+import { openSceneSettingsFile } from "@data/lib/fs/scene-settings-file";
 import { placedProjectContents } from "@ui/editor/project-cache";
 import DeEditorAppBar, { DeEditorControlsBar as Controls } from "@ui/editor/components/DeEditorAppBar";
 import { STARTER_TEMPLATES } from "@ui/creatorhub/pages/ChTemplates";
@@ -13,6 +16,7 @@ import type {
 import type { CatalogItem } from "@data/lib/catalyst/creator-hub/asset-catalog.server";
 import { buildScaffoldFiles } from "@data/lib/fs/scaffold-project";
 import { hasTemplateComposite } from "@data/lib/fs/template-composites";
+import type { SdkProjectConnection, SdkProject } from "@data/lib/fs/sdk-project";
 import {
   NO_COMPOSITE_CODE_ONLY_HINT,
   NO_COMPOSITE_HINT,
@@ -23,6 +27,21 @@ import {
   slugifyProjectTitle,
   ensureHandlePermission,
 } from "@data/lib/fs/handle-store";
+
+function sdkFileProject(connection: SdkProjectConnection): NonNullable<DeWorkspaceCode["project"]> {
+  return {
+    id: connection.url,
+    list: () => connection.list(),
+    read: path => connection.read(path),
+    readOnly: path => connection.readOnly(path),
+    write: (path, content) => connection.write(path, content),
+    remove: path => connection.remove(path),
+    createFileSession: () => sdkFileProject(connection.createFileSession()),
+    assistant: connection.assistant,
+    assets: connection.assets,
+    uiDesigner: connection.uiDesigner,
+  };
+}
 
 type EditorWizardProps = {
   seed: SceneEditorSeed;
@@ -36,6 +55,9 @@ type EditorWizardProps = {
   template?: string;
   failedToLoadLocal?: boolean;
   from?: string | null;
+  sdkProject?: SdkProjectConnection;
+  sdkDescriptor?: SdkProject;
+  onDevicePreview?: () => void;
 };
 
 type DiskSaveState =
@@ -66,6 +88,9 @@ const MUTATING_TO_SCENE = new Set<PageToSceneMessage["type"]>([
 ]);
 
 export default function EditorWizard({
+  sdkProject,
+  sdkDescriptor,
+  onDevicePreview,
   seed,
   onExit,
   onPublish,
@@ -84,6 +109,7 @@ export default function EditorWizard({
   const [diskSave, setDiskSave] = useState<DiskSaveState>({ phase: "idle" });
   const [diskOpen, setDiskOpen] = useState<DiskOpenState>({ phase: "idle" });
   const [enginePlaying, setEnginePlaying] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [engineStatus, setEngineStatus] = useState<"connecting" | "online" | "offline">(
     "connecting",
   );
@@ -96,6 +122,7 @@ export default function EditorWizard({
       const env = (ev.data ?? null) as BusEnvelope | null;
       if (!env || typeof env !== "object" || !env.msg) return;
       if (env.to === "scene" && MUTATING_TO_SCENE.has(env.msg.type)) dirtyRef.current = true;
+      if (env.to === "scene" && env.msg.type === "rpc" && ["moveHierarchy", "pasteEntities", "pasteComponent", "writeComponents", "removeComponent", "removeEntities", "addEntity"].includes(env.msg.method)) dirtyRef.current = true;
       if (env.to === "page" && env.msg.type === "drag-end") dirtyRef.current = true;
       if (env.to === "page" && env.msg.type === "play-state") {
         setEnginePlaying(env.msg.playing === true);
@@ -136,23 +163,16 @@ export default function EditorWizard({
     const slug = slugifyProjectTitle(scene.title);
     let composite: string | null = null;
     if (viewportSrc) {
-      try {
-        const [{ normalizeEngineComposite }, { createEditorBus }] = await Promise.all([
-          import("@data/lib/fs/save-scene"),
-          import("@ui/editor/editor-bus"),
-        ]);
-        const bus = createEditorBus();
-        try {
-          composite = normalizeEngineComposite(await bus.exportComposite(2000));
-        } finally {
-          bus.close();
-        }
-      } catch {
-        composite = null;
-      }
+      const { requireEngineComposite } = await import("@data/lib/fs/save-scene");
+      composite = await requireEngineComposite();
     }
     composite = composite ?? rawComposite ?? null;
     if (!composite) return null;
+    if (sdkProject) {
+      await sdkProject.write(sdkDescriptor?.compositePath || "main.composite", composite);
+      dirtyRef.current = false;
+      return null;
+    }
     await handleStore.putMeta(slug, {
       title: scene.title,
       base: scene.base,
@@ -179,7 +199,7 @@ export default function EditorWizard({
   const guardedPublish = onPublish
     ? (id?: string) => {
         if (
-          dirtyRef.current &&
+          !sdkProject && dirtyRef.current &&
           typeof window !== "undefined" &&
           !window.confirm(
             "You have unsaved changes. Continue to publish? A draft of this scene will be kept so you can come back.",
@@ -188,8 +208,8 @@ export default function EditorWizard({
           return;
         }
         void persistPublishDraft()
-          .catch(() => null)
-          .then((draft) => onPublish(id, draft ?? undefined));
+          .then((draft) => onPublish(id, draft ?? undefined))
+          .catch((error) => setDiskSave({ phase: "error", message: error instanceof Error ? error.message : "The scene could not be prepared for publishing." }));
       }
     : undefined;
 
@@ -201,12 +221,17 @@ export default function EditorWizard({
     typeof DeWorkspace
   >["tree"];
   const workspaceCode = useMemo(() => {
+    if (sdkProject) return {
+      typesUrl: "/dcl-sdk-types.json",
+      project: sdkFileProject(sdkProject),
+    };
     const slug = slugifyProjectTitle(seed.scene.title);
     return {
       typesUrl: "/dcl-sdk-types.json",
       virtualFiles: buildScaffoldFiles({
         name: seed.scene.title,
         template: seed.scene.template,
+        parcels: seed.scene.parcels,
       }),
       getDir: async () => {
         try {
@@ -234,7 +259,8 @@ export default function EditorWizard({
         });
       },
     };
-  }, [seed.scene.title, seed.scene.base, seed.scene.template]);
+  }, [seed.scene.title, seed.scene.base, seed.scene.template, sdkProject]);
+  const loadSettings = useCallback(() => openSceneSettingsFile(workspaceCode), [workspaceCode]);
   const localAssets =
     (seed.assetCatalog as { local?: { path: string; folder: string }[] }).local ?? [];
   const selectedNode = seed.hierarchy.find((n) => n.selected) ?? seed.hierarchy[0];
@@ -437,6 +463,16 @@ export default function EditorWizard({
   }
 
   async function onSaveToDisk() {
+    if (sdkProject) {
+      setDiskSave({ phase: "saving" });
+      try {
+        await persistPublishDraft();
+        setDiskSave({ phase: "saved", via: "fsa-handle", filename: sdkDescriptor?.compositePath || "main.composite", entities: seed.hierarchy.length });
+      } catch (error) {
+        setDiskSave({ phase: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
     if (diskSave.phase === "saving" || enginePlaying) return;
     setDiskSave({ phase: "saving" });
     try {
@@ -547,6 +583,12 @@ export default function EditorWizard({
     <div className="editor-wizard">
       <DeEditorAppBar
         title={seed.scene.title}
+        projectTools={<nav aria-label="Project tools" className="editor-wizard__project-tools">
+          <button type="button" className="editor-wizard__btn" disabled={enginePlaying} onClick={() => setSettingsOpen(true)}>Scene settings</button>
+          {sdkProject && <a href={sdkProject.link("storage")} target="_blank" rel="noreferrer">Storage</a>}
+          {onDevicePreview && <button type="button" className="editor-wizard__btn" onClick={onDevicePreview}>Device preview</button>}
+          {sdkProject && <span title={sdkDescriptor?.capabilities.watch ? "Preview rebuilds on save" : "File watching is off"}>SDK project</span>}
+        </nav>}
         viewportSrc={viewportSrc}
         previewSrc={previewSrc}
         engine={engineStatus}
@@ -564,10 +606,11 @@ export default function EditorWizard({
         viewportSrc={viewportSrc}
         rawComposite={rawComposite}
         code={workspaceCode}
-        prepareRealm={gameTemplateId ? prepareRealm : undefined}
+        prepareRealm={!sdkProject && gameTemplateId ? prepareRealm : undefined}
         onEngineStatus={setEngineStatus}
         onSaveToDisk={enginePlaying ? undefined : onSaveToDisk}
-        onOpenFromDisk={enginePlaying ? undefined : () => void onOpenFromDisk()}
+        onSceneSettings={enginePlaying ? undefined : () => setSettingsOpen(true)}
+        onOpenFromDisk={enginePlaying || sdkProject ? undefined : () => void onOpenFromDisk()}
         onPublish={guardedPublish ? () => guardedPublish() : undefined}
         sceneInfo={{
           base: seed.scene.base,
@@ -592,6 +635,7 @@ export default function EditorWizard({
       {liveCopyNote}
       {openStatusStrip}
       {saveStatusStrip}
+      {settingsOpen && <DeSceneSettings load={loadSettings} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

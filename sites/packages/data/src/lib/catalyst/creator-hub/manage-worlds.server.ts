@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { CatalystError, getJSON } from "../client";
 import type { GetOptions } from "../client";
+import { withDeadline } from "../../request-deadline";
 import { fetchWorldsRealm, personalWorldName } from "./deploy-world";
 import {
   parseManagedWorlds,
@@ -83,12 +84,13 @@ async function fetchLiveWorlds(
   names: DclName[],
   address: string,
   personalWorlds: boolean,
+  counts: Map<string, number>,
   opts: GetOptions = {},
 ): Promise<ManagedWorld[]> {
   const owner = normalizeAddress(address);
   const resolved = await Promise.all(
     worldNamesFor(names, address, personalWorlds).map(async (worldName) => {
-      const deployedScenes = await resolveWorldScenes(worldName, opts);
+      const deployedScenes = counts.get(worldName) ?? await resolveWorldScenes(worldName, opts);
       return {
         name: worldName,
         owner,
@@ -99,6 +101,24 @@ async function fetchLiveWorlds(
     }),
   );
   return parseManagedWorlds(resolved);
+}
+
+async function fetchWorldCounts(address: string, opts: GetOptions): Promise<Map<string, number>> {
+  try {
+    const raw = await withDeadline((signal) => getJSON<unknown>("/worlds", {
+      ...opts,
+      signal,
+      query: { authorized_deployer: address, limit: 1000 },
+    }), 1000, opts.signal);
+    const parsed = z.object({ worlds: z.array(z.object({
+      name: z.string(),
+      deployed_scenes: z.number().int().nonnegative(),
+    })) }).parse(raw);
+    return new Map(parsed.worlds.map((world) => [world.name.toLowerCase(), world.deployed_scenes]));
+  } catch {
+    opts.signal?.throwIfAborted();
+    return new Map();
+  }
 }
 
 export async function loadManageWorlds(
@@ -116,11 +136,12 @@ export async function loadManageWorlds(
   }
 
   const get: GetOptions = { signal, fetchImpl: opts.fetchImpl };
-  const [names, personalWorlds] = await Promise.all([
+  const [names, personalWorlds, counts] = await Promise.all([
     fetchLiveNames(address, get),
     realmOffersPersonalWorlds(get),
+    fetchWorldCounts(wallet, get),
   ]);
-  const worlds = await fetchLiveWorlds(names, address, personalWorlds, get);
+  const worlds = await fetchLiveWorlds(names, address, personalWorlds, counts, get);
 
   return {
     address,

@@ -122,6 +122,7 @@ export interface ConnectOptions {
   token?: string | null;
   getViewportEl?: () => HTMLIFrameElement | null;
   takeover?: boolean;
+  onPairingChange?: (paired: boolean, error?: string) => void;
 }
 
 export interface AutoConnectOptions extends Omit<ConnectOptions, "url" | "token"> {
@@ -560,6 +561,7 @@ export function connect(opts: ConnectOptions): () => void {
       switch (frame.kind) {
         case "hello-ok":
           paired = true;
+          opts.onPairingChange?.(true);
           reconnectMs = RECONNECT_MIN_MS;
           setBadge("MCP \u{25CF}", "#4ade80");
           break;
@@ -592,10 +594,12 @@ export function connect(opts: ConnectOptions): () => void {
         ev.code === RELAY_CLOSE.REPLACED
       ) {
         detachedReason = ev.reason || `close ${ev.code}`;
+        opts.onPairingChange?.(false, detachedReason);
         setBadge("MCP detached", "#f87171");
         console.warn(`[mcp-bridge] detached: ${detachedReason}`);
         return;
       }
+      opts.onPairingChange?.(false);
       scheduleReconnect();
     };
     socket.onerror = () => {

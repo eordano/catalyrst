@@ -16,6 +16,7 @@ export type FetchCatalogParams = {
   sortBy?: string;
   search?: string;
   network?: string;
+  minPrice?: string;
 };
 
 export async function fetchCatalog(
@@ -34,6 +35,7 @@ export async function fetchCatalog(
         sortBy: params.sortBy,
         search: params.search,
         network: params.network,
+        minPrice: params.minPrice,
       },
     }),
   );

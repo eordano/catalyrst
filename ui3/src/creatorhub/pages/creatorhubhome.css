@@ -350,3 +350,7 @@
   .chh__title { margin-bottom: 24px; }
   .chh__grid { gap: 18px; }
 }
+
+.chh__account-name {
+  white-space: nowrap;
+}

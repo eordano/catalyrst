@@ -76,7 +76,9 @@ describe("connection pushes", () => {
     const { user, bridge } = renderHud();
     await user.click(connBadge());
     const dialog = screen.getByRole("dialog", { name: "Connection status" });
-    expect(within(dialog).getAllByText("\u{2026}")).toHaveLength(4);
+    expect(within(dialog).getByRole("tab", { name: "Performance" })).toHaveAttribute("aria-selected", "true");
+    await user.click(within(dialog).getByRole("tab", { name: "Connection" }));
+    expect(within(dialog).getAllByText("\u{2026}")).toHaveLength(3);
 
     bridge.pushScene({ realm: "hela" });
     bridge.pushConnection({ sceneHealth: "ok", sceneRoom: false, globalRoom: true });
@@ -99,11 +101,11 @@ describe("chat pushes", () => {
   test("chat starts honest-empty, then accumulates pushed lines in order, naming anonymous senders by short address", async () => {
     const { user, bridge } = renderHud();
     await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
-    expect(screen.getByText("No messages yet \u{2014} say hello to Nearby.")).toBeInTheDocument();
+    expect(screen.getByText("No messages yet. Say hello to people nearby.")).toBeInTheDocument();
 
     bridge.pushChat({ senderName: "Ripley", message: "first", timestamp: 1 });
     bridge.pushChat({ senderName: "", senderAddress: "0xabcdef1234567890abcdef1234567890abcdef12", message: "second", timestamp: 2 });
-    expect(screen.queryByText("No messages yet \u{2014} say hello to Nearby.")).toBeNull();
+    expect(screen.queryByText("No messages yet. Say hello to people nearby.")).toBeNull();
     expect(screen.getByText("Ripley")).toBeInTheDocument();
     expect(screen.getByText("0xabcd\u{2026}ef12")).toBeInTheDocument();
     expect(screen.getAllByText(/^(first|second)$/).map((n) => n.textContent)).toEqual(["first", "second"]);
@@ -147,4 +149,20 @@ describe("login code and mic pushes", () => {
     expect(screen.getByRole("button", { name: "Mic on \u{2014} click to mute" })).toHaveAttribute("aria-pressed", "true");
     expect(within(sidebar()).getByRole("button", { name: "Voice Chat" }).querySelector(".sb__presence")).not.toBeNull();
   });
+});
+
+
+test("chat shows Friends only with friends and returns to Nearby when the last friend is removed", async () => {
+  const { user, bridge } = renderHud();
+  await user.click(within(sidebar()).getByRole("button", { name: "Chat" }));
+  const channels = within(screen.getByRole("group", { name: "Chat channels" }));
+  expect(channels.queryByRole("button", { name: "Friends" })).toBeNull();
+  expect(channels.queryByRole("button", { name: "Messages" })).toBeNull();
+  bridge.pushFriends({ friends: [makeFriend({ name: "Ada", status: "offline" })] });
+  await user.click(channels.getByRole("button", { name: "Friends" }));
+  expect(channels.getByRole("button", { name: "Friends" })).toHaveAttribute("aria-pressed", "true");
+  bridge.pushFriends({ friends: [] });
+  expect(channels.queryByRole("button", { name: "Friends" })).toBeNull();
+  expect(channels.getByRole("button", { name: "Nearby" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByLabelText("Send a message to Nearby chat")).toBeVisible();
 });

@@ -523,7 +523,7 @@ export default function MapPanel() {
     (view: (PlaceView & { name?: string }) | null) => {
       if (!view) return;
       teleportTo(view);
-      beginJump(view.name || "destination");
+      beginJump(view.name || "destination", view.world ? undefined : `${view.x},${view.y}`);
     },
     [beginJump],
   );
@@ -534,7 +534,7 @@ export default function MapPanel() {
         x: f.x * PARCEL_SIZE + PARCEL_SIZE / 2,
         z: f.y * PARCEL_SIZE + PARCEL_SIZE / 2,
       });
-      beginJump(f.name);
+      beginJump(f.name, `${f.x},${f.y}`);
     },
     [beginJump],
   );
@@ -903,7 +903,7 @@ export default function MapPanel() {
                 className="map__jump"
                 onClick={() => jumpToFriend(selectedFriend)}
               >
-                jump in
+                Jump in
               </button>
             </div>
           </div>
@@ -953,7 +953,7 @@ export default function MapPanel() {
             </div>
             <div className="map__infoactions">
               <button className="map__jump" onClick={() => requestJumpIn(sel)}>
-                jump in
+                Jump in
               </button>
               <button className="map__nav" onClick={() => setDetailOpen(true)}>
                 details

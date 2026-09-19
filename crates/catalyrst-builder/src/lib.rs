@@ -28,6 +28,7 @@ pub struct AppStateInner {
 
     pub marketplace: Option<MarketplaceComponent>,
     pub content_bucket_url: String,
+    pub polygon_rpc_url: Option<String>,
     pub catalog: Option<Arc<CatalogStore>>,
     pub admin_addresses: Vec<String>,
     pub newsletter_service_url: Option<String>,
@@ -116,6 +117,7 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
         newsletter: NewsletterComponent::new(pool.clone()),
         marketplace,
         content_bucket_url: cfg.content_bucket_url.clone(),
+        polygon_rpc_url: cfg.polygon_rpc_url.clone(),
         catalog,
         admin_addresses: cfg.admin_addresses.clone(),
         newsletter_service_url: cfg.newsletter_service_url.clone(),
@@ -129,12 +131,58 @@ pub async fn build_state(cfg: &Config) -> Result<AppState> {
 pub fn api_router() -> Router<AppState> {
     Router::new()
         .route(
+            "/v1/items/{id}/files",
+            post(handlers::drafts::post_item_files)
+                .layer(axum::extract::DefaultBodyLimit::max(21 * 1024 * 1024)),
+        )
+        .route(
+            "/v1/collections/{id}/publication",
+            get(handlers::drafts::get_publication)
+                .post(handlers::publication::begin)
+                .put(handlers::publication::transaction)
+                .delete(handlers::publication::cancel)
+                .patch(handlers::publication::claim),
+        )
+        .route(
+            "/v1/collections/{id}/publication/status",
+            get(handlers::publication::status),
+        )
+        .route(
+            "/v1/collections/{id}/linked-publication",
+            get(handlers::linked_publication::prepare)
+                .post(handlers::linked_publication::begin)
+                .patch(handlers::linked_publication::claim)
+                .put(handlers::linked_publication::authorize)
+                .delete(handlers::linked_publication::cancel)
+                .layer(axum::middleware::map_response(
+                    handlers::linked_publication::private_response,
+                )),
+        )
+        .route(
+            "/v1/collections/{id}/linked-publication/status",
+            get(handlers::linked_publication::status).layer(axum::middleware::map_response(
+                handlers::linked_publication::private_response,
+            )),
+        )
+        .route(
+            "/v1/collections/{id}/linked-publication/verify",
+            post(handlers::linked_publication::verify).layer(axum::middleware::map_response(
+                handlers::linked_publication::private_response,
+            )),
+        )
+        .route("/v1/collections", get(handlers::drafts::get_drafts))
+        .route("/v1/items", get(handlers::drafts::get_item_drafts))
+        .route(
+            "/v1/items/{id}",
+            get(handlers::drafts::get_item).put(handlers::drafts::put_item),
+        )
+        .route(
             "/v1/collections/{id}/items",
             get(handlers::collections::get_collection_items),
         )
         .route(
             "/v1/collections/{id}",
-            get(handlers::collections::get_collection),
+            get(handlers::collections::get_collection).put(handlers::drafts::put_collection),
         )
         .route(
             "/v1/collections/curation",

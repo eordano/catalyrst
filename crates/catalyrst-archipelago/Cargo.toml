@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-archipelago"
-version = "0.27.0"
+version = "0.29.0"
 edition = "2021"
 description = "Rust port of decentraland/archipelago-workers -- ws-connector and stats over the Pulse cluster feed. Port 5139."
 

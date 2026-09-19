@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { catalystBase } from "../client";
+import { catalystBase, worldsBase } from "../client";
 import { track } from "@core/lib/telemetry/track";
 import editorDefaults from "./scene-editor-defaults.data.json";
 
@@ -171,6 +171,7 @@ type LoadSeedOptions = {
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   pointer?: string;
+  world?: string;
 };
 
 const DERIVED_ASSET_CAP = 64;
@@ -401,10 +402,10 @@ async function fetchCompositeJSON(
   hash: string,
   opts: LoadSeedOptions,
 ): Promise<unknown | null> {
-  const base = catalystBase(opts.base);
+  const base = opts.world ? worldsBase(opts.base) : `${catalystBase(opts.base)}/content`;
   const doFetch = opts.fetchImpl ?? fetch;
   try {
-    const res = await doFetch(`${base}/content/contents/${hash}`, {
+    const res = await doFetch(`${base}/contents/${hash}`, {
       signal: opts.signal,
       headers: { accept: "application/json" },
     });
@@ -440,31 +441,48 @@ type ActiveEntity = {
 async function fetchActiveEntity(
   opts: LoadSeedOptions = {},
 ): Promise<ActiveEntity | null> {
-  const base = catalystBase(opts.base);
+  const base = opts.world ? worldsBase(opts.base) : `${catalystBase(opts.base)}/content`;
   const pointer = opts.pointer?.trim();
   if (!pointer) return null;
-  const url = `${base}/content/entities/active`;
   const doFetch = opts.fetchImpl ?? fetch;
 
   try {
-    const res = await doFetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ pointers: [pointer] }),
-      signal: opts.signal,
-    });
+    let res: Response;
+    if (opts.world) {
+      const list = await doFetch(`${base}/world/${encodeURIComponent(opts.world)}/scenes`, {
+        signal: opts.signal,
+      });
+      if (!list.ok) return null;
+      const scenes = z.object({ scenes: z.array(z.object({
+        entityId: z.string(), baseParcel: z.string(), parcels: z.array(z.string()),
+      })) }).safeParse(await list.json());
+      if (!scenes.success) return null;
+      const scene = scenes.data.scenes.find((entry) => entry.baseParcel === pointer || entry.parcels.includes(pointer));
+      if (!scene) return null;
+      res = await doFetch(`${base}/contents/${encodeURIComponent(scene.entityId)}`, { signal: opts.signal });
+    } else {
+      res = await doFetch(`${base}/entities/active`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ pointers: [pointer] }),
+        signal: opts.signal,
+      });
+    }
     if (!res.ok) return null;
-    const raw = (await res.json()) as unknown;
+    const json: unknown = await res.json();
+    const raw = opts.world ? [json] : json;
     if (!Array.isArray(raw) || raw.length === 0) return null;
 
-    const parsed = ActiveEntitySchema.safeParse(raw[0]);
-    if (!parsed.success) return null;
-    const e = parsed.data;
-    if (e.type !== "scene") return null;
+    const entities = raw.map((value) => ActiveEntitySchema.safeParse(value))
+      .flatMap((result) => result.success && result.data.type === "scene" ? [result.data] : []);
+    const e = opts.world
+      ? entities.find((entity) => entity.metadata?.scene?.base === pointer || entity.pointers.includes(pointer))
+      : entities[0];
+    if (!e) return null;
 
     return {
       info: {
-        pointer,
+        pointer: opts.world || pointer,
         title: e.metadata?.display?.title ?? "Untitled scene",
         base: e.metadata?.scene?.base ?? pointer,
         parcels: e.pointers,
@@ -521,6 +539,7 @@ export async function loadSceneEditorSeed(
   opts: LoadSeedOptions = {},
 ): Promise<SceneEditorSeed> {
   const seed = emptySeed(opts.pointer);
+  if (opts.world) seed.scene.pointer = opts.world;
 
   const entity = await fetchActiveEntity(opts);
   if (!entity) return seed;
@@ -545,6 +564,7 @@ export function buildViewportUrl(opts: {
   position?: string | null;
   preview?: boolean;
   systemScene?: string | null;
+  portables?: string;
   editorUi?: boolean;
 }): string {
   const playUrl = (opts.playUrl || "https://catalyst.example.com/play").replace(/\/+$/, "");
@@ -553,6 +573,7 @@ export function buildViewportUrl(opts: {
   q.set("position", opts.position || "0,0");
   if (opts.preview) q.set("preview", "true");
   if (opts.systemScene) q.set("systemScene", opts.systemScene);
+  if (opts.portables !== undefined) q.set("portables", opts.portables);
   if (opts.editorUi) q.set("editorUi", "1");
   return `${playUrl}/?${q.toString()}`;
 }

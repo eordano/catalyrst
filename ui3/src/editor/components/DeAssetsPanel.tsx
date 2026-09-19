@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { DeCatalogItem, DeLocalItem } from "../types";
 import { PROJECT_CACHE, projectContentBase, type PlaceAssetOutcome } from "../project-cache";
 import { ModelGlyph } from "./DeIcons";
@@ -14,6 +14,8 @@ export interface DeAssetsPreset {
 }
 
 interface DeAssetsPanelProps {
+  customItems?: ReactNode;
+  cleanup?: ReactNode;
   tab?: "catalog" | "local";
   preset?: DeAssetsPreset | null;
   width?: number;
@@ -23,6 +25,7 @@ interface DeAssetsPanelProps {
   onPlace?: PlaceAssetFn;
   onDragAsset?: (asset: DeCatalogItem | null) => void;
   placeStatus?: PlaceStatus | null;
+  onBack?: () => void;
 }
 
 type PlaceDrop = { x: number; y: number } | null;
@@ -76,6 +79,7 @@ function AssetThumb({ a }: { a: DeCatalogItem }) {
     >
       {showImg ? (
         <img
+          crossOrigin="anonymous"
           src={a.thumbnailUrl}
           alt=""
           loading="lazy"
@@ -90,6 +94,8 @@ function AssetThumb({ a }: { a: DeCatalogItem }) {
 }
 
 export function DeAssetsPanel({
+  customItems,
+  cleanup,
   tab = "catalog",
   preset = null,
   width = 300,
@@ -99,25 +105,33 @@ export function DeAssetsPanel({
   onPlace = undefined,
   onDragAsset = undefined,
   placeStatus = undefined,
+  onBack,
 }: DeAssetsPanelProps) {
-  const [active, setActive] = useState(tab);
+  const [active, setActive] = useState<"catalog" | "local" | "custom">(tab);
   useOneShot(preset?.nonce ?? 0, () => {
     if (preset?.tab) setActive(preset.tab);
   });
   return (
     <div className="eui-panel eui-left" style={{ width }}>
+      {onBack && (
+        <div className="eui-panel-head">
+          <button type="button" className="eui-btn" onClick={onBack} aria-label="Back to scene">
+            &#x2190; Scene
+          </button>
+        </div>
+      )}
       <div className="eui-seg">
-        {(["catalog", "local"] as const).map((t) => (
+        {((customItems ? ["catalog", "local", "custom"] : ["catalog", "local"]) as Array<"catalog" | "local" | "custom">).map((t) => (
           <button
             key={t}
             className={"eui-seg-btn" + (active === t ? " active" : "")}
             onClick={() => setActive(t)}
           >
-            {t === "catalog" ? "Catalog" : "Local"}
+            {t === "catalog" ? "Catalog" : t === "custom" ? "Custom items" : "Local"}
           </button>
         ))}
       </div>
-      {active === "catalog" ? (
+      {active === "custom" ? customItems : active === "catalog" ? (
         <DeCatalogTab
           items={catalog}
           live={live}
@@ -127,7 +141,7 @@ export function DeAssetsPanel({
           preset={preset}
         />
       ) : (
-        <DeLocalTab items={local} live={live} onPlace={onPlace} />
+        <><DeLocalTab items={local} live={live} onPlace={onPlace} />{cleanup}</>
       )}
     </div>
   );

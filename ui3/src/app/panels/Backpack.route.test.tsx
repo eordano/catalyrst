@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { FakeBridge } from "../../test/fakeBridge";
 
-type Outfit = { bodyShape?: string; wearables?: string[] };
+type Outfit = { bodyShape?: string; wearables?: string[]; hair?: { color: { r: number; g: number; b: number } } };
 
 const owned = vi.hoisted(() => ({
   isLoading: true,
@@ -40,7 +40,9 @@ vi.mock("../../explorer/pages/Backpack", () => ({
   default: (props: { avatarPreview: ReactNode }) => <div>{props.avatarPreview}</div>,
 }));
 
+import { hexToColor3 } from "../../data/catalyst/backpack";
 import BackpackPanel from "./Backpack.route";
+import { sendBridge, useBridgeState } from "../../overlay/bridge";
 
 const FEMALE = "urn:decentraland:off-chain:base-avatars:BaseFemale";
 const HAT = "urn:decentraland:matic:collections-v2:0xhat:1";
@@ -93,4 +95,36 @@ describe("Backpack cold open", () => {
     expect(preview.outfits[0]).toMatchObject({ bodyShape: FEMALE, wearables: [HAT] });
     expect(loading()).not.toBeNull();
   });
+});
+
+
+test("committed colors survive Backpack remounts and clear when the account changes", () => {
+  const bridge = new FakeBridge();
+  window.dclBridge = bridge;
+  owned.isLoading = false;
+  owned.equipped = { bodyShape: FEMALE, wearables: [HAT], emotes: [] };
+  function Host({ open }: { open: boolean }) {
+    useBridgeState();
+    return open ? <BackpackPanel /> : null;
+  }
+  const view = render(<Host open />);
+  act(() => bridge.pushIdentity({ address: "0x1111111111111111111111111111111111111111" }));
+  const hairColor = hexToColor3("#D4D4D4");
+  act(() => sendBridge("SetAvatar", { base: { bodyShapeUrn: FEMALE, name: "Brown", hairColor } }));
+  view.rerender(<Host open={false} />);
+  view.rerender(<Host open />);
+  expect(preview.outfits.at(-1)?.hair?.color).toEqual(hairColor);
+  act(() => bridge.pushIdentity({ address: "0x2222222222222222222222222222222222222222" }));
+  expect(preview.outfits.at(-1)?.hair?.color).not.toEqual(hairColor);
+});
+
+
+test("an empty engine wardrobe stays empty instead of restoring the cached outfit", () => {
+  const bridge = new FakeBridge();
+  window.dclBridge = bridge;
+  owned.isLoading = false;
+  owned.equipped = { bodyShape: FEMALE, wearables: [HAT], emotes: [] };
+  render(<BackpackPanel />);
+  act(() => bridge.push({ kind: "avatar", bodyShape: FEMALE, wearables: [], emotes: [] }));
+  expect(preview.outfits.at(-1)?.wearables).toEqual([]);
 });

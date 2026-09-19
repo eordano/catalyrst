@@ -1,13 +1,15 @@
 import { fetchCatalog, type FetchCatalogParams } from "./index";
 import type { CatalogItem, MarketEnvelope } from "./schema";
 import { ttlMemo } from "../../ttl-memo";
+import { withDeadline } from "../../request-deadline";
 
 const RAIL_TTL_MS = 60_000;
 
 const railMemo = ttlMemo({
   ttlMs: RAIL_TTL_MS,
   keyOf: (params: FetchCatalogParams) => JSON.stringify(params),
-  load: (params): Promise<MarketEnvelope<CatalogItem[]>> => fetchCatalog(params),
+  load: (params): Promise<MarketEnvelope<CatalogItem[]>> =>
+    withDeadline((signal) => fetchCatalog(params, { signal }), 3_000),
 });
 
 // Visitor-independent catalog heads (shop overview rails, explore tab); one read per minute.

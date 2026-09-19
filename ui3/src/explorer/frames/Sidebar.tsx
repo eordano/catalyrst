@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useSidebarAnchor } from "../components/FloatingPanel";
 import { Avatar, Badge } from "../../atoms/primitives";
 import Tooltip from "../../atoms/Tooltip";
 import ContextMenu, { type ContextMenuItem } from "../../components/ContextMenu";
@@ -7,6 +9,7 @@ import { useBridgeState } from "../../overlay/bridge";
 import { useMinimapVisibility } from "../../overlay/minimapVisibility";
 import { SIDEBAR_LOWER, SIDEBAR_UPPER, type IconName, type NavItem } from "./sidebarNav";
 import "./sidebar.css";
+import SidebarOptions, { useSidebarPreferences } from "./SidebarOptions";
 
 type IcoProps = { d?: string; viewBox?: string; sw?: number; children?: ReactNode };
 
@@ -113,7 +116,7 @@ type BtnProps = {
 
 function Btn({ icon, label, shortcut, active, tile, badge, badgeKind, dot, notifDot, to, panel, menu, expanded, onClick }: BtnProps) {
   return (
-    <Tooltip label={label} shortcut={shortcut} side="right">
+    <Tooltip label={label} shortcut={shortcut} side="right" portal>
       <button
         className={
           "sb__btn" +
@@ -158,10 +161,12 @@ function PlacesBtn({ item }: { item: NavItem }) {
   const { userHidden, toggleUserHidden } = useMinimapVisibility();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useSidebarAnchor("places-menu", menuRef, open);
   useEffect(() => {
     if (!open) return undefined;
     const onDown = (e: PointerEvent) => {
-      if (ref.current && e.target instanceof Node && !ref.current.contains(e.target)) setOpen(false);
+      if (ref.current && e.target instanceof Node && !ref.current.contains(e.target) && !menuRef.current?.contains(e.target)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -188,19 +193,21 @@ function PlacesBtn({ item }: { item: NavItem }) {
   ];
   return (
     <span ref={ref} className={"sb__pop" + (open ? " is-open" : "")}>
-      <Btn {...item} to={undefined} active={open} menu expanded={open} onClick={() => setOpen((o) => !o)} />
-      {open ? (
-        <div className="sb__menu">
+      <Btn {...item} to={undefined} panel="places-menu" active={open} menu expanded={open} onClick={() => setOpen((o) => !o)} />
+      {open ? createPortal(
+        <div ref={menuRef} className="sb__menu">
           <ContextMenu items={items} autoFocus onClose={() => setOpen(false)} />
-        </div>
+        </div>, document.body
       ) : null}
     </span>
   );
 }
 
-type SidebarProps = {
+export type SidebarProps = {
   avatarPreview?: string | null;
   onProfileToggle?: () => void;
+  onLobbyOpen?: () => void;
+  profileOpen?: boolean;
   chatOpen?: boolean;
   onChatToggle?: () => void;
   notifOpen?: boolean;
@@ -221,6 +228,8 @@ type SidebarProps = {
 export default function Sidebar({
   avatarPreview,
   onProfileToggle,
+  onLobbyOpen,
+  profileOpen,
   chatOpen,
   onChatToggle,
   notifOpen,
@@ -239,20 +248,24 @@ export default function Sidebar({
 }: SidebarProps) {
   const mic = useBridgeState((s) => s.mic);
   const friends = useBridgeState((s) => s.friends);
+  const preferences = useSidebarPreferences();
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsButton = useRef<HTMLButtonElement>(null);
+  const panelOpen = optionsOpen || profileOpen || chatOpen || notifOpen || voiceOpen || skyboxOpen || portablesOpen || friendsOpen || emoteOpen;
   return (
-    <div className="sb__stage">
+    <div className="sb__stage" data-panel-open={!!panelOpen}>
       <nav className="sb" aria-label="Main menu">
-        <Tooltip label="More options" side="right">
-          <button className="sb__cfg" aria-label="More options" data-sb-linkto="Explorer/Pages/Settings">
+        <Tooltip label="More options" side="right" portal>
+          <button ref={optionsButton} className="sb__cfg" aria-label="More options" aria-haspopup="menu" aria-expanded={optionsOpen} onClick={() => setOptionsOpen((o) => !o)}>
             {ICONS.overflow}
           </button>
         </Tooltip>
-        <Tooltip label="Profile" side="right">
-          <button className="sb__profile" type="button" aria-label="Profile" onClick={onProfileToggle}>
+        <Tooltip label={onLobbyOpen ? "Open lobby" : "Profile"} side="right" portal>
+          <button className="sb__profile" type="button" aria-label={onLobbyOpen ? "Open lobby" : "Profile"} data-sb-panel="profile" aria-expanded={onLobbyOpen ? undefined : !!profileOpen} onClick={onLobbyOpen ?? onProfileToggle}>
             <Avatar hue={320} size={38} src={avatarPreview || undefined} className="sb__avatar" />
           </button>
         </Tooltip>
-        <Tooltip label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"} side="right">
+        <Tooltip label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"} side="right" portal>
           <button
             className={"sb__btn" + (notifOpen ? " is-active" : "")}
             type="button"
@@ -285,7 +298,7 @@ export default function Sidebar({
             <span key={b.icon} className="sb__item">
               {b.div ? <span className="sb__divider" /> : null}
               {b.icon === "chat" ? (
-                <Btn icon="chat" label="Chat" shortcut={b.shortcut} active={chatOpen} onClick={onChatToggle} />
+                <Btn icon="chat" label="Chat" panel="chat" shortcut={b.shortcut} active={chatOpen} onClick={onChatToggle} />
               ) : b.icon === "voice" ? (
                 <Btn {...b} to={undefined} panel="voice" active={voiceOpen} dot={mic.enabled} onClick={onVoiceToggle} />
               ) : b.icon === "skybox" ? (
@@ -303,6 +316,7 @@ export default function Sidebar({
           ))}
         </div>
       </nav>
+      {optionsOpen && <SidebarOptions {...preferences} onClose={(restoreFocus = true) => { setOptionsOpen(false); if (restoreFocus) optionsButton.current?.focus(); }} />}
     </div>
   );
 }

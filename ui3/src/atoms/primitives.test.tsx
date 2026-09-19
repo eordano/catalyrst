@@ -57,3 +57,15 @@ describe("Avatar initials fallback", () => {
     expect(custom.querySelector(".custom")).not.toBeNull();
   });
 });
+
+test("Bevy full-body thumbnails are framed as face portraits, while profile photos stay intact", () => {
+  const { container, rerender } = render(<Avatar src={FACE} name="Brown" />);
+  const fullBody = container.querySelector('img')!;
+  Object.defineProperties(fullBody, { naturalWidth: { value: 320 }, naturalHeight: { value: 512 } });
+  fireEvent.load(fullBody);
+  expect(container.querySelector('svg')?.getAttribute('viewBox')).toBe('100 80 120 120');
+  expect(container.querySelector('svg image')?.getAttribute('href')).toBe(FACE);
+  rerender(<Avatar src="https://example.org/face.png" name="Brown" />);
+  fireEvent.load(container.querySelector('img')!);
+  expect(container.querySelector('svg')).toBeNull();
+});

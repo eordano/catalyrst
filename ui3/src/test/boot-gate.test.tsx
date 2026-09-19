@@ -3,6 +3,7 @@ import { act, fireEvent, screen } from "@testing-library/react";
 
 import {
   IDENTITY_STORAGE_KEY,
+  loginWithIdentity,
   signOutEngineAuth,
   toStoredIdentity,
 } from "../data/auth/engineLogin";
@@ -61,6 +62,26 @@ afterEach(() => {
 });
 
 describe("boot gate release", () => {
+  test("wallet sign-in enters without guest confirmation or overwriting the saved avatar", () => {
+    window.dclEngineReady = true;
+    window.dclEngineStart = vi.fn();
+    try {
+      const { bridge } = renderBoot();
+      expect(screen.getByText("Continue as guest")).toBeInTheDocument();
+      act(() => { expect(loginWithIdentity(makeIdentity(Date.now() + 86_400_000))).toBe(true); });
+      expect(screen.queryByText("Continue as guest")).toBeNull();
+      expect(screen.queryByText("Where do you want to go?")).toBeNull();
+      expect(window.dclEngineStart).toHaveBeenCalledTimes(1);
+      bridge.pushIdentity({ isGuest: false, name: "Saved avatar" });
+      bridge.expectNotSent("SetAvatar");
+      bridge.pushLoading({ percent: 100, ready: true, avatarLoaded: true, pendingAssets: 0 });
+      advance(MIN_LOADING_MS);
+      expect(worldShown()).toBe(true);
+    } finally {
+      delete window.dclEngineReady;
+      delete window.dclEngineStart;
+    }
+  });
   test("Loading{ready,avatarLoaded} releases the gate after the min dwell; the gate holds while the avatar is still loading", () => {
     const { bridge } = renderBoot();
     jumpIn();

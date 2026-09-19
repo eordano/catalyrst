@@ -68,7 +68,7 @@ function wireScene(overrides: Record<string, unknown> = {}) {
 describe("when resolving the creators-data base URL", () => {
   it("should default to the production mount and strip trailing slashes", () => {
     expect(creatorsDataBase()).toBe(
-      "https://decentraland.org/creators-data/api",
+      "/api/creator-hub",
     );
     expect(creatorsDataBase("http://localhost:8787/api/")).toBe(
       "http://localhost:8787/api",
@@ -135,7 +135,7 @@ describe("when fetching creator scene stats", () => {
     expect(signedGetJSON).toHaveBeenCalledTimes(1);
     expect(signedGetJSON).toHaveBeenCalledWith(SCENE_STATS_PATH, {
       identity,
-      base: "https://decentraland.org/creators-data/api",
+      base: "/api/creator-hub",
       signal: undefined,
     });
     expect(stats.scenes).toEqual([]);

@@ -393,3 +393,9 @@
   .cm__searchwrap { width: 100%; }
   .cm__grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
 }
+
+.cm__card:has(.cm__joined) { border-color: #42cfb1; background: #193b36; }
+.cm__card .cm__joined { background: #224d43; color: #b4f6df; border: 1px solid #62cba8; }
+.cm__joined .cm__btncoin { display: none; }
+.cm__joined::before { content: ""; width: 12px; height: 7px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); margin-right: 8px; }
+.cm__card .cm__join { background: #ff2859; color: white; border-color: transparent; }

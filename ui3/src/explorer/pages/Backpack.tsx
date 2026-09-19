@@ -1,3 +1,4 @@
+import { sendBridge } from "../../overlay/bridge";
 import { siteUrl } from "../../data/site";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,7 +19,6 @@ import {
   type Wearable,
 } from "./Backpack.types";
 import "./backpack.css";
-import { docsUrl } from "../../data/docs";
 
 type DclBridge = { send?: (action: string, payload: unknown) => void };
 function dclBridge(): DclBridge | undefined {
@@ -174,11 +174,16 @@ export default function Backpack({
     eyes: localBase?.eyeColor ?? equipped?.eyeColor ?? "#3a6ea5",
   };
 
-  function commitBase(next: Base) {
+  function commitBase(next: Base, wearables?: string[]) {
     setLocalBase(next);
     onBaseChange?.(next);
+    if (wearables) {
+      setLocalEquipped(wearables);
+      onEquippedChange?.(wearables);
+    }
     try {
-      dclBridge()?.send?.("SetAvatar", {
+      sendBridge("SetAvatar", {
+        ...(wearables ? { equip: { wearableUrns: wearables, emoteUrns: equipped?.emotes ?? [], forceRender: [] } } : {}),
         base: {
           bodyShapeUrn: next.bodyShape,
           name: next.name,
@@ -212,7 +217,11 @@ export default function Backpack({
       skinColor: curColors.skin,
       hairColor: curColors.hair,
       eyeColor: curColors.eyes,
-    });
+    }, equippedWearables.filter((item) =>
+      !/^urn:decentraland:off-chain:base-avatars:base(male|female)$/i.test(item)
+      && catalogByUrn[item]?.category !== "body_shape"));
+    setSelectedOutfitSlot(null);
+    setCurrentOutfitSlot(null);
   }
 
   function playEmote(urn: string) {
@@ -345,7 +354,7 @@ export default function Backpack({
       eyeColor: o.eyeColor || curColors.eyes,
     });
     try {
-      dclBridge()?.send?.("SetAvatar", {
+      sendBridge("SetAvatar", {
         equip: {
           wearableUrns: urns,
           emoteUrns: o.emotes ?? equipped?.emotes ?? [],
@@ -375,6 +384,7 @@ export default function Backpack({
 
   function toggleEquip(w: Wearable) {
     if (!w) return;
+    if (w.category === "body_shape") { setBodyShape(w.urn); return; }
     const set = new Set(equippedWearables);
     if (set.has(w.urn)) {
       set.delete(w.urn);
@@ -391,7 +401,7 @@ export default function Backpack({
     setSelectedOutfitSlot(null);
     setCurrentOutfitSlot(null);
     try {
-      dclBridge()?.send?.("SetAvatar", {
+      sendBridge("SetAvatar", {
         equip: {
           wearableUrns: next,
           emoteUrns: equipped?.emotes ?? [],
@@ -532,7 +542,7 @@ export default function Backpack({
               className="bp__help"
               type="button"
               aria-label="Help"
-              onClick={() => window.open(docsUrl("player"), "_blank", "noopener,noreferrer")}
+              data-sb-linkto="Explorer/Pages/Help"
             >
               ?
             </button>
@@ -808,12 +818,11 @@ export default function Backpack({
                           kind === "emotes" ? slotByUrn[w.urn] : undefined;
                         const isAssigned = assignedSlot !== undefined;
                         const isEquipped =
-                          equippedSet.has(w.urn) ||
-                          (w.category === "body_shape" &&
-                            (curBodyShape || "").toLowerCase() ===
-                              (w.urn || "").toLowerCase());
+                          w.category === "body_shape"
+                            ? (curBodyShape || "").toLowerCase() === (w.urn || "").toLowerCase()
+                            : equippedSet.has(w.urn);
                         const canEquip =
-                          kind === "wearables" && w.category !== "body_shape";
+                          kind === "wearables";
                         const hoverProps =
                           kind === "wearables"
                             ? {
@@ -847,7 +856,6 @@ export default function Backpack({
                                   playEmote(w.urn);
                                 } else {
                                   setSelectedUrn(w.urn);
-                                  toggleEquip(w);
                                 }
                               }}
                             >

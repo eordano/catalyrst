@@ -31,7 +31,7 @@ test("overlay boots to the lobby with Continue as guest, deferring the engine", 
   await userEvent.click(jump.closest("button") ?? jump);
   expect(screen.queryByText("Continue as guest")).toBeNull();
 
-  const skip = await screen.findByText("Skip to Genesis Plaza");
-  await userEvent.click(skip.closest("button") ?? skip);
+  expect(screen.queryByText("Skip to Genesis Plaza")).toBeNull();
+  expect(document.querySelector(".loading")).toBeTruthy();
   expect(document.querySelector(".boot")).toBeTruthy();
 });

@@ -24,6 +24,8 @@ function readEngineWindow(
           dclLoadingProgress?: unknown;
           dclLoadingStep?: unknown;
           dclEngineReady?: unknown;
+          engine_console_command?: unknown;
+          engine_console_command_args?: unknown;
           __engineCrashed?: unknown;
         })
       | null
@@ -34,7 +36,7 @@ function readEngineWindow(
     return {
       progress: typeof p === "number" && isFinite(p) ? p : null,
       stage: BOOT_STAGES.includes(s as BootStage) ? (s as BootStage) : null,
-      ready: w.dclEngineReady === true,
+      ready: w.dclEngineReady === true || typeof w.engine_console_command === "function" || typeof w.engine_console_command_args === "function",
       crashed: Boolean(w.__engineCrashed),
     };
   } catch {
@@ -56,6 +58,8 @@ interface DclEditorChromeProps {
   viewportSrc?: string | null;
   viewportRef?: RefObject<HTMLIFrameElement | null> | null;
   sceneReady?: boolean;
+  sceneError?: string | null;
+  onViewportLoad?: () => void;
   loading?: boolean;
   loadError?: boolean;
   onEngineStatus?: ((status: EditorEngineStatus) => void) | null;
@@ -66,6 +70,8 @@ export default function DclEditorChrome({
   viewportSrc = null,
   viewportRef = null,
   sceneReady = undefined,
+  sceneError = null,
+  onViewportLoad,
   loading = false,
   loadError = false,
   onEngineStatus = null,
@@ -84,6 +90,7 @@ export default function DclEditorChrome({
 
   useEffect(() => {
     if (sceneReady) dispatchBoot({ type: "scene-ready" });
+    else dispatchBoot({ type: "bus-reset" });
   }, [sceneReady]);
 
   useEffect(() => {
@@ -92,11 +99,12 @@ export default function DclEditorChrome({
       const { progress, stage, ready, crashed } = readEngineWindow(viewportRef);
       if (boot.phase !== "ready") {
         if (progress != null) dispatchBoot({ type: "progress", pct: progress, stage });
-        if (ready) dispatchBoot({ type: "engine-ready" });
+        if (ready) dispatchBoot({ type: sceneReady === undefined ? "scene-ready" : "engine-ready" });
       }
       if (crashed) {
         lostTicksRef.current = 0;
         setEngineLost(true);
+        dispatchBoot({ type: "engine-error", reason: "The engine stopped. Retry to reconnect the editor." });
       } else if (ready) {
         lostTicksRef.current = 0;
         setEngineLost(false);
@@ -106,7 +114,7 @@ export default function DclEditorChrome({
       }
     }, BOOT_PROGRESS_POLL_MS);
     return () => clearInterval(id);
-  }, [viewportSrc, viewportRef, boot.phase, bootNonce]);
+  }, [viewportSrc, viewportRef, boot.phase, bootNonce, sceneReady]);
 
   useEffect(() => {
     if (!viewportSrc || boot.phase === "ready" || boot.phase === "error") return undefined;
@@ -125,7 +133,7 @@ export default function DclEditorChrome({
 
   const prepFailed = !viewportSrc && (loadError || prepTimedOut);
   const status: EditorEngineStatus =
-    boot.phase === "error" || engineLost || prepFailed
+    boot.phase === "error" || engineLost || prepFailed || sceneError
       ? "offline"
       : boot.phase === "ready"
         ? "online"
@@ -137,11 +145,14 @@ export default function DclEditorChrome({
   }, [status]);
 
   const retryBoot = () => {
+    onViewportLoad?.();
     dispatchBoot({ type: "retry" });
     setBootNonce((n) => n + 1);
   };
 
-  const overlay = prepFailed
+  const overlay = sceneError
+    ? ({ show: true, kind: "error", text: sceneError } as const)
+    : prepFailed
     ? ({
         show: true,
         kind: "error",
@@ -192,7 +203,10 @@ export default function DclEditorChrome({
           key={bootNonce}
           viewportRef={viewportRef}
           src={viewportSrc}
-          onLoad={() => dispatchBoot({ type: "iframe-load" })}
+          onLoad={() => {
+            dispatchBoot({ type: "viewport", src: viewportSrc });
+            onViewportLoad?.();
+          }}
         />
       ) : (
         <>

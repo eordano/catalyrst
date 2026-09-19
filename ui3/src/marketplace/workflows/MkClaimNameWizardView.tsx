@@ -9,6 +9,8 @@ import "../frames/assetactionlayout.css";
 import "./mkclaimnamewizardview.css";
 
 type MkClaimNameWizardViewProps = {
+  live?: boolean;
+  error?: string;
   value: string;
   step: string;
   activeName: string;
@@ -25,6 +27,8 @@ type MkClaimNameWizardViewProps = {
 };
 
 export default function MkClaimNameWizardView({
+  live = false,
+  error,
   value,
   step,
   activeName,
@@ -44,6 +48,9 @@ export default function MkClaimNameWizardView({
       {(value === "entering" || value === "checking" || value === "unavailable") && (
         <>
           <MkClaimNamePage
+            onNameEdited={value === "unavailable" ? onBack : undefined}
+            checkOnSubmit={live}
+            checking={value === "checking"}
             initialName={initialName}
             initialFocused={value !== "entering"}
             banner={banner}
@@ -69,10 +76,10 @@ export default function MkClaimNameWizardView({
           subtitle={
             <>
               Claiming a NAME costs <ManaMark className="" /> {priceMana} MANA on
-              Ethereum Mainnet. Approve the DCLRegistrar to spend your MANA.
+              Ethereum Mainnet. Approve the NAME controller to spend this amount.
             </>
           }
-          warning={"Test mode \u{2014} this approval is simulated: no transaction is sent and no MANA leaves your wallet."}
+          warning={live ? "Your wallet will show the transaction and its gas fee before you confirm." : "Test mode \u{2014} this approval is simulated: no transaction is sent and no MANA leaves your wallet."}
           onBack={onBack}
         >
           <div className="claim-name-wizard__controls">
@@ -96,7 +103,7 @@ export default function MkClaimNameWizardView({
               NAME, a World, and extra Voting Power.
             </>
           }
-          warning={"Test mode \u{2014} this mint is simulated: no NAME will actually be registered and nothing will be charged."}
+          warning={live ? "Your wallet will show the transaction and its gas fee before you confirm." : "Test mode \u{2014} this mint is simulated: no NAME will actually be registered and nothing will be charged."}
           onBack={onBack}
         >
           <div className="claim-name-wizard__controls">
@@ -105,6 +112,11 @@ export default function MkClaimNameWizardView({
             </Button>
           </div>
         </AssetActionLayout>
+      )}
+
+      {value === "approvalPending" && (
+        <AssetActionLayout hideBack theme="dark" media={null} icon={null} title="Confirming MANA approval"
+          subtitle="Confirm in your wallet, then wait for Ethereum. Registration is the next step." />
       )}
 
       {value === "submitting" && (
@@ -136,17 +148,14 @@ export default function MkClaimNameWizardView({
       )}
 
       {value === "error" && (
-        <>
-          <MkSuccessPage
-            state="error"
-            asset={{ category: "ens", name: activeName, rarity: "rare" }}
-          />
+        <AssetActionLayout theme="dark" media={null} icon={null} title="Registration paused"
+          subtitle={<span role="alert">{error ?? "The registration could not finish. Try again."}</span>} onBack={onBack}>
           <div className="claim-name-wizard__controls claim-name-wizard__controls--overlay">
             <Button variant="primary" onClick={onRetry}>
-              Retry mint
+              Try again
             </Button>
           </div>
-        </>
+        </AssetActionLayout>
       )}
     </div>
   );

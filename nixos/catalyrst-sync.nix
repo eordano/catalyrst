@@ -83,10 +83,11 @@ lib.mkIf cfg.enable {
       RUST_LOG = "info";
       COMMIT_HASH = commitHash;
       HTTP_SERVER_HOST = "127.0.0.1";
+      TRUSTED_CLIENT_IP_HEADER = "x-real-ip";
       CATALYRST_PORT = "5141";
       PUBLIC_URL = d.publicUrl;
       COMMS_PROTOCOL = "v3";
-      COMMS_FIXED_ADAPTER = "archipelago:archipelago:${d.wsScheme}://${cfg.domain}/ws";
+      COMMS_FIXED_ADAPTER = "archipelago:${d.wsScheme}://${cfg.domain}/ws";
       COMMS_VERSION = commsVersion;
       COMMS_COMMIT_HASH = commsCommitHash;
       COMMS_WS_CONNECTOR_URL = "http://127.0.0.1:5139";

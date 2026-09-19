@@ -16,6 +16,11 @@ afterEach(() => {
 });
 
 describe("MarketplaceFrame escape relay", () => {
+  test("opts into credentialless embedding so the isolated player can load the shop", () => {
+    const { container } = render(<MarketplaceFrame src="about:blank" />);
+    expect(container.querySelector("iframe")).toHaveAttribute("credentialless");
+  });
+
   test("an escape marker posted by the framed shop becomes an Escape keydown on the parent window, other messages do not", () => {
     const keys: string[] = [];
     const onKey = (e: KeyboardEvent) => keys.push(e.key);

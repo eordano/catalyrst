@@ -383,3 +383,58 @@ async fn shrunk_pointer_set_clears_uncovered_active_pointer() {
 
     teardown(&pool, &schema).await;
 }
+
+#[tokio::test]
+async fn startup_repair_matches_legacy_successors_for_overlapping_pointer_histories() {
+    let Some((pool, schema)) = setup_db().await else {
+        return;
+    };
+    sqlx::query(
+        "INSERT INTO deployments
+         (deployer_address, version, entity_type, entity_id, entity_timestamp,
+          entity_pointers, local_timestamp, auth_chain, deleter_deployment)
+         SELECT 'test', 'v3', CASE WHEN n%7=0 THEN 'profile' ELSE 'scene' END,
+                'entity-'||lpad(n::text,5,'0'),
+                timestamp '2026-01-01' + (n%19)*interval '1 second',
+                CASE WHEN n%23=0 THEN ARRAY[]::text[]
+                     WHEN n%29=0 THEN ARRAY[NULL]::text[]
+                     ELSE ARRAY['p-'||(n%43), 'p-'||(n%17), 'p-'||(n%43), NULL] END,
+                timestamp '2026-01-01', '[]',
+                CASE WHEN n%31=0 THEN 9999 ELSE NULL END
+         FROM generate_series(1,600) n",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let expected: Vec<(i32, Option<i32>)> = sqlx::query_as(
+        "SELECT older.id, COALESCE(older.deleter_deployment, (
+            SELECT newer.id FROM deployments newer
+            WHERE newer.entity_type = older.entity_type
+              AND newer.entity_id != older.entity_id
+              AND newer.entity_pointers && older.entity_pointers
+              AND newer.deleter_deployment IS NULL
+              AND (newer.entity_timestamp, newer.entity_id)
+                    > (older.entity_timestamp, older.entity_id)
+            ORDER BY newer.entity_timestamp, newer.entity_id LIMIT 1
+         )) FROM deployments older ORDER BY older.id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let repo = catalyrst_server::sync::LiveDeploymentRepository::new(pool.clone());
+    repo.resolve_deleter_deployments().await.unwrap();
+    let actual: Vec<(i32, Option<i32>)> =
+        sqlx::query_as("SELECT id, deleter_deployment FROM deployments ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(actual, expected);
+    repo.resolve_deleter_deployments().await.unwrap();
+    let repeated: Vec<(i32, Option<i32>)> =
+        sqlx::query_as("SELECT id, deleter_deployment FROM deployments ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(repeated, actual);
+    teardown(&pool, &schema).await;
+}

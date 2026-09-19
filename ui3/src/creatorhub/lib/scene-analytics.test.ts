@@ -36,7 +36,7 @@ describe("when displaying scene names", () => {
 });
 
 describe("when exporting a scene to CSV", () => {
-  it("should produce a header plus one zero-filled row per day with aggregated values", () => {
+  it("should produce a header plus one row per day with aggregated values", () => {
     const csv = toCsv(buildCsvRows([healthyWorldScene], FIXTURE_AS_OF, 7));
     const lines = csv.split("\n");
     expect(lines).toHaveLength(8);
@@ -47,8 +47,8 @@ describe("when exporting a scene to CSV", () => {
     const rows = buildCsvRows([zeroTrafficScene], FIXTURE_AS_OF, 7);
     expect(rows).toHaveLength(7);
     for (const row of rows) {
-      expect(row.visits).toBe(0);
-      expect(row.uniqueUsers).toBe(0);
+      expect(row.visits).toBeNull();
+      expect(row.uniqueUsers).toBeNull();
     }
   });
 });
@@ -68,7 +68,7 @@ describe("when building retention series points", () => {
 });
 
 describe("when building the social series", () => {
-  it("should sum messages and emotes across scenes per day and zero-fill scenes without daily data", () => {
+  it("should sum messages and emotes across scenes per day and preserve missing daily data", () => {
     const social = buildSocialSeries(
       creatorScenesStatsFixture.scenes,
       FIXTURE_AS_OF,
@@ -82,7 +82,7 @@ describe("when building the social series", () => {
       expect(point.value).toBe(55 + 1 + 42);
     }
     const empty = buildSocialSeries([zeroTrafficScene], FIXTURE_AS_OF, 7);
-    expect(empty.messages.every((point) => point.value === 0)).toBe(true);
+    expect(empty.messages.every((point) => point.value === null)).toBe(true);
   });
 });
 

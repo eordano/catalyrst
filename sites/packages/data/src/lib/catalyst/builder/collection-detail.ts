@@ -1,3 +1,4 @@
+import { formatUnits } from "viem";
 import { z } from "zod";
 
 import { getJSON } from "../client";
@@ -136,10 +137,12 @@ const LiveItemSchema = z.object({
   total_supply: z.number().nullish(),
   is_published: z.boolean().nullish(),
   is_approved: z.boolean().nullish(),
+  contents: z.record(z.string(), z.string()).optional(),
   data: z
     .object({
       category: z.string().nullish(),
       loop: z.boolean().nullish(),
+      representations: z.array(z.object({ mainFile: z.string(), contents: z.array(z.string()) })).optional(),
     })
     .nullish(),
 });
@@ -148,7 +151,8 @@ type LiveItem = z.infer<typeof LiveItemSchema>;
 function liveStatus(it: LiveItem): (typeof ITEM_STATUSES)[number] {
   if (it.is_published && it.is_approved) return "published";
   if (it.is_published) return "under_review";
-  return it.price != null ? "ready" : "not_ready";
+  const reps = it.data?.representations;
+  return it.price != null && it.data?.category && reps?.length && reps.every(rep => rep.contents.includes(rep.mainFile) && rep.contents.every(file => !!it.contents?.[file])) ? "ready" : "not_ready";
 }
 
 export async function fetchCollectionItems(
@@ -170,7 +174,7 @@ export async function fetchCollectionItems(
     const rarity = (RARITIES as readonly string[]).includes(it.rarity ?? "")
       ? (it.rarity as (typeof RARITIES)[number])
       : "common";
-    const price = it.price == null ? null : String(it.price);
+    const price = it.price == null ? null : formatUnits(BigInt(it.price), 18);
     const supply =
       it.is_published && it.is_approved && it.total_supply != null
         ? String(it.total_supply)

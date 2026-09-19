@@ -72,14 +72,6 @@ work and zero out the per-item fee.
   `bd_create_collection_review_reached`, **`bd_create_collection_submitted`**
   (entry to submit/sign), and `bd_create_collection_completed` (stub) on done.
 
-**Data reality / simulated:** the on-chain collection-contract creation/mint and
-the live per-item MANA publication-fee quote are simulated -- there is no signer
-or provider here, and the builder-server collection write is auth-gated. The UI
-says so on the submit and done panels ("On-chain mint is SIMULATED", "created
-(stub)"). Shapes mirror `decentraland/schemas` (Rarity, maxSupply,
-WearableCategory) and `decentraland/builder-server` (CollectionAttributes,
-CollectionTypeFilter); there is no fixture -- the items step is a real File-API
-dropzone and nothing pre-seeds mock items. The flow, validation, cost math
-(perItem MANA x item count) and telemetry are real; the final submit/commit is
-a clearly-noted stub whose done link opens the (empty, sim-id) collection
-detail page.
+**Live behavior:** standard collections and uploaded item files are saved through signed Builder requests. Imports understand wearable.json and emote.json, preserve representations, and reject missing resources, invalid paths and oversized archives before writing. Upload retries reuse the same draft IDs. Saved collections are listed on Wearables home and reload with their actual items. Real completions report `stub: false`.
+
+Saving a draft is separate from publishing and carries no on-chain fee. The live route shows Save collection, without the simulated publication quote. Publication is still a separate unfinished integration. Linked collections require a registered third-party provider and currently return an explicit error; Storybook's mint/fee simulation is retained for preview only.

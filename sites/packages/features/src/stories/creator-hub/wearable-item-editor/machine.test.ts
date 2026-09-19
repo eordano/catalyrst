@@ -198,7 +198,7 @@ describe("wearableEditorMachine \u{2014} telemetry events (happy path)", () => {
     const priceSet = track.mock.calls.find((c) => c[0] === WEARABLE_EDITOR_EVENTS.priceSet);
     expect(priceSet?.[1]).toMatchObject({ item: "i1", price: "250", free: false });
     const saved = track.mock.calls.find((c) => c[0] === WEARABLE_EDITOR_EVENTS.saved);
-    expect(saved?.[1]).toMatchObject({ item: "i1", rarity: "epic", price: "250", stub: true });
+    expect(saved?.[1]).toMatchObject({ item: "i1", rarity: "epic", price: "250", stub: false });
     expect(saved?.[2]).toMatchObject({
       sid: "sid-abc",
       experimentKey: "bd_wearable_item_editor",

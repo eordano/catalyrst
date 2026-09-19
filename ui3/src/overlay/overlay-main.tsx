@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
 
 import { queryClient } from "../app/queryClient";
+import { enablePlayScreen } from "../data/screens/play-client";
+import ShellLoading from "../app/ShellLoading";
 import { isEditorShell, isNativeHost, startNativeHostBridge } from "./nativeHost";
 
 if (typeof window !== "undefined") {
@@ -22,6 +24,8 @@ if (import.meta.env.PROD) {
 
 const isEditor = typeof window !== "undefined" && isEditorShell(window.location.search);
 
+if (!isEditor && !isNativeHost()) enablePlayScreen(queryClient, window.location.origin);
+
 function mount(): void {
   void Promise.all([import("../app/BootGate"), import("../app/AppShell")]).then(
     ([{ default: BootGate }, { default: AppShell }]) => {
@@ -35,7 +39,7 @@ function mount(): void {
         <StrictMode>
           <QueryClientProvider client={queryClient}>
             <BootGate>
-              <Suspense fallback={null}>
+              <Suspense fallback={<ShellLoading />}>
                 <AppShell />
               </Suspense>
             </BootGate>
@@ -46,11 +50,15 @@ function mount(): void {
         startNativeHostBridge();
       }
     },
-  );
+  ).catch((error) => {
+    console.error("[ui] Unable to load the application shell", error);
+    window.dispatchEvent(new Event("dcl-ui-error"));
+  });
 }
 
 if (isEditor) {
   window.dclDeferStart = false;
+  window.dispatchEvent(new Event("dcl-ui-ready"));
   const startNow = () => {
     void window.dclEngineStart?.();
   };

@@ -1,8 +1,8 @@
 [package]
 name = "catalyrst-builder"
-version = "0.27.0"
+version = "0.29.0"
 edition = "2021"
-description = "Rust port of decentraland/builder-server (builder-api.decentraland.org): the explorer BuilderApiDtos slice only (collection items, content redirect, newsletter); the creator-hub project/scene/asset lifecycle is deliberately out of scope"
+description = "Decentraland Builder API: asset catalog, wearable drafts and verified collection publication"
 
 [package.metadata.generated]
 gate = "sites/scripts/gen-ts-check.sh"
@@ -13,6 +13,7 @@ name = "catalyrst-builder"
 path = "src/main.rs"
 
 [dependencies]
+alloy = { workspace = true, features = ["sol-types"] }
 catalyrst-types = { workspace = true, features = ["sqlx"] }
 catalyrst-crypto = { workspace = true }
 catalyrst-hashing = { workspace = true }
@@ -28,11 +29,11 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
 ts-rs = { workspace = true, optional = true }
 
 [features]
 ts = ["dep:ts-rs"]
 
 [dev-dependencies]
-alloy = { workspace = true }
+catalyrst-contract-gate = { workspace = true }

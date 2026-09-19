@@ -49,6 +49,7 @@ const EXPECTED_STATES = new Set([
   "checking",
   "unavailable",
   "approving",
+  "approvalPending",
   "confirming",
   "submitting",
   "success",
@@ -240,4 +241,61 @@ describe("simulated actors (no network/chain)", () => {
     expect(a.txHash).toMatch(/^0x[0-9a-f]+$/);
     expect(a.tokenId).toMatch(/^\d+$/);
   });
+});
+
+
+describe("live NAME steps", () => {
+  it("waits for approval, preserves the quote, and retries approval without minting", async () => {
+    const track = vi.fn();
+    const mint = vi.fn(okMint);
+    let finish!: () => void;
+    const approve = vi.fn().mockRejectedValueOnce(new Error("Approval rejected")).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const actor = createActor(claimNameMachine, { input: {
+      ...inputFor({ track, mint, check: async () => ({ available: true, priceMana: "123.5" }) }), approve,
+    } }).start();
+    actor.send({ type: "SUBMIT_NAME", name: "Example" });
+    await waitFor(actor, state => state.matches("approving"));
+    actor.send({ type: "APPROVE_MANA" });
+    await waitFor(actor, state => state.matches("error"));
+    expect(actor.getSnapshot().context.error).toBe("Approval rejected");
+    actor.send({ type: "RETRY" });
+    expect(actor.getSnapshot().matches("approvalPending")).toBe(true);
+    actor.send({ type: "CONFIRM_MINT" });
+    expect(mint).not.toHaveBeenCalled();
+    finish();
+    await waitFor(actor, state => state.matches("confirming"));
+    expect(approve.mock.calls[1][0]).toMatchObject({ name: "Example", priceMana: "123.5" });
+    actor.send({ type: "CONFIRM_MINT" });
+    await waitFor(actor, state => state.matches("success"));
+    expect(mint.mock.calls[0][0]).toMatchObject({ name: "Example", priceMana: "123.5" });
+    expect(track.mock.calls.find(call => call[0] === CLAIM_EVENTS.completed)?.[1]).toMatchObject({ stub: false });
+    actor.stop();
+  });
+  it("treats availability outages as retryable errors rather than taken names", async () => {
+    const check = vi.fn().mockRejectedValueOnce(new Error("RPC offline")).mockResolvedValueOnce({ available: true });
+    const mint = vi.fn(okMint);
+    const actor = createActor(claimNameMachine, { input: inputFor({ check, mint, track: vi.fn() }) }).start();
+    actor.send({ type: "SUBMIT_NAME", name: "Example" });
+    await waitFor(actor, state => state.matches("error"));
+    expect(actor.getSnapshot().context.error).toBe("RPC offline");
+    actor.send({ type: "RETRY" });
+    await waitFor(actor, state => state.matches("approving"));
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(mint).not.toHaveBeenCalled();
+    actor.stop();
+  });
+});
+
+
+it("resumes a previously submitted registration without repeating approval or confirmation", async () => {
+  const mint = vi.fn(okMint);
+  const approve = vi.fn();
+  const actor = createActor(claimNameMachine, { input: {
+    ...inputFor({ track: vi.fn(), mint, check: async () => ({ available: true, pendingRegistration: true, priceMana: "100" }) }), approve,
+  } }).start();
+  actor.send({ type: "SUBMIT_NAME", name: "Example" });
+  await waitFor(actor, state => state.matches("success"));
+  expect(approve).not.toHaveBeenCalled();
+  expect(mint).toHaveBeenCalledTimes(1);
+  actor.stop();
 });

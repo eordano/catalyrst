@@ -7,7 +7,7 @@ export { parseCreatorScenesStats } from "./scene-analytics.gen";
 
 export const SCENE_STATS_PATH = "/creators/me/scenes/stats";
 
-const DEFAULT_CREATORS_DATA_BASE = "https://decentraland.org/creators-data/api";
+const DEFAULT_CREATORS_DATA_BASE = "/api/creator-hub";
 
 export function creatorsDataBase(override?: string): string {
   const base =

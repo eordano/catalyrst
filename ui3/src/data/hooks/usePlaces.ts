@@ -1,13 +1,22 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useBridgeState } from "../../overlay/bridge";
+import { playScreenEnabled, playSection } from "../screens/play-client";
 
 import { fetchPlaces, fetchPlace, fetchCategories, fetchWorlds } from "../catalyst/placesSchema";
 import { qk, STALE } from "../queryKeys";
 import type { QueryParams } from "../catalyst/client";
 
-export function usePlaces(params?: QueryParams, enabled = true) {
+export function usePlaces(params?: QueryParams, enabled = true, authenticated = false) {
+  const client = useQueryClient();
+  const address = useBridgeState((state) => state.identity.address);
+  const keys = Object.entries(params ?? {}).filter(([, value]) => value !== undefined).map(([key]) => key);
+  const featured = keys.length === 3 && params?.limit === 6 && params.only_highlighted === true && params.order_by === "most_active";
+  const places = keys.length === 3 && (params?.limit === 60 || params?.limit === 48) && params.order_by === "most_active" && params.order === "desc";
   return useQuery({
-    queryKey: qk.places(params),
-    queryFn: ({ signal }) => fetchPlaces(params, { signal }),
+    queryKey: authenticated ? [...qk.places(params), address] : qk.places(params),
+    queryFn: ({ signal }) => playScreenEnabled(client) && (featured || places)
+      ? playSection(client, address, featured ? "featured" : "places", signal).then((rows) => rows.slice(0, Number(params?.limit)))
+      : fetchPlaces(params, { signal, authenticated }),
     staleTime: STALE.places,
     enabled,
   });

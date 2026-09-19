@@ -8,8 +8,8 @@ const sidebar = () => screen.getByRole("navigation", { name: "Main menu" });
 const sidebarButton = (name: string) => within(sidebar()).getByRole("button", { name });
 
 const PANELS: { button: string; shown: () => HTMLElement | null }[] = [
-  { button: "Voice Chat", shown: () => screen.queryByText("NEARBY VOICE") },
-  { button: "Skybox", shown: () => screen.queryByText("NIGHT/DAY") },
+  { button: "Voice Chat", shown: () => screen.queryByText("Nearby voice") },
+  { button: "Skybox", shown: () => screen.queryByText("Time of day") },
   { button: "Portable Experiences", shown: () => screen.queryByText(/Nothing is running right now/i) },
   { button: "Friends", shown: () => screen.queryByRole("tab", { name: "Friends" }) },
   { button: "Notifications", shown: () => document.querySelector(".ui3-overlay__notifications") },
@@ -60,21 +60,50 @@ describe("sidebar toggles", () => {
   test("left panels are exclusive and Escape closes panels, chat and profile widgets", async () => {
     const { user } = renderHud();
     await user.click(sidebarButton("Voice Chat"));
-    expect(screen.getByText("NEARBY VOICE")).toBeInTheDocument();
+    expect(screen.getByText("Nearby voice")).toBeInTheDocument();
     await user.click(sidebarButton("Friends"));
-    expect(screen.queryByText("NEARBY VOICE")).toBeNull();
+    expect(screen.queryByText("Nearby voice")).toBeNull();
     expect(await screen.findByRole("tab", { name: "Friends" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("tab", { name: "Friends" })).toBeNull();
 
     await user.click(sidebarButton("Chat"));
+    expect(screen.getByLabelText("Send a message to Nearby chat")).toBeInTheDocument();
     await user.click(sidebarButton("Profile"));
-    expect(screen.getByText(/No messages yet|Connecting to Nearby chat/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Send a message to Nearby chat")).toBeNull();
     expect(screen.getByText("VIEW PROFILE")).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByText(/No messages yet|Connecting to Nearby chat/)).toBeNull();
     expect(screen.queryByLabelText("Send a message to Nearby chat")).toBeNull();
     expect(screen.queryByText("VIEW PROFILE")).toBeNull();
+  });
+
+  test("chat replaces every left popup and the popup replaces chat", async () => {
+    const { user } = renderHud();
+    for (const { button, shown } of PANELS) {
+      await user.click(sidebarButton(button));
+      await vi.waitFor(() => expect(shown()).not.toBeNull());
+      await user.click(sidebarButton("Chat"));
+      expect(shown()).toBeNull();
+      expect(screen.getByLabelText("Send a message to Nearby chat")).toHaveFocus();
+      await user.click(sidebarButton(button));
+      expect(screen.queryByLabelText("Send a message to Nearby chat")).toBeNull();
+      await user.keyboard("{Escape}");
+    }
+  });
+
+  test("More options changes persisted sidebar size without opening Settings", async () => {
+    const { user, path } = renderHud();
+    await user.click(sidebarButton("More options"));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Larger sidebar (150%)" }));
+    expect(localStorage.getItem("dcl.sidebar.large")).toBe("1");
+    expect(document.documentElement.style.getPropertyValue("--sidebar-width")).toBe("69px");
+    expect(screen.queryByRole("menuitemcheckbox", { name: "Auto-hide sidebar" })).toBeNull();
+    expect(path()).toBe("/");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    localStorage.removeItem("dcl.sidebar.large");
+    localStorage.removeItem("dcl.sidebar.autoHide");
   });
 
   test("the minimap hides behind left panels, defaults to hidden, and Hide map leaves no restore pin", async () => {
@@ -154,7 +183,8 @@ describe("sidebar nav", () => {
     const { user, path } = renderHud({ minimapShown: true });
     const places = sidebarButton("Places");
     expect(places).not.toHaveAttribute("aria-haspopup");
-    expect(within(sidebar()).getAllByRole("tooltip").map((t) => t.textContent)).toContain("Places[Z]");
+    await user.hover(places);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Places[Z]");
     await user.click(places);
     expect(screen.queryByRole("menu")).toBeNull();
     expect(path()).toBe("/places");
@@ -166,7 +196,8 @@ describe("sidebar nav", () => {
     expect(screen.queryByText("Test Plaza")).toBeNull();
     const places = sidebarButton("Places");
     expect(places).toHaveAttribute("aria-haspopup", "menu");
-    expect(within(sidebar()).getAllByRole("tooltip").map((t) => t.textContent)).toContain("Places[Z]");
+    await user.hover(places);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Places[Z]");
 
     await user.click(places);
     expect(path()).toBe("/");

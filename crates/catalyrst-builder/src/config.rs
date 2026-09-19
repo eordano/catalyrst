@@ -7,6 +7,7 @@ pub struct Config {
     pub http_host: String,
     pub http_port: u16,
     pub database_url: String,
+    pub polygon_rpc_url: Option<String>,
 
     pub marketplace_database_url: Option<String>,
     pub content_bucket_url: String,
@@ -31,6 +32,11 @@ impl Config {
             http_host: env::var("HTTP_SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
             http_port: get_port("HTTP_SERVER_PORT", 5145)?,
             database_url: required("BUILDER_PG_CONNECTION_STRING")?,
+            polygon_rpc_url: env::var("BUILDER_POLYGON_RPC_URL")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(|_| required_endpoint("BUILDER_POLYGON_RPC_URL"))
+                .transpose()?,
             marketplace_database_url: env::var("BUILDER_MARKETPLACE_PG_CONNECTION_STRING")
                 .ok()
                 .filter(|s| !s.is_empty()),

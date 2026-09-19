@@ -47,6 +47,18 @@ export interface DeLocalItem {
 }
 
 export interface DeWorkspaceCode {
+  project?: {
+    id: string;
+    list: () => Promise<string[]>;
+    read: (path: string) => Promise<string>;
+    readOnly?: (path: string) => Promise<string>;
+    createFileSession?: () => NonNullable<DeWorkspaceCode["project"]>;
+    write: (path: string, content: string) => Promise<void>;
+    remove?: (path: string) => Promise<void>;
+    uiDesigner?: { url: string; runtimeUrl: string };
+    assistant?: SceneAssistant;
+    assets?: ProjectAssets;
+  };
   typesUrl?: string;
   virtualFiles?: { path: string; text: string }[];
   getDir?: () => Promise<FileSystemDirectoryHandle | null>;
@@ -60,6 +72,28 @@ export interface CameraPrefs {
   invertY: boolean;
 }
 
+export type SceneAssistantEvent =
+  | { type: "started"; turnId: string; provider: string; conversationId?: string }
+  | { type: "session"; sessionId: string }
+  | { type: "text"; text: string }
+  | { type: "tool"; name: string; detail: string }
+  | { type: "error"; message: string }
+  | { type: "done"; exitCode: number | null; cancelled: boolean };
+
+export interface AssistantConversation {
+  id: string; provider: string; title: string; updatedAt: number; truncated: boolean;
+}
+export interface AssistantSelection { id: string; name: string }
+export type AssistantHistoryEvent = SceneAssistantEvent | { type: "user"; text: string; selectedEntities: AssistantSelection[] };
+export interface SceneAssistant {
+  conversations: () => Promise<{ conversations: AssistantConversation[] }>;
+  conversation: (id: string) => Promise<AssistantConversation & { events: AssistantHistoryEvent[]; resumable: boolean }>;
+  deleteConversation: (id: string) => Promise<void>;
+  providers: () => Promise<{ providers: { id: string; label: string; available: boolean }[]; sceneTools: { available: boolean; url: string | null; paired?: boolean; bridge?: string | null }; busy: boolean }>;
+  turn: (input: { provider: string; prompt: string; conversationId?: string; selectedEntities?: AssistantSelection[] }, onEvent: (event: SceneAssistantEvent) => void, signal: AbortSignal) => Promise<void>;
+  cancel: (turnId: string) => Promise<void>;
+}
+
 export type AuthorComponentFn = (
   entity: string | number | null | undefined,
   name: string,
@@ -67,3 +101,14 @@ export type AuthorComponentFn = (
 ) => void;
 
 export type DeleteComponentFn = (entity: string | number, name: string) => void;
+
+export type AuthorComponentsFn = (entity: string | number | null | undefined, changes: { name: string; json: string }[]) => Promise<void>;
+
+export interface ProjectAssets {
+  preparePreview?(): Promise<Record<string, string>>;
+  revision?(path: string): Promise<string>;
+  list(): Promise<{ path: string; size: number }[]>;
+  read(path: string): Promise<{ content: ArrayBuffer; revision: string }>;
+  write(path: string, content: ArrayBuffer, revision?: string): Promise<void>;
+  remove(path: string, revision: string): Promise<void>;
+}

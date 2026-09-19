@@ -349,10 +349,13 @@ function deriveCategories(catalog: Wearable[]): WearableCategory[] {
   return out;
 }
 
-function color3ToHex(c: unknown): string | undefined {
+export function color3ToHex(c: unknown): string | undefined {
   if (!c || typeof c !== "object") return undefined;
   const col = c as { r?: number; g?: number; b?: number };
-  const to255 = (n?: number) => Math.max(0, Math.min(255, Math.round((n ?? 0) * 255)));
+  const to255 = (n = 0) => {
+    const linear = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
+    return Math.round(255 * (linear <= 0.0031308 ? 12.92 * linear : 1.055 * linear ** (1 / 2.4) - 0.055));
+  };
   const hx = (n: number) => n.toString(16).padStart(2, "0");
   return `#${hx(to255(col.r))}${hx(to255(col.g))}${hx(to255(col.b))}`;
 }
@@ -362,17 +365,17 @@ export function hexToColor3(hex: unknown): { r: number; g: number; b: number } {
   if (typeof hex !== "string") return fallback;
   let s = hex.trim().replace(/^#/, "");
   if (s.length === 3) s = s.split("").map((ch) => ch + ch).join("");
-  if (s.length !== 6) return fallback;
+  if (!/^[0-9a-f]{6}$/i.test(s)) return fallback;
   const n = parseInt(s, 16);
   if (!Number.isFinite(n)) return fallback;
-  return {
-    r: ((n >> 16) & 255) / 255,
-    g: ((n >> 8) & 255) / 255,
-    b: (n & 255) / 255,
+  const linear = (byte: number) => {
+    const srgb = byte / 255;
+    return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
   };
+  return { r: linear((n >> 16) & 255), g: linear((n >> 8) & 255), b: linear(n & 255) };
 }
 
-async function fetchEquipped(address?: string | null, opts: RequestOpts = {}): Promise<Equipped> {
+export async function fetchEquipped(address?: string | null, opts: RequestOpts = {}): Promise<Equipped> {
   try {
     const addr = normalizeAddress(address);
     if (!addr) return UNKNOWN_EQUIPPED;
@@ -703,13 +706,18 @@ export async function loadRecentOutfits(count = 4, opts: RequestOpts = {}) {
   }
 }
 
-export async function loadBackpack(address?: string | null, opts: RequestOpts = {}) {
+type BackpackOptions = RequestOpts & { equipped?: Promise<Equipped> };
+
+export async function loadBackpack(address?: string | null, opts: BackpackOptions = {}) {
   const addr = normalizeAddress(address);
   const fetchAddr = isEthAddress(addr)
     ? addr
     : "0x0000000000000000000000000000000000000000";
 
-  const elements = await fetchAllExplorerWearables(fetchAddr, opts);
+  const [elements, equipped] = await Promise.all([
+    fetchAllExplorerWearables(fetchAddr, opts),
+    opts.equipped ?? fetchEquipped(addr, opts),
+  ]);
 
   const catalog: Wearable[] = [];
   const ownedUrns: string[] = [];
@@ -722,7 +730,6 @@ export async function loadBackpack(address?: string | null, opts: RequestOpts = 
   }
 
   const categories = deriveCategories(catalog);
-  const equipped = await fetchEquipped(addr, opts);
 
   const ownedSet = new Set(ownedUrns);
   const owned = catalog.filter((w) => ownedSet.has(w.urn));
@@ -739,31 +746,26 @@ export async function loadBackpack(address?: string | null, opts: RequestOpts = 
   };
 }
 
-export async function loadBackpackEmotes(address?: string | null, opts: RequestOpts = {}) {
+export async function loadBackpackEmotes(address?: string | null, opts: BackpackOptions = {}) {
   const addr = normalizeAddress(address);
-
-  const baseEmotes = await fetchBaseEmotes(opts);
-
-  let ownedEmotes: Emote[] = [];
-  let equippedSlots: SlotBinding[] | null = null;
-  if (isEthAddress(addr)) {
-    try {
-      const [els, equipped] = await Promise.all([
+  const ownedRequest = isEthAddress(addr)
+    ? Promise.all([
         fetchAllExplorerEmotes(addr, opts),
-        fetchEquipped(addr, opts),
-      ]);
-      equippedSlots = equipped.emoteSlots;
-      const seen = new Set<string>();
-      for (const el of els) {
-        const e = mapExplorerEmote(el, opts.base);
-        if (!e || seen.has(e.urn)) continue;
-        seen.add(e.urn);
-        ownedEmotes.push(e);
-      }
-    } catch (err) {
-      if (opts.signal?.aborted) throw err;
-      ownedEmotes = [];
-    }
+        opts.equipped ?? fetchEquipped(addr, opts),
+      ]).catch((err) => {
+        if (opts.signal?.aborted) throw err;
+        return null;
+      })
+    : Promise.resolve(null);
+  const [baseEmotes, ownedResult] = await Promise.all([fetchBaseEmotes(opts), ownedRequest]);
+  const ownedEmotes: Emote[] = [];
+  const equippedSlots = ownedResult?.[1].emoteSlots ?? null;
+  const seen = new Set<string>();
+  for (const el of ownedResult?.[0] ?? []) {
+    const emote = mapExplorerEmote(el, opts.base);
+    if (!emote || seen.has(emote.urn)) continue;
+    seen.add(emote.urn);
+    ownedEmotes.push(emote);
   }
 
   const catalog: Emote[] = [];

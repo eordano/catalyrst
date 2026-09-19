@@ -38,7 +38,7 @@ const { buildScaffoldFiles, writeScaffoldFiles } = await import(
   "../packages/data/src/lib/fs/scaffold-project"
 );
 const { parseComposite, entityName, listEntities } = await import(
-  "../packages/data/src/lib/catalyst/scene-composite.ts"
+  "../packages/data/src/lib/catalyst/creator-hub/scene-composite.ts"
 );
 
 const NAME = "My Tavern Scene";

@@ -1,4 +1,5 @@
-import { useQuery, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { playScreenEnabled, playSection } from "../screens/play-client";
 
 import { qk, STALE } from "../queryKeys";
 import {
@@ -13,25 +14,29 @@ function keyAddr(address?: string | null): string {
 }
 
 export function useOwnedWearables(address?: string | null) {
+  const client = useQueryClient();
   return useQuery({
     queryKey: qk.wearables(keyAddr(address)),
-    queryFn: ({ signal }) => loadBackpack(address, { signal }),
+    queryFn: ({ signal }) => readWearables(client, address, signal),
     staleTime: STALE.wearables,
   });
 }
 
 export function useOwnedEmotes(address?: string | null) {
+  const client = useQueryClient();
   return useQuery({
     queryKey: qk.emotes(keyAddr(address)),
-    queryFn: ({ signal }) => loadBackpackEmotes(address, { signal }),
+    queryFn: ({ signal }) => readEmotes(client, address, signal),
     staleTime: STALE.emotes,
   });
 }
 
 export function useOutfits(address?: string | null) {
+  const client = useQueryClient();
   return useQuery({
     queryKey: qk.outfits(keyAddr(address)),
-    queryFn: ({ signal }) => loadOutfits(address, { signal }),
+    queryFn: ({ signal }) => playScreenEnabled(client)
+      ? playSection(client, address, "outfits", signal) : loadOutfits(address, { signal }),
     staleTime: STALE.outfits,
   });
 }
@@ -52,12 +57,20 @@ export function useOwnedItems(address?: string | null) {
 export function prefetchOwnedItems(queryClient: QueryClient, address?: string | null) {
   queryClient.prefetchQuery({
     queryKey: qk.wearables(keyAddr(address)),
-    queryFn: ({ signal }) => loadBackpack(address, { signal }),
+    queryFn: ({ signal }) => readWearables(queryClient, address, signal),
     staleTime: STALE.wearables,
   });
   queryClient.prefetchQuery({
     queryKey: qk.emotes(keyAddr(address)),
-    queryFn: ({ signal }) => loadBackpackEmotes(address, { signal }),
+    queryFn: ({ signal }) => readEmotes(queryClient, address, signal),
     staleTime: STALE.emotes,
   });
+}
+
+export function readWearables(client: QueryClient, address?: string | null, signal?: AbortSignal) {
+  return playScreenEnabled(client) ? playSection(client, address, "wearables", signal) : loadBackpack(address, { signal });
+}
+
+function readEmotes(client: QueryClient, address?: string | null, signal?: AbortSignal) {
+  return playScreenEnabled(client) ? playSection(client, address, "emotes", signal) : loadBackpackEmotes(address, { signal });
 }

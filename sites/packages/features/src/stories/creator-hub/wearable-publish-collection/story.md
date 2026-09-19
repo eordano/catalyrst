@@ -7,8 +7,7 @@ hypothesis:
     A staged wearables-publish wizard that shows the collection summary, an
     itemised MANA publish-fee breakdown, and explicit content/curation terms
     BEFORE asking the creator to pay the MANA fee increases the share of started
-    publishes that reach the submitted-for-curation step, even with the on-chain
-    payment simulated.
+    publishes that reach a real submitted-for-curation result.
   because: >-
     Surfacing the exact per-item MANA cost and the curation terms up front
     removes the two biggest sources of abandonment at the pay step (sticker
@@ -42,45 +41,40 @@ decision:
     crashing); otherwise hold.
 ---
 
-# Publish a wearables collection: pay the MANA fee and submit for curation
+# Publish a collection
 
-The publish wizard (`/create/wearables/publish`) breaks publishing a
-wearable/emote collection into explicit, URL-addressable steps:
+The production route `/create/wearables/publish?collection=<id>` uses signed Builder drafts, a Polygon wallet and Foundation Builder. Foundation requests use a fixed-target same-origin relay because its CORS policy does not allow this site; signatures remain bound to the upstream method/path. Storybook retains the simulated machine for isolated design previews.
 
-1. **Summary** (`?step=summary`) -- show the collection and the items that will be
-   published (ui3 `BdCollectionDetail`). Emits `bd_publish_collection_started`
-   `{ id, itemCount }`.
-2. **Cost** (`?step=cost`) -- the MANA publish-fee breakdown, a flat per-item fee
-   grouped by rarity tier and rolled up to a total. Emits
-   `bd_publish_collection_cost_shown` `{ mana }`.
-3. **Terms** (`?step=terms`) -- accept the content + curation terms. Emits
-   `bd_publish_collection_terms_accepted`.
-4. **Pay** (`?step=pay`) -- approve MANA and sign the publish. Emits
-   `bd_publish_fee_paid` `{ mana, tx_hash }`. The on-chain MANA payment is
-   **SIMULATED**.
-5. **Submitted** (`?step=submitted`) -- the collection is submitted for curation
-   review. Emits `bd_publish_submitted` `{ id, itemCount, mana }`. The curation
-   submission is a **stub**.
+## Creator needs and assumptions
 
-- **Primary metric:** `bd_publish_submit_rate` =
-  `bd_publish_submitted` / `bd_publish_collection_started`.
-- **Guardrails:** publish-flow open volume (`bd_publish_collection_started`),
-  cost-shown volume (`bd_publish_collection_cost_shown`), and fee-paid volume
-  (`bd_publish_fee_paid`) must stay healthy.
-- **Events:** `experiment_exposed` (on render), `bd_publish_collection_started`
-  `{ id, itemCount }`, `bd_publish_collection_cost_shown` `{ mana }`,
-  `bd_publish_collection_terms_accepted`, `bd_publish_fee_paid` `{ mana, tx_hash }`
-  (sim), `bd_publish_submitted` `{ id, itemCount, mana }` (stub).
+- Review the collection and exact publication fee before approving a transaction.
+- Understand that collection deployment and Foundation review submission are separate steps.
+- Recover interrupted uploads, wallet responses and indexing without paying twice.
+- A connected identity owns the draft; a transaction-capable wallet must select the same account. Builder has its Polygon RPC configured. Foundation Builder, its indexer and forum are available.
+- This flow covers standard wearable/emote collections. Linked-provider collections follow their provider registration and quota workflow.
 
-Data reality: the per-item MANA publish fee mirrors the on-chain Rarities
-contract item price (a flat per-item fee, 100 MANA/item -- it does NOT vary by
-rarity tier). The collection + items are read LIVE from the builder
-(`GET /v1/collections/{id}/items` at SSR, re-read through the signed-fetch
-session once a wallet connects) -- there is **no fixture fallback**: when
-nothing can be read the route shows an explicit empty-state notice and the
-wizard routes to **blocked** (no fixture exists; the old capture was deleted
-in the dead-code sweep). The on-chain MANA payment and the
-curation submission are simulated/stubbed and the UI says so on the pay /
-submitted panels; the flow, states, fee math, and telemetry are real. An empty
-/ no-items collection routes to the graceful **blocked** state and never
-crashes.
+## Runtime flow
+
+1. **Summary:** fetch the selected wallet's collection. Missing collection, sign-in, loading and retry states have no simulated publish action. URL parameters cannot manufacture payment or success.
+2. **Review:** inspect actual uploaded models, persist model/animation metrics, generate missing wearable thumbnails, validate Foundation metadata and get exact rarity fees from the current Polygon collection contract. Emotes require their supplied thumbnail. A pending or paid publication instead offers continuation.
+3. **Cost:** show rarity subtotals and the exact MANA total. Compact table values are explicitly approximate; the full amount remains visible. Gas is separate.
+4. **Terms:** require consent and a valid email shared with Foundation for the submission.
+5. **Payment:** freeze the reviewed revision, synchronize files and metadata with Foundation, verify its predicted contract address and item order, record terms, approve exactly the reviewed amount, recheck fees and send the collection transaction. Rust verifies the finalized receipt and deployed contract before assigning item IDs.
+6. **Submission:** wait for Foundation indexing, verify blockchain item IDs and create/reuse its review topic. Only then display curation submission success with real transaction and forum links. Entity deployment belongs to subsequent curator approval.
+
+## Recovery and constraints
+
+- Upload failures occur before payment; retry preserves item IDs and hashes.
+- Prepared drafts remain frozen until resumed or explicitly unlocked for editing.
+- Pending hashes and the server's signing claim survive reload; unresolved wallet sends require transaction-hash recovery. Another tab cannot send the same publication again.
+- A paid collection skips another approval/payment and resumes only the Foundation handoff. Lost forum responses recover the stored topic link.
+- Chain/account/contract mismatches and changed fees stop the flow; they never become zero-cost quotes or simulated successes.
+- Leaving the screen aborts polling and network work. Account changes remount the flow. Emails are not included in telemetry.
+
+## Measurement and evidence
+
+`bd_publish_collection_started`, `bd_publish_collection_cost_shown` and `bd_publish_collection_terms_accepted` describe review progression. Real `bd_publish_fee_paid` carries `simulated: false`; real `bd_publish_submitted` carries `stub: false`. Unknown historical fees on resumed submissions are omitted. Storybook events remain simulated.
+
+Success requires independently confirmed deployment plus a valid Foundation review topic. The primary metric remains submissions / starts; payment and error behavior must be audited alongside conversion.
+
+Data/wallet tests cover exact fees, preparation before payment, concurrent signing, receipt recovery, item order, delayed indexing and forum retry. `tools/screen-tour/verify-collection-publication.mts` drives the real production route with local Rust/PostgreSQL drafts and controlled Polygon/Foundation responses, including thumbnail generation, consent, upload failure, indexing delay, reload and lost forum response. It does not spend funds or create a real forum topic.

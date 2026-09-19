@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { autoConnect } from "./mcp-bridge";
+import { autoConnect, connect } from "./mcp-bridge";
 
 class FakeWebSocket {
   static urls: string[] = [];
+  static instances: FakeWebSocket[] = [];
   static OPEN = 1;
   readyState = 0;
   onopen: (() => void) | null = null;
@@ -11,6 +12,7 @@ class FakeWebSocket {
   onerror: (() => void) | null = null;
   constructor(url: string) {
     FakeWebSocket.urls.push(url);
+    FakeWebSocket.instances.push(this);
   }
   send(): void {}
   close(): void {}
@@ -29,6 +31,7 @@ function reset(): void {
   dispose?.();
   dispose = null;
   FakeWebSocket.urls = [];
+  FakeWebSocket.instances = [];
   window.localStorage.clear();
 }
 
@@ -55,6 +58,16 @@ afterEach(() => {
 });
 
 describe("mcp pairing gate", () => {
+  it("reports confirmed pairing and server rejection to the SDK assistant", () => {
+    const onPairingChange = vi.fn();
+    dispose = connect({ url: "ws://127.0.0.1:8000/api/project/assistant/bridge", token: "sdk-project", onPairingChange });
+    expect(onPairingChange).not.toHaveBeenCalled();
+    const socket = FakeWebSocket.instances.at(-1)!;
+    socket.onmessage?.({ data: JSON.stringify({ kind: "hello-ok", serverVersion: "1", heartbeatMs: 5000 }) });
+    expect(onPairingChange).toHaveBeenLastCalledWith(true);
+    socket.onclose?.({ code: 4409, reason: "Another editor is already paired" });
+    expect(onPairingChange).toHaveBeenLastCalledWith(false, "Another editor is already paired");
+  });
   it("pairs loopback silently: a bare port, the whole 127.0.0.0/8 block, and a stored loopback config", () => {
     setPageUrl("?mcp=5196", "#mcptoken=tok");
     const confirmRemote = vi.fn();

@@ -1,4 +1,4 @@
-import type { AuthLink } from "./identity";
+import type { AuthLink } from "./identity.js";
 
 export const AUTH_CHAIN_HEADER_PREFIX = "x-identity-auth-chain-";
 export const AUTH_TIMESTAMP_HEADER = "x-identity-timestamp";

@@ -1,0 +1,23 @@
+.descene { display: flex; flex-direction: column; gap: 16px; color: var(--eui-fg, #e7e9ee); font-size: 13px; }
+.descene h2 { margin: 0; font-size: 18px; }
+.descene fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.descene-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.descene input, .descene textarea, .descene select { width: 100%; box-sizing: border-box; border: 1px solid var(--eui-border, #333844); border-radius: 6px; padding: 8px; background: var(--eui-surface, #1b1e25); color: inherit; font: inherit; caret-color: currentColor; }
+.descene textarea { resize: vertical; }
+.descene details { border-top: 1px solid var(--eui-border, #333844); padding-top: 12px; }
+.descene details[open] .descene-field { margin-top: 12px; }
+.descene summary { cursor: pointer; padding: 4px 0; }
+.descene p { margin: 0; line-height: 1.5; }
+.descene details p { margin-top: 12px; }
+.descene-coordinates { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.descene-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.descene button { padding: 8px 12px; border-radius: 6px; border: 1px solid var(--eui-border, #333844); background: var(--eui-surface, #1b1e25); color: inherit; font: inherit; cursor: pointer; }
+.descene button[type=submit] { background: var(--eui-accent, #ff2d55); color: white; }
+.descene button:disabled { opacity: .55; cursor: default; }
+.descene :is(button, input, textarea, select, summary):focus-visible { outline: 2px solid var(--eui-fg, #e7e9ee); outline-offset: 3px; }
+.descene button:not(:disabled):hover { filter: brightness(1.15); }
+.descene [role=alert] { color: var(--error, #ff8080); }
+.descene ::selection { background: var(--eui-accent, #ff2d55); color: white; }
+.descene-spawns { display: flex; flex-direction: column; gap: 12px; }
+.descene-check { display: flex; align-items: center; gap: 8px; }
+.descene-check input { width: auto; }

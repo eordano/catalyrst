@@ -111,7 +111,7 @@
   height: 46px;
   padding-left: 24px;
   padding-right: 16px;
-  background: var(--lm-surface);
+  background: var(--mkcn-card);
   border: 1px solid var(--mkcn-input-border);
   border-right: none;
   border-top-left-radius: 6px;
@@ -126,7 +126,7 @@
   border: none;
   outline: none;
   background: transparent;
-  color: var(--panel);
+  color: inherit;
   font: inherit;
   font-size: 16px;
   font-weight: 600;
@@ -135,7 +135,7 @@
   flex: 1 1 auto;
 }
 .mkclaimnamepage__input::placeholder {
-  color: #716b7c;
+  color: var(--mkcn-mute);
   font-weight: 400;
 }
 .mkclaimnamepage__suffix {
@@ -424,7 +424,7 @@
   border: none;
   outline: none;
   background: transparent;
-  color: var(--panel);
+  color: inherit;
   font: inherit;
   font-size: 16px;
   width: 100%;
@@ -485,7 +485,12 @@
 .mkclaimnamepage__btnmana { display: inline-flex; align-items: center; margin-right: 6px; }
 
 @media (max-width: 768px) {
-  .mkclaimnamepage__gradient { display: none; }
+  .mkclaimnamepage__gradient { height: auto; padding-block: 3px; }
+  .mkclaimnamepage__claim { height: auto; padding: 24px 16px 40px; }
+  .mkclaimnamepage__hero { height: auto; }
+  .mkclaimnamepage__inputwrap { width: 100%; margin-top: 28px; padding-bottom: 32px; }
+  .mkclaimnamepage__field { box-sizing: border-box; min-width: 0; width: 100%; padding-inline: 12px; }
+  .mkclaimnamepage__input { width: 0; }
   .mkclaimnamepage__title { font-size: 30px; }
   .mkclaimnamepage__subtitle { font-size: 16px; }
   .mkclaimnamepage__inputwrap { flex-direction: column; height: auto; }

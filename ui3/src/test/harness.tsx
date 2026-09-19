@@ -13,8 +13,20 @@ import AppLayout from "../app/AppLayout";
 import BootGate from "../app/BootGate";
 import { panelLoaders, prefetchPanel } from "../app/router";
 import { FakeBridge } from "./fakeBridge";
+import { SIDEBAR_DESIGN_STORAGE } from "../data/sidebarDesignFlag";
+import { LOBBY_STORAGE } from "../data/lobbyFlag";
 
 export { makeFriend } from "./fakeBridge";
+
+function useLegacyLobbyDefault(): void {
+  if (localStorage.getItem(SIDEBAR_DESIGN_STORAGE) == null) {
+    localStorage.setItem(SIDEBAR_DESIGN_STORAGE, "0");
+    onTestFinished(() => localStorage.removeItem(SIDEBAR_DESIGN_STORAGE));
+  }
+  if (localStorage.getItem(LOBBY_STORAGE) != null) return;
+  localStorage.setItem(LOBBY_STORAGE, "0");
+  onTestFinished(() => localStorage.removeItem(LOBBY_STORAGE));
+}
 
 function installBridge(bridge: FakeBridge): void {
   const prev = window.dclBridge;
@@ -76,6 +88,7 @@ type RenderHudOptions = {
   bridge?: FakeBridge;
   route?: string;
   minimapShown?: boolean;
+  legacyHud?: boolean;
 };
 
 const MINIMAP_HIDDEN_KEY = "dcl.minimap.userHidden";
@@ -97,6 +110,7 @@ type HudHarness = RenderResult & {
 };
 
 export function renderHud(options: RenderHudOptions = {}): HudHarness {
+  if (options.legacyHud !== false) useLegacyLobbyDefault();
   const bridge = options.bridge ?? new FakeBridge();
   bridge.wrapDispatch = (fn) => act(fn);
   installBridge(bridge);
@@ -130,8 +144,9 @@ export type BootHarness = RenderResult & {
 };
 
 export function renderBoot(
-  options: { bridge?: FakeBridge; children?: ReactNode } = {},
+  options: { bridge?: FakeBridge; children?: ReactNode; legacyLobby?: boolean } = {},
 ): BootHarness {
+  if (options.legacyLobby !== false) useLegacyLobbyDefault();
   const bridge = options.bridge ?? new FakeBridge();
   bridge.wrapDispatch = (fn) => act(fn);
   installBridge(bridge);

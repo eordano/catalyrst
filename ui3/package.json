@@ -42,7 +42,9 @@
     "gen:schema-stubs:check": "node scripts/gen-schema-stubs.mts --check",
     "check:perf-strip": "node scripts/check-perf-strip.mts",
     "check:perf-parity": "node scripts/check-perf-parity.mts",
-    "build:overlay:perf": "DCL_PERF=1 npm run build:overlay"
+    "build:overlay:perf": "DCL_PERF=1 npm run build:overlay",
+    "gen:authoring-schemas": "node scripts/gen-authoring-schemas.mjs",
+    "gen:authoring-schemas:check": "node scripts/gen-authoring-schemas.mjs --check"
   },
   "dependencies": {
     "@tanstack/react-query": "5.103.1",

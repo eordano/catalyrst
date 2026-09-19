@@ -1,8 +1,9 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useState } from "react";
 import { asset } from "../../asset";
 import ProfileWidget from "../components/ProfileWidget";
 import { Close } from "../../atoms/icons";
+import { Avatar } from "../../atoms/primitives";
 import "./explorechrome.css";
 
 const ChromeNestedContext = createContext(false);
@@ -97,6 +98,7 @@ type ExploreChromeProps = {
   isGuest?: boolean;
   profileOpen?: boolean;
   onProfileToggle?: () => void;
+  onLobbyOpen?: () => void;
   onSignOut?: () => void;
 };
 
@@ -113,6 +115,7 @@ export default function ExploreChrome({
   isGuest,
   profileOpen = false,
   onProfileToggle,
+  onLobbyOpen,
   onSignOut,
 }: ExploreChromeProps) {
   const nested = useContext(ChromeNestedContext);
@@ -163,11 +166,12 @@ export default function ExploreChrome({
           <button
             type="button"
             className="xc__user"
-            aria-haspopup="dialog"
-            aria-expanded={profileOpen}
-            onClick={onProfileToggle}
+            aria-label={onLobbyOpen ? "Open lobby" : undefined}
+            aria-haspopup={onLobbyOpen ? undefined : "dialog"}
+            aria-expanded={onLobbyOpen ? undefined : profileOpen}
+            onClick={onLobbyOpen ?? onProfileToggle}
           >
-            <span className="xc__avatar u-avatar" style={{ "--sz": "28px", "--hue": 300 } as CSSProperties} />
+            <Avatar size={28} name={user} src={avatarSrc || undefined} className="xc__avatar" />
             <span className="xc__uname">{user}</span>
           </button>
           <button

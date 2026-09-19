@@ -7,7 +7,7 @@ vi.mock("../../auth/signer", () => ({
   signRequest: async () => ({ headers: { "x-signed": "1" } }),
 }));
 
-import { forgetServerDraftVersions, pushServerDraft } from "./scene-drafts-client";
+import { fetchServerDraft, forgetServerDraftVersions, pushServerDraft } from "./scene-drafts-client";
 
 type Call = { url: string; method: string; body: unknown };
 
@@ -96,4 +96,11 @@ describe("pushServerDraft: first save without a 404 pre-flight", () => {
       "PUT /api/creator-hub/drafts/s",
     ]);
   });
+});
+
+
+it("treats an absent optional server copy as an empty response instead of a failed resource", async () => {
+  script.push(()=>new Response(null,{status:204}));
+  expect(await fetchServerDraft("new-scene")).toBeNull();
+  expect(calls.map(call=>call.url)).toEqual(["/api/creator-hub/drafts/new-scene?optional=1"]);
 });

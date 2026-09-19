@@ -77,7 +77,10 @@ export async function loader({ request, params }: RouteArgs) {
       return json(200, { drafts: await listDrafts(auth.wallet) });
     }
     const draft = await getDraft(auth.wallet, id);
-    if (!draft) return json(404, { error: "draft not found" });
+    if (!draft) {
+      if (new URL(request.url).searchParams.get("optional") === "1") return new Response(null, { status: 204, headers: { "cache-control": "private, no-store" } });
+      return json(404, { error: "draft not found" });
+    }
     return json(200, draft);
   } catch (err) {
     return storeFailure(err);

@@ -28,7 +28,7 @@ afterEach(() => {
   delete (window as unknown as WinWithBridge).dclBridge;
 });
 
-test(`wear, recolor and emote each reach the engine in <= ${CLICK_BUDGET} click`, async () => {
+test(`equip requires confirmation; recolor and emote each reach the engine in <= ${CLICK_BUDGET} click`, async () => {
   let clicks = 0;
   const click = async (el: Element) => {
     clicks++;
@@ -38,6 +38,8 @@ test(`wear, recolor and emote each reach the engine in <= ${CLICK_BUDGET} click`
   const onEquippedChange = vi.fn();
   const wear = render(<Backpack catalog={[HAT]} equipped={EQUIPPED} onEquippedChange={onEquippedChange} />);
   await click(screen.getByTitle("Cool Hat"));
+  expect(send).not.toHaveBeenCalled();
+  await click(screen.getByRole("button", { name: "Equip" }));
   expect(onEquippedChange).toHaveBeenCalledWith(["urn:test:hat:1"]);
   expect(send).toHaveBeenCalledWith(
     "SetAvatar",
@@ -45,7 +47,7 @@ test(`wear, recolor and emote each reach the engine in <= ${CLICK_BUDGET} click`
       equip: expect.objectContaining({ wearableUrns: ["urn:test:hat:1"] }),
     }),
   );
-  expect(clicks).toBeLessThanOrEqual(CLICK_BUDGET);
+  expect(clicks).toBe(2);
   wear.unmount();
 
   send.mockClear();

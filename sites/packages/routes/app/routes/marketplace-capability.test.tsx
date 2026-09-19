@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router";
 import { expect, it, vi } from "vitest";
 import BuyWizard from "@features/stories/marketplace/buy-nft/BuyWizard";
 import ClaimNameWizard from "@features/stories/marketplace/claim-name/ClaimNameWizard";
-import { unavailablePurchase, unavailableNameClaim } from "@data/lib/catalyst/marketplace/unavailable-actions";
+import { unavailablePurchase } from "@data/lib/catalyst/marketplace/unavailable-actions";
 
 vi.mock("@ui/marketplace/workflows/MkBuyFlow", () => ({ default: () => <div>Review listing</div> }));
 vi.mock("@ui/marketplace/pages/MkSuccessPage", () => ({ default: () => <div>Purchased successfully</div> }));
@@ -25,7 +25,7 @@ it("does not turn a production purchase URL into a successful receipt", () => {
 
 it("does not turn a production claim URL into a minted NAME", () => {
   const html = renderToString(<MemoryRouter initialEntries={["/marketplace/claim-name?name=example&step=success"]}>
-    <ClaimNameWizard allowStepPreview={false} trackCtx={{ ...ctx, story: "marketplace/claim-name" }} mint={unavailableNameClaim} track={() => {}} />
+    <ClaimNameWizard allowStepPreview={false} trackCtx={{ ...ctx, story: "marketplace/claim-name" }} mint={async () => { throw new Error("A preview URL must not request a transaction"); }} track={() => {}} />
   </MemoryRouter>);
   expect(html).toContain("Claim step:");
   expect(html).not.toContain("success");

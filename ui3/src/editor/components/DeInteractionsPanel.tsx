@@ -1,3 +1,5 @@
+import { ACTION_SCHEMAS, COMPONENT_SCHEMAS, fieldLabel, schemaError, type AuthoringSchema } from "../authoring-schema";
+import { DeSchemaFields } from "./DeSchemaFields";
 import type { ReactNode } from "react";
 import { useId, useMemo, useState } from "react";
 import Toggle from "../../atoms/Toggle";
@@ -17,6 +19,8 @@ interface ActionField {
 type FieldValues = Record<string, string | number | boolean>;
 
 interface ActionDef {
+  schema?: AuthoringSchema;
+  defaults?: unknown;
   id: string;
   label: string;
   hint: string;
@@ -47,12 +51,19 @@ function num(v: unknown, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-export const TRIGGERS: TriggerDef[] = [
+const SIMPLE_TRIGGERS: TriggerDef[] = [
   { id: "on_click", label: "Item is clicked" },
   { id: "on_input_action", label: "Primary button is pressed (E)" },
 ];
 
-export const ACTIONS: ActionDef[] = [
+const triggerSchema = COMPONENT_SCHEMAS["asset-packs::Triggers"]!.schema.properties!.value!.items!;
+export const TRIGGERS: TriggerDef[] = [
+  ...SIMPLE_TRIGGERS,
+  ...(triggerSchema.properties!.type!.enum ?? []).map(String).filter(id => !SIMPLE_TRIGGERS.some(trigger => trigger.id === id)).map(id => ({ id, label: fieldLabel(id) })),
+];
+const triggerDetailsSchema: AuthoringSchema = { type: "object", properties: Object.fromEntries(Object.entries(triggerSchema.properties ?? {}).filter(([key]) => key !== "type" && key !== "actions")) };
+
+const SIMPLE_ACTIONS: ActionDef[] = [
   {
     id: "start_tween",
     label: "Move the item",
@@ -100,6 +111,14 @@ export const ACTIONS: ActionDef[] = [
     ],
     compose: (f) => ({ animation: String(f.animation ?? "").trim(), loop: !!f.loop }),
   },
+];
+
+export const ACTIONS: ActionDef[] = [
+  ...SIMPLE_ACTIONS,
+  ...Object.entries(ACTION_SCHEMAS).filter(([id]) => !SIMPLE_ACTIONS.some(action => action.id === id)).map(([id, definition]) => ({
+    id, label: fieldLabel(id), hint: "Configure the action below.", fields: [], schema: definition.schema, defaults: definition.defaults,
+    compose: () => definition.defaults as Record<string, unknown>,
+  })),
 ];
 
 function defaultsFor(action: ActionDef): FieldValues {
@@ -188,7 +207,8 @@ export interface DeInteractionsPreset {
 interface DeInteractionsPanelProps {
   entityId?: string | number;
   entityName?: string | null;
-  onWrite?: ((name: string, json: string) => void) | null;
+  onWrite?: ((name: string, json: string) => void | Promise<void>) | null;
+  onWriteBatch?: (changes: { name: string; json: string }[]) => Promise<void>;
   existingActions?: ExistingActions | null;
   existingTriggers?: ExistingTriggers | null;
   preset?: DeInteractionsPreset | null;
@@ -198,6 +218,7 @@ export default function DeInteractionsPanel({
   entityId = "0",
   entityName = null,
   onWrite = null,
+  onWriteBatch,
   existingActions = null,
   existingTriggers = null,
   preset = null,
@@ -207,8 +228,11 @@ export default function DeInteractionsPanel({
   const [actionId, setActionId] = useState(ACTIONS[0]!.id);
   const [fields, setFields] = useState<FieldValues>(() => defaultsFor(ACTIONS[0]!));
   const [name, setName] = useState("");
+  const [payload, setPayload] = useState<unknown>({});
+  const [triggerDetails, setTriggerDetails] = useState<unknown>({});
   const [added, setAdded] = useState<AddedInteraction[]>([]);
   const [status, setStatus] = useState("");
+  const [pending, setPending] = useState(false);
 
   const action = useMemo(() => ACTIONS.find((a) => a.id === actionId) ?? ACTIONS[0]!, [actionId]);
 
@@ -216,6 +240,7 @@ export default function DeInteractionsPanel({
     const next = ACTIONS.find((a) => a.id === id) ?? ACTIONS[0]!;
     setActionId(next.id);
     setFields(defaultsFor(next));
+    setPayload(structuredClone(next.defaults ?? {}));
     setStatus("");
   };
 
@@ -228,52 +253,63 @@ export default function DeInteractionsPanel({
   const setField = (key: string, v: string | boolean) => setFields((prev) => ({ ...prev, [key]: v }));
 
   const compose = () => {
-    const actionName = name.trim() || action.label;
+    const existingNames = new Set((existingActions?.value ?? []).map(value => value && typeof value === "object" ? (value as { name?: string }).name : undefined));
+    let actionName = name.trim() || action.label;
+    if (!name.trim()) {
+      let suffix = 2;
+      while (existingNames.has(actionName)) actionName = `${action.label} ${suffix++}`;
+    }
     const baseActions = existingActions && typeof existingActions === "object" ? existingActions : null;
     const id = baseActions && Number.isFinite(baseActions.id) ? baseActions.id : actionsIdFor(entityId);
     const actionEntry = {
       name: actionName,
       type: action.id,
-      jsonPayload: JSON.stringify(action.compose(fields)),
+      jsonPayload: JSON.stringify(action.schema ? payload : action.compose(fields)),
     };
     const actionsValue = [...(baseActions && Array.isArray(baseActions.value) ? baseActions.value : []), actionEntry];
     const actionsJson = JSON.stringify({ id, value: actionsValue });
 
     const baseTriggers = existingTriggers && typeof existingTriggers === "object" ? existingTriggers : null;
-    const triggerEntry = { type: triggerType, actions: [{ id, name: actionName }] };
+    const triggerEntry = { ...(triggerDetails as Record<string, unknown>), type: triggerType, actions: [{ id, name: actionName }] };
     const triggersValue = [...(baseTriggers && Array.isArray(baseTriggers.value) ? baseTriggers.value : []), triggerEntry];
     const triggersJson = JSON.stringify({ value: triggersValue });
 
     return { actionName, actionsJson, triggersJson };
   };
 
-  const valid = action.fields.every((f) => {
+  const validationError = (action.schema ? schemaError(action.schema, payload, "Action") : null) ?? schemaError(triggerDetailsSchema, triggerDetails, "Trigger");
+  const valid = !validationError && action.fields.every((f) => {
     if (!f.required) return true;
     return String(fields[f.key] ?? "").trim() !== "";
   });
 
-  const confirm = () => {
+  const confirm = async () => {
+    if (pending) return;
     if (!valid) {
-      setStatus("Fill the required field first");
+      setStatus(validationError ?? "Fill the required field first");
       return;
     }
     const { actionName, actionsJson, triggersJson } = compose();
+    setPending(true);
     try {
-      onWrite?.("asset-packs::Actions", actionsJson);
-      onWrite?.("asset-packs::Triggers", triggersJson);
+      if (onWriteBatch) await onWriteBatch([{ name: "asset-packs::Actions", json: actionsJson }, { name: "asset-packs::Triggers", json: triggersJson }]);
+      else {
+        await onWrite?.("asset-packs::Actions", actionsJson);
+        await onWrite?.("asset-packs::Triggers", triggersJson);
+      }
       const triggerLabel = TRIGGERS.find((t) => t.id === triggerType)?.label ?? triggerType;
       setAdded((prev) => [...prev, { trigger: triggerLabel, action: actionName, actionsJson, triggersJson }]);
-      setStatus(onWrite ? "\u{2713} Interaction added" : "\u{2713} Composed (preview \u{2014} not wired)");
+      setStatus(onWrite || onWriteBatch ? "\u{2713} Interaction added" : "\u{2713} Composed (preview \u{2014} not wired)");
       setName("");
     } catch (e) {
       setStatus("Failed to author: " + String(e));
-    }
+    } finally { setPending(false); }
   };
 
   const preview = useMemo(() => {
     const { actionsJson, triggersJson } = compose();
     return { actionsJson, triggersJson };
-  }, [triggerType, actionId, fields, name, existingActions, existingTriggers, entityId]);
+  }, [triggerType, actionId, fields, payload, triggerDetails, name, existingActions, existingTriggers, entityId]);
 
   return (
     <div className="eui-comp" style={{ borderColor: "var(--primary-border)" }}>
@@ -307,6 +343,8 @@ export default function DeInteractionsPanel({
           </select>
         </PropRow>
 
+        <DeSchemaFields schema={triggerDetailsSchema} value={triggerDetails} onChange={setTriggerDetails} />
+
         <div className="eui-group-label">do</div>
         <PropRow label="Action" htmlFor={uid + "-action"}>
           <select id={uid + "-action"} className="eui-select" value={actionId} onChange={(e) => pickAction(e.target.value)}>
@@ -319,6 +357,7 @@ export default function DeInteractionsPanel({
         </PropRow>
         <div className="eui-comp-note" style={{ marginTop: 2 }}>{action.hint}</div>
 
+        {action.schema && <DeSchemaFields schema={action.schema} value={payload} onChange={setPayload} />}
         {action.fields.map((f) => (
           <Field
             key={f.key}
@@ -341,8 +380,8 @@ export default function DeInteractionsPanel({
         </PropRow>
 
         <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8 }}>
-          <button className="eui-btn primary" style={{ height: 24 }} disabled={!valid} onClick={confirm}>
-            Add interaction
+          <button className="eui-btn primary" style={{ height: 24 }} disabled={!valid || pending} onClick={() => void confirm()}>
+            {pending ? "Adding interaction\u2026" : "Add interaction"}
           </button>
           {status !== "" && (
             <span

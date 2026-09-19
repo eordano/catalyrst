@@ -39,6 +39,7 @@ export default function MarketplaceFrame({ src }: MarketplaceFrameProps) {
         className={"mkf__frame" + (loaded ? " is-loaded" : "")}
         title="Marketplace"
         src={url}
+        {...{ credentialless: true }}
         allow="clipboard-write"
         onLoad={onLoad}
       />

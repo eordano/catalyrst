@@ -76,6 +76,7 @@ mod tests {
 
     fn state(marketplace: Option<MarketplaceComponent>) -> AppState {
         Arc::new(AppStateInner {
+            polygon_rpc_url: None,
             items: ItemsComponent::new(dead_pool()),
             newsletter: NewsletterComponent::new(dead_pool()),
             marketplace,

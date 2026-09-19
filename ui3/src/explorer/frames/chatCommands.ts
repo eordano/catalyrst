@@ -6,7 +6,11 @@ export const LOCAL_COMMANDS: ChatCommand[] = [
 ];
 
 export const ENGINE_COMMANDS: ChatCommand[] = [
+  { name: "/goto", args: "<x,y[/spawn]|world[/x,y][/spawn]|random|crowd>", about: "jump to a parcel, world, named spawn, or the most crowded scene" },
+  { name: "/loadpx", args: "<name>", about: "start a portable experience (.dcl.eth is added to short names)" },
+  { name: "/killpx", args: "<id|name>", about: "stop a running portable experience by ID or name" },
   { name: "/teleport", args: "<x> <y> [realm]", about: "jump to a parcel, optionally in another realm" },
+  { name: "/click_to_move", args: "[true|false]", about: "toggle double-click movement in the world" },
   { name: "/changerealm", args: "<realm>", about: "connect to another realm or world" },
   { name: "/reload", args: "[scene-hash]", about: "reload the current scene" },
   { name: "/fps", args: "<fps>", about: "set the target frame rate" },

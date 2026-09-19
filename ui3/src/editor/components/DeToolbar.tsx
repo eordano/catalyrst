@@ -52,6 +52,8 @@ export interface DeToolbarProps {
   cameraPreset?: string;
   onCode?: () => void;
   codeActive?: boolean;
+  onUIDesigner?: () => void;
+  uiDesignerActive?: boolean;
   live?: boolean;
   showGizmo?: boolean;
 }
@@ -78,6 +80,8 @@ export function DeToolbar({
   cameraPreset = "blender",
   onCode = undefined,
   codeActive = false,
+  onUIDesigner,
+  uiDesignerActive = false,
   live = false,
   showGizmo = !live,
 }: DeToolbarProps) {
@@ -173,6 +177,8 @@ export function DeToolbar({
           </button>
         </div>
       )}
+
+      {onUIDesigner && <button type="button" className={`eui-btn${uiDesignerActive ? " active" : ""}`} aria-pressed={uiDesignerActive} onClick={onUIDesigner}>UI Designer</button>}
 
       {onCamMode && (
         <div ref={camRef} style={{ position: "relative", display: "flex" }}>

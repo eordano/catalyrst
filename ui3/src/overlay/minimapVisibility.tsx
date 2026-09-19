@@ -26,17 +26,18 @@ const INERT: MinimapVisibility = {
   toggleUserHidden: () => {},
 };
 
-function readUserHidden(): boolean {
+function readUserHidden(initiallyVisible: boolean): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEY) !== "0";
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved === null ? !initiallyVisible : saved !== "0";
   } catch {
     return true;
   }
 }
 
-export function MinimapVisibilityProvider({ children }: { children: ReactNode }) {
+export function MinimapVisibilityProvider({ children, initiallyVisible = false }: { children: ReactNode; initiallyVisible?: boolean }) {
   const [hideCount, setHideCount] = useState(0);
-  const [userHidden, setUserHidden] = useState(readUserHidden);
+  const [userHidden, setUserHidden] = useState(() => readUserHidden(initiallyVisible));
 
   const requestHide = useCallback((): (() => void) => {
     setHideCount((n) => n + 1);

@@ -2,14 +2,16 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import * as THREE from "three";
 
 type RenderSample = { visible: boolean; hipsY: number | null };
-type FakeRenderer = { loop: (() => void) | null; lastScene: THREE.Object3D | null };
+type FakeRenderer = { loop: (() => void) | null; lastScene: THREE.Object3D | null; camera: THREE.PerspectiveCamera | null };
 const rendererInstances: FakeRenderer[] = [];
 const renders: RenderSample[] = [];
 const loads: string[] = [];
 const deferred = new Map<string, () => void>();
 let autoResolve = true;
+let tinyBindPose = false;
 
 const BODY = "urn:decentraland:off-chain:base-avatars:BaseMale";
+const FEMALE = "urn:decentraland:off-chain:base-avatars:BaseFemale";
 const HAT1 = "urn:decentraland:matic:collections-v2:0xhat:1";
 const HAT2 = "urn:decentraland:matic:collections-v2:0xhat:2";
 const HAT3 = "urn:decentraland:matic:collections-v2:0xhat:3";
@@ -28,6 +30,7 @@ vi.mock("three", async (importOriginal) => {
     outputColorSpace = actual.SRGBColorSpace;
     loop: (() => void) | null = null;
     lastScene: THREE.Object3D | null = null;
+    camera: THREE.PerspectiveCamera | null = null;
     constructor() {
       rendererInstances.push(this);
     }
@@ -37,8 +40,9 @@ vi.mock("three", async (importOriginal) => {
     setAnimationLoop(cb: (() => void) | null) {
       this.loop = cb;
     }
-    render(scene: THREE.Object3D) {
+    render(scene: THREE.Object3D, camera: THREE.PerspectiveCamera) {
       this.lastScene = scene;
+      this.camera = camera;
       const group = scene.getObjectByName("avatar");
       const hips = scene.getObjectByName("Avatar_Hips");
       renders.push({
@@ -56,6 +60,7 @@ vi.mock("three/examples/jsm/loaders/GLTFLoader.js", () => {
   const idleClip = () =>
     new THREE.AnimationClip("idle", 1, [
       new THREE.VectorKeyframeTrack("Avatar_Hips.position", [0, 1], [0, 1, 0, 0, 1, 0]),
+      new THREE.VectorKeyframeTrack("Avatar_Hips.scale", [0, 1], [1, 1, 1, 1, 1, 1]),
     ]);
   const strayClip = () =>
     new THREE.AnimationClip("wave", 1, [
@@ -66,6 +71,7 @@ vi.mock("three/examples/jsm/loaders/GLTFLoader.js", () => {
     g.name = `part:${pointer}`;
     const hips = new THREE.Object3D();
     hips.name = "Avatar_Hips";
+    if (tinyBindPose) hips.scale.setScalar(0.01);
     g.add(hips);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 1.8, 0.3),
@@ -99,7 +105,7 @@ function entityFor(pointer: string) {
     content: [{ file: "model.glb", hash: `h_${p}` }],
     metadata: {
       data: {
-        category: p === BODY.toLowerCase() ? "body_shape" : "hat",
+        category: [BODY, FEMALE].some(body => body.toLowerCase() === p) ? "body_shape" : "hat",
         representations: [{ bodyShapes: [BODY], mainFile: "model.glb" }],
       },
     },
@@ -121,6 +127,7 @@ beforeEach(() => {
   loads.length = 0;
   deferred.clear();
   autoResolve = true;
+  tinyBindPose = false;
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
     matches: false,
     media: query,
@@ -264,6 +271,36 @@ test("an initial-load failure is recovered by the next outfit swap on the same s
   container.remove();
 });
 
+test("frames the posed avatar rather than its miniature bind pose", async () => {
+  tinyBindPose = true;
+  const { container, scene, onStatus, renderer } = mount([]);
+  await vi.waitFor(() => expect(onStatus).toHaveBeenLastCalledWith("ready"));
+  renderer.loop!();
+  expect(renderer.camera!.far).toBeGreaterThan(50);
+  expect(renderer.camera!.position.length()).toBeGreaterThan(2);
+  expect(neverShowedBindPose()).toBe(true);
+  scene.dispose();
+  container.remove();
+});
+
+test("a populated outfit restores visibility after an empty outfit hid the scene", async () => {
+  const { container, scene, onStatus, renderer } = mount([HAT1]);
+  await vi.waitFor(() => expect(onStatus).toHaveBeenLastCalledWith("ready"));
+  const fetchOk = globalThis.fetch;
+  globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }) as unknown as Response);
+  await scene.setOutfit({ body: "urn:missing-body", urns: [] });
+  expect(onStatus).toHaveBeenLastCalledWith("empty");
+  renderer.loop!();
+  expect(renders.at(-1)?.visible).toBe(false);
+  globalThis.fetch = fetchOk;
+  await scene.setOutfit({ body: BODY, urns: [HAT1] });
+  expect(onStatus).toHaveBeenLastCalledWith("ready");
+  renderer.loop!();
+  expect(renders.at(-1)?.visible).toBe(true);
+  scene.dispose();
+  container.remove();
+});
+
 test("an emote whose tracks bind to nothing on this avatar falls back to the idle clip", async () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const { container, scene, onStatus, renderer } = mount([HAT1], "wave");
@@ -299,5 +336,18 @@ test("a setOutfit superseded inside the debounce window settles at once instead 
   scene.dispose();
   expect(await outcome(pending)).toBe("settled");
   expect(loads).not.toContain(contentUrl(HAT4));
+  container.remove();
+});
+
+test("legacy body shapes in the wearable list never mount an overlapping body", async () => {
+  const { container, scene, mountedParts } = mount([FEMALE, HAT1]);
+  await flush(30);
+  expect(mountedParts()).toEqual(expect.arrayContaining([partName(BODY), partName(HAT1)]));
+  expect(mountedParts()).not.toContain(partName(FEMALE));
+  expect(loads).not.toContain(contentUrl(FEMALE));
+  await scene.setOutfit({ body: FEMALE, urns: [BODY, HAT1] });
+  expect(mountedParts()).toEqual(expect.arrayContaining([partName(FEMALE), partName(HAT1)]));
+  expect(mountedParts()).not.toContain(partName(BODY));
+  scene.dispose();
   container.remove();
 });

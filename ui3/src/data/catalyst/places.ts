@@ -146,6 +146,7 @@ export function toPlaceView(p: Place) {
     featured: p.highlighted,
     rating: Math.round((p.like_rate ?? 0) * 100),
     favorites: p.favorites,
+    ...(p.user_favorite === undefined ? {} : { userFavorite: p.user_favorite }),
     likes: p.likes,
     visits: p.user_visits,
     parcels: p.positions.length || 1,
@@ -183,12 +184,12 @@ export function toPlaceDetail(view: PlaceView | null | undefined) {
 
 export async function setPlaceFavorite(entityId: string, favorites: boolean): Promise<boolean> {
   if (!entityId) return false;
-  const res = await sendSignedJSON(`/api/places/${encodeURIComponent(entityId)}/favorites`, {
+  await sendSignedJSON(`/api/places/${encodeURIComponent(entityId)}/favorites`, {
     service: "places",
     method: "PATCH",
     body: { favorites },
   });
-  return res != null;
+  return true;
 }
 
 export async function setPlaceLike(entityId: string, likes: boolean | null): Promise<boolean> {

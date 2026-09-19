@@ -304,7 +304,7 @@
           "optional": false
         },
         "stub": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         },
         "type": {
@@ -606,7 +606,7 @@
           "optional": false
         },
         "stub": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         },
         "urn": {
@@ -649,7 +649,7 @@
           "optional": false
         },
         "simulated": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         },
         "tx_hash": {
@@ -671,10 +671,10 @@
         },
         "mana": {
           "kind": "number",
-          "optional": false
+          "optional": true
         },
         "stub": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         }
       }
@@ -7473,7 +7473,7 @@
           "optional": false
         },
         "stub": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         },
         "token_id": {
@@ -7511,7 +7511,7 @@
           "optional": false
         },
         "simulated": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         }
       }
@@ -7533,7 +7533,7 @@
           "optional": false
         },
         "simulated": {
-          "kind": "unknown",
+          "kind": "boolean",
           "optional": false
         }
       }

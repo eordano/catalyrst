@@ -1,7 +1,10 @@
 pub mod catalog;
 pub mod collections;
 pub mod curation;
+pub mod drafts;
+pub mod linked_publication;
 pub mod newsletter;
 pub mod onchain;
 pub mod ping;
+pub mod publication;
 pub mod storage;

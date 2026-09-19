@@ -11,7 +11,7 @@ buildNpmPackage {
   src = ../sites;
   nodejs = nodejs_26;
 
-  npmDepsHash = "sha256-H4/8z6g3UErr1ORCeOnA1YBVlHJYg6IRpgWIgsSUPC0=";
+  npmDepsHash = "sha256-TfnpxW9TTg34SLXzq1X0ILBLqgYAQBDU/o6cd7qE1rM=";
 
   nativeBuildInputs = [ makeWrapper ];
 

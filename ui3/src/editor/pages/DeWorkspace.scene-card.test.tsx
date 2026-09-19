@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import DeWorkspace from "./DeWorkspace";
@@ -87,12 +87,12 @@ describe("scene card on the live bus with the root active", () => {
     window.localStorage.clear();
   });
 
-  it("renames the scene through the metadata component and gives Delete and Duplicate root-specific hints", () => {
+  it("renames the scene through the metadata component and gives Delete and Duplicate root-specific hints", async () => {
     render(<DeWorkspace title="Beach House" viewportSrc="https://catalyst.example.com/_play/?x=1" />);
     deliver({
       type: "scene-ready",
       bridge: 8,
-      scene: null,
+      scene: { hash: "scene-a", title: "Scene", parcels: [], isPortable: false, isBroken: false, isBlocked: false, isSuper: false, sdkVersion: "7" },
       frozen: true,
       tool: "translate",
       orientGlobal: false,
@@ -109,18 +109,13 @@ describe("scene card on the live bus with the root active", () => {
     input.focus();
     fireEvent.change(input, { target: { value: "  Pier House " } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(sent("set-component")).toEqual([
-      {
-        type: "set-component",
-        entity: "0",
-        name: SCENE_META,
-        json: JSON.stringify({ ...META, name: "Pier House" }),
-      },
-    ]);
+    const write = sent("rpc").find(message => message.method === "writeComponents")!;
+    expect(write.args).toEqual(["0", [{ name: SCENE_META, value: { ...META, name: "Pier House" } }]]);
+    deliver({ type: "rpc-reply", id: write.id, ok: true, result: [SCENE_META] });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Scene name" })).toHaveProperty("value", "Pier House"));
     const renamed = screen.getByRole("textbox", { name: "Scene name" }) as HTMLInputElement;
-    expect(renamed.value).toBe("Pier House");
     fireEvent.blur(renamed);
-    expect(sent("set-component")).toHaveLength(1);
+    expect(sent("rpc").filter(message => message.method === "writeComponents")).toHaveLength(1);
 
     expect((screen.getByLabelText("Delete") as HTMLButtonElement).title).toMatch(/can\u2019t be deleted/);
     expect((screen.getByLabelText("Duplicate") as HTMLButtonElement).title).toMatch(

@@ -35,6 +35,7 @@ export const EquipWearable: Story = {
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByTitle("Cool Hat"));
+    await userEvent.click(canvas.getByRole("button", { name: "Equip Cool Hat" }));
     await expect(args.onEquippedChange).toHaveBeenCalledWith(["urn:test:hat:1"]);
   },
 };

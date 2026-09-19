@@ -11,10 +11,13 @@ import {
 import {
   saveOutfits,
   hexToColor3,
+  color3ToHex,
   fetchEmoteGlbUrl,
 } from "../../data/catalyst/backpack";
 import WearablePreview from "../../wearable-preview/WearablePreview";
 import Spinner from "../../atoms/Spinner";
+import { catalystBase } from "../../data/catalyst/client";
+import type { AvatarStatus } from "../../wearable-preview/avatar";
 
 type PreviewBase = {
   bodyShape?: string;
@@ -45,6 +48,7 @@ export function prefetch(queryClient: QueryClient) {
 
 export default function BackpackPanel() {
   const identity = useBridgeState((s) => s.identity);
+  const avatarBase = useBridgeState(s => s.avatarBase);
   const avatarLoadout = useBridgeState((s) => s.avatarLoadout);
   const address = identity?.address ?? guessAddress();
 
@@ -55,7 +59,8 @@ export default function BackpackPanel() {
   const [previewUrns, setPreviewUrns] = useState<string[] | null>(null);
   const [previewBase, setPreviewBase] = useState<PreviewBase | null>(null);
   const [emote, setEmote] = useState({ value: "idle", nonce: 0 });
-  const [previewLoading, setPreviewLoading] = useState(true);
+  const [previewStatus, setPreviewStatus] = useState<AvatarStatus>("loading");
+  const [previewAttempt, setPreviewAttempt] = useState(0);
 
   useEffect(() => {
     setPreviewUrns(null);
@@ -65,16 +70,19 @@ export default function BackpackPanel() {
   const dataProps = useMemo(() => {
     const w = wearables.data;
     const e = emotes.data;
-    const catEquipped = w?.equipped ?? null;
-    const equipped = avatarLoadout?.wearables?.length
+    const catEquipped = avatarBase ? {
+      ...w?.equipped,
+      ...(avatarBase.bodyShapeUrn ? { bodyShape: avatarBase.bodyShapeUrn } : {}),
+      ...(avatarBase.skinColor ? { skinColor: color3ToHex(avatarBase.skinColor) } : {}),
+      ...(avatarBase.hairColor ? { hairColor: color3ToHex(avatarBase.hairColor) } : {}),
+      ...(avatarBase.eyesColor ? { eyeColor: color3ToHex(avatarBase.eyesColor) } : {}),
+    } : w?.equipped ?? null;
+    const equipped = avatarLoadout
       ? {
           ...(catEquipped ?? {}),
           wearables: avatarLoadout.wearables,
           bodyShape: avatarLoadout.bodyShape ?? catEquipped?.bodyShape,
-          emotes:
-            (avatarLoadout.emotes?.length ?? 0) > 0
-              ? avatarLoadout.emotes
-              : catEquipped?.emotes,
+          emotes: avatarLoadout.emotes ?? catEquipped?.emotes,
         }
       : catEquipped;
     return {
@@ -103,13 +111,14 @@ export default function BackpackPanel() {
     outfitsQuery.data,
     address,
     avatarLoadout,
+    avatarBase,
     isLoading,
     isError,
     error,
   ]);
 
   const equipped = dataProps.equipped;
-  const outfitKnown = !isLoading || (avatarLoadout?.wearables?.length ?? 0) > 0;
+  const outfitKnown = !isLoading || avatarLoadout != null;
   const outfit = useMemo(
     () => ({
       bodyShape: previewBase?.bodyShape ?? equipped?.bodyShape ?? DEFAULT_BODY,
@@ -143,6 +152,8 @@ export default function BackpackPanel() {
         <div className="bp__avatar-preview">
           {outfitKnown ? (
             <WearablePreview
+              key={previewAttempt}
+              base={catalystBase()}
               outfit={outfit}
               platform
               spin={false}
@@ -151,14 +162,20 @@ export default function BackpackPanel() {
               pitch={8}
               emote={emote.value}
               emoteNonce={emote.nonce}
-              onStatus={(s) => setPreviewLoading(s === "loading")}
+              onStatus={setPreviewStatus}
             />
           ) : null}
-          {previewLoading || !outfitKnown ? (
+          {previewStatus === "loading" || !outfitKnown ? (
             <div className="bp__avatar-loading" role="status" aria-label={"Loading avatar\u{2026}"}>
               <Spinner size={34} color="rgba(255,255,255,0.72)" aria-hidden />
             </div>
           ) : null}
+          {outfitKnown && (previewStatus === "error" || previewStatus === "empty") && (
+            <div className="bp__avatar-loading" role="alert">
+              <p>Avatar preview could not load.</p>
+              <button type="button" onClick={() => { setPreviewStatus("loading"); setPreviewAttempt((n) => n + 1); }}>Retry preview</button>
+            </div>
+          )}
         </div>
       }
       avatarName={identity?.name ?? ""}

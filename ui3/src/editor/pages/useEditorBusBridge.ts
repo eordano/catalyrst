@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorTool } from "../bus-protocol";
 import type { EditorBus } from "../editor-bus";
 import { createEditorBus } from "../editor-bus";
@@ -11,17 +11,16 @@ import { resolveCompositeAssets } from "../project-cache";
 import type { CameraPrefs, DeTreeNode, EditorTransform, EditorVec } from "../types";
 import type { LiveSceneInfo } from "../../generated/editor-bus";
 
-const hydratedComposites = new Set<string>();
-
 interface LiveSelection {
   selected: string[];
   active: string | null;
 }
 
 interface EditorBusBridgeOptions {
+  prepareScene?: () => Promise<void>;
   live: boolean;
+  viewportSrc: string | null | undefined;
   title: string;
-  viewportRef: RefObject<HTMLIFrameElement | null>;
   busRef: RefObject<EditorBus | null>;
   prefsRef: RefObject<CameraPrefs>;
   rawCompositeRef: RefObject<string | null>;
@@ -48,9 +47,10 @@ interface EditorCameraPose {
 }
 
 export function useEditorBusBridge({
+  prepareScene,
   live,
+  viewportSrc,
   title,
-  viewportRef,
   busRef,
   prefsRef,
   rawCompositeRef,
@@ -62,7 +62,15 @@ export function useEditorBusBridge({
   notePlayEdit,
   snapRef,
 }: EditorBusBridgeOptions) {
+  const prepareSceneRef = useRef(prepareScene);
+  prepareSceneRef.current = prepareScene;
   const [sceneReady, setSceneReady] = useState(false);
+  const [session, setSession] = useState(0);
+  const [sceneError, setSceneError] = useState<string | null>(null);
+  const onViewportLoad = useCallback(() => {
+    setSceneReady(false);
+    setSession((value) => value + 1);
+  }, []);
   const [liveSel, setLiveSel] = useState<LiveSelection | null>(null);
   const [liveComps, setLiveComps] = useState<Record<string, string[]>>({});
   const [liveXform, setLiveXform] = useState<Record<string, EditorTransform>>({});
@@ -76,7 +84,14 @@ export function useEditorBusBridge({
     const bus = createEditorBus();
     if (!bus.ok) return undefined;
     busRef.current = bus;
+    let disposed = false;
     let handshook = false;
+    let hydrating = false;
+    setSceneReady(false);
+    setSceneError(null);
+    compValuesRef.current = {};
+    historyRef.current?.clear();
+    nudgeBaseRef.current = null;
     let initTimer: ReturnType<typeof setInterval> | null = null;
     const stopInit = () => {
       if (initTimer != null) {
@@ -87,23 +102,29 @@ export function useEditorBusBridge({
     const off = bus.onMessage((msg) => {
       if (!msg || typeof msg !== "object") return;
       switch (msg.type) {
-        case "scene-ready":
+        case "scene-ready": {
+          if (handshook || hydrating) break;
+          if (!msg.scene) break;
           handshook = true;
           stopInit();
-          setSceneReady(true);
           setLiveScene(msg.scene ?? null);
           setOrientGlobal(msg.orientGlobal === true);
           setLiveSel({ selected: msg.selected ?? [], active: msg.active ?? null });
           if (msg.tool) setTool(msg.tool);
           busRef.current?.setCameraSettings(prefsRef.current);
-          {
-            const rc = rawCompositeRef.current;
-            if (rc && !hydratedComposites.has(rc)) {
-              hydratedComposites.add(rc);
-              busRef.current?.loadScene(resolveCompositeAssets(rc));
-            }
-          }
+          const rc = rawCompositeRef.current;
+          if (rc || prepareSceneRef.current) {
+            hydrating = true;
+            const restore = () => disposed ? Promise.resolve() : rc ? bus.rpc("restoreComposite", [resolveCompositeAssets(rc)]) : Promise.resolve();
+            const prepared = prepareSceneRef.current ? prepareSceneRef.current().then(restore) : restore();
+            void prepared.then(() => {
+              if (!disposed) setSceneReady(true);
+            }).catch(() => {
+              if (!disposed) setSceneError("Your scene could not be loaded into the editor. Retry to reconnect and load it again.");
+            });
+          } else setSceneReady(true);
           break;
+        }
         case "selection": {
           setLiveSel({ selected: msg.selected ?? [], active: msg.active ?? null });
           const comps = (msg as { components?: Record<string, Record<string, unknown>> })
@@ -188,6 +209,7 @@ export function useEditorBusBridge({
       bus.init();
     }, INIT_ANNOUNCE_INTERVAL_MS);
     return () => {
+      disposed = true;
       stopInit();
       off();
       bus.close();
@@ -196,25 +218,17 @@ export function useEditorBusBridge({
       setLiveScene(null);
       setLiveSel(null);
       setLiveComps({});
+      setLiveXform({});
       setLiveTree(null);
       setCameraPose(null);
     };
-  }, [live]);
-
-  useEffect(() => {
-    if (!live) return undefined;
-    const f = viewportRef.current;
-    if (!f || typeof f.addEventListener !== "function") return undefined;
-    const onLoad = () => {
-      const rc = rawCompositeRef.current;
-      if (rc) hydratedComposites.delete(rc);
-    };
-    f.addEventListener("load", onLoad);
-    return () => f.removeEventListener("load", onLoad);
-  }, [live]);
+  }, [live, viewportSrc, session]);
 
   return {
     sceneReady,
+    sceneError,
+    onViewportLoad,
+    session,
     liveSel,
     setLiveSel,
     liveComps,

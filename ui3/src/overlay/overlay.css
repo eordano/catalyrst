@@ -105,7 +105,8 @@
 }
 
 .ui3-overlay__profile .pw {
-  left: 52px;
+  left: calc(var(--sidebar-width, 46px) + 10px);
   right: auto;
-  top: 320px;
+  top: 36px;
+  max-width: calc(100vw - var(--sidebar-width, 46px) - 26px);
 }

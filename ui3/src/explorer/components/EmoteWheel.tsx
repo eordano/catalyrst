@@ -136,7 +136,7 @@ export default function EmoteWheel({
 
         <div className="ew__center">
           <div className="ew__hovername">{hovered?.name ?? " "}</div>
-          <div className="ew__title">EMOTES</div>
+          <div className="ew__title">Emotes</div>
           {onCustomise && (
             <button
               type="button"

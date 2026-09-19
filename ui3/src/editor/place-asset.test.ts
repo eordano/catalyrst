@@ -7,8 +7,11 @@ function fakeBus() {
     calls,
     ref: {
       current: {
-        addEntity: (name: string, parent: number, components: unknown) =>
-          calls.push({ name, parent, components }),
+        rpc: async (method: string, [name, parent, components]: [string, number, unknown]) => {
+          expect(method).toBe("addEntity");
+          calls.push({ name, parent, components });
+          return "512";
+        },
       },
     } as never,
   };

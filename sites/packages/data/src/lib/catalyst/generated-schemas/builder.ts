@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { BuilderCollectionOut } from "@ui/generated/catalyst/builder/BuilderCollectionOut";
 import type { BulkItemStatusPatchOut } from "@ui/generated/catalyst/builder/BulkItemStatusPatchOut";
 import type { CollectionItemsOut } from "@ui/generated/catalyst/builder/CollectionItemsOut";
+import type { CollectionListingOut } from "@ui/generated/catalyst/builder/CollectionListingOut";
 import type { CollectionMetaOut } from "@ui/generated/catalyst/builder/CollectionMetaOut";
 import type { CollectionStatus } from "@ui/generated/catalyst/builder/CollectionStatus";
 import type { CollectionType } from "@ui/generated/catalyst/builder/CollectionType";
@@ -13,9 +14,15 @@ import type { CurationStatus } from "@ui/generated/catalyst/builder/CurationStat
 import type { FullItemOut } from "@ui/generated/catalyst/builder/FullItemOut";
 import type { ItemKind } from "@ui/generated/catalyst/builder/ItemKind";
 import type { ItemStatusPatchOut } from "@ui/generated/catalyst/builder/ItemStatusPatchOut";
+import type { LinkedPublicationCheque } from "@ui/generated/catalyst/builder/LinkedPublicationCheque";
+import type { LinkedPublicationPreparation } from "@ui/generated/catalyst/builder/LinkedPublicationPreparation";
+import type { LinkedPublicationState } from "@ui/generated/catalyst/builder/LinkedPublicationState";
 import type { NewsletterSubscribeOut } from "@ui/generated/catalyst/builder/NewsletterSubscribeOut";
 import type { OrphanItemOut } from "@ui/generated/catalyst/builder/OrphanItemOut";
 import type { PaginatedFullItemsOut } from "@ui/generated/catalyst/builder/PaginatedFullItemsOut";
+import type { PublicationItem } from "@ui/generated/catalyst/builder/PublicationItem";
+import type { PublicationPreparation } from "@ui/generated/catalyst/builder/PublicationPreparation";
+import type { PublicationState } from "@ui/generated/catalyst/builder/PublicationState";
 import type { ReviewCurationOut } from "@ui/generated/catalyst/builder/ReviewCurationOut";
 import type { ReviewRowOut } from "@ui/generated/catalyst/builder/ReviewRowOut";
 
@@ -92,6 +99,20 @@ export const PaginatedFullItemsOutSchema = z.object({
 
 export const CollectionItemsOutSchema = z.union([z.array(FullItemOutSchema), PaginatedFullItemsOutSchema]);
 
+export const CollectionListingOutSchema = z.object({
+  item_count: z.coerce.bigint(),
+  id: z.string(),
+  name: z.string(),
+  eth_address: z.string(),
+  contract_address: z.string().nullable(),
+  urn: z.string().nullable(),
+  third_party_id: z.string().nullable(),
+  is_published: z.boolean(),
+  is_approved: z.boolean(),
+  created_at: z.coerce.bigint(),
+  updated_at: z.coerce.bigint(),
+});
+
 export const CollectionMetaOutSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -150,6 +171,30 @@ export const ItemStatusPatchOutSchema = z.object({
   updated: z.number(),
 });
 
+export const LinkedPublicationChequeSchema = z.object({
+  qty: z.number(),
+  salt: z.string(),
+  signature: z.string(),
+});
+
+export const LinkedPublicationPreparationSchema = z.object({
+  id: z.string(),
+  revision: z.string(),
+  name: z.string(),
+  creator: z.string(),
+  urn: z.string(),
+  third_party_id: z.string(),
+  item_ids: z.array(z.string()),
+});
+
+export const LinkedPublicationStateSchema = z.object({
+  preparation: LinkedPublicationPreparationSchema,
+  salt: z.string(),
+  status: z.string(),
+  cheque: LinkedPublicationChequeSchema.nullable(),
+  forum_url: z.string().nullable(),
+});
+
 export const NewsletterSubscribeOutSchema = z.object({
   ok: z.boolean(),
 });
@@ -175,6 +220,36 @@ export const OrphanItemOutSchema = z.object({
   urn: z.string().nullable(),
 });
 
+export const PublicationItemSchema = z.object({
+  id: z.string(),
+  rarity: z.string(),
+  price: z.string(),
+  beneficiary: z.string(),
+  metadata: z.string(),
+});
+
+export const PublicationPreparationSchema = z.object({
+  id: z.string(),
+  revision: z.string(),
+  chain_id: z.number(),
+  manager: z.string(),
+  factory: z.string(),
+  forwarder: z.string(),
+  salt: z.string(),
+  name: z.string(),
+  symbol: z.string(),
+  base_uri: z.string(),
+  creator: z.string(),
+  items: z.array(PublicationItemSchema),
+});
+
+export const PublicationStateSchema = z.object({
+  preparation: PublicationPreparationSchema,
+  status: z.string(),
+  tx_hash: z.string().nullable(),
+  contract_address: z.string().nullable(),
+});
+
 type AssignableTo<Sub, Sup> = Sub extends Sup ? true : false;
 type Mutual<A, B> = AssignableTo<A, B> extends true ? AssignableTo<B, A> : false;
 type Assert<T extends true> = T;
@@ -182,6 +257,7 @@ type Assert<T extends true> = T;
 export type _AssertBuilderCollectionOut = Assert<Mutual<BuilderCollectionOut, z.infer<typeof BuilderCollectionOutSchema>>>;
 export type _AssertBulkItemStatusPatchOut = Assert<Mutual<BulkItemStatusPatchOut, z.infer<typeof BulkItemStatusPatchOutSchema>>>;
 export type _AssertCollectionItemsOut = Assert<Mutual<CollectionItemsOut, z.infer<typeof CollectionItemsOutSchema>>>;
+export type _AssertCollectionListingOut = Assert<Mutual<CollectionListingOut, z.infer<typeof CollectionListingOutSchema>>>;
 export type _AssertCollectionMetaOut = Assert<Mutual<CollectionMetaOut, z.infer<typeof CollectionMetaOutSchema>>>;
 export type _AssertCollectionStatus = Assert<Mutual<CollectionStatus, z.infer<typeof CollectionStatusSchema>>>;
 export type _AssertCollectionType = Assert<Mutual<CollectionType, z.infer<typeof CollectionTypeSchema>>>;
@@ -191,8 +267,14 @@ export type _AssertCurationStatus = Assert<Mutual<CurationStatus, z.infer<typeof
 export type _AssertFullItemOut = Assert<Mutual<FullItemOut, z.infer<typeof FullItemOutSchema>>>;
 export type _AssertItemKind = Assert<Mutual<ItemKind, z.infer<typeof ItemKindSchema>>>;
 export type _AssertItemStatusPatchOut = Assert<Mutual<ItemStatusPatchOut, z.infer<typeof ItemStatusPatchOutSchema>>>;
+export type _AssertLinkedPublicationCheque = Assert<Mutual<LinkedPublicationCheque, z.infer<typeof LinkedPublicationChequeSchema>>>;
+export type _AssertLinkedPublicationPreparation = Assert<Mutual<LinkedPublicationPreparation, z.infer<typeof LinkedPublicationPreparationSchema>>>;
+export type _AssertLinkedPublicationState = Assert<Mutual<LinkedPublicationState, z.infer<typeof LinkedPublicationStateSchema>>>;
 export type _AssertNewsletterSubscribeOut = Assert<Mutual<NewsletterSubscribeOut, z.infer<typeof NewsletterSubscribeOutSchema>>>;
 export type _AssertOrphanItemOut = Assert<Mutual<OrphanItemOut, z.infer<typeof OrphanItemOutSchema>>>;
 export type _AssertPaginatedFullItemsOut = Assert<Mutual<PaginatedFullItemsOut, z.infer<typeof PaginatedFullItemsOutSchema>>>;
+export type _AssertPublicationItem = Assert<Mutual<PublicationItem, z.infer<typeof PublicationItemSchema>>>;
+export type _AssertPublicationPreparation = Assert<Mutual<PublicationPreparation, z.infer<typeof PublicationPreparationSchema>>>;
+export type _AssertPublicationState = Assert<Mutual<PublicationState, z.infer<typeof PublicationStateSchema>>>;
 export type _AssertReviewCurationOut = Assert<Mutual<ReviewCurationOut, z.infer<typeof ReviewCurationOutSchema>>>;
 export type _AssertReviewRowOut = Assert<Mutual<ReviewRowOut, z.infer<typeof ReviewRowOutSchema>>>;

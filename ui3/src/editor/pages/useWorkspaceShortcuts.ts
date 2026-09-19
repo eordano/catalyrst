@@ -87,7 +87,7 @@ export function useWorkspaceShortcuts(handlers: WorkspaceShortcutHandlers) {
         case "play":
           if (s.live) {
             e.preventDefault();
-            if (!s.playing && s.onPlay) s.onPlay();
+            s.onPlay?.();
           }
           break;
         case "step-tick":

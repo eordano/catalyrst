@@ -12,12 +12,13 @@ export type DraftItem = {
   name: string;
   size: number;
   fileType: string;
+  file?: File;
   thumbnail?: string;
 };
 
 export type { TrackFn };
 
-export type MintResult = { collectionId: string; contractAddress: string };
+export type MintResult = { collectionId: string; contractAddress: string; simulated?: boolean };
 
 export type MintFn = (args: {
   name: string;
@@ -123,7 +124,7 @@ export const simulateMint: MintFn = async ({ name, items, signal }) => {
   const collectionId = `sim-${slug || "collection"}`;
   saveSimCollectionItems(collectionId, items);
   const contractAddress = "0x0000000000000000000000000000000000000000";
-  return { collectionId, contractAddress };
+  return { collectionId, contractAddress, simulated: true };
 };
 
 export const createCollectionMachine = setup({
@@ -194,7 +195,7 @@ export const createCollectionMachine = setup({
           contract_address: context.result?.contractAddress,
           type: context.type,
           count: context.items.length,
-          stub: true,
+          stub: context.result?.simulated ?? false,
         },
         context.trackCtx,
       ),

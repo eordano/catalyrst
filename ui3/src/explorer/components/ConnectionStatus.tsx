@@ -183,6 +183,7 @@ export default function ConnectionStatus({
   const resolvedSceneId = useSceneId(sceneId, scene.title);
   const [env, setEnv] = useClientEnv();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [tab, setTab] = useState<"performance" | "connection">("performance");
 
   const info: DebugInfo = {
     realm: liveRealm,
@@ -200,7 +201,9 @@ export default function ConnectionStatus({
     fps: stats,
     at: at ?? env?.at ?? null,
   };
-  const lines = debugLines(info);
+  const lines = debugLines(info).filter(([key]) =>
+    !["Scene health", "Scene room", "Global room", "Browser", "Captured", "FPS"].includes(key),
+  );
 
   const onCopy = () => {
     const fresh = at === undefined ? captureEnv() : null;
@@ -223,17 +226,31 @@ export default function ConnectionStatus({
     return () => clearTimeout(t);
   }, [copyState]);
 
-  const tone = fpsTone(stats.page);
+  const tone = fpsTone(stats.engine ?? stats.page);
   return (
     <div className="xcs__stage">
       <div className="xcs" role="dialog" aria-label="Connection status">
         <div className="xcs__header">
-          <span className="xcs__title">CONNECTION STATUS</span>
+          <span className="xcs__title">Connection status</span>
           <button className="xcs__close" aria-label="Close" onClick={onClose}>
             &#xD7;
           </button>
         </div>
-        {rows.map((r, i) => (
+        <div className="xcs__tabs" role="tablist" aria-label="Diagnostics">
+          {(["performance", "connection"] as const).map((id) => (
+            <button key={id} id={`xcs-tab-${id}`} role="tab" aria-selected={tab === id}
+              aria-controls={`xcs-panel-${id}`} tabIndex={tab === id ? 0 : -1}
+              onClick={() => setTab(id)} onKeyDown={(e) => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+                e.preventDefault();
+                const next = e.key === "Home" ? "performance" : e.key === "End" ? "connection" : id === "performance" ? "connection" : "performance";
+                setTab(next);
+                document.getElementById(`xcs-tab-${next}`)?.focus();
+              }}>{id === "performance" ? "Performance" : "Connection"}</button>
+          ))}
+        </div>
+        <div role="tabpanel" id={`xcs-panel-${tab}`} aria-labelledby={`xcs-tab-${tab}`}>
+        {tab === "connection" && rows.filter((r) => r.title !== "Realm").map((r, i) => (
           <div className="xcs__row" key={i}>
             <div className="xcs__info">
               <div className="xcs__rowtitle">{r.title}</div>
@@ -244,21 +261,31 @@ export default function ConnectionStatus({
             </span>
           </div>
         ))}
+        {tab === "performance" && <>
         <div className="xcs__row">
           <div className="xcs__info">
-            <div className="xcs__rowtitle">Frame rate</div>
-            <div className="xcs__subtitle">Page render / engine frames per second</div>
+            <div className="xcs__rowtitle">Engine frame rate</div>
+            <div className="xcs__subtitle">3D world updates per second</div>
           </div>
           <span className={"xcs__fps is-" + tone} data-testid="xcs-fps">
-            <span className="xcs__fpsnum">{stats.page}</span>
+            <span className="xcs__fpsnum">{stats.engine ?? "\u{2014}"}</span>
             <span className="xcs__fpsunit">fps</span>
-            <span className="xcs__fpsdim">{stats.ms}ms</span>
-            {stats.engine !== null ? (
-              <span className="xcs__fpsdim">
-                engine <b className="xcs__fpsengine">{stats.engine}</b>
-              </span>
-            ) : null}
           </span>
+        </div>
+        <dl className="xcs__dl">
+          <div className="xcs__dlrow"><dt className="xcs__dt">Page frame rate</dt><dd className="xcs__dd">{stats.page} fps</dd></div>
+          <div className="xcs__dlrow"><dt className="xcs__dt">Page frame interval</dt><dd className="xcs__dd">{stats.ms} ms</dd></div>
+        </dl>
+        <p className="xcs__note">Page timing measures browser animation frames, not GPU render time.</p>
+        </>}
+        {tab === "connection" && <dl className="xcs__dl">
+          {lines.map(([k, v]) => (
+            <div className="xcs__dlrow" key={k}>
+              <dt className="xcs__dt">{k}</dt>
+              <dd className="xcs__dd">{v}</dd>
+            </div>
+          ))}
+        </dl>}
         </div>
         <div className="xcs__section">
           <span className="xcs__sectiontitle">DEBUG INFO</span>
@@ -270,14 +297,6 @@ export default function ConnectionStatus({
                 : "Copy debug info"}
           </button>
         </div>
-        <dl className="xcs__dl">
-          {lines.map(([k, v]) => (
-            <div className="xcs__dlrow" key={k}>
-              <dt className="xcs__dt">{k}</dt>
-              <dd className="xcs__dd">{v}</dd>
-            </div>
-          ))}
-        </dl>
       </div>
     </div>
   );
