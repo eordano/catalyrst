@@ -39,7 +39,9 @@ function runtimeEnv(name: string): string | undefined {
 }
 
 function telemetryBase(): string | undefined {
-  return env("TELEMETRY_URL") ?? runtimeEnv("TELEMETRY_URL") ?? publicEnv("TELEMETRY_URL");
+  return typeof window === "undefined"
+    ? env("TELEMETRY_URL") ?? publicEnv("TELEMETRY_URL")
+    : runtimeEnv("TELEMETRY_URL") ?? publicEnv("TELEMETRY_URL");
 }
 
 const isBrowser = (): boolean => typeof window !== "undefined";

@@ -9,7 +9,7 @@ use catalyrst_validator::types::{
     ContentMapping, Entity as ValidatorEntity, EntityType as VEntityType,
 };
 
-use crate::errors::{AppError, AppResult, InvalidRequestError, NotFoundError};
+use crate::errors::{AppError, ContentQueryError, InvalidRequestError, NotFoundError};
 use crate::state::AppState;
 
 fn get_urn_protocol(chain_id: u64) -> Option<&'static str> {
@@ -98,7 +98,7 @@ fn value_to_validator_entity(value: &serde_json::Value) -> Option<ValidatorEntit
 pub async fn get_erc721_entity(
     State(state): State<Arc<AppState>>,
     Path(params): Path<Erc721Params>,
-) -> AppResult<impl IntoResponse> {
+) -> Result<impl IntoResponse, ContentQueryError> {
     let chain_id: u64 = params
         .chain_id
         .parse()

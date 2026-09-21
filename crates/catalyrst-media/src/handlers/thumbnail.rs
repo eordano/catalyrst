@@ -68,6 +68,16 @@ mod tests {
     }
 
     #[test]
+    fn tiff_sources_become_browser_readable_thumbnails() {
+        let image = image::RgbImage::from_pixel(228, 160, image::Rgb([32, 64, 96]));
+        let mut bytes = Cursor::new(Vec::new());
+        image.write_to(&mut bytes, ImageFormat::Tiff).unwrap();
+        let (kind, output) = resize(Bytes::from(bytes.into_inner()), 640).unwrap();
+        assert_eq!(kind, "image/jpeg");
+        assert_eq!(image::load_from_memory(&output).unwrap().width(), 640);
+    }
+
+    #[test]
     fn invalid_images_and_unbounded_sizes_are_rejected() {
         assert!(resize(Bytes::from_static(b"<svg></svg>"), 320).is_err());
         assert!(valid_width(640));

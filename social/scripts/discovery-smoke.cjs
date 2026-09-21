@@ -371,7 +371,7 @@ const path = require("node:path");
     worldsFail = true;
     await page.getByRole("link", { name: "Home", exact: true }).click();
     await page.getByRole("link", { name: "Worlds", exact: true }).click();
-    await page.getByText(/Showing saved results/).waitFor();
+    await page.locator('.discovery-page').getByText(/Showing saved results/).waitFor();
     assert.equal(await worldCard.count(), 1);
     await page.clock.fastForward(270_000);
     await page.getByText("Worlds could not be loaded.", { exact: false }).waitFor();

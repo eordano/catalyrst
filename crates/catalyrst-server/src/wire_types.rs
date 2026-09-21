@@ -104,6 +104,7 @@ pub struct PointerChangesResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SynchronizationStatus {
+    #[serde(rename = "lastSyncWithDAO")]
     pub last_sync_with_dao: i64,
     pub synchronization_state: String,
     #[serde(skip_serializing_if = "Option::is_none")]

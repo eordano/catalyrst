@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 let
@@ -148,7 +149,13 @@ let
   }
   // lib.optionalAttrs cfg.subServices.explorerApi {
     "/realm-provider-ea" = gwStrip 5137 "/realm-provider-ea";
-    "/auth-api" = gwStrip 5137 "/auth-api";
+    "/auth-api" = {
+      proxyPass = "http://127.0.0.1:5137";
+      extraConfig = ''
+        rewrite ^/auth-api/?(.*)$ /auth/$1 break;
+        proxy_set_header x-original-path $request_uri;
+      '';
+    };
   }
   // lib.optionalAttrs cfg.subServices.profileImages {
     "/profile-images" = gwStrip 5161 "/profile-images";
@@ -275,6 +282,23 @@ lib.mkIf (cfg.enable && isPublic && cfg.gateway.enable) {
           add_header Access-Control-Expose-Headers "ETag,Set-Cookie" always;
           add_header Vary "Origin" always;
           proxy_hide_header Access-Control-Allow-Origin;
+        '';
+      };
+      locations."= /dapps.json" = {
+        alias =
+          if cfg.gateway.dappsFlagsFile != null then
+            toString cfg.gateway.dappsFlagsFile
+          else
+            pkgs.writeText "dapps.json" (
+              builtins.toJSON {
+                flags = { };
+                variants = { };
+              }
+            );
+        extraConfig = ''
+          default_type application/json;
+          ${secHeaders}
+          add_header Access-Control-Allow-Origin "*" always;
         '';
       };
       locations."= /health" = {
@@ -506,7 +530,7 @@ lib.mkIf (cfg.enable && isPublic && cfg.gateway.enable) {
         proxyPass = "http://127.0.0.1:5162";
         extraConfig = ''
           proxy_cache opensea;
-          proxy_cache_key $request_uri;
+          proxy_cache_key "v2:$request_uri";
           proxy_cache_valid 200 30d;
           proxy_ignore_headers Cache-Control Expires Set-Cookie;
           proxy_cache_use_stale error timeout updating http_500 http_503;

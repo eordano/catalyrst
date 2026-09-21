@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { href } from "@core/lib/router/routes";
+import { publicTelemetryUrl } from "@core/lib/telemetry/public-url";
 import {
   isRouteErrorResponse,
   Link,
@@ -35,10 +36,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const thirdwebClientId =
     (typeof process !== "undefined" && process.env.THIRDWEB_CLIENT_ID) || "";
-  const telemetryUrl =
+  const telemetryUrl = publicTelemetryUrl(
     (typeof process !== "undefined" &&
       (process.env.VITE_TELEMETRY_URL || process.env.TELEMETRY_URL)) ||
-    "";
+    undefined,
+  );
   const docsBase = (typeof process !== "undefined" && process.env.DOCS_BASE) || "";
   const wallet = readWallet(request);
   const committee = wallet

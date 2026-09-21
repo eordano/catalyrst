@@ -6,7 +6,7 @@ use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 
-use crate::errors::{AppError, AppResult, NotFoundError};
+use crate::errors::{AppError, AppResult, ContentQueryError, NotFoundError};
 use crate::formatters::{
     check_not_modified, content_file_headers, parse_range_header, ParsedRange,
 };
@@ -20,7 +20,7 @@ pub async fn get_entity_thumbnail(
     Path(pointer): Path<String>,
     method: Method,
     headers: HeaderMap,
-) -> AppResult<Response> {
+) -> Result<Response, ContentQueryError> {
     let entity = state
         .database
         .find_entity_by_pointer(&pointer)
@@ -51,7 +51,9 @@ pub async fn get_entity_thumbnail(
         return Ok(response);
     }
 
-    serve_content_blob(&state, &hash, &method, &headers).await
+    serve_content_blob(&state, &hash, &method, &headers)
+        .await
+        .map_err(ContentQueryError::from)
 }
 
 fn extract_thumbnail_hash(entity: &serde_json::Value) -> Option<String> {

@@ -57,7 +57,14 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match &self {
+        let (status, message) = self.status_and_message();
+        (status, Json(ApiErrorBody::new(message))).into_response()
+    }
+}
+
+impl AppError {
+    fn status_and_message(&self) -> (StatusCode, String) {
+        match self {
             AppError::InvalidRequest(e) => (StatusCode::BAD_REQUEST, e.message.clone()),
             AppError::NotFound(e) => (StatusCode::NOT_FOUND, e.message.clone()),
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
@@ -68,9 +75,35 @@ impl IntoResponse for AppError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal Server Error".to_string(),
             ),
-        };
+        }
+    }
+}
 
-        (status, Json(ApiErrorBody::new(message))).into_response()
+#[derive(Debug)]
+pub struct ContentQueryError(AppError);
+
+impl From<AppError> for ContentQueryError {
+    fn from(error: AppError) -> Self {
+        Self(error)
+    }
+}
+
+impl From<NotFoundError> for ContentQueryError {
+    fn from(error: NotFoundError) -> Self {
+        Self(error.into())
+    }
+}
+
+impl From<InvalidRequestError> for ContentQueryError {
+    fn from(error: InvalidRequestError) -> Self {
+        Self(error.into())
+    }
+}
+
+impl IntoResponse for ContentQueryError {
+    fn into_response(self) -> Response {
+        let (status, message) = self.0.status_and_message();
+        (status, Json(serde_json::json!({ "error": message }))).into_response()
     }
 }
 
@@ -101,6 +134,94 @@ impl From<catalyrst_storage::StorageError> for AppError {
 }
 
 pub type AppResult<T> = Result<T, AppError>;
+
+#[cfg(test)]
+mod content_wire_contract {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::Request;
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn query_routes_preserve_upstream_error_bodies() {
+        let state = crate::test_support::app_state_with_storage(Arc::new(
+            crate::test_support::EmptyStorage,
+        ));
+        let router = crate::routes::build_router(state);
+        for (path, status, message) in [
+            (
+                "/queries/items/missing/thumbnail",
+                StatusCode::NOT_FOUND,
+                "Entity not found.",
+            ),
+            (
+                "/queries/items/missing/image",
+                StatusCode::NOT_FOUND,
+                "Entity not found.",
+            ),
+            (
+                "/queries/erc721/137/0x123/0",
+                StatusCode::NOT_FOUND,
+                "Entity does not exist",
+            ),
+            (
+                "/queries/erc721/137/0x123/0/1",
+                StatusCode::NOT_FOUND,
+                "Entity does not exist",
+            ),
+            (
+                "/queries/erc721/invalid/0x123/0",
+                StatusCode::BAD_REQUEST,
+                "Invalid chainId 'invalid'",
+            ),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), status, "{path}");
+            let body = to_bytes(response.into_body(), 1024).await.unwrap();
+            assert_eq!(
+                body.as_ref(),
+                serde_json::to_vec(&serde_json::json!({"error": message})).unwrap(),
+                "{path}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn status_preserves_dao_acronym_on_the_wire() {
+        let state = crate::test_support::app_state_with_storage(Arc::new(
+            crate::test_support::EmptyStorage,
+        ));
+        let response = crate::routes::build_router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let sync = &body["synchronizationStatus"];
+        assert!(sync["lastSyncWithDAO"].is_i64());
+        assert!(sync.get("lastSyncWithDao").is_none());
+    }
+
+    #[tokio::test]
+    async fn query_internal_errors_do_not_expose_details() {
+        let response = ContentQueryError(AppError::Internal("private database details".into()))
+            .into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(body.as_ref(), br#"{"error":"Internal Server Error"}"#);
+    }
+}
 
 #[derive(serde::Serialize)]
 struct UpstreamErrorBody {

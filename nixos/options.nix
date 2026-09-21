@@ -423,6 +423,15 @@ in
         options = {
           enable = boolOpt false;
           featureFlags = boolOpt true;
+          dappsFlagsFile = mkOption {
+            type = types.nullOr types.path;
+            default = null;
+            description = ''
+              Operator-owned JSON served at feature-flags.<domain>/dapps.json.
+              Null serves empty flags and variants. Migrations should retain
+              the previous host's flags file explicitly.
+            '';
+          };
         };
       };
     };

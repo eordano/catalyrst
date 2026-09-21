@@ -16,6 +16,12 @@
     "paths": {
       "@ui/*": [
         "../ui3/src/*"
+      ],
+      "react": [
+        "./node_modules/@types/react"
+      ],
+      "react/*": [
+        "./node_modules/@types/react/*"
       ]
     }
   },

@@ -447,10 +447,9 @@ paths:
                   localTimestamp:
                     type: integer
                     format: int64
-                  overwrittenBy: { type: string, nullable: true }
+                  overwrittenBy: { type: [string, "null"] }
                   localProvenance:
-                    type: object
-                    nullable: true
+                    type: [object, "null"]
                     description: |
                       Present only for entities published directly against this
                       node's write API (LAND publish on this network) rather than
@@ -459,7 +458,7 @@ paths:
                       signer: { type: string }
                       origin: { type: string, example: land-publish }
                       publishedAt: { type: integer, format: int64 }
-                      tombstonedAt: { type: integer, format: int64, nullable: true }
+                      tombstonedAt: { type: [integer, "null"], format: int64 }
                       superseded: { type: boolean }
                       status:
                         type: string
@@ -1273,8 +1272,7 @@ paths:
                         x: { type: integer }
                         y: { type: integer }
                         permissions:
-                          type: object
-                          nullable: true
+                          type: [object, "null"]
                           properties:
                             owner: { type: boolean }
                             operator: { type: boolean }
@@ -1307,8 +1305,8 @@ paths:
                 type: object
                 properties:
                   owner: { type: string }
-                  operator: { type: string, nullable: true }
-                  updateOperator: { type: string, nullable: true }
+                  operator: { type: [string, "null"] }
+                  updateOperator: { type: [string, "null"] }
                   updateManagers:
                     type: array
                     items: { type: string }
@@ -1666,7 +1664,7 @@ components:
             version: { type: string }
             authChain: { $ref: '#/components/schemas/AuthChain' }
             localTimestamp: { type: integer, format: int64 }
-            overwrittenBy: { type: string, nullable: true }
+            overwrittenBy: { type: [string, "null"] }
         localTimestamp:
           type: integer
           format: int64

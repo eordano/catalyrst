@@ -2,17 +2,24 @@
 
 ## Networking, firewall, sandboxing
 
-Reference: `nixos/configuration.nix`. Everything rides the TLS reverse proxy except UDP media/game traffic (proxies cannot forward UDP).
+Module references: [firewall rules](../nixos/firewall.nix),
+[reverse proxy](../nixos/web.nix) and [service sandboxes](../nixos/sandbox.nix).
+HTTP and WebSocket traffic use the reverse proxy; LiveKit RTC and Pulse use
+their own listeners.
 
 | Port | Proto | Service | Notes |
 |---|---|---|---|
 | 22 | TCP | sshd | key-only + brute-force protection |
-| 80/443 | TCP | reverse proxy | accept only from the CDN's published v4/v6 ranges |
+| 80/443 | TCP | reverse proxy | add a CDN source restriction in CDN-backed host configurations |
 | 7881 | TCP | LiveKit RTC | TCP fallback when UDP fails |
 | 7777 | UDP | Pulse (ENet) | authoritative game server |
 | 7882 | UDP | LiveKit media | SFU media |
 
-Restrict 80/443 to CDN ranges in firewall AND feed the same list to the proxy's `real_ip` config.
+For a CDN-backed deployment, restrict 80/443 to CDN ranges in the host firewall
+and feed the same list to the proxy's `real_ip` config. The module's
+`openFirewall = true` opens these ports without a CDN source restriction; add
+that restriction in the host configuration. The module also opens LiveKit TCP
+7880 when comms is enabled, so account for that listener in your edge policy.
 
 "Peers in roster but no remote avatars" (also `/rtc` 502): inbound UDP to the SFU dropped, DTLS times out while signaling stays healthy. Fix: open/forward SFU UDP range, or set LiveKit `node_ip` to a reachable, non-NATed address, then restart the SFU; STUN to a blocking host fails silently.
 
@@ -55,7 +62,7 @@ The console accepts its own env name or the sibling's native name. Unsupported p
 
 ## PostgreSQL
 
-Postgres 18 required. Single node, peer auth over a Unix socket, no TCP (`listen_addresses = ""`), `unix_socket_permissions = 0770`, service users in `postgres` group. Principal DBs `content` (catalyrst) + `marketplace_squid` (squid); `POSTGRES_CONTENT_PASSWORD` exists because the binary requires it - auth is peer. Service crates own more DBs, migrated by each crate's sqlx migrations at `build_state()`: `communities`/`comms_gatekeeper`/`notifications`/`badges`/`credits`/`ab_registry`/`places_events` (reader) + others - role recipe in deploy.md.
+Postgres 18 required. Single node, peer auth over a Unix socket, no TCP (`listen_addresses = ""`), `unix_socket_permissions = 0770`, service users in `postgres` group. Principal DBs `content` (catalyrst) + `marketplace_squid` (squid); `POSTGRES_CONTENT_PASSWORD` exists because the binary requires it - auth is peer. Service crates own more DBs, migrated by each crate's sqlx migrations at `build_state()`: `communities`/`comms`/`notifications`/`badges`/`credits`/`ab_registry`/`places_events` (reader) + others. The database list, role provisioning and ownership/grant SQL are maintained in [nixos/postgresql.nix](../nixos/postgresql.nix); [bundle configuration](../nixos/bundles.nix) supplies each service's connection settings.
 
 Tuning: `shared_buffers=3GB`, `effective_cache_size=8GB`, `work_mem=32MB`, `maintenance_work_mem=512MB`; `max_connections=300` + per-role `CONNECTION LIMIT` (120 catalyrst/60 squid, applied below); `random_page_cost=1.1`, `effective_io_concurrency=200` (SSD); `wal_level=minimal`, `max_wal_senders=0` - no replication, less WAL.
 
@@ -255,7 +262,7 @@ with at most 32 executing at once. Accepted work is FIFO for each wallet; ready
 wallets take round-robin turns. New overflow is rejected. Cluster-change work can
 remove an SFU participant, so it is not coalesced as if it were merely a replaceable
 snapshot. Repeated recovery announcements still coalesce per wallet/session.
-Every admitted item has a 30-second budget including queue time; an expired item
+Every admitted item has a 150-second budget including queue time; an expired item
 is discarded before execution. Feed payloads over 64 KiB, subjects over 256 bytes,
 and invalid wallet addresses are rejected before copying/decoding into retained work.
 
@@ -392,19 +399,33 @@ cross-room cleanup and distributed ownership races remain open.
 
 - Dev creds: `catalyrst-comms`/`catalyrst-worlds` FAIL FAST at boot with `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` unset, unless `LIVEKIT_ALLOW_DEV_CREDS=1` opts into `devkey`/`devsecret`. `catalyrst-archipelago` boots on them with a warning - JWTs parse locally but a real SFU rejects them; `livekit_configured=false` shows only in `/status`. Set key/secret/host across comms/worlds/archipelago - one SFU (social+explore env files).
 - `/rtc` 502/roster-but-no-avatars: media dead while signaling healthy - see the UDP gotcha under Networking.
-- Twirp admin API shares the `/rtc` port; the edge 404s `/` on the SFU vhost so it never reaches the internet.
+- Twirp admin API shares LiveKit's signaling listener. The SFU vhost blocks it at the reverse proxy; direct access to TCP 7880 depends on the host firewall (see Networking).
 
-Quarterly rotation (`livekit-rotate.service`) - timer `*-01,04,07,10-01 03:00:00`, `RandomizedDelaySec=1h`, `Persistent=true`:
+Quarterly rotation (`livekit-rotate.service`, defined in
+[nixos/comms.nix](../nixos/comms.nix)) - timer `*-01,04,07,10-01 03:00:00`,
+`RandomizedDelaySec=1h`, `Persistent=true`:
 
 1. Snapshot `livekit.yaml` + `livekit-api.env` to `.prev`.
 2. Generate `KEY=API<12-hex>`, `SECRET=base64(36 bytes)`.
 3. Write both atomically (`mktemp`+`mv`, 0600, root).
 4. Restart `livekit.service`; sleep 5.
-5. If SFU isn't active: restore `.prev`, restart SFU AND `catalyrst-archipelago` (mints tokens against whichever key won), exit 1.
-6. On success restart `catalyrst-archipelago`.
+5. If the SFU restart returned successfully but the SFU is inactive after the wait: restore both `.prev` files, restart `livekit.service` and `catalyrst-archipelago.service`, exit 1. The other consumers have not been restarted with the new credentials at this point and retain the old pair.
+6. On success restart every enabled credential consumer in `livekitHolders`: `catalyrst-archipelago.service`, `catalyrst-explore.service` (worlds) when `subServices.explore` is enabled, and `catalyrst-social.service` (comms) when `subServices.social` is enabled. With `comms.v4.applicationRelay`, v4 and the social bundle enabled, also restart `pulse-relay-secret.service` to regenerate the relay credential file, then `pulse.service` (or `podman-pulse.service` when `pulse.sandbox = true`). systemd ordering places credential regeneration before Pulse and the social bundle.
 7. Publish `livekit_rotation_timestamp_seconds` via the node-exporter textfile dir - `LiveKitKeyStale` (>100d) catches a stuck timer.
 
-Rotating by hand: replicate step 5's pairing - SFU and every token-minting service must agree on the key or comms dies quietly.
+To rotate manually using this procedure, run
+`sudo systemctl start livekit-rotate.service` and inspect
+`journalctl -u livekit-rotate.service`. A failed restart command aborts the script
+immediately; rollback only runs for the inactive-SFU check in step 5. Failures
+while restarting consumers also require manual recovery.
+
+For recovery or rotation outside the unit, install a matching `livekit.yaml`
+and `livekit-api.env` pair (restore both `.prev` files if rolling back), restart
+`livekit.service` and confirm it is active, then restart **every enabled
+consumer listed in step 6** against that same pair. When relay is enabled,
+restart `pulse-relay-secret.service` before restarting Pulse and social. This
+also applies after a partial consumer restart: refreshing only Archipelago can
+leave worlds, comms or Pulse using a different key from the SFU.
 
 ## Observability
 
@@ -425,4 +446,4 @@ Scrape targets: `node` `:9100` (node_exporter, `systemd`+`textfile` collectors; 
 | SyncHeartbeatStale | `time() - catalyrst_sync_heartbeat_timestamp_seconds > 900` | 5m | critical |
 | SyncIngestSilent | `increase(catalyrst_sync_deployments_total[2h]) == 0` | 30m | warning |
 
-Sync-liveness on `:5141/metrics`: `catalyrst_sync_heartbeat_timestamp_seconds` beats <=10s per fetched pointer-changes page (liveness signal; `SyncHeartbeatStale` = loop dead); `catalyrst_sync_frontier_timestamp_seconds` = persisted frontier (coarse, advances at phase ends, don't alert on it); `catalyrst_sync_deployments_total` counts ingest (`SyncIngestSilent` = loop beats, nothing lands). Gauges exist only on sync-enabled nodes post-first-beat; read-only nodes never page, `SyncIngestSilent` can't fire until the first post-restart increment. Sync keys: content-sync.md.
+Sync-liveness on `:5141/metrics`: `catalyrst_sync_heartbeat_timestamp_seconds` beats <=10s per fetched pointer-changes page (liveness signal; `SyncHeartbeatStale` = loop dead); `catalyrst_sync_frontier_timestamp_seconds` = persisted frontier (coarse, advances at phase ends, don't alert on it); `catalyrst_sync_deployments_total` counts ingest (`SyncIngestSilent` = loop beats, nothing lands). Gauges exist only on sync-enabled nodes post-first-beat; nodes with sync disabled never page, `SyncIngestSilent` can't fire until the first post-restart increment. Sync settings are listed in the [environment reference](../DEPLOYMENT.md#environment-variable-reference-catalyrst-live); the [self-host guide](self-host.md#will-it-fit-on-your-box) explains the NixOS module's different sync default.

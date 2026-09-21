@@ -43,6 +43,29 @@ let
     packages.${system} = stubPackages;
     shortRev = "test000";
   };
+  routingBackend = pkgs.writeText "routing-backend.py" ''
+    import http.server
+    import sys
+
+    port = int(sys.argv[1])
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            payload = f"{port}:{self.path}".encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    http.server.HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+  '';
+  dappsFlags = pkgs.writeText "test-dapps.json" (
+    builtins.toJSON {
+      flags.dapps-migration-test = true;
+      variants = { };
+    }
+  );
 in
 pkgs.testers.runNixOSTest {
   name = "catalyrst-module-first-boot";
@@ -51,7 +74,16 @@ pkgs.testers.runNixOSTest {
   nodes.machine =
     { lib, ... }:
     {
-      imports = [ self.nixosModules.catalyrst ];
+      imports = [
+        self.nixosModules.catalyrst
+        ({ config, lib, ... }: {
+          options.services.nginx.customRecommendedTlsSettings = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+          };
+          config.services.nginx.appendHttpConfig = lib.mkIf config.services.nginx.customRecommendedTlsSettings "ssl_session_timeout 1d;";
+        })
+      ];
 
       virtualisation.memorySize = 4096;
       virtualisation.diskSize = 6144;
@@ -70,7 +102,20 @@ pkgs.testers.runNixOSTest {
         tls = "acme-http01";
         subServices.abCdn = false;
         postflight.enable = false;
+        gateway.dappsFlagsFile = dappsFlags;
       };
+
+      systemd.services =
+        lib.mapAttrs
+          (_: port: {
+            serviceConfig.ExecStart = lib.mkForce "${pkgs.python3}/bin/python ${routingBackend} ${toString port}";
+          })
+          {
+            catalyrst-sites = 5158;
+            catalyrst-explore = 5143;
+            catalyrst-social = 5145;
+            catalyrst-explorer-api = 5137;
+          };
 
       system.activationScripts.testSquidEnv = ''
         mkdir -p /var/lib/secrets
@@ -88,6 +133,8 @@ pkgs.testers.runNixOSTest {
     };
 
   testScript = ''
+    import json
+
     machine.wait_for_unit("multi-user.target")
 
     # P0 #2 -- postgres readiness ordering. These DDL oneshots run psql against
@@ -131,6 +178,23 @@ pkgs.testers.runNixOSTest {
     # nginx config VALIDATED -- it will not start on a bad config, so reaching
     # active is `nginx -t` passing on the full rendered vhost set.
     machine.wait_for_unit("nginx.service")
+
+    for port in (5158, 5143, 5145, 5137):
+        machine.wait_for_open_port(port)
+
+    def request(host, path):
+        return machine.succeed(
+            f"curl --fail --silent --insecure --resolve {host}:443:127.0.0.1 https://{host}{path}"
+        )
+
+    assert request("test.local", "/places") == "5158:/places"
+    assert request("test.local", "/places/example") == "5158:/places/example"
+    assert request("test.local", "/places/api/places") == "5143:/api/places"
+    assert request("test.local", "/media/convert?width=640") == "5145:/media/convert?width=640"
+    assert request("gateway.test.local", "/auth-api/requests/example") == "5137:/auth/requests/example"
+    assert request("auth-api.test.local", "/requests/example") == "5137:/auth/requests/example"
+    flags = json.loads(request("feature-flags.test.local", "/dapps.json"))
+    assert flags == {"flags": {"dapps-migration-test": True}, "variants": {}}
 
     # P0 #4 -- /private/dumps carries the superadmin deny in the live config.
     # Read the config the service actually loaded (its ExecStart -c path), not

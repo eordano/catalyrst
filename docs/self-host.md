@@ -1,9 +1,10 @@
 # Run your own catalyrst -- NixOS module quickstart
 
 The fastest supported path to a working node is the NixOS module
-(`nixosModules.catalyrst`, source in [`nixos/`](../nixos/)). The manual bundle
-runbook (deploy.md) covers non-NixOS hosts; a docker-compose
-distribution is in progress as a third path.
+(`nixosModules.catalyrst`, source in [`nixos/`](../nixos/)). For non-NixOS hosts,
+start with the [content-server deployment runbook](../DEPLOYMENT.md), the
+[example systemd units](../nixos/systemd/) and the
+[nginx configurations](deploy/).
 
 ## 0. Provisioning a fresh cloud VPS (skip if you already run NixOS)
 
@@ -57,12 +58,23 @@ Its floors, all overridable under `services.catalyrst.preflight`:
 | `full-realm` | 40 GiB | 4 GiB | 2 |
 | `public-gateway` | 80 GiB | 8 GiB | 4 |
 
-These are floors to *start*, not a steady-state estimate. What grows is the
-blob store, and it grows without bound: a node that mirrors the network's
-content sits around 331 GB against a ~10 GB database. A fresh node does not
-start anywhere near that -- `SYNC_ENABLED` defaults to false, so it holds only
-what is deployed to it. That is why a modest VPS is a fine place to begin and a
-poor place to turn sync on.
+These are floors to *start*, not a steady-state estimate. Mirroring the network
+can grow the blob store to hundreds of GiB, in addition to the database. The
+NixOS module defaults `services.catalyrst.sync.enable` to `true` for every
+profile and explicitly sets `SYNC_ENABLED=true`. A standalone `catalyrst-live`
+process defaults `SYNC_ENABLED` to `false`; that default does not apply to the
+module.
+
+For a small VPS or a node that should serve only its own content, disable
+upstream mirroring explicitly before the first activation:
+
+```nix
+services.catalyrst.sync.enable = false;
+```
+
+This still runs the content API and accepts local deployments. Existing content
+is retained, and deployments can still grow the store. The minimal configuration
+below includes this setting; enable sync only after sizing storage for mirroring.
 
 To boot on a smaller box anyway, either lower the floor
 (`services.catalyrst.preflight.minFreeGiB = 15;`) or keep the check advisory
@@ -100,6 +112,7 @@ nixpkgs.lib.nixosSystem {
         enable = true;
         profile = "public-gateway";
         domain = "example.org";
+        sync.enable = false;
       };
     }
   ];
@@ -195,8 +208,9 @@ Two ways forward, depending on what you want:
   is left unset, so the worlds server serves non-federated content -- a normal
   configuration, not a degraded one.
 
-Gossip is a separate, also-off-by-default layer
-(federation.md):
+Gossip is a separate, also-off-by-default layer. Its options are defined in
+[`nixos/options.nix`](../nixos/options.nix) and passed to the bundles by
+[`nixos/bundles.nix`](../nixos/bundles.nix):
 
 ```nix
 services.catalyrst.federation = {
@@ -213,14 +227,22 @@ design, instead of silently not publishing.
 ## 6. Verify
 
 ```bash
-curl -s https://<domain>/about | jq .content.healthy   # true once sync reaches phase 3
+curl -fsS https://<domain>/about | jq .content
 systemctl status catalyrst-sync catalyrst-explore squid-eth
 ```
 
-The first content bootstrap syncs the full network and takes a while;
-`journalctl -u catalyrst-sync -f` shows the phase progression. The `/server`
-page (superadmin-gated, `subServices.sites`) shows live per-service health
-and collapses services this node does not enable.
+With `sync.enable = false`, `.content.healthy` is true once the content server
+starts; `synchronizationStatus` still reports `Syncing`, but no upstream sync
+worker runs. The `catalyrst-sync` unit name also stays the same because it hosts
+the content API. Confirm the configured mode on the host with
+`systemctl show catalyrst-sync -p Environment` (`SYNC_ENABLED=false`).
+
+With sync enabled, the first bootstrap downloads upstream content;
+`journalctl -u catalyrst-sync -f` shows its progress. A healthy status alone does
+not prove that every entity type has finished bootstrapping. Check only units
+enabled by your profile; the example above assumes `public-gateway`. The
+`/server` page (superadmin-gated, `subServices.sites`) shows live per-service
+health and collapses services this node does not enable.
 
 ## 7. Walking in from a stock client
 
@@ -281,9 +303,13 @@ Avoid naming a realm `main`, `shiva`, `hela`, `heimdallr`, `baldr`, `artemis`,
 class of reason: the client treats those as Genesis realm names and fetches
 Decentraland's Genesis manifest for them.
 
-**Comms failure blocks entry; it does not degrade it.** The node detects an
-unreachable SFU and advertises `offline:offline` so people can still get in --
-see deploy.md.
+**An advertised but unreachable comms endpoint blocks client entry.** By
+default, the node probes `LIVEKIT_HOST`, or the endpoint in
+`COMMS_FIXED_ADAPTER` when no LiveKit host is set, and advertises
+`offline:offline` while it is unreachable so people can still enter without
+multiplayer. `COMMS_OFFLINE_WHEN_UNREACHABLE=false` disables this fallback; see
+the [comms health implementation](../crates/catalyrst-server/src/handlers/comms_health.rs)
+and [LiveKit troubleshooting](operations.md#livekit).
 
 ## 8. A stock client will not enter my realm
 

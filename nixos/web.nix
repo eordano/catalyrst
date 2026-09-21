@@ -2,6 +2,7 @@
   config,
   pkgs,
   lib,
+  options,
   ...
 }:
 let
@@ -70,6 +71,9 @@ let
     "/api/report" = explore;
     "/places/api/" = {
       proxyPass = "http://127.0.0.1:5143/api/";
+    };
+    "/media/" = {
+      proxyPass = "http://127.0.0.1:5145/media/";
     };
     "/events/api/" = {
       proxyPass = "http://127.0.0.1:5143/api/";
@@ -215,6 +219,8 @@ let
     extraConfig = "proxy_buffering off;";
   };
   sitesLocations = lib.optionalAttrs cfg.subServices.sites {
+    "= /places" = sitesLoc;
+    "/places/" = sitesLoc;
     "/assets/" = sitesLoc;
     "= /favicon.ico" = sitesLoc;
     "= /content" = sitesLoc;
@@ -456,7 +462,12 @@ lib.mkIf cfg.enable (
         recommendedGzipSettings = true;
         serverTokens = false;
         commonHttpConfig = sharedHttpConfig;
-      };
+      }
+      //
+        lib.optionalAttrs (lib.hasAttrByPath [ "services" "nginx" "customRecommendedTlsSettings" ] options)
+          {
+            customRecommendedTlsSettings = false;
+          };
     }
 
     {

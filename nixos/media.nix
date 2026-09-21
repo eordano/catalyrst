@@ -16,6 +16,7 @@ lib.mkIf (cfg.enable && cfg.subServices.social) {
     updateModels = true;
     extraArgs = {
       load-only = lib.concatStringsSep "," cfg.translateLanguages;
+      disable-files-translation = true;
     };
   };
 
@@ -29,7 +30,9 @@ lib.mkIf (cfg.enable && cfg.subServices.social) {
       message = "services.catalyrst.translateLanguages must include \"en\" -- argos model pairs are en<->X, so en is the pivot for source=auto and a client target.";
     }
     {
-      assertion = builtins.all (c: builtins.match "[a-z]{2,3}(-[A-Z]{2})?" c != null) cfg.translateLanguages;
+      assertion = builtins.all (
+        c: builtins.match "[a-z]{2,3}(-[A-Z]{2})?" c != null
+      ) cfg.translateLanguages;
       message = "services.catalyrst.translateLanguages entries must be ISO-639-shaped codes (e.g. \"en\", \"pt\", \"zt\"), got: ${builtins.concatStringsSep " " cfg.translateLanguages}";
     }
   ];

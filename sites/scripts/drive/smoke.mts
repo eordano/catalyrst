@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { freePort, launchChromium, Tab, type CdpMessage } from "./cdp.mts";
 import { HUD_ALLOW, ROUTES, hudPanels, type Route } from "./smoke-routes.mts";
+import { PAGE_CHECKS } from "./smoke-page-checks.mts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -85,21 +86,6 @@ function collectIssues(events: CdpMessage[], docUrl: string, allowConsole: RegEx
   }
   return { issues, status };
 }
-
-const PAGE_CHECKS = `(() => {
-  const broken = [...document.images]
-    .filter((i) => i.src && (!i.complete || i.naturalWidth === 0))
-    .map((i) => i.currentSrc || i.src)
-    .slice(0, 10);
-  let fontOk = true;
-  try { fontOk = document.fonts.check('16px Inter'); } catch {}
-  return JSON.stringify({
-    broken,
-    fontOk,
-    title: document.title,
-    bodyChars: (document.body?.innerText ?? '').length,
-  });
-})()`;
 
 const RETRY_DELAY_MS = 10_000;
 

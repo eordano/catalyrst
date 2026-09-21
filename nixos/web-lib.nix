@@ -11,7 +11,7 @@ let
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
         add_header Permissions-Policy "interest-cohort=()" always;
-        add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https://auth-api.${domain}; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'self'" always;
+        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: https://*.decentraland.org https://events-assets-099ac00.${domain}; connect-src 'self' https://auth-api.${domain}; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'self'" always;
         add_header Cross-Origin-Opener-Policy "same-origin" always;
         add_header Cross-Origin-Resource-Policy "same-site" always;
       ''

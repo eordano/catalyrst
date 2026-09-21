@@ -49,9 +49,25 @@ let
         problems=$((problems + 1))
       fi
 
-      ram_kib=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)
-      ram_gib=$(( ram_kib / 1024 / 1024 ))
-      if [ "$ram_gib" -lt ${toString minRam} ]; then
+      # Shell builtins only. This used to call awk, which is not among the
+      # runtime inputs: under systemd the "command not found" was swallowed,
+      # RAM parsed as 0, and a strict preflight refused to start a 16 GiB host.
+      # Same rule as the disk floor: an unreadable probe skips the floor, it
+      # never counts as a shortfall.
+      ram_kib=""
+      if [ -r /proc/meminfo ]; then
+        while read -r key value _; do
+          if [ "$key" = "MemTotal:" ]; then
+            ram_kib=$(printf '%s' "$value" | tr -dc '0-9')
+            break
+          fi
+        done < /proc/meminfo
+      fi
+      if [ -z "$ram_kib" ]; then
+        note "could not read MemTotal from /proc/meminfo; skipping the RAM floor rather than guessing."
+      fi
+      ram_gib=$(( ''${ram_kib:-0} / 1024 / 1024 ))
+      if [ -n "$ram_kib" ] && [ "$ram_gib" -lt ${toString minRam} ]; then
         note "profile '$profile' needs at least ${toString minRam} GiB RAM, found ''${ram_gib} GiB."
         problems=$((problems + 1))
       fi

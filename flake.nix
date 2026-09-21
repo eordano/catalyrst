@@ -123,6 +123,7 @@
             catalyrst-economy = svc "catalyrst-economy";
 
             catalyrst-media = svc "catalyrst-media";
+            catalyrst-social = svc "catalyrst-social";
 
             catalyrst-rpc = svc "catalyrst-rpc";
 

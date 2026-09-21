@@ -25,7 +25,7 @@ function stream() {
  const dir=mkdtempSync('/tmp/dcl-friends-test-');
  let server,browser,web,wss;
  try {
- await build({configFile:false,root:path.resolve(__dirname,'..'),base:'/',logLevel:'error',resolve:{alias:{'livekit-client':path.join(__dirname,'fixtures/livekit.ts')}},build:{outDir:dir,emptyOutDir:true}});
+ await build({configFile:false,root:path.resolve(__dirname,'..'),base:'/',logLevel:'error',resolve:{alias:{'livekit-client':path.join(__dirname,'fixtures/livekit.ts'),'@ui':path.resolve(__dirname,'../../ui3/src')},dedupe:['react','react-dom']},build:{outDir:dir,emptyOutDir:true}});
  server=await preview({configFile:false,root:path.resolve(__dirname,'..'),build:{outDir:dir},preview:{host:'127.0.0.1',port:0}});
  const origin=`http://127.0.0.1:${server.httpServer.address().port}`;
  web=http.createServer(); wss=new WebSocketServer({server:web}); await new Promise(r=>web.listen(0,'127.0.0.1',r));
