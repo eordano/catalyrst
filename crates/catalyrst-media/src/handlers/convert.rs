@@ -4,12 +4,15 @@ use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use catalyrst_commons::http::read_body_capped;
 use serde::Deserialize;
+use std::time::Duration;
+use tokio::sync::{Semaphore, SemaphorePermit};
 
 use crate::AppState;
 
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
-static THUMBNAIL_REQUESTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(16);
+const THUMBNAIL_WAIT: Duration = Duration::from_secs(10);
+static THUMBNAIL_REQUESTS: Semaphore = Semaphore::const_new(16);
 
 #[derive(Deserialize)]
 pub struct ConvertParams {
@@ -29,6 +32,22 @@ fn build_response(status: StatusCode, content_type: &str, body: Bytes) -> Respon
         HeaderValue::from_static("public, max-age=86400"),
     );
     (status, headers, body).into_response()
+}
+
+async fn thumbnail_slot(
+    slots: &'static Semaphore,
+    wait: Duration,
+) -> Option<SemaphorePermit<'static>> {
+    tokio::time::timeout(wait, slots.acquire()).await.ok()?.ok()
+}
+
+fn busy_response() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(header::RETRY_AFTER, HeaderValue::from_static("1"))],
+        "Thumbnail service busy",
+    )
+        .into_response()
 }
 
 fn cached_response(hit: (u16, String, Bytes)) -> Response {
@@ -70,11 +89,9 @@ pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParam
     };
 
     let _thumbnail_request = if p.width.is_some() {
-        match THUMBNAIL_REQUESTS.try_acquire() {
-            Ok(permit) => Some(permit),
-            Err(_) => {
-                return (StatusCode::SERVICE_UNAVAILABLE, "Thumbnail service busy").into_response()
-            }
+        match thumbnail_slot(&THUMBNAIL_REQUESTS, THUMBNAIL_WAIT).await {
+            Some(permit) => Some(permit),
+            None => return busy_response(),
         }
     } else {
         None
@@ -166,4 +183,32 @@ pub async fn convert(State(state): State<AppState>, Query(p): Query<ConvertParam
         state.convert_cache_put(&cache_key, status.as_u16(), &content_type, body.clone());
     }
     build_response(status, &content_type, body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_thumbnail_request_waits_for_a_busy_slot() {
+        static SLOTS: Semaphore = Semaphore::const_new(1);
+        let held = SLOTS.acquire().await.unwrap();
+        let waiter = tokio::spawn(thumbnail_slot(&SLOTS, Duration::from_secs(30)));
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+        drop(held);
+        assert!(waiter.await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_slot_that_never_frees_ends_in_a_retryable_busy_answer() {
+        static SLOTS: Semaphore = Semaphore::const_new(1);
+        let _held = SLOTS.acquire().await.unwrap();
+        assert!(thumbnail_slot(&SLOTS, Duration::from_millis(20))
+            .await
+            .is_none());
+        let response = busy_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "1");
+    }
 }

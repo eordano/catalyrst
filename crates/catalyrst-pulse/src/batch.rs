@@ -7,6 +7,7 @@ pub const SEQ_DELTA_ESCAPE: u32 = (1 << SEQ_DELTA_BITS) - 1;
 pub const PRESENCE_BITS: u32 = 17;
 pub const STATE_FLAGS_BITS: u32 = 16;
 const ABSOLUTE_SEQ_BITS: u32 = 32;
+pub const SAMPLE_AGE_LIMIT: u32 = 1 << 31;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SeqEncoding {
@@ -182,6 +183,7 @@ pub struct BatchSubject {
     pub subject_id: u32,
     pub baseline_seq: u32,
     pub new_seq: u32,
+    pub sample_tick: u32,
     pub state_flags: u32,
     pub state_flags_present: bool,
     pub fields: [Option<u32>; FIELD_COUNT],
@@ -193,6 +195,7 @@ impl BatchSubject {
             subject_id: delta.subject_id,
             baseline_seq: delta.baseline_seq,
             new_seq: delta.new_seq,
+            sample_tick: delta.server_tick,
             state_flags,
             state_flags_present: delta.state_flags.is_some(),
             fields: [
@@ -264,7 +267,22 @@ impl BatchSubject {
         self.new_seq.wrapping_sub(self.baseline_seq)
     }
 
+    fn sample_age(&self, server_tick: u32, sample_tick: bool) -> Option<u32> {
+        sample_tick.then(|| {
+            let age = server_tick.wrapping_sub(self.sample_tick);
+            if age < SAMPLE_AGE_LIMIT {
+                age
+            } else {
+                0
+            }
+        })
+    }
+
     pub fn bit_len(&self, mode: SeqEncoding) -> u64 {
+        self.bit_len_with(mode, None)
+    }
+
+    fn bit_len_with(&self, mode: SeqEncoding, age: Option<u32>) -> u64 {
         let flags = if mode == SeqEncoding::AbsoluteBaseline {
             1 + if self.state_flags_present {
                 STATE_FLAGS_BITS
@@ -291,7 +309,8 @@ impl BatchSubject {
                         varint_bits(self.baseline_seq)
                     } else {
                         0
-                    }) as u64
+                    }
+                    + age.map_or(0, varint_bits)) as u64
             }
         };
         for (i, field) in self.fields.iter().enumerate() {
@@ -302,8 +321,8 @@ impl BatchSubject {
         n
     }
 
-    fn encode_into(&self, w: &mut BitWriter, mode: SeqEncoding) {
-        self.encode_with_mask(w, mode, None, false);
+    fn encode_into(&self, w: &mut BitWriter, mode: SeqEncoding, age: Option<u32>) {
+        self.encode_with_mask(w, mode, None, false, age);
     }
 
     fn presence_mask(&self) -> u32 {
@@ -318,6 +337,7 @@ impl BatchSubject {
         mode: SeqEncoding,
         mask_index: Option<(u32, u32)>,
         unit_gap: bool,
+        age: Option<u32>,
     ) {
         w.write_bits(self.subject_id, SUBJECT_ID_BITS);
         match mode {
@@ -339,6 +359,9 @@ impl BatchSubject {
                 }
                 if distance >= SEQ_DELTA_ESCAPE {
                     w.write_varint(self.baseline_seq);
+                }
+                if let Some(age) = age {
+                    w.write_varint(age);
                 }
             }
         }
@@ -362,7 +385,7 @@ impl BatchSubject {
         mode: SeqEncoding,
         last_known_seq: &mut impl FnMut(u32) -> u32,
     ) -> Result<Self, BatchError> {
-        Self::decode_with_masks(r, mode, last_known_seq, &[], false)
+        Self::decode_with_masks(r, mode, last_known_seq, &[], false, 0, false)
     }
 
     fn decode_with_masks(
@@ -371,6 +394,8 @@ impl BatchSubject {
         last_known_seq: &mut impl FnMut(u32) -> u32,
         masks: &[u32],
         unit_gap: bool,
+        server_tick: u32,
+        sample_tick: bool,
     ) -> Result<Self, BatchError> {
         let subject_id = r.read_bits(SUBJECT_ID_BITS)?;
         let (baseline_seq, new_seq) = match mode {
@@ -403,6 +428,15 @@ impl BatchSubject {
                 (baseline, new_seq)
             }
         };
+        let sample_tick = if sample_tick {
+            let age = r.read_varint()?;
+            if age >= SAMPLE_AGE_LIMIT {
+                return Err(BatchError::InvalidData);
+            }
+            server_tick.wrapping_sub(age)
+        } else {
+            server_tick
+        };
         let mask = if masks.is_empty() {
             r.read_bits(PRESENCE_BITS)?
         } else {
@@ -426,6 +460,7 @@ impl BatchSubject {
             subject_id,
             baseline_seq,
             new_seq,
+            sample_tick,
             state_flags,
             state_flags_present,
             fields,
@@ -462,12 +497,24 @@ pub fn encode_batches(
     max_bytes: usize,
     mode: SeqEncoding,
 ) -> Vec<EncodedBatch> {
+    encode_batches_with(server_tick, subjects, max_bytes, mode, false)
+}
+
+pub fn encode_batches_with(
+    server_tick: u32,
+    subjects: &[BatchSubject],
+    max_bytes: usize,
+    mode: SeqEncoding,
+    sample_tick: bool,
+) -> Vec<EncodedBatch> {
+    let sample_tick = sample_tick && mode == SeqEncoding::AbsoluteBaseline;
     let mut out = Vec::new();
     let mut writer = open_batch(mode);
     let mut count = 0u32;
 
     for s in subjects {
-        let projected_bits = writer.bit_len() + s.bit_len(mode);
+        let age = s.sample_age(server_tick, sample_tick);
+        let projected_bits = writer.bit_len() + s.bit_len_with(mode, age);
         let projected_bytes = projected_bits.div_ceil(8) as usize;
         if count > 0 && projected_bytes > max_bytes {
             out.push(EncodedBatch {
@@ -477,7 +524,7 @@ pub fn encode_batches(
             });
             count = 0;
         }
-        s.encode_into(&mut writer, mode);
+        s.encode_into(&mut writer, mode, age);
         count += 1;
     }
     if count > 0 {
@@ -512,10 +559,20 @@ pub fn decode_baseline_batch(
     subject_count: u32,
     payload: &[u8],
 ) -> Result<Vec<BatchSubject>, BatchError> {
+    decode_baseline_batch_with(0, subject_count, payload, false)
+}
+
+pub fn decode_baseline_batch_with(
+    server_tick: u32,
+    subject_count: u32,
+    payload: &[u8],
+    sample_tick: bool,
+) -> Result<Vec<BatchSubject>, BatchError> {
+    let min_subject_bits = if sample_tick { 30 } else { 22 };
     if payload.is_empty()
         || payload.len() > 1200
         || subject_count == 0
-        || subject_count as usize > (payload.len() * 8 - 1) / 22
+        || subject_count as usize > (payload.len() * 8 - 1) / min_subject_bits
     {
         return Err(BatchError::InvalidData);
     }
@@ -541,6 +598,8 @@ pub fn decode_baseline_batch(
             &mut |_| unreachable!(),
             &masks,
             unit_gap,
+            server_tick,
+            sample_tick,
         )?;
         if !subject.is_representable() || out.iter().any(|s| s.subject_id == subject.subject_id) {
             return Err(BatchError::InvalidData);
@@ -563,6 +622,15 @@ pub fn encode_dictionary_batches(
     subjects: &[BatchSubject],
     max_bytes: usize,
 ) -> Vec<EncodedBatch> {
+    encode_dictionary_batches_with(server_tick, subjects, max_bytes, false)
+}
+
+pub fn encode_dictionary_batches_with(
+    server_tick: u32,
+    subjects: &[BatchSubject],
+    max_bytes: usize,
+    sample_tick: bool,
+) -> Vec<EncodedBatch> {
     let mut masks = Vec::new();
     for subject in subjects {
         let mask = subject.presence_mask();
@@ -570,11 +638,12 @@ pub fn encode_dictionary_batches(
             masks.push(mask);
         }
         if masks.len() > 8 {
-            return encode_batches(
+            return encode_batches_with(
                 server_tick,
                 subjects,
                 max_bytes,
                 SeqEncoding::AbsoluteBaseline,
+                sample_tick,
             );
         }
     }
@@ -598,7 +667,8 @@ pub fn encode_dictionary_batches(
     let mut start = 0;
     let mut out = Vec::new();
     for (index, subject) in subjects.iter().enumerate() {
-        let bits = subject.bit_len(SeqEncoding::AbsoluteBaseline) - PRESENCE_BITS as u64
+        let age = subject.sample_age(server_tick, sample_tick);
+        let bits = subject.bit_len_with(SeqEncoding::AbsoluteBaseline, age) - PRESENCE_BITS as u64
             + index_bits as u64
             - if unit_gap { SEQ_DELTA_BITS as u64 } else { 0 };
         if count > 0 && (writer.bit_len() + bits).div_ceil(8) as usize > max_bytes {
@@ -609,6 +679,7 @@ pub fn encode_dictionary_batches(
                 writer,
                 count,
                 max_bytes,
+                sample_tick,
             );
             writer = open();
             count = 0;
@@ -623,6 +694,7 @@ pub fn encode_dictionary_batches(
             SeqEncoding::AbsoluteBaseline,
             Some((mask, index_bits)),
             unit_gap,
+            age,
         );
         count += 1;
     }
@@ -633,6 +705,7 @@ pub fn encode_dictionary_batches(
         writer,
         count,
         max_bytes,
+        sample_tick,
     );
     out
 }
@@ -644,19 +717,26 @@ fn finish_dictionary_chunk(
     writer: BitWriter,
     count: u32,
     max_bytes: usize,
+    sample_tick: bool,
 ) {
     let plain_bits = 1 + subjects
         .iter()
-        .map(|subject| subject.bit_len(SeqEncoding::AbsoluteBaseline))
+        .map(|subject| {
+            subject.bit_len_with(
+                SeqEncoding::AbsoluteBaseline,
+                subject.sample_age(server_tick, sample_tick),
+            )
+        })
         .sum::<u64>();
     if plain_bits.div_ceil(8) <= writer.bit_len().div_ceil(8)
         || writer.bit_len().div_ceil(8) as usize > max_bytes
     {
-        out.extend(encode_batches(
+        out.extend(encode_batches_with(
             server_tick,
             subjects,
             max_bytes,
             SeqEncoding::AbsoluteBaseline,
+            sample_tick,
         ));
     } else {
         out.push(EncodedBatch {

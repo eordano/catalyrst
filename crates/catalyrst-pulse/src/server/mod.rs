@@ -6,9 +6,10 @@ use prost::Message as _;
 use sha2::{Digest, Sha256};
 
 use crate::decentraland::pulse::{
-    client_message, server_message, ClientMessage, HandshakeResponse, PlayerInitialState,
-    PulseV4ErrorCode, PulseV4Hello, PulseV4Result, PulseV4RetryClass, PulseV4Role,
-    SceneListenerAoi, SceneListenerHandshakeRequest, SceneListenerUpdate, ServerMessage,
+    client_message, server_message, ClientMessage, EmoteStopReason, HandshakeResponse,
+    PlayerInitialState, PulseV4ErrorCode, PulseV4Hello, PulseV4Result, PulseV4RetryClass,
+    PulseV4Role, SceneListenerAoi, SceneListenerHandshakeRequest, SceneListenerUpdate,
+    ServerMessage,
 };
 use crate::handshake::{verify_handshake_bytes, VerifiedHandshake};
 use crate::hardening::{
@@ -36,6 +37,7 @@ use crate::transport::{Event, Host, HostConfig, Packet, Transports};
 use crate::v4::{
     server_result, PulseV4Authority, V4AuthOutcome, CAPABILITY_DELTA_BATCH,
     CAPABILITY_DELTA_BATCH_BASELINE, CAPABILITY_DELTA_BATCH_DICTIONARY,
+    CAPABILITY_DELTA_BATCH_SAMPLE_TICK,
 };
 
 mod application;
@@ -65,8 +67,19 @@ pub const FEATURE_DELTA_BATCH: u32 = 1 << 0;
 pub const FEATURE_DELTA_BATCH_BASELINE: u32 = 1 << 1;
 pub const FEATURE_DELTA_BATCH_DICTIONARY: u32 = 1 << 2;
 pub const FEATURE_APPLICATION_RELAY: u32 = 1 << 3;
-pub const SERVER_FEATURES: u32 =
-    FEATURE_DELTA_BATCH | FEATURE_DELTA_BATCH_BASELINE | FEATURE_DELTA_BATCH_DICTIONARY;
+pub const FEATURE_DELTA_BATCH_SAMPLE_TICK: u32 = 1 << 4;
+pub const SERVER_FEATURES: u32 = FEATURE_DELTA_BATCH
+    | FEATURE_DELTA_BATCH_BASELINE
+    | FEATURE_DELTA_BATCH_DICTIONARY
+    | FEATURE_DELTA_BATCH_SAMPLE_TICK;
+
+fn grantable_features(features: u32) -> u32 {
+    if features & (FEATURE_DELTA_BATCH_BASELINE | FEATURE_DELTA_BATCH_DICTIONARY) == 0 {
+        features & !FEATURE_DELTA_BATCH_SAMPLE_TICK
+    } else {
+        features
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -652,18 +665,19 @@ impl PulseServer {
                 reason: DisconnectReason::DuplicateSession,
             };
         }
-        let features = verified
-            .negotiated_capabilities
-            .iter()
-            .fold(0, |mask, capability| {
+        let features = grantable_features(verified.negotiated_capabilities.iter().fold(
+            0,
+            |mask, capability| {
                 mask | match capability.as_str() {
                     CAPABILITY_DELTA_BATCH => FEATURE_DELTA_BATCH,
                     CAPABILITY_DELTA_BATCH_BASELINE => FEATURE_DELTA_BATCH_BASELINE,
                     CAPABILITY_DELTA_BATCH_DICTIONARY => FEATURE_DELTA_BATCH_DICTIONARY,
+                    CAPABILITY_DELTA_BATCH_SAMPLE_TICK => FEATURE_DELTA_BATCH_SAMPLE_TICK,
                     crate::application_relay::CAPABILITY => FEATURE_APPLICATION_RELAY,
                     _ => 0,
                 }
-            });
+            },
+        ));
         if features & FEATURE_APPLICATION_RELAY != 0 {
             let Ok(nonce) = verified.relay_nonce.clone().try_into() else {
                 return Action::Ignore;
@@ -743,7 +757,7 @@ impl PulseServer {
             session: admitted.session,
             duplicate_of: admitted.duplicate_of,
             initial_state: req.initial_state.map(Box::new),
-            features: req.protocol_features & SERVER_FEATURES,
+            features: grantable_features(req.protocol_features & SERVER_FEATURES),
         }
     }
 
@@ -877,7 +891,7 @@ impl PulseServer {
             session: admitted.session,
             duplicate_of: admitted.duplicate_of,
             listener: Arc::new(listener),
-            features: req.protocol_features & SERVER_FEATURES,
+            features: grantable_features(req.protocol_features & SERVER_FEATURES),
         }
     }
 
@@ -1038,6 +1052,7 @@ impl PulseServer {
             .map(|s| validate::player_state(s, &self.encoder))
             .unwrap_or(false);
         state_ok
+            && !init.realm.is_empty()
             && validate::emote_caps(
                 init.emote_id.as_deref(),
                 init.emote_duration_ms,
@@ -1100,6 +1115,7 @@ impl PulseServer {
                     now,
                     &state,
                     None,
+                    None,
                 );
                 Action::Applied
             }
@@ -1158,11 +1174,12 @@ impl PulseServer {
                         start_tick: None,
                         mask: e.mask,
                     }),
+                    None,
                 );
                 Action::Applied
             }
             client_message::Message::EmoteStop(_) => {
-                self.publish_emote_stop(peer, now);
+                self.publish_emote_stop(peer, now, EmoteStopReason::Cancelled);
                 Action::Applied
             }
             client_message::Message::ProfileAnnouncement(p) => {
@@ -1188,7 +1205,7 @@ impl PulseServer {
         }
     }
 
-    fn publish_emote_stop(&mut self, peer: u32, now: u32) {
+    fn publish_emote_stop(&mut self, peer: u32, now: u32, reason: EmoteStopReason) {
         let Some(current) = self.board.try_read(peer).cloned() else {
             return;
         };
@@ -1205,11 +1222,28 @@ impl PulseServer {
                 start_tick: active.start_tick,
                 duration_ms: None,
                 mask: None,
-                stop_reason: Some(crate::decentraland::pulse::EmoteStopReason::Cancelled),
+                stop_reason: Some(reason),
             }),
             ..current
         };
         self.board.publish(peer, stop);
+    }
+
+    fn complete_expired_emotes(&mut self, now: u32) {
+        let expired: Vec<u32> = self
+            .peers
+            .iter()
+            .filter(|(_, state)| state.connection_state == PeerConnectionState::Authenticated)
+            .filter_map(|(peer, _)| {
+                let emote = self.board.try_read(*peer)?.emote.as_ref()?;
+                emote.emote_id.as_ref()?;
+                let duration_ms = emote.duration_ms?;
+                (now >= emote.start_tick && now - emote.start_tick >= duration_ms).then_some(*peer)
+            })
+            .collect();
+        for peer in expired {
+            self.publish_emote_stop(peer, now, EmoteStopReason::Completed);
+        }
     }
 
     async fn apply(
@@ -1413,13 +1447,14 @@ impl PulseServer {
             now,
             state,
             emote,
+            Some(&init.realm),
         );
     }
 
-    async fn run_tick(&mut self, transports: &mut Transports, now: u32) -> anyhow::Result<()> {
-        self.v4.expire(chrono::Utc::now().timestamp_millis());
+    fn simulate(&mut self, now: u32) -> Vec<OutgoingMessage> {
         self.tick_counter = self.tick_counter.wrapping_add(1);
         self.simulation.outbox.clear();
+        self.complete_expired_emotes(now);
         self.simulation.simulate_tick(
             &mut self.peers,
             &self.board,
@@ -1430,7 +1465,12 @@ impl PulseServer {
             self.tick_counter,
             now,
         );
-        let outbox = std::mem::take(&mut self.simulation.outbox);
+        std::mem::take(&mut self.simulation.outbox)
+    }
+
+    async fn run_tick(&mut self, transports: &mut Transports, now: u32) -> anyhow::Result<()> {
+        self.v4.expire(chrono::Utc::now().timestamp_millis());
+        let outbox = self.simulate(now);
         self.flush(transports, outbox).await?;
 
         let expired = std::mem::take(&mut self.simulation.expired);
@@ -1635,7 +1675,9 @@ impl PulseServer {
                     self.deliver_application(&mut transports, completed.0, completed.1).await?;
                 }
                 _ = ticker.tick() => {
-                    let expired = self.application_relay.as_mut().map(|relay| relay.maintenance(std::time::Instant::now())).unwrap_or_default();
+                    let instant = std::time::Instant::now();
+                    let mut expired = self.application_relay.as_mut().map(|relay| relay.maintenance(instant)).unwrap_or_default();
+                    expired.extend(self.silent_relay_scopes(&transports, instant));
                     self.deliver_application(&mut transports, expired, vec![]).await?;
                     let now = started.elapsed().as_millis() as u32;
                     self.run_tick(&mut transports, now).await?;

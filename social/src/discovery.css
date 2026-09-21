@@ -225,9 +225,6 @@
 .event-dialog footer {
   margin-top: 22px;
 }
-.worlds-preview {
-  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
-}
 @media (max-width: 760px) {
   .discovery-page {
     padding: 20px 16px;
@@ -244,23 +241,6 @@
   .event-grid,
   .world-grid {
     gap: 14px;
-  }
-  .worlds-preview {
-    grid-template-columns: 1fr 1fr;
-  }
-  .worlds-preview .world-card-body {
-    padding: 12px;
-  }
-  .worlds-preview .world-card-body > p {
-    display: none;
-  }
-  .worlds-preview .discovery-actions {
-    gap: 5px;
-  }
-}
-@media (max-width: 420px) {
-  .worlds-preview {
-    grid-template-columns: 1fr;
   }
 }
 

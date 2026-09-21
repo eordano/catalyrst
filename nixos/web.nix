@@ -219,9 +219,16 @@ let
     extraConfig = "proxy_buffering off;";
   };
   sitesLocations = lib.optionalAttrs cfg.subServices.sites {
+    "= /_.data" = sitesLoc;
     "= /places" = sitesLoc;
+    "= /places.data" = sitesLoc;
     "/places/" = sitesLoc;
-    "/assets/" = sitesLoc;
+    "/assets/" = sitesLoc // {
+      extraConfig = ''
+        ${sitesLoc.extraConfig}
+        limit_req zone=catassets burst=256 nodelay;
+      '';
+    };
     "= /favicon.ico" = sitesLoc;
     "= /content" = sitesLoc;
     "/marketplace" = sitesLoc;
@@ -245,6 +252,7 @@ let
     "/support" = sitesLoc;
     "/whats-on" = sitesLoc;
     "= /events" = sitesLoc;
+    "= /events.data" = sitesLoc;
     "= /events/" = sitesLoc;
     "/for" = sitesLoc;
     "/explorer" = sitesLoc;
@@ -271,6 +279,7 @@ let
       alias = "${playRoot}/";
       index = "index.html";
       extraConfig = ''
+        limit_req zone=catplay burst=512 nodelay;
         brotli_static on;
         disable_symlinks off;
         try_files $uri $uri/ =404;
@@ -429,6 +438,8 @@ let
     limitExemptConfig
     + ''
       limit_req_zone  ${readLimitKey} zone=catread:10m   rate=30r/s;
+      limit_req_zone  ${readLimitKey} zone=catassets:10m rate=120r/s;
+      limit_req_zone  ${readLimitKey} zone=catplay:10m rate=240r/s;
     ''
     + contentReadZone
     + ''

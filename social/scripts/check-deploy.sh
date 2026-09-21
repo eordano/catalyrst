@@ -67,4 +67,10 @@ PY
 for host in chat.example.com dcl.social; do
   curl -fsS -H "Host: $host" "http://127.0.0.1:$chat_host_port/api/health" > /dev/null
 done
-echo 'PASS: systemd unit, nginx syntax, existing root preserved, /chat redirect, prefixed API/assets, and hostname routes.'
+# A cold Events page asks for dozens of posters at once: none may be refused at the edge,
+# while the API keeps its own tighter budget.
+burst() { for _ in $(seq 60); do curl -sS -o /dev/null -w '%{http_code}\n' "$@" & done; wait; }
+[[ "$(burst -H 'Host: dcl.social' "http://127.0.0.1:$chat_host_port/api/image" | grep -c '^429$')" == 0 ]]
+[[ "$(burst "http://127.0.0.1:$chat_path_port/chat/api/image" | grep -c '^429$')" == 0 ]]
+[[ "$(burst -H 'Host: dcl.social' "http://127.0.0.1:$chat_host_port/api/health" | grep -c '^429$')" -gt 0 ]]
+echo 'PASS: systemd unit, nginx syntax, existing root preserved, /chat redirect, prefixed API/assets, hostname routes, and a poster burst that leaves the API limit intact.'

@@ -67,6 +67,6 @@ lib.mkIf cfg.enable {
 
   systemd.services.catalyrst-sync = {
     after = [ "catalyrst-content-migrate.service" ];
-    wants = [ "catalyrst-content-migrate.service" ];
+    requires = [ "catalyrst-content-migrate.service" ];
   };
 }

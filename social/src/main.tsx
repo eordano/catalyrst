@@ -3,6 +3,8 @@ import type { FriendsState } from "./friends";
 import { destinationLabel } from "./destinations";
 import { LiveCommunities } from "./LiveCommunities";
 import { CommunityHangouts } from "./CommunityHangouts";
+import { CommunitySummary } from "./CommunitySummary";
+import { fullMessageTime, isoTime, messageTime } from "./message-time";
 import { Home } from "./Home";
 import { EventsPage, EventActivity } from "./Events";
 import { EventEditor } from "./EventEditor";
@@ -52,6 +54,13 @@ function readRoute() {
     ? hash
     : "#/home";
 }
+// Community pages that are not conversations; the API refuses channels with these names.
+const communityViews = { about: "About", hangouts: "Hangouts", members: "Members" } as const;
+type CommunityView = keyof typeof communityViews;
+const isCommunityView = (target: string): target is CommunityView => target in communityViews;
+const routeTarget = (route: string) => route.match(/^#\/c\/[0-9a-f-]{36}\/([a-z0-9-]{1,32})$/i)?.[1].toLowerCase();
+const channelLabel = (name: string) => name === "general" ? "General" : name === "announcements" ? "Announcements" : name;
+const oldestFirst = (posts: Post[]) => [...posts].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 function App() {
   useEffect(() => {
     const timer = setTimeout(() => { warmPublicDiscovery(); void import("./Friends"); }, 0);
@@ -68,7 +77,7 @@ function App() {
   const [profile, setProfile] = useState("");
   const [communityMenu, setCommunityMenu] = useState(false);
   const [reported,setReported]=useState<string[]>([]);
-  const [dialog, setDialog] = useState<"invite" | "preferences" | "channel" | "channelSettings" | "leave" | "requests" | "hangouts" | "event" | null>(null);
+  const [dialog, setDialog] = useState<"invite" | "preferences" | "channel" | "channelSettings" | "leave" | "requests" | "event" | null>(null);
   const [channelName, setChannelName] = useState("");
   const [privateChannel, setPrivateChannel] = useState(false);
   const [channelError, setChannelError] = useState("");
@@ -149,12 +158,12 @@ function App() {
   const isFriends = route.startsWith("#/friends") || route.startsWith("#/dm/");
   const sections = [
     {label: "Home", href: "#/home", icon: "home", active: isHome},
-    {label: "Explore communities", href: "#/discover", icon: "communities", active: route === "#/discover" || isMine},
+    {label: "Explore communities", href: "#/discover", icon: "search", active: route === "#/discover" || isMine},
     {label: "Friends", href: "#/friends", icon: "people", active: isFriends},
-    {label: "Nearby", href: "#/nearby", icon: "pin", active: isNearby},
-    {label: "Events", href: "#/events", icon: "calendar", active: isEvents && route !== "#/events/rsvps"},
-    {label: "Worlds", href: "#/worlds", icon: "globe", active: isWorlds},
+    {label: "Nearby", href: "#/nearby", icon: "nearby", active: isNearby},
   ] as const;
+  const routed = routeTarget(route);
+  const view = routed && isCommunityView(routed) ? routed : null;
   const [friendUnread, setFriendUnread] = useState(0);
   const [friendsStarted, setFriendsStarted] = useState(false);
   useEffect(() => { if (identity || isFriends || isNearby) setFriendsStarted(true); }, [identity, isFriends, isNearby]);
@@ -279,7 +288,7 @@ function App() {
   useEffect(() => {
     if (followMessages.current)
       bottom.current?.scrollIntoView({ behavior: "instant", block: "end" });
-  }, [messages, channel]);
+  }, [messages, posts, channel]);
   useEffect(() => {
     const area = composerInput.current;
     if (area) {
@@ -363,7 +372,7 @@ function App() {
       setMine(all => all.some(item=>item.id===details.data.id) ? all.map(item=>item.id===details.data.id?details.data:item) : [...all,details.data]);
       const next = await execute<Opened>(
         identity,
-        { type: "open_community", community_id: c.id, channel: target === "announcements" || target === "voice" ? "general" : target },
+        { type: "open_community", community_id: c.id, channel: target === "announcements" || target === "voice" || isCommunityView(target) ? "general" : target },
         valid,
       );
       if (!valid()) return;
@@ -379,7 +388,7 @@ function App() {
           { type: "community_posts", community_id: c.id },
           valid,
         );
-        if (valid()) setPosts(result.data.posts);
+        if (valid()) setPosts(oldestFirst(result.data.posts));
       }
     });
   }
@@ -391,7 +400,7 @@ function App() {
       await execute(identity, { type: c.privacy === "private" ? "request_community_join" : "join_community", community_id: c.id }, valid);
       if (!valid()) return;
       if (c.privacy === "private") setJoinPending(all => ({ ...all, [c.id]: true }));
-      else await openCommunity(c);
+      else await openCommunity(c, routed);
     });
   }
   async function loadMine() {
@@ -421,7 +430,7 @@ function App() {
         { type: "community_posts", community_id: opened.community.id },
         () => current === generation.current,
       );
-      if (current === generation.current) setPosts(result.data.posts);
+      if (current === generation.current) { followMessages.current = true; setPosts(oldestFirst(result.data.posts)); }
     });
   }
   useEffect(() => {
@@ -451,7 +460,7 @@ function App() {
     if (openedRef.current?.community.id === match[1]) {
       setChannel(target);
       if (target === "announcements") void announcements();
-      else if (target !== openedRef.current.channel) void openCommunity(openedRef.current.community, target);
+      else if (!isCommunityView(target) && target !== openedRef.current.channel) void openCommunity(openedRef.current.community, target);
       return;
     }
     setOpened(null);
@@ -479,12 +488,32 @@ function App() {
         setMessages(all=>mergeMessages(all,result.messages));
     } catch (e) {
       if (openedRef.current?.readToken !== o.readToken) return;
+      // A spent read capability is renewed in place; only a refused membership closes the chat.
+      if (e instanceof ApiError && e.status === 410 && identityRef.current?.canSignSilently) return renewRead(o);
       if (e instanceof ApiError && [403, 410].includes(e.status)) {
         setExpired(true);
         setMessages([]);
         setPosts([]);
         if (e.status === 403) { setOpened(null); openedRef.current = null; setPreview({ ...o.community, role: "none" }); }
       }
+      setError(e instanceof Error ? e.message : "Unable to refresh");
+    }
+  }
+  async function renewRead(o: Opened) {
+    const signer = identityRef.current;
+    if (!signer) return;
+    const current = () => openedRef.current?.readToken === o.readToken;
+    try {
+      const next = await execute<Opened>(signer, { type: "open_community", community_id: o.community.id, channel: o.channel || "general" }, current);
+      if (current()) {
+        setOpened(next);
+        setMessages(all=>mergeMessages(all,next.messages));
+      }
+    } catch (e) {
+      if (!current()) return;
+      setExpired(true);
+      setMessages([]);
+      setPosts([]);
       setError(e instanceof Error ? e.message : "Unable to refresh");
     }
   }
@@ -496,24 +525,7 @@ function App() {
       if (stopped) return;
       if (Date.now() >= opened.expiresAt) {
         if (identityRef.current?.canSignSilently) {
-          try {
-            const next = await execute<Opened>(
-              identityRef.current,
-              { type: "open_community", community_id: opened.community.id, channel:opened.channel || "general" },
-              () => !stopped,
-            );
-            if (!stopped) {
-              setOpened(next);
-              setMessages(all=>mergeMessages(all,next.messages));
-            }
-          } catch (e) {
-            if (!stopped) {
-              setExpired(true);
-              setMessages([]);
-              setPosts([]);
-              setError(e instanceof Error ? e.message : "Unable to refresh");
-            }
-          }
+          await renewRead(opened);
         } else {
           setExpired(true);
           setMessages([]);
@@ -553,8 +565,10 @@ function App() {
           () => current === generation.current,
         );
         updateDraft({ text: "", scene: null }, key);
-        if (current === generation.current)
-          setPosts((p) => [result.data, ...p]);
+        if (current === generation.current) {
+          followMessages.current = true;
+          setPosts((p) => oldestFirst([...p, result.data]));
+        }
       } else {
         await execute(
           identity,
@@ -644,7 +658,7 @@ function App() {
         <section className="sidebar">
           <div className="side-title">
             {opened ? <button className="community-heading" aria-expanded={communityMenu} onClick={() => setCommunityMenu(v => !v)}><strong>{opened.community.name}</strong><Icon name="down" /></button> : <strong>Your space</strong>}
-            {communityMenu && opened && <div className="community-menu">{canPublish && channel!=="announcements" && !isVoice && <button onClick={()=>{setDialog("channelSettings");setCommunityMenu(false);}}><Icon name="settings"/>Channel settings</button>}{canPublish&&<button onClick={()=>{setPanel("reports");setCommunityMenu(false);setDrawer(false);}}>Reported messages</button>}{canPublish&&<button onClick={()=>{setPanel("bans");setCommunityMenu(false);setDrawer(false);}}><Icon name="people"/>Banned members</button>}{canPublish && <button onClick={() => { setDialog("requests"); setCommunityMenu(false); }}><Icon name="people" />Join requests</button>}{opened.community.role === "owner" && <button onClick={() => { setEditing("settings"); setCommunityMenu(false); }}><Icon name="settings" />Community settings</button>}<button onClick={() => { setDialog("invite"); setCommunityMenu(false); }}><Icon name="plus" />Invite people</button><button onClick={() => { setPanel("members"); setCommunityMenu(false); setDrawer(false); }}><Icon name="people" />Members</button><button onClick={() => { setPanel("pins"); setCommunityMenu(false); setDrawer(false); }}><Icon name="pin" />Pinned messages</button>{opened.community.role!=="owner"&&<button onClick={()=>{setDialog("leave");setCommunityMenu(false);}}>Leave community</button>}</div>}
+            {communityMenu && opened && <div className="community-menu">{canPublish && channel!=="announcements" && !isVoice && !view && <button onClick={()=>{setDialog("channelSettings");setCommunityMenu(false);}}><Icon name="settings"/>Channel settings</button>}{canPublish&&<button onClick={()=>{setPanel("reports");setCommunityMenu(false);setDrawer(false);}}>Reported messages</button>}{canPublish&&<button onClick={()=>{setPanel("bans");setCommunityMenu(false);setDrawer(false);}}><Icon name="people"/>Banned members</button>}{canPublish && <button onClick={() => { setDialog("requests"); setCommunityMenu(false); }}><Icon name="people" />Join requests</button>}{opened.community.role === "owner" && <button onClick={() => { setEditing("settings"); setCommunityMenu(false); }}><Icon name="settings" />Community settings</button>}<button onClick={() => { setDialog("invite"); setCommunityMenu(false); }}><Icon name="plus" />Invite people</button><button onClick={() => go(channelPath(opened.community.id,"members"))}><Icon name="people" />Members</button><button onClick={() => { setPanel("pins"); setCommunityMenu(false); setDrawer(false); }}><Icon name="pin" />Pinned messages</button>{opened.community.role!=="owner"&&<button onClick={()=>{setDialog("leave");setCommunityMenu(false);}}>Leave community</button>}</div>}
             <button
               className="mobile"
               aria-label="Close navigation"
@@ -655,13 +669,14 @@ function App() {
           </div>
           {opened ? (
             <>
+              <button className={`channel ${view === "about" ? "selected" : ""}`} aria-current={view === "about" ? "page" : undefined} onClick={() => go(channelPath(opened.community.id,"about"))}><Icon name="info" />About</button>
               <div className="channel-label">Channels {canPublish && <button aria-label="Create channel" onClick={() => { setDialog("channel"); setChannelName(""); setChannelError(""); }}><Icon name="plus" /></button>}</div>
               <button
                 aria-current={channel === "general" ? "page" : undefined}
                 className={`channel ${channel === "general" ? "selected" : ""}`}
                 onClick={() => go(channelPath(opened.community.id))}
               >
-                <span>#</span> general
+                <span>#</span> General
               </button>
               {opened.channels?.map(c => <button key={c.name} className={`channel ${channel === c.name ? "selected" : ""}`} aria-current={channel === c.name ? "page" : undefined} onClick={() => go(channelPath(opened.community.id,c.name))}><span>{c.private ? "\u2311" : "#"}</span>{c.name}</button>)}
               <button
@@ -671,11 +686,11 @@ function App() {
                   go(channelPath(opened.community.id, "announcements"))
                 }
               >
-                <Icon name="bell" /> announcements
+                <Icon name="bell" /> Announcements
               </button>
-              <button className="channel" onClick={() => { setDialog("hangouts"); setDrawer(false); }}><Icon name="globe" />Hangouts</button>
+              <button className={`channel ${view === "hangouts" ? "selected" : ""}`} aria-current={view === "hangouts" ? "page" : undefined} onClick={() => go(channelPath(opened.community.id,"hangouts"))}><Icon name="globe" />Hangouts</button>
               <div className="channel-label">Voice</div><button className={`channel ${isVoice ? "selected" : ""}`} onClick={() => go(channelPath(opened.community.id,"voice"))}><Icon name="people" />The lounge</button>
-              <button className="channel" onClick={() => { setPanel("members"); setDrawer(false); }}><Icon name="people" /> Members <small>{opened.community.membersCount}</small></button>
+              <button className={`channel ${view === "members" ? "selected" : ""}`} aria-current={view === "members" ? "page" : undefined} onClick={() => go(channelPath(opened.community.id,"members"))}><Icon name="people" /> Members <small>{opened.community.membersCount}</small></button>
             </>
           ) : (
             <>
@@ -722,10 +737,10 @@ function App() {
           >
             &#x2630;
           </button>
-          <span className="hash">{opened ? "#" : <Icon name={sections.find(item => item.active)?.icon || (isEvents ? "calendar" : isNotifications ? "bell" : isInvitations ? "invitation" : "home")} />}</span>
+          <span className="hash">{opened && view ? <Icon name={view === "about" ? "info" : view === "hangouts" ? "globe" : "people"} /> : opened ? "#" : <Icon name={sections.find(item => item.active)?.icon || (isEvents ? "calendar" : isWorlds ? "globe" : isNotifications ? "bell" : isInvitations ? "invitation" : "home")} />}</span>
           <div>
             <strong>
-              {isHome ? "Home" : isNotifications ? "Notifications" : isEvents ? (route === "#/events/rsvps" ? "My RSVPs" : "Events") : isWorlds ? "Worlds" : isInvitations ? "Invitations & requests" : isNearby ? "Nearby" : isFriends ? "Friends" : isVoice ? "The lounge" : opened ? channel : isMine ? "My communities" : "Explore communities"}
+              {isHome ? "Home" : isNotifications ? "Notifications" : isEvents ? (route === "#/events/rsvps" ? "My RSVPs" : "Events") : isWorlds ? "Worlds" : isInvitations ? "Invitations & requests" : isNearby ? "Nearby" : isFriends ? "Friends" : isVoice ? "The lounge" : opened && view ? communityViews[view] : opened ? channelLabel(channel) : isMine ? "My communities" : "Explore communities"}
             </strong>
             {opened && <small>{opened.community.name}</small>}
           </div>
@@ -742,7 +757,7 @@ function App() {
               &#x21bb;
             </button>
           )}
-          {opened && !isVoice && (
+          {opened && !isVoice && !view && (
             <>
               <div className="conversation-tools"><button aria-label="Search conversation" aria-pressed={panel === "search"} onClick={() => setPanel(panel === "search" ? null : "search")}><Icon name="search" /></button><button aria-label="Pinned messages" aria-pressed={panel === "pins"} onClick={() => setPanel(panel === "pins" ? null : "pins")}><Icon name="pin" /></button><button aria-label="Community members" aria-pressed={panel === "members"} onClick={() => setPanel(panel === "members" ? null : "members")}><Icon name="people" /></button></div>
               <button
@@ -781,11 +796,12 @@ function App() {
           : isNotifications ? <ActivityInbox items={activity.items} markRead={activity.markRead} clear={activity.clear} />
           : isEvents ? <EventsPage search={eventSearch} mine={route === "#/events/rsvps"} friendsState={friendSnapshot} identity={identity} onConnect={() => void loadIdentity(true)} />
           : isWorlds ? <WorldsPage search={worldSearch} />
-          : isInvitations ? identity ? <CommunityInbox identity={identity} onConnect={() => void loadIdentity(true)} onOpen={c => go(channelPath(c.id))} onChanged={() => void loadMine()} /> : <section className="empty"><h1>Your invitations, all together.</h1><p>Connect to see community invitations and your pending requests.</p><button className="primary" disabled={connecting} onClick={() => void loadIdentity(true)}>Connect wallet</button></section>
+          : isInvitations ? identity ? <CommunityInbox identity={identity} onConnect={() => void loadIdentity(true)} onOpen={c => go(channelPath(c.id,"about"))} onChanged={() => void loadMine()} /> : <section className="empty"><h1>Your invitations, all together.</h1><p>Connect to see community invitations and your pending requests.</p><button className="primary" disabled={connecting} onClick={() => void loadIdentity(true)}>Connect wallet</button></section>
           : isFriends || isNearby ? !identity && <section className="empty"><h1>Your friends, together.</h1><p>Connect to see your Decentraland friends and chat.</p><button className="primary" disabled={connecting} onClick={() => void loadIdentity(true)}>{connecting ? "Connecting\u2026" : "Connect wallet"}</button></section> : isVoice && opened ? null : !opened ? (
           <section className="discover">
             {route === "#/discover" && <LiveCommunities identity={identity} onConnect={() => void loadIdentity(true)} onJoin={id => go(channelPath(id,"voice"))} />}
             {!route.startsWith("#/c/") && !isMine && <div className="discovery-hero"><div><h1>Find your kind<br />of people.</h1><p>Good company. Shared worlds.<br />A conversation worth coming back to.</p></div><img src={`${basePath}assets/discovery-avatars.png`} alt="Decentraland avatars together" /></div>}
+            {route === "#/discover" && mine.length > 0 && !search && <nav className="your-communities" aria-label="Your communities"><div><strong>Your communities</strong><a href="#/mine">See all</a></div><ul>{mine.map(c => <li key={c.id}><a href={channelPath(c.id,"about")}><i><Picture src={c.thumbnails?.raw || communityImage(c.id)} fallback={c.name.slice(0,2)} /></i><span>{c.name}</span><small>{c.membersCount.toLocaleString()} members</small></a></li>)}</ul></nav>}
             {preview && <div className="community-banner"><Picture src={communityImage(preview.id)} fallback={preview.name.slice(0,2)} /></div>}
             <h1 className={!route.startsWith("#/c/") && !isMine ? "discovery-heading" : ""}>
               {route.startsWith("#/c/")
@@ -815,8 +831,8 @@ function App() {
                 <button className="primary" disabled={busy || joinPending[preview.id] || preview.pendingRequestToJoin} onClick={() => void joinCommunity(preview)}>
                   {joinPending[preview.id] || preview.pendingRequestToJoin ? "Request sent" : busy ? "Joining\u2026" : preview.privacy === "private" ? "Request to join" : "Join community"}
                 </button>
-                {(joinPending[preview.id] || preview.pendingRequestToJoin) && <PendingCommunityRequest identity={identity} community={preview} onChanged={() => { setJoinPending(all => ({...all,[preview.id]:false})); void openCommunity(preview); }} />}
-                <button className="outline-button" onClick={() => void openCommunity(preview)} disabled={busy}>Refresh membership</button>
+                {(joinPending[preview.id] || preview.pendingRequestToJoin) && <PendingCommunityRequest identity={identity} community={preview} onChanged={() => { setJoinPending(all => ({...all,[preview.id]:false})); void openCommunity(preview, routed); }} />}
+                <button className="outline-button" onClick={() => void openCommunity(preview, routed)} disabled={busy}>Refresh membership</button>
               </div>
             )}
             {route.startsWith("#/c/") && identity && !preview && !busy && (
@@ -857,7 +873,7 @@ function App() {
                 <button
                   key={c.id}
                   className="community-card"
-                  onClick={() => go(channelPath(c.id))}
+                  onClick={() => go(channelPath(c.id,"about"))}
                 >
                   <div className={`cover color-${i % 4}`}>
                     <Picture src={c.thumbnails?.raw || communityImage(c.id)} fallback={c.name.slice(0, 2)} />
@@ -908,6 +924,12 @@ function App() {
                 </button>
               )}
           </section>
+        ) : view && identity ? (
+          <div className="community-view">
+            {view === "about" ? <CommunitySummary community={opened.community} identity={identity} onOpen={next => go(channelPath(opened.community.id, next))} />
+              : view === "hangouts" ? <CommunityHangouts community={opened.community} identity={identity} />
+              : <ConversationPanel key={`${opened.community.id}/members`} page mode="members" community={opened.community} memberStatuses={friendSnapshot.communityStatuses?.[opened.community.id]} identity={identity} opened={opened} onRefresh={() => void openCommunity(opened.community, "members")} onClose={() => go(channelPath(opened.community.id, "about"))} onThread={() => {}} onReply={async () => {}} />}
+          </div>
         ) : (
           <>
             <div className="chat-workspace"><div className="chat-column">
@@ -931,7 +953,7 @@ function App() {
                 <h1>
                   {channel !== "announcements"
                     ? messages.length
-                      ? `Welcome to #${channel}.`
+                      ? `Welcome to #${channelLabel(channel)}.`
                       : "The conversation starts here."
                     : "From your community."}
                 </h1>
@@ -943,7 +965,7 @@ function App() {
               </div>
               {channel !== "announcements"
                 ? messages.map((m) => (
-                    <article className="message" key={m.id}>
+                    <article className="message" key={m.id} title={fullMessageTime(m.createdAt)}>
                       <Avatar wallet={m.wallet} />
                       <div>
                         <header>
@@ -951,10 +973,7 @@ function App() {
                             <Name wallet={m.wallet} />
                           </strong>
                           <time dateTime={new Date(m.createdAt).toISOString()}>
-                            {new Date(m.createdAt).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {messageTime(m.createdAt, true)}
                           </time>
                         </header>
                         <p>{m.text}</p>
@@ -966,15 +985,15 @@ function App() {
                     </article>
                   ))
                 : posts.map((p) => (
-                    <article className="message post" key={p.id}>
+                    <article className="message post" key={p.id} title={fullMessageTime(p.createdAt)}>
                       <Avatar wallet={p.authorAddress} />
                       <div>
                         <header>
                           <strong>
                             {p.authorName || shortWallet(p.authorAddress)}
                           </strong>
-                          <time>
-                            {new Date(p.createdAt).toLocaleDateString()}
+                          <time dateTime={isoTime(p.createdAt)}>
+                            {messageTime(p.createdAt, false)}
                           </time>
                         </header>
                         <p>{p.content}</p>
@@ -1029,7 +1048,7 @@ function App() {
                     aria-label="Message"
                     placeholder={
                       channel !== "announcements"
-                        ? `Message #${channel}`
+                        ? `Message #${channelLabel(channel)}`
                         : "Share an announcement"
                     }
                     maxLength={channel !== "announcements" ? 4000 : 1000}
@@ -1068,7 +1087,7 @@ function App() {
           </>
         )}
       </main>
-      {isVoice && panel && opened && identity && <Dialog title="Community" onClose={() => setPanel(null)}><ConversationPanel mode={panel} community={opened.community} memberStatuses={friendSnapshot.communityStatuses?.[opened.community.id]} identity={identity} opened={opened} onRefresh={()=>void openCommunity(opened.community,channel)} onClose={() => setPanel(null)} onThread={() => { setPanel(null); go(channelPath(opened.community.id)); }} onReply={async () => {}} /></Dialog>}
+      {(isVoice || view) && panel && opened && identity && <Dialog title="Community" onClose={() => setPanel(null)}><ConversationPanel mode={panel} community={opened.community} memberStatuses={friendSnapshot.communityStatuses?.[opened.community.id]} identity={identity} opened={opened} onRefresh={()=>void openCommunity(opened.community,channel)} onClose={() => setPanel(null)} onThread={() => { setPanel(null); go(channelPath(opened.community.id)); }} onReply={async () => {}} /></Dialog>}
       {editing && identity && <CommunityEditor key={editing} community={editing === "settings" ? opened?.community : undefined} identity={identity} onClose={() => setEditing(null)} onSaved={c => { setEditing(null); if (c.id) { if (opened?.community.id === c.id) void openCommunity(c, channel); else go(channelPath(c.id)); void loadPublic(); } }} />}
       {profile && <ProfileDialog wallet={profile} self={identity?.address} onClose={() => setProfile("")} />}
       {dialog === "requests" && identity && opened && <JoinRequests community={opened.community} identity={identity} onClose={() => setDialog(null)} />}
@@ -1076,7 +1095,6 @@ function App() {
       {dialog === "channelSettings" && identity && opened && <ChannelSettings opened={opened} identity={identity} onClose={()=>setDialog(null)} onSaved={()=>{setDialog(null);void openCommunity(opened.community,channel);}}/>}
       {dialog === "channel" && identity && opened && <Dialog title="Create channel" onClose={() => setDialog(null)}><form className="dialog-content community-editor" onSubmit={async e => { e.preventDefault(); if (busy) return; setChannelError(""); const current = generation.current, o = opened; setBusy(true); try { await execute(identity,{type:"create_channel",community_id:o.community.id,name:channelName,private:privateChannel},() => current === generation.current); if (current === generation.current) { setDialog(null); go(channelPath(o.community.id,channelName)); } } catch(e) { if (current === generation.current) setChannelError(e instanceof Error ? e.message : "Channel could not be created"); } finally { if (current === generation.current) setBusy(false); } }}><h2>A new conversation.</h2><label>Channel name<input autoFocus required pattern="[a-z0-9-]{1,32}" maxLength={32} placeholder="world-building" value={channelName} onChange={e => setChannelName(e.target.value.toLowerCase().replace(/ /g,"-"))} /></label><label className="preference-row"><span>Only owners and moderators</span><input type="checkbox" checked={privateChannel} onChange={e => setPrivateChannel(e.target.checked)} /></label>{channelError && <p role="alert">{channelError}</p>}<button className="primary" disabled={busy}>Create channel</button></form></Dialog>}
       {dialog === "invite" && opened && identity && <Invite community={opened.community} identity={identity} onClose={()=>setDialog(null)}/>}
-      {dialog === "hangouts" && opened && identity && <Dialog title="Community hangouts" onClose={() => setDialog(null)}><CommunityHangouts community={opened.community} identity={identity} /></Dialog>}
       {dialog === "event" && <EventEditor identity={identity} onConnect={() => void loadIdentity(true)} onClose={() => setDialog(null)} />}
       {dialog === "preferences" && !identity && <Dialog title="Preferences" onClose={() => setDialog(null)}><div className="dialog-content"><h2>Preferences</h2>{generalPreferences}</div></Dialog>}
       {picker && (

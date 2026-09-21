@@ -1,5 +1,14 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { publicThumbnail } from "./thumbnail";
+
+afterEach(() => vi.unstubAllEnvs());
+
+test("SSR thumbnails use the deployment origin", () => {
+  vi.stubEnv("SSR", true);
+  vi.stubEnv("CATALYST_URL", "https://interconnected.online/");
+  expect(publicThumbnail("https://worlds-content-server.decentraland.org/contents/bafytest"))
+    .toBe("https://interconnected.online/media/convert?width=640&url=https%3A%2F%2Fworlds-content-server.decentraland.org%2Fcontents%2Fbafytest");
+});
 
 test("known public image sources use bounded thumbnails without rewriting private, signed or animated images", () => {
   const source = "https://peer-ec1.decentraland.org/content/contents/bafytest";

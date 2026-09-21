@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::auth::auth_address_verified;
 use crate::entity_id::{resolve_entity_type, EntityType};
-use crate::handlers::categories::category_i18n_en;
+use crate::handlers::categories::{category_i18n_en, curated_counts};
 use crate::handlers::destinations::{
     decorate_next_event, enrich, list_destinations, parse_with_options, Destination,
 };
@@ -457,7 +457,7 @@ pub async fn get_v1_categories(
         let data = state.events.event_categories().await?;
         return Ok(Json(ApiJsonList::ok(data)));
     }
-    let counts = state.places.category_counts(CategoryTarget::All).await?;
+    let counts = curated_counts(state.places.category_counts(CategoryTarget::All).await?);
     let data = counts
         .into_iter()
         .map(|(name, count)| destination_category(name, count))

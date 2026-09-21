@@ -44,7 +44,7 @@ export const SIDEBAR_UPPER: NavItem[] = [
   { icon: "backpackRotate", label: "Backpack", div: true, to: "Explorer/Pages/Backpack", help: "Your avatar: equip wearables, arrange emotes and save outfits." },
   { icon: "events", label: "Events", shortcut: "X", to: "Explorer/Pages/Events", help: "Live and upcoming events; jump in with one click." },
   { icon: "places", label: "Places", shortcut: "Z", to: "Explorer/Pages/Places", help: "Browse, search and jump to places and worlds. While the minimap is hidden it also offers to show it again." },
-  { icon: "people", label: "Communities", shortcut: "O", to: "Explorer/Pages/Communities", help: "Communities you belong to: members, streams and their events." },
+  { icon: "people", label: "Communities", shortcut: "O", to: "Explorer/Pages/Communities", help: "Your friends, the people nearby and the communities you belong to." },
   { icon: "backpack", label: "Wearables", shortcut: "I", to: "Explorer/Pages/Backpack", help: "Opens the same Backpack page on its wearables tab; emotes are the second tab." },
   { icon: "marketplace", label: "Marketplace", to: "Explorer/Pages/Marketplace", help: "Buy wearables, emotes and names without leaving the explorer." },
   { icon: "gallery", label: "Gallery", shortcut: "K", to: "Explorer/Pages/Reel", help: "Photos you took in world, with the people and wearables in them." },

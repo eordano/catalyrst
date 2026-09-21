@@ -104,6 +104,7 @@ pub struct PeerToPeerView {
     pub last_sent_teleport_seq: Option<u32>,
     pub last_sent_seq: u32,
     pub last_sent_wallet_id: Option<String>,
+    pub last_sent_tier: PeerViewSimulationTier,
 }
 
 pub fn create_delta_message(
@@ -216,7 +217,7 @@ fn create_player_state(snapshot: &PeerSnapshot) -> PlayerState {
         slide_blend: snapshot.slide_blend,
         state_flags: snapshot.animation_flags as u32,
         glide_state: snapshot.glide_state,
-        jump_count: 0,
+        jump_count: snapshot.jump_count,
         head_yaw: snapshot.head_yaw,
         head_pitch: snapshot.head_pitch,
         point_at_x: snapshot.point_at_x,
@@ -525,6 +526,7 @@ impl PeerSimulation {
                 let view = self.handle_new_subject(
                     observer_id,
                     entry.subject,
+                    entry.tier,
                     &latest,
                     is_self_mirror,
                     identity,
@@ -610,6 +612,7 @@ impl PeerSimulation {
         &mut self,
         observer_id: u32,
         subject_id: u32,
+        tier: PeerViewSimulationTier,
         latest: &PeerSnapshot,
         is_self_mirror: bool,
         identity: &IdentityBoard,
@@ -652,6 +655,7 @@ impl PeerSimulation {
             last_sent_emote: None,
             last_sent_seq: latest.seq,
             last_seen_tick: 0,
+            last_sent_tier: tier,
         };
 
         match latest.emote.clone().filter(|e| e.emote_id.is_some()) {
@@ -678,6 +682,8 @@ impl PeerSimulation {
     ) -> PeerSnapshot {
         let mut last_sent_state = view.last_sent_snapshot.clone();
         let mut discrete_event_sent = false;
+        let promoted = entry.tier.value() < view.last_sent_tier.value();
+        view.last_sent_tier = entry.tier;
 
         let from_seq = view.last_sent_snapshot.seq;
         let scan = self
@@ -743,6 +749,7 @@ impl PeerSimulation {
                 view,
                 &mut last_sent_state,
                 scan.last_emote_stop.as_ref(),
+                latest,
             );
         }
 
@@ -755,6 +762,7 @@ impl PeerSimulation {
                 board,
                 latest,
                 resync,
+                promoted,
             );
         }
 
@@ -768,6 +776,7 @@ impl PeerSimulation {
         view: &mut PeerToPeerView,
         last_sent_state: &mut PeerSnapshot,
         stop_snapshot: Option<&PeerSnapshot>,
+        latest: &PeerSnapshot,
     ) {
         if view
             .last_sent_emote
@@ -785,6 +794,21 @@ impl PeerSimulation {
                     *last_sent_state = stop.clone();
                 }
             }
+        } else if !latest.is_emoting() {
+            let elapsed = view.last_sent_emote.as_ref().is_some_and(|e| {
+                e.duration_ms
+                    .is_some_and(|d| latest.server_tick.saturating_sub(e.start_tick) >= d)
+            });
+            let reason = if elapsed {
+                EmoteStopReason::Completed
+            } else {
+                EmoteStopReason::Cancelled
+            };
+            self.send_emote_stopped(observer_id, view, subject_id, latest, reason);
+            view.last_sent_emote = None;
+            if latest.seq > last_sent_state.seq {
+                *last_sent_state = latest.clone();
+            }
         }
     }
 
@@ -797,10 +821,15 @@ impl PeerSimulation {
         board: &SnapshotBoard,
         latest: &PeerSnapshot,
         resync: Option<&mut HashMap<u32, u32>>,
+        promoted: bool,
     ) -> PeerSnapshot {
         let last_known = resync.and_then(|r| r.remove(&entry.subject));
 
         let Some(last_known_seq) = last_known else {
+            if promoted {
+                self.send_full_state(observer_id, view, entry.subject, latest);
+                return latest.clone();
+            }
             self.send_delta(
                 observer_id,
                 view,
@@ -813,7 +842,7 @@ impl PeerSimulation {
             return latest.clone();
         };
 
-        let known = if self.resync_with_delta {
+        let known = if self.resync_with_delta && !promoted {
             board.try_read_seq(entry.subject, last_known_seq).cloned()
         } else {
             None
@@ -837,17 +866,7 @@ impl PeerSimulation {
                 );
             }
             _ => {
-                view.last_sent_seq = latest.seq;
-                self.send(
-                    observer_id,
-                    ServerMessage {
-                        message: Some(server_message::Message::PlayerStateFull(create_full_state(
-                            entry.subject,
-                            latest,
-                        ))),
-                    },
-                    PacketMode::Reliable,
-                );
+                self.send_full_state(observer_id, view, entry.subject, latest);
                 crate::metrics::resync_seq_gap(
                     crate::metrics::RESYNC_OUTCOME_FULL,
                     latest.seq,
@@ -857,6 +876,25 @@ impl PeerSimulation {
         }
 
         latest.clone()
+    }
+
+    fn send_full_state(
+        &mut self,
+        observer_id: u32,
+        view: &mut PeerToPeerView,
+        subject_id: u32,
+        snapshot: &PeerSnapshot,
+    ) {
+        view.last_sent_seq = snapshot.seq;
+        self.send(
+            observer_id,
+            ServerMessage {
+                message: Some(server_message::Message::PlayerStateFull(create_full_state(
+                    subject_id, snapshot,
+                ))),
+            },
+            PacketMode::Reliable,
+        );
     }
 
     fn send_teleport(
@@ -987,14 +1025,17 @@ impl PeerSimulation {
             self.observer_features & crate::server::FEATURE_DELTA_BATCH_DICTIONARY != 0;
         let baseline =
             dictionary || self.observer_features & crate::server::FEATURE_DELTA_BATCH_BASELINE != 0;
+        let sample_tick = baseline
+            && self.observer_features & crate::server::FEATURE_DELTA_BATCH_SAMPLE_TICK != 0;
         let batches = if dictionary {
-            crate::batch::encode_dictionary_batches(
+            crate::batch::encode_dictionary_batches_with(
                 server_tick,
                 &self.delta_batch_buffer,
                 crate::batch::MAX_BATCH_BYTES,
+                sample_tick,
             )
         } else {
-            crate::batch::encode_batches(
+            crate::batch::encode_batches_with(
                 server_tick,
                 &self.delta_batch_buffer,
                 crate::batch::MAX_BATCH_BYTES,
@@ -1003,6 +1044,7 @@ impl PeerSimulation {
                 } else {
                     self.seq_encoding
                 },
+                sample_tick,
             )
         };
         let mut offset = 0;
@@ -1082,6 +1124,9 @@ impl PeerSimulation {
 
     pub fn cleanup_observer_views(&mut self, peer_id: u32) {
         self.observer_views.remove(&peer_id);
+        for views in self.observer_views.values_mut() {
+            views.remove(&peer_id);
+        }
     }
 
     fn sweep_stale_views(&mut self, observer_id: u32, tick_counter: u32) {

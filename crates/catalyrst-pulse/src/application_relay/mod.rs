@@ -339,8 +339,18 @@ impl ApplicationRelay {
             Ok(out) => (out, false),
             Err(state::RelaySendError::UnknownScope) => (vec![], false),
             Err(state::RelaySendError::ExpiredScope) => (self.leave(peer, room), false),
-            Err(_) => (vec![], reliable),
+            Err(state::RelaySendError::RateLimited) if reliable => (self.leave(peer, room), false),
+            Err(state::RelaySendError::RateLimited) => (vec![], false),
+            Err(state::RelaySendError::InvalidPayload) => (vec![], reliable),
         }
+    }
+
+    pub fn retire_scopes(&mut self, peer: u32) -> Vec<Delivery> {
+        self.state
+            .room_ids_for_peer(peer)
+            .into_iter()
+            .flat_map(|room| self.leave(peer, room))
+            .collect()
     }
 
     pub fn leave(&mut self, peer: u32, room_id: u32) -> Vec<Delivery> {
@@ -358,6 +368,7 @@ impl ApplicationRelay {
                         crate::decentraland::pulse::ApplicationPeerLeft {
                             room_id,
                             peer_id: member.actor_id,
+                            roster_version: self.state.leave_version(peer, room_id),
                         },
                     ),
                 ),
@@ -503,6 +514,99 @@ mod tests {
         assert!(!close);
         assert!(out.is_empty());
         assert!(relay.connections.contains_key(&1));
+    }
+
+    const CLIENT_BURST_PACKETS: u32 = 16;
+    const CLIENT_PACKETS_PER_SECOND: u32 = 60;
+
+    fn hold_lease(relay: &mut ApplicationRelay, room_id: u32) -> Instant {
+        let now = Instant::now();
+        relay
+            .state
+            .memberships
+            .get_mut(&(1, room_id))
+            .unwrap()
+            .lease_deadline = now + Duration::from_secs(5);
+        now
+    }
+
+    #[tokio::test]
+    async fn a_compliant_burst_compressed_into_one_window_retires_the_scope_not_the_session() {
+        let (mut relay, _) = relay();
+        relay.join(1, join([3; 32]), 99);
+        relay.completed().await;
+        let room_id = relay.state.membership(1, "scene").unwrap().room_id;
+        let send = |unreliable| crate::decentraland::pulse::ApplicationSend {
+            room_id,
+            payload: vec![1],
+            unreliable,
+            ..Default::default()
+        };
+        let stalled_for_two_seconds = CLIENT_BURST_PACKETS + 2 * CLIENT_PACKETS_PER_SECOND;
+        let now = hold_lease(&mut relay, room_id);
+        let mut left = vec![];
+        for packet in 1..=stalled_for_two_seconds {
+            let (out, close) = relay.send(1, send(false), now);
+            assert!(
+                !close,
+                "compliant reliable packet {packet} of {stalled_for_two_seconds} in one server window disconnects the sender"
+            );
+            left.extend(out);
+        }
+        assert_eq!(
+            left.iter()
+                .map(|delivery| (delivery.target, delivery.message.message.clone()))
+                .collect::<Vec<_>>(),
+            vec![(
+                1,
+                Some(server_message::Message::ApplicationPeerLeft(
+                    crate::decentraland::pulse::ApplicationPeerLeft {
+                        room_id,
+                        peer_id: room_id,
+                        roster_version: 2,
+                    }
+                ))
+            )]
+        );
+        assert!(relay.state.membership(1, "scene").is_none());
+        assert!(relay.connections.contains_key(&1));
+    }
+
+    #[tokio::test]
+    async fn an_over_limit_unreliable_packet_is_dropped_and_the_scope_stays() {
+        let (mut relay, _) = relay();
+        relay.join(1, join([3; 32]), 99);
+        relay.completed().await;
+        let room_id = relay.state.membership(1, "scene").unwrap().room_id;
+        let now = hold_lease(&mut relay, room_id);
+        for _ in 0..200 {
+            let send = crate::decentraland::pulse::ApplicationSend {
+                room_id,
+                payload: vec![1],
+                unreliable: true,
+                ..Default::default()
+            };
+            assert_eq!(relay.send(1, send, now), (vec![], false));
+        }
+        assert!(relay.state.membership(1, "scene").is_some());
+    }
+
+    #[tokio::test]
+    async fn a_reliable_payload_outside_the_advertised_limits_still_disconnects() {
+        let (mut relay, _) = relay();
+        relay.join(1, join([3; 32]), 99);
+        relay.completed().await;
+        let room_id = relay.state.membership(1, "scene").unwrap().room_id;
+        let now = hold_lease(&mut relay, room_id);
+        for payload in [vec![], vec![0; state::MAX_RELIABLE_PAYLOAD + 1]] {
+            let send = crate::decentraland::pulse::ApplicationSend {
+                room_id,
+                payload,
+                ..Default::default()
+            };
+            assert_eq!(relay.send(1, send, now), (vec![], true));
+        }
+        assert!(relay.state.membership(1, "scene").is_some());
     }
 
     #[tokio::test]

@@ -27,6 +27,13 @@ let
     && (lib.hasPrefix "https://" d.v4.islandRefreshUrl || isLoopback (hostOf d.v4.islandRefreshUrl));
 
   pulseUnit = if cfg.pulse.sandbox then "podman-pulse.service" else "pulse.service";
+  facts = (import ./facts.nix).units;
+  enabledUnits = builtins.filter (name:
+    let unit = facts.${name};
+    in unit.kind == "long-running"
+      && (unit.subService == null || cfg.subServices.${unit.subService} or false)
+      && (config.systemd.services ? ${name} || name == "pulse" && cfg.pulse.sandbox)
+  ) (builtins.attrNames facts);
   watched = [
     "catalyrst-sync.service"
   ]
@@ -37,7 +44,12 @@ let
     pulseUnit
   ]
   ++ lib.optional v4 "catalyrst-comms-control-ready.service"
-  ++ lib.optional (comms && social) "catalyrst-social.service";
+  ++ lib.optional (comms && social) "catalyrst-social.service"
+  ++ map (name: if name == "pulse" then pulseUnit else "${name}.service") enabledUnits;
+  healthUnits = builtins.filter (name:
+    lib.hasPrefix "catalyrst-" name && facts.${name}.healthPath != null
+      && facts.${name}.healthExpect == "2xx"
+  ) enabledUnits;
 
   orNull = value: if value == "" then null else value;
   wantV4 = [
@@ -94,6 +106,8 @@ let
       strict=${if pf.strict then "1" else "0"}
       deadline=$(( $(date +%s) + ${toString pf.timeoutSec} ))
       problems=0
+      health_file=$(mktemp)
+      trap 'rm -f "$health_file"' EXIT
 
       note() { printf 'catalyrst-postflight: %s\n' "$1" >&2; }
       ok() { note "ok: $1"; }
@@ -121,13 +135,40 @@ let
         return 2
       }
 
-      for unit in ${lib.escapeShellArgs watched}; do
+      for unit in ${lib.escapeShellArgs (lib.unique watched)}; do
         if active "$unit"; then
           ok "$unit is active"
         else
           bad "$unit is $(systemctl is-active "$unit" || true)"
         fi
       done
+
+      ${lib.concatMapStrings (name:
+        let
+          unit = facts.${name};
+          url = "http://127.0.0.1:${toString unit.port}${unit.healthPath}";
+          bundle = builtins.elem name [ "catalyrst-explore" "catalyrst-create" "catalyrst-social" "catalyrst-data" ];
+        in ''
+          while :; do
+            code=$(curl --silent --max-time 5 --output "$health_file" --write-out '%{http_code}' ${lib.escapeShellArg url} || true)
+            ready=0
+            case "$code" in 2??) ready=1 ;; esac
+            ${lib.optionalString bundle ''
+              if ! jq --exit-status '.status == "ok" and (.members | type == "object" and length > 0 and all(.[]; . == "up"))' "$health_file" >/dev/null 2>&1; then
+                ready=0
+              fi
+            ''}
+            if [ "$ready" = 1 ]; then break; fi
+            if ! waiting; then break; fi
+            sleep 2
+          done
+          if [ "$ready" = 1 ]; then
+            ok "${name} readiness answers $code${lib.optionalString bundle " with every member up"}"
+          else
+            bad "${name} readiness at ${url} failed (HTTP $code${lib.optionalString bundle "; every bundle member must be up"})"
+          fi
+        ''
+      ) healthUnits}
 
       want=${lib.escapeShellArg (builtins.toJSON wantV4)}
       about=""

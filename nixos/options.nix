@@ -183,13 +183,18 @@ in
         How far the node leans on the public decentraland.org network for
         content and services it does not originate locally. Everything here
         defaults to parity with the public network; a fully self-contained
-        node turns the mirrors off and sets metaTxRelay to null.
+        node turns the mirrors off and sets metaTxRelay to null. mirrorPlaces
+        is the exception and defaults to off: it replaces the place catalogue
+        this node derives from its own content with the public one, which
+        carries likes, highlights and categories and lists only the places
+        the public network knows.
       '';
       default = { };
       type = types.submodule {
         options = {
           mirrorEvents = boolOpt true;
           mirrorWorlds = boolOpt true;
+          mirrorPlaces = boolOpt false;
           metaTxRelay = mkOption {
             type = types.nullOr types.str;
             default = "https://transactions-api.decentraland.org";
@@ -599,7 +604,7 @@ in
       default = { };
       type = types.submodule {
         options = {
-          seedDefault = boolOpt true;
+          seedDefault = boolOpt false;
           peers = mkOption {
             type = types.listOf types.str;
             default = [ ];

@@ -375,7 +375,7 @@ impl SyncOrchestratorRefs {
                 Err(e) => warn!(error = %e, "Snapshot bootstrap retry failed"),
                 Ok(()) => {}
             }
-            match self.bootstrap_from_pointer_changes(allow).await {
+            match self.bootstrap_from_pointer_changes(allow, true).await {
                 Err(SyncError::Stopped) => return Err(SyncError::Stopped),
                 Err(e) => warn!(error = %e, "Pointer-changes bootstrap retry failed"),
                 Ok(()) => {}
@@ -431,7 +431,7 @@ impl SyncOrchestratorRefs {
         self.bootstrap_from_snapshots(allow, true).await?;
 
         info!("Phase 2: Bootstrap from pointer-changes");
-        self.bootstrap_from_pointer_changes(allow).await?;
+        self.bootstrap_from_pointer_changes(allow, true).await?;
         self.save_frontier().await;
 
         info!("Resolving deleter_deployment for overwritten entities");
@@ -463,8 +463,8 @@ impl SyncOrchestratorRefs {
         self.bootstrap_from_snapshots(Some(&non_profile_filter), false)
             .await?;
 
-        info!("Phase 2: Non-profile pointer-changes catch-up");
-        self.bootstrap_from_pointer_changes(Some(&non_profile_filter))
+        info!("Phase 2: Pointer-changes catch-up for all enabled types");
+        self.bootstrap_from_pointer_changes(self.config.entity_types.as_ref(), false)
             .await?;
         self.save_frontier().await;
 
@@ -486,8 +486,8 @@ impl SyncOrchestratorRefs {
         self.bootstrap_from_snapshots(Some(&profile_filter), true)
             .await?;
 
-        info!("Phase 5: Profile pointer-changes catch-up");
-        self.bootstrap_from_pointer_changes(Some(&profile_filter))
+        info!("Phase 5: Final pointer-changes catch-up for all enabled types");
+        self.bootstrap_from_pointer_changes(self.config.entity_types.as_ref(), true)
             .await?;
         self.save_frontier().await;
 
@@ -774,11 +774,13 @@ impl SyncOrchestratorRefs {
             }
         }
 
-        for (url, ts) in advanced {
-            let _ = self
-                .deployment_repo
-                .advance_server_sync_cursor(&url, ts)
-                .await;
+        if mark_processed {
+            for (url, ts) in advanced {
+                let _ = self
+                    .deployment_repo
+                    .advance_server_sync_cursor(&url, ts)
+                    .await;
+            }
         }
 
         Ok(())
@@ -787,6 +789,7 @@ impl SyncOrchestratorRefs {
     async fn bootstrap_from_pointer_changes(
         &self,
         entity_type_filter: Option<&HashSet<String>>,
+        persist_cursor: bool,
     ) -> Result<(), SyncError> {
         let bootstrapping = self
             .select_servers(|url, s| {
@@ -834,7 +837,7 @@ impl SyncOrchestratorRefs {
                     refs.deployer.as_ref(),
                     &all_servers,
                     filter.as_deref(),
-                    Some(refs.deployment_repo.clone()),
+                    persist_cursor.then(|| refs.deployment_repo.clone()),
                     &report,
                     &progress,
                     || refs.is_stopped(),

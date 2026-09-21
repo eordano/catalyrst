@@ -162,6 +162,7 @@ message ServerMessage {
       ApplicationPeerJoined application_peer_joined = 13;
       ApplicationPeerLeft application_peer_left = 14;
       ApplicationData application_data = 15;
+      ApplicationSendFailed application_send_failed = 16;
       PulseV4Challenge v4_challenge = 20;
       PulseV4Result v4_result = 21;
   }
@@ -189,16 +190,25 @@ message ApplicationJoinResult {
   repeated ApplicationPeer peers = 5;
   ApplicationErrorCode error = 6;
   uint32 max_unreliable_payload_bytes = 7;
+  uint32 roster_version = 8;
 }
 
 message ApplicationPeerJoined {
   uint32 room_id = 1;
   ApplicationPeer peer = 2;
+  uint32 roster_version = 3;
 }
 
 message ApplicationPeerLeft {
   uint32 room_id = 1;
   uint32 peer_id = 2;
+  uint32 roster_version = 3;
+}
+
+message ApplicationSendFailed {
+  uint32 room_id = 1;
+  repeated string identities = 2;
+  bytes payload = 3;
 }
 
 message ApplicationData {

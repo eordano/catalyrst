@@ -18,6 +18,9 @@ use catalyrst_server::sync::LiveDeploymentRepository;
 
 const PG_VAR: &str = "CATALYRST_SERVER_TEST_PG";
 
+#[path = "support/phased_bootstrap.rs"]
+mod phased_bootstrap;
+
 fn pg_url() -> String {
     catalyrst_testgate::require_pg_or(
         PG_VAR,
@@ -50,7 +53,8 @@ async fn setup_db_with(cursor_table: bool) -> Option<(PgPool, String)> {
         .execute(&admin)
         .await
         .unwrap_or_else(|e| panic!("CREATE SCHEMA {schema} failed: {e}"));
-    let suffixed = format!("{}?options=-c%20search_path%3D{}", url, schema);
+    let separator = if url.contains('?') { '&' } else { '?' };
+    let suffixed = format!("{url}{separator}options=-c%20search_path%3D{schema}");
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .acquire_timeout(Duration::from_secs(5))

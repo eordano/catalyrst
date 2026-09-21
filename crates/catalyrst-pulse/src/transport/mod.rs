@@ -2,6 +2,7 @@ pub mod host;
 pub mod multi;
 pub mod packet;
 pub mod peer;
+pub mod silence;
 pub mod webtransport;
 
 pub use host::{Event, Host, HostConfig};

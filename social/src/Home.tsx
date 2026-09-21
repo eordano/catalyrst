@@ -5,7 +5,6 @@ import type { FriendsState } from './friends';
 import { Picture, communityImage } from './Picture';
 import { Icon } from './Icon';
 import { EventsPreview } from './Events';
-import { WorldsPreview } from './Worlds';
 import './home.css';
 
 export function Home({ identity, friends, communities, joined, loading, error, onConnect, onRetry, onCreate }: {
@@ -52,7 +51,7 @@ export function Home({ identity, friends, communities, joined, loading, error, o
           <div className="home-section-note">{joined.length ? 'Your communities' : 'Find your kind of people'}<a href="#/invitations">Invitations</a></div>
           {loading && !groups.length && <p className="home-loading" role="status">Loading communities&#x2026;</p>}
           {error && !groups.length && <div className="home-inline-error" role="alert"><p>{error}</p><button onClick={onRetry}>Try again</button></div>}
-          {groups.slice(0, 4).map(community => <a className="home-community" href={`#/c/${community.id}/general`} key={community.id}>
+          {groups.slice(0, 4).map(community => <a className="home-community" href={`#/c/${community.id}/about`} key={community.id}>
             <span className="home-community-image"><Picture src={community.thumbnails?.raw || communityImage(community.id)} fallback={community.name.slice(0, 2)} /></span>
             <span><strong>{community.name}</strong><small>{community.membersCount.toLocaleString()} members{community.privacy === 'private' ? ' \u00b7 Private' : ''}</small><p>{community.description}</p></span>
           </a>)}
@@ -63,6 +62,5 @@ export function Home({ identity, friends, communities, joined, loading, error, o
         <EventsPreview friendsState={friends} identity={identity} onConnect={onConnect} />
       </SectionCard>
     </div>
-    <section className="home-worlds" aria-labelledby="home-worlds-title"><header><div><h2 id="home-worlds-title">A world away, one click away.</h2><p>New places to meet. New reasons to stay.</p></div><a className="outline-button" href="#/worlds">Explore Worlds <Icon name="external" /></a></header><WorldsPreview /></section>
   </section>;
 }

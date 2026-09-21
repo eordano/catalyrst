@@ -70,32 +70,6 @@ function WorldCard({ world }: { world: World }) {
     </SurfaceCard>
   );
 }
-export function WorldsPreview() {
-  const { worlds, loading, error, refreshFailed, retry } = useWorlds();
-  return (
-    <>
-      <FreshnessNotice failed={refreshFailed} onRetry={() => void retry()} />
-      <div className="world-grid worlds-preview">
-        {worlds.slice(0, 4).map((world) => (
-          <WorldCard key={world.id} world={world} />
-        ))}
-      </div>
-      {loading && (
-        <p role="status" className="muted">
-          Finding worlds&#x2026;
-        </p>
-      )}
-      {error && (
-        <p role="alert">
-          {error} <button onClick={retry}>Retry</button>
-        </p>
-      )}
-      {!loading && !error && !worlds.length && (
-        <p className="muted">No worlds available.</p>
-      )}
-    </>
-  );
-}
 export function WorldsPage({search = ""}: {search?: string}) {
   const { worlds, loading, error, refreshFailed, retry, more, loadMore } = useWorlds(search);
   return (

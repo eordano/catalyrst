@@ -235,6 +235,7 @@ impl PeerSnapshotPublisher {
         now: u32,
         state: &PlayerState,
         emote: Option<EmoteInput>,
+        realm: Option<&str>,
     ) -> PeerSnapshot {
         let seq = board.last_seq(from).wrapping_add(1);
         let local_position =
@@ -276,7 +277,7 @@ impl PeerSnapshotPublisher {
             glide_state: state.glide_state,
             is_teleport: false,
             emote: emote_state,
-            realm: None,
+            realm: realm.map(Arc::from),
             last_teleport_seq: 0,
         };
 

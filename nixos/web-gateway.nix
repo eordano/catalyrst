@@ -48,6 +48,7 @@ let
   ++ lib.optionals cfg.subServices.explore [
     "dcl-lists.${domain}"
     "events.${domain}"
+    "events-assets-099ac00.${domain}"
     "worlds-content-server.${domain}"
   ]
   ++ lib.optionals cfg.subServices.social [
@@ -287,7 +288,7 @@ lib.mkIf (cfg.enable && isPublic && cfg.gateway.enable) {
       locations."= /dapps.json" = {
         alias =
           if cfg.gateway.dappsFlagsFile != null then
-            toString cfg.gateway.dappsFlagsFile
+            "${cfg.gateway.dappsFlagsFile}"
           else
             pkgs.writeText "dapps.json" (
               builtins.toJSON {
@@ -428,6 +429,29 @@ lib.mkIf (cfg.enable && isPublic && cfg.gateway.enable) {
       '';
       locations."/" = {
         proxyPass = "http://127.0.0.1:5143";
+      };
+    };
+
+    "events-assets-099ac00.${domain}" = lib.mkIf cfg.subServices.explore {
+      forceSSL = true;
+      useACMEHost = domain;
+      extraConfig = ''
+        ${secHeaders}
+        limit_req zone=catassets burst=256 nodelay;
+      '';
+      locations = {
+        "/".extraConfig = "return 404;";
+        "~ ^/poster(?:-vertical)?/[^/]+$" = {
+          proxyPass = "http://127.0.0.1:5143";
+          extraConfig = lib.optionalString cfg.upstream.mirrorEvents ''
+            proxy_intercept_errors on;
+            error_page 404 = @upstream-poster;
+          '';
+        };
+      }
+      // lib.optionalAttrs cfg.upstream.mirrorEvents {
+        "@upstream-poster".extraConfig =
+          "return 302 https://events-assets-099ac00.decentraland.org$request_uri;";
       };
     };
 

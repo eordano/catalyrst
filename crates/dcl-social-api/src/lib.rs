@@ -62,6 +62,8 @@ impl From<rusqlite::Error> for ApiError {
 fn bad(s: &str) -> ApiError {
     ApiError(StatusCode::BAD_REQUEST, s.into())
 }
+/// How long a read capability may replay its signature: inside Foundation's 60 second window.
+const READ_WINDOW_MS: i64 = 50_000;
 fn denied(s: &str) -> ApiError {
     ApiError(StatusCode::FORBIDDEN, s.into())
 }
@@ -347,7 +349,10 @@ impl Operation {
         }
         if let Self::CreateChannel { name, .. } = self {
             if !conversation::valid_channel(name)
-                || matches!(name.as_str(), "general" | "announcements" | "voice")
+                || matches!(
+                    name.as_str(),
+                    "general" | "announcements" | "voice" | "about" | "hangouts" | "members"
+                )
             {
                 return Err(bad(
                     "Use 1\u{2013}32 lowercase letters, numbers or hyphens for a channel name",
@@ -911,6 +916,15 @@ async fn upstream(
         community_id: id, ..
     } = &p.operation
     {
+        // Foundation honours a signed request for 60 seconds and afterwards answers a public
+        // community as if nobody had signed: no role at all. That is a spent signature, not a
+        // member who left, so ask for a fresh one instead of reporting a lost membership.
+        if data["data"]["id"].as_str() == Some(id) && data["data"].get("role").is_none() {
+            return Err(ApiError(
+                StatusCode::GONE,
+                "Refresh this community to continue".into(),
+            ));
+        }
         if data["data"]["id"].as_str() != Some(id)
             || data["data"]["active"] != true
             || !matches!(
@@ -1058,9 +1072,14 @@ async fn complete(
             // poll rechecks Foundation membership; removal is not hidden by a role cache.
             let ticket = Uuid::new_v4().to_string();
             let record = json!({"prepared":p,"chain":input.auth_chain}).to_string();
-            s.db.lock().unwrap().execute("INSERT INTO actions(id,wallet,operation,prepared,expires,state) VALUES (?,?,?,?,?,'read')",params![ticket,p.wallet,"read",record,p.expires_at])?;
+            // Every poll replays this signature upstream, so the capability ends while
+            // Foundation still honours it.
+            let expires = p.timestamp.parse::<i64>().map_or(p.expires_at, |signed| {
+                p.expires_at.min(signed + READ_WINDOW_MS)
+            });
+            s.db.lock().unwrap().execute("INSERT INTO actions(id,wallet,operation,prepared,expires,state) VALUES (?,?,?,?,?,'read')",params![ticket,p.wallet,"read",record,expires])?;
             Ok(Json(
-                json!({"community":community["data"],"messages":channel_messages(&s,community_id,0,channel)?,"channels":conversation::channels(&s,community_id,community["data"]["role"].as_str().unwrap_or(""),&p.wallet)?,"channelConfig":conversation::configuration(&s,community_id,channel)?,"channel":channel,"readToken":ticket,"expiresAt":p.expires_at}),
+                json!({"community":community["data"],"messages":channel_messages(&s,community_id,0,channel)?,"channels":conversation::channels(&s,community_id,community["data"]["role"].as_str().unwrap_or(""),&p.wallet)?,"channelConfig":conversation::configuration(&s,community_id,channel)?,"channel":channel,"readToken":ticket,"expiresAt":expires}),
             ))
         }
         Operation::SendMessage {

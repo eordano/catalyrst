@@ -26,6 +26,7 @@ fn subject(id: u32, baseline: u32, new_seq: u32) -> BatchSubject {
         subject_id: id,
         baseline_seq: baseline,
         new_seq,
+        sample_tick: 0,
         state_flags: 1,
         state_flags_present: true,
         fields: [None; FIELD_COUNT],
@@ -510,6 +511,7 @@ prop_compose! {
             subject_id: id,
             baseline_seq: baseline,
             new_seq: baseline.wrapping_add(seq_delta),
+            sample_tick: 0,
             state_flags,
             state_flags_present: true,
             fields: [f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16],
@@ -581,5 +583,238 @@ proptest! {
             prop_assert!(b.payload.len() <= cap || b.subject_count == 1);
         }
         prop_assert_eq!(decode_all(&batches, &baselines), subjects);
+    }
+}
+
+const FLUSH_TICK: u32 = 100_003;
+const SAMPLE_TICK_DICTIONARY: &str = "020000054cc093400060000f9811ff403d601024";
+const SAMPLE_TICK_PLAIN: &str = "80a99812640004000600008182c413b000190fa0";
+const FLUSH_TICK_DICTIONARY: &str = "020000054cc0c00060000f9811ff403824";
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn sampled_delta(
+    subject_id: u32,
+    sequences: (u32, u32),
+    server_tick: u32,
+    position: (u32, Option<u32>),
+    state_flags: Option<u32>,
+) -> PlayerStateDeltaTier0 {
+    PlayerStateDeltaTier0 {
+        subject_id,
+        baseline_seq: sequences.0,
+        new_seq: sequences.1,
+        server_tick,
+        position_x: Some(position.0),
+        position_y: position.1,
+        state_flags,
+        ..Default::default()
+    }
+}
+
+fn batch_subjects(deltas: &[PlayerStateDeltaTier0]) -> Vec<BatchSubject> {
+    deltas
+        .iter()
+        .map(|delta| BatchSubject::from_delta(delta, delta.state_flags.unwrap_or(0)))
+        .collect()
+}
+
+fn sampled_deltas(batch: &EncodedBatch, sample_tick: bool) -> Vec<PlayerStateDeltaTier0> {
+    decode_baseline_batch_with(
+        batch.server_tick,
+        batch.subject_count,
+        &batch.payload,
+        sample_tick,
+    )
+    .unwrap()
+    .iter()
+    .map(|subject| subject.to_delta(subject.sample_tick))
+    .collect()
+}
+
+#[test]
+fn a_granted_dictionary_batch_carries_every_sample_tick() {
+    let deltas = [
+        sampled_delta(42, (101, 102), 99_965, (128, None), Some(1)),
+        sampled_delta(7, (1000, 1100), 99_703, (9, None), None),
+    ];
+    let batches =
+        encode_dictionary_batches_with(FLUSH_TICK, &batch_subjects(&deltas), MAX_BATCH_BYTES, true);
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].server_tick, FLUSH_TICK);
+    assert_eq!(hex(&batches[0].payload), SAMPLE_TICK_DICTIONARY);
+    assert_eq!(sampled_deltas(&batches[0], true), deltas);
+}
+
+#[test]
+fn a_granted_plain_batch_carries_every_sample_tick() {
+    let deltas = [
+        sampled_delta(42, (101, 102), 99_965, (128, None), Some(1)),
+        sampled_delta(4, (7, 12), 95_003, (200, Some(4000)), None),
+    ];
+    let batches =
+        encode_dictionary_batches_with(FLUSH_TICK, &batch_subjects(&deltas), MAX_BATCH_BYTES, true);
+    assert_eq!(batches.len(), 1);
+    assert_eq!(hex(&batches[0].payload), SAMPLE_TICK_PLAIN);
+    assert_eq!(sampled_deltas(&batches[0], true), deltas);
+}
+
+#[test]
+fn a_batch_without_the_grant_keeps_todays_bytes_and_the_flush_tick() {
+    let deltas = [
+        sampled_delta(42, (101, 102), 99_965, (128, None), Some(1)),
+        sampled_delta(7, (1000, 1100), 99_703, (9, None), None),
+    ];
+    let subjects = batch_subjects(&deltas);
+    let batches = encode_dictionary_batches_with(FLUSH_TICK, &subjects, MAX_BATCH_BYTES, false);
+    assert_eq!(
+        batches,
+        encode_dictionary_batches(FLUSH_TICK, &subjects, MAX_BATCH_BYTES)
+    );
+    assert_eq!(batches.len(), 1);
+    assert_eq!(hex(&batches[0].payload), FLUSH_TICK_DICTIONARY);
+    let flushed: Vec<_> = deltas
+        .iter()
+        .map(|delta| PlayerStateDeltaTier0 {
+            server_tick: FLUSH_TICK,
+            ..*delta
+        })
+        .collect();
+    assert_eq!(sampled_deltas(&batches[0], false), flushed);
+}
+
+#[test]
+fn the_age_costs_one_byte_below_128_ms_and_two_up_to_16383() {
+    let mut subject = grounded_run(1, 5000);
+    let plain = subject.bit_len(SeqEncoding::AbsoluteBaseline);
+    for (age, bits) in [(0, 8), (127, 8), (128, 16), (16_383, 16), (16_384, 24)] {
+        subject.sample_tick = FLUSH_TICK - age;
+        let sampled = subject.sample_age(FLUSH_TICK, true);
+        assert_eq!(sampled, Some(age));
+        assert_eq!(
+            subject.bit_len_with(SeqEncoding::AbsoluteBaseline, sampled) - plain,
+            bits
+        );
+    }
+    assert_eq!(subject.sample_age(FLUSH_TICK, false), None);
+    assert_eq!(
+        subject.bit_len_with(SeqEncoding::AbsoluteBaseline, None),
+        plain
+    );
+}
+
+#[test]
+fn a_sample_stamped_after_the_flush_is_sent_with_the_flush_tick() {
+    let mut subject = grounded_run(1, 5000);
+    subject.sample_tick = FLUSH_TICK + 1;
+    assert_eq!(subject.sample_age(FLUSH_TICK, true), Some(0));
+    let batches = encode_batches_with(
+        FLUSH_TICK,
+        std::slice::from_ref(&subject),
+        MAX_BATCH_BYTES,
+        SeqEncoding::AbsoluteBaseline,
+        true,
+    );
+    assert_eq!(sampled_deltas(&batches[0], true)[0].server_tick, FLUSH_TICK);
+
+    subject.sample_tick = u32::MAX - 9;
+    let wrapped = encode_batches_with(
+        5,
+        std::slice::from_ref(&subject),
+        MAX_BATCH_BYTES,
+        SeqEncoding::AbsoluteBaseline,
+        true,
+    );
+    assert_eq!(
+        sampled_deltas(&wrapped[0], true)[0].server_tick,
+        u32::MAX - 9,
+        "an age spans the tick rollover"
+    );
+}
+
+#[test]
+fn arm_10_never_carries_an_age() {
+    let mut subject = grounded_run(1, 5000);
+    subject.sample_tick = FLUSH_TICK - 40;
+    for mode in [SeqEncoding::Delta, SeqEncoding::Absolute] {
+        assert_eq!(
+            encode_batches_with(
+                FLUSH_TICK,
+                std::slice::from_ref(&subject),
+                MAX_BATCH_BYTES,
+                mode,
+                true
+            ),
+            encode_batches(
+                FLUSH_TICK,
+                std::slice::from_ref(&subject),
+                MAX_BATCH_BYTES,
+                mode
+            )
+        );
+    }
+}
+
+#[test]
+fn an_age_of_half_the_tick_space_is_rejected() {
+    let mut writer = BitWriter::new();
+    writer.write_bits(1, 1);
+    writer.write_bits(1, SUBJECT_ID_BITS);
+    writer.write_varint(2);
+    writer.write_bits(1, SEQ_DELTA_BITS);
+    writer.write_varint(SAMPLE_AGE_LIMIT);
+    writer.write_bits(0, PRESENCE_BITS);
+    writer.write_bits(0, 1);
+    let payload = writer.into_bytes();
+    assert_eq!(
+        decode_baseline_batch_with(FLUSH_TICK, 1, &payload, true),
+        Err(BatchError::InvalidData)
+    );
+
+    let mut writer = BitWriter::new();
+    writer.write_bits(1, 1);
+    writer.write_bits(1, SUBJECT_ID_BITS);
+    writer.write_varint(2);
+    writer.write_bits(1, SEQ_DELTA_BITS);
+    writer.write_varint(SAMPLE_AGE_LIMIT - 1);
+    writer.write_bits(0, PRESENCE_BITS);
+    writer.write_bits(0, 1);
+    let payload = writer.into_bytes();
+    assert_eq!(
+        decode_baseline_batch_with(FLUSH_TICK, 1, &payload, true).unwrap()[0].sample_tick,
+        FLUSH_TICK.wrapping_sub(SAMPLE_AGE_LIMIT - 1)
+    );
+}
+
+proptest! {
+    #[test]
+    fn sample_ticks_roundtrip_across_both_arm_11_layouts(
+        subjects in arb_subjects(),
+        ages in prop::collection::vec(prop_oneof![0u32..128, 128u32..70_000, any::<u32>()], 40),
+        server_tick in any::<u32>(),
+        cap in 64usize..1200,
+    ) {
+        let mut subjects = subjects;
+        for (subject, age) in subjects.iter_mut().zip(&ages) {
+            subject.sample_tick = server_tick.wrapping_sub(*age);
+            subject.new_seq = subject.baseline_seq.wrapping_add(1 + subject.seq_delta() % ((1 << 31) - 1));
+            subject.state_flags_present = subject.subject_id % 2 == 0;
+        }
+        let expected: Vec<_> = subjects.iter().zip(&ages).map(|(subject, age)| {
+            subject.to_delta(if *age < SAMPLE_AGE_LIMIT { subject.sample_tick } else { server_tick })
+        }).collect();
+        for batches in [
+            encode_dictionary_batches_with(server_tick, &subjects, cap, true),
+            encode_batches_with(server_tick, &subjects, cap, SeqEncoding::AbsoluteBaseline, true),
+        ] {
+            let mut actual = Vec::new();
+            for batch in &batches {
+                prop_assert!(batch.payload.len() <= cap);
+                actual.extend(sampled_deltas(batch, true));
+            }
+            prop_assert_eq!(&actual, &expected);
+        }
     }
 }

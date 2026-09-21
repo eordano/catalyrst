@@ -28,6 +28,13 @@ pub(crate) fn category_i18n_en(name: &str) -> Option<&'static str> {
     })
 }
 
+pub(crate) fn curated_counts(counts: Vec<(String, i64)>) -> Vec<(String, i64)> {
+    counts
+        .into_iter()
+        .filter(|(name, _)| category_i18n_en(name).is_some())
+        .collect()
+}
+
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, export_to = "places/"))]
 pub struct CategoryOut {
@@ -58,7 +65,7 @@ pub async fn get_categories(
     Query(pairs): Query<HashMap<String, String>>,
 ) -> Result<Json<ApiData<Vec<CategoryOut>>>, ApiError> {
     let target = CategoryTarget::parse(pairs.get("target").map(|s| s.as_str()));
-    let counts = state.places.category_counts(target).await?;
+    let counts = curated_counts(state.places.category_counts(target).await?);
     let data = counts
         .into_iter()
         .map(|(name, count)| {
@@ -96,4 +103,51 @@ pub async fn get_place_categories(
 ) -> Result<Json<ApiData<PlaceCategoriesOut>>, ApiError> {
     let categories = state.places.categories_for_place(&place_id).await?;
     Ok(Json(ApiData::ok(PlaceCategoriesOut { categories })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_category_list_keeps_curated_names_in_order_and_drops_raw_scene_tags() {
+        let counts = vec![
+            ("art".to_string(), 889),
+            ("arcade".to_string(), 40),
+            ("game".to_string(), 509),
+            ("atlas:*".to_string(), 12),
+            ("authoritative-server".to_string(), 7),
+            ("parkour".to_string(), 14),
+        ];
+        assert_eq!(
+            curated_counts(counts),
+            vec![
+                ("art".to_string(), 889),
+                ("game".to_string(), 509),
+                ("parkour".to_string(), 14),
+            ]
+        );
+    }
+
+    #[test]
+    fn every_upstream_active_category_is_curated() {
+        for name in [
+            "poi",
+            "featured",
+            "game",
+            "casino",
+            "social",
+            "music",
+            "art",
+            "fashion",
+            "crypto",
+            "education",
+            "shop",
+            "sports",
+            "business",
+            "parkour",
+        ] {
+            assert!(category_i18n_en(name).is_some(), "{name} must stay listed");
+        }
+    }
 }

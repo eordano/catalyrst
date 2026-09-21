@@ -149,6 +149,7 @@ async fn main() -> Result<()> {
     let db_lock = Arc::new(tokio::sync::Mutex::new(()));
     let synced = Arc::new(AtomicUsize::new(0));
     let skipped = Arc::new(AtomicUsize::new(0));
+    let unchanged = Arc::new(AtomicUsize::new(0));
     let refused = Arc::new(AtomicUsize::new(0));
     let failed = Arc::new(AtomicUsize::new(0));
     let scenes_total = Arc::new(AtomicUsize::new(0));
@@ -166,24 +167,34 @@ async fn main() -> Result<()> {
             contents_dir.clone(),
             db_lock.clone(),
         );
-        let (synced, skipped, refused, failed, scenes_total, blobs, done) = (
+        let (synced, skipped, unchanged, refused, failed, scenes_total, blobs, done) = (
             synced.clone(),
             skipped.clone(),
+            unchanged.clone(),
             refused.clone(),
             failed.clone(),
             scenes_total.clone(),
             blobs.clone(),
             done.clone(),
         );
-        let force = args.force;
+        let mode = if args.force {
+            Mode::Overwrite
+        } else if args.names.is_empty() {
+            Mode::Index
+        } else {
+            Mode::Named
+        };
         set.spawn(async move {
             let _permit = permit;
-            match mirror_world(&http, &pool, &db_lock, &upstream, &contents_dir, &name, force).await
+            match mirror_world(&http, &pool, &db_lock, &upstream, &contents_dir, &name, mode).await
             {
                 Ok(Outcome::Synced(stats)) => {
                     synced.fetch_add(1, Ordering::Relaxed);
                     scenes_total.fetch_add(stats.scenes, Ordering::Relaxed);
                     blobs.fetch_add(stats.new_blobs, Ordering::Relaxed);
+                }
+                Ok(Outcome::Unchanged) => {
+                    unchanged.fetch_add(1, Ordering::Relaxed);
                 }
                 Ok(Outcome::RefusedLocalPublish { deployer }) => {
                     refused.fetch_add(1, Ordering::Relaxed);
@@ -206,8 +217,9 @@ async fn main() -> Result<()> {
             if d % 25 == 0 {
                 let rate = d as f64 / t0.elapsed().as_secs_f64().max(1e-9);
                 println!(
-                    "  [{d}/{total}] synced={} skipped={} refused={} failed={} scenes={} new_blobs={}  {rate:.1} world/s",
+                    "  [{d}/{total}] synced={} unchanged={} skipped={} refused={} failed={} scenes={} new_blobs={}  {rate:.1} world/s",
                     synced.load(Ordering::Relaxed),
+                    unchanged.load(Ordering::Relaxed),
                     skipped.load(Ordering::Relaxed),
                     refused.load(Ordering::Relaxed),
                     failed.load(Ordering::Relaxed),
@@ -222,8 +234,9 @@ async fn main() -> Result<()> {
     let refused_total = refused.load(Ordering::Relaxed);
     let failed_total = failed.load(Ordering::Relaxed);
     println!(
-        "DONE: synced={} skipped={} refused={refused_total} failed={failed_total} scenes={} new_blobs={} in {}",
+        "DONE: synced={} unchanged={} skipped={} refused={refused_total} failed={failed_total} scenes={} new_blobs={} in {}",
         synced.load(Ordering::Relaxed),
+        unchanged.load(Ordering::Relaxed),
         skipped.load(Ordering::Relaxed),
         scenes_total.load(Ordering::Relaxed),
         blobs.load(Ordering::Relaxed),
@@ -248,8 +261,22 @@ struct WorldStats {
 /// broken, and one `skipped` counter for both makes a correct refusal look like a bug.
 enum Outcome {
     Synced(WorldStats),
+    Unchanged,
     RefusedLocalPublish { deployer: String },
     NothingUpstream(&'static str),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Index,
+    Named,
+    Overwrite,
+}
+
+fn holds_every_scene(upstream: &[String], held: &[String]) -> bool {
+    !upstream.is_empty()
+        && upstream.len() == held.len()
+        && upstream.iter().all(|cid| held.contains(cid))
 }
 
 async fn mirror_world(
@@ -259,10 +286,11 @@ async fn mirror_world(
     upstream: &str,
     contents_dir: &Path,
     name: &str,
-    force: bool,
+    mode: Mode,
 ) -> Result<Outcome> {
+    let force = mode == Mode::Overwrite;
     let local_deployer: Option<String> = sqlx::query_scalar(
-        "SELECT deployer FROM world_scenes WHERE world_name = $1 AND deployer <> $2 LIMIT 1",
+        "SELECT deployer FROM world_scenes WHERE lower(world_name) = lower($1) AND deployer <> $2 LIMIT 1",
     )
     .bind(name)
     .bind(ZERO_ADDR)
@@ -290,6 +318,23 @@ async fn mirror_world(
     let refs = scene_refs(&about);
     if refs.is_empty() {
         return Ok(Outcome::NothingUpstream("upstream world has no scenes"));
+    }
+
+    if mode == Mode::Index {
+        let upstream_cids: Vec<String> = refs.iter().map(|(cid, _)| cid.clone()).collect();
+        let held: Vec<String> = sqlx::query_scalar(
+            "SELECT entity_id FROM world_scenes WHERE lower(world_name) = lower($1)",
+        )
+        .bind(name)
+        .fetch_all(pool)
+        .await
+        .with_context(|| format!("reading the scenes held for {name}"))?;
+        let on_disk = upstream_cids
+            .iter()
+            .all(|cid| contents_dir.join(cid).is_file());
+        if on_disk && holds_every_scene(&upstream_cids, &held) {
+            return Ok(Outcome::Unchanged);
+        }
     }
 
     let skybox_time = about["configurations"]["skybox"]["fixedHour"].as_i64();
@@ -402,6 +447,19 @@ async fn mirror_world(
         .execute(&mut *tx)
         .await
         .with_context(|| format!("upsert {} scenes of {name}", records.len()))?;
+
+        sqlx::query(
+            "DELETE FROM world_scenes \
+             WHERE lower(world_name) = lower($1) AND entity_id <> ALL($2::text[]) \
+               AND (deployer = $3 OR $4)",
+        )
+        .bind(name)
+        .bind(&cids)
+        .bind(ZERO_ADDR)
+        .bind(force)
+        .execute(&mut *tx)
+        .await
+        .with_context(|| format!("retire the scenes {name} no longer lists upstream"))?;
     }
     tx.commit().await.context("commit tx")?;
 
@@ -475,7 +533,17 @@ async fn fetch_blob(
 
 #[cfg(test)]
 mod tests {
-    use super::{contents_temp, temp_name};
+    use super::{contents_temp, holds_every_scene, temp_name};
+
+    #[test]
+    fn a_world_is_unchanged_only_when_it_holds_exactly_the_upstream_scenes() {
+        let cids = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        assert!(holds_every_scene(&cids(&["a", "b"]), &cids(&["b", "a"])));
+        assert!(!holds_every_scene(&cids(&["a", "b"]), &cids(&["a"])));
+        assert!(!holds_every_scene(&cids(&["a"]), &cids(&["a", "stale"])));
+        assert!(!holds_every_scene(&cids(&["new"]), &cids(&["old"])));
+        assert!(!holds_every_scene(&[], &[]));
+    }
 
     #[test]
     fn mirror_temps_follow_the_reaper_convention() {

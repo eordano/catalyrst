@@ -12,6 +12,9 @@ struct Fixture {
     state: Arc<Store>,
     router: Router,
     member: Arc<AtomicBool>,
+    /// Foundation stops honouring a signature after 60 seconds and then answers a public
+    /// community anonymously, without a role.
+    spent: Arc<AtomicBool>,
     writes: Arc<AtomicUsize>,
     reads: Arc<AtomicUsize>,
     task: tokio::task::JoinHandle<()>,
@@ -23,6 +26,8 @@ impl Drop for Fixture {
 }
 async fn fixture(path: &str) -> Fixture {
     let member = Arc::new(AtomicBool::new(true));
+    let spent = Arc::new(AtomicBool::new(false));
+    let anonymous = spent.clone();
     let writes = Arc::new(AtomicUsize::new(0));
     let reads = Arc::new(AtomicUsize::new(0));
     let m = member.clone();
@@ -31,8 +36,11 @@ async fn fixture(path: &str) -> Fixture {
     let upstream=Router::new().route("/v1/communities",get(move||{let r=r.clone();async move{
         r.fetch_add(1,Ordering::SeqCst);
         Json(json!({"data":{"results":[{"id":COMMUNITY,"name":"Builders"}],"total":1}}))
-    }})).route("/v1/communities/{id}",get(move|headers:HeaderMap|{let m=m.clone();async move {
+    }})).route("/v1/communities/{id}",get(move|headers:HeaderMap|{let m=m.clone();let anonymous=anonymous.clone();async move {
         assert!(headers.contains_key("x-identity-auth-chain-1"));
+        if anonymous.load(Ordering::SeqCst) {
+            return Json(json!({"data":{"id":COMMUNITY,"active":true,"name":"Builders","membersCount":2}}));
+        }
         Json(json!({"data":{"id":COMMUNITY,"active":true,"name":"Builders","membersCount":2,"role":if m.load(Ordering::SeqCst){"member"}else{"none"}}}))
     }})).route("/v1/communities/{id}/posts",post(move|headers:HeaderMap,Json(body):Json<Value>|{let w=w.clone();async move{
         let links:AuthChain=(0..2).map(|i|serde_json::from_str(headers.get(format!("x-identity-auth-chain-{i}")).unwrap().to_str().unwrap()).unwrap()).collect();
@@ -50,6 +58,7 @@ async fn fixture(path: &str) -> Fixture {
         state,
         router,
         member,
+        spent,
         writes,
         reads,
         task,
@@ -195,6 +204,35 @@ async fn read_capability_rechecks_membership_and_scope() {
             .await
             .0,
         StatusCode::FORBIDDEN
+    );
+}
+#[tokio::test]
+async fn spent_signature_asks_for_a_refresh_instead_of_revoking_membership() {
+    let f = fixture(":memory:").await;
+    let p = prepare_action(
+        &f,
+        json!({"type":"open_community","community_id":COMMUNITY}),
+    )
+    .await;
+    let (status, opened) = submit(&f, &p, KEY).await;
+    assert_eq!(status, StatusCode::OK);
+    let signed: i64 = p["timestamp"].as_str().unwrap().parse().unwrap();
+    let expires = opened["expiresAt"].as_i64().unwrap();
+    assert!(
+        expires > signed && expires - signed < 60_000,
+        "the read capability ends inside Foundation's 60 second signature window"
+    );
+    let token = opened["readToken"].as_str().unwrap();
+    let path = format!("/api/communities/{COMMUNITY}/messages");
+    f.spent.store(true, Ordering::SeqCst);
+    let (status, body) = request(&f.router, "GET", &path, Value::Null, Some(token)).await;
+    assert_eq!(status, StatusCode::GONE, "{body}");
+    f.spent.store(false, Ordering::SeqCst);
+    assert_eq!(
+        request(&f.router, "GET", &path, Value::Null, Some(token))
+            .await
+            .0,
+        StatusCode::OK
     );
 }
 #[tokio::test]
@@ -686,6 +724,37 @@ async fn community_invitations_and_cancellation_bind_upstream_intent() {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
+}
+
+#[tokio::test]
+async fn channel_names_that_are_community_pages_are_refused() {
+    let path = format!("/tmp/dcl-social-reserved-test-{}.sqlite", Uuid::new_v4());
+    let f = fixture(&path).await;
+    let wallet = Wallet::from_hex(KEY).unwrap().address();
+    for name in [
+        "general",
+        "announcements",
+        "voice",
+        "about",
+        "hangouts",
+        "members",
+    ] {
+        let (status, _) = request(
+            &f.router,
+            "POST",
+            "/api/actions",
+            json!({"wallet":wallet,"operation":{"type":"create_channel","community_id":COMMUNITY,"name":name,"private":false}}),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{name}");
+    }
+    prepare_action(
+        &f,
+        json!({"type":"create_channel","community_id":COMMUNITY,"name":"about-us","private":false}),
+    )
+    .await;
+    let _ = std::fs::remove_file(path);
 }
 
 #[tokio::test]

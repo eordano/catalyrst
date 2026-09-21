@@ -178,4 +178,5 @@ message ApplicationSend {
   uint32 recipient_id = 2;
   bytes payload = 3;
   bool unreliable = 4;
+  uint32 roster_version = 5;
 }

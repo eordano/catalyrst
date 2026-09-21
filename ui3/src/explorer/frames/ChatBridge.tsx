@@ -7,6 +7,7 @@ import ProfileCard from "../components/ProfileCard";
 import { ChatView, type ChatIo } from "./Chat";
 import type { ConsoleLine, ConsoleSource } from "./chatCommands";
 import { useChatProfile } from "./chatProfile";
+import { useChatIntent } from "./chatIntent";
 
 function isChatPush(push: unknown): push is ConsoleLine & { kind: "chat" } {
   return typeof push === "object" && push !== null && (push as { kind?: unknown }).kind === "chat";
@@ -30,6 +31,10 @@ export default function Chat(props: {
   const hasFriends = useBridgeState((s) => s.friends.friends.length > 0);
   const live = useBridgeState((s) => s.live);
   const viewProfile = useChatProfile();
+  const intent = useChatIntent();
+  useEffect(() => {
+    if (intent?.kind === "direct" && hasFriends) setChannel("direct");
+  }, [intent, hasFriends]);
   useEffect(() => {
     if (!hasFriends && channel === "direct") setChannel("nearby");
   }, [hasFriends, channel]);
@@ -54,7 +59,7 @@ export default function Chat(props: {
       </div>
       <ChatView {...props} hidden={props.hidden || channel !== "nearby"} io={io} emptyLine="Say hello to people nearby!" profileCard={ProfileCard} onViewProfile={viewProfile ? (user, opener) => viewProfile(user.address, opener) : undefined} docked header={false} />
       {(["direct", "community"] as const).map((kind) => <div key={`${identity.address}:${identity.isGuest}:${kind}`} className="chat-channel" hidden={channel !== kind}>
-        <ConversationChat kind={kind} active={props.open && !props.hidden && channel === kind} />
+        <ConversationChat kind={kind} active={props.open && !props.hidden && channel === kind} target={intent?.kind === kind ? intent : null} />
       </div>)}
     </FloatingPanel>
   </div>;

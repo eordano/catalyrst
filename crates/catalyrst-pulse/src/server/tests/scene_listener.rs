@@ -276,6 +276,7 @@ fn scene_listener_application_dispatch_requires_auth_negotiation_and_reliable_ch
             recipient_id: 0,
             payload: vec![1],
             unreliable: false,
+            roster_version: 0,
         }),
     ] {
         let bytes = client_msg(message.clone());

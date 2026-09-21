@@ -117,6 +117,7 @@ fn scene_listener_receives_emote_started() {
             start_tick: None,
             mask: None,
         }),
+        None,
     );
     let out = tick(&mut sim, &mut w, 2);
 
@@ -158,6 +159,7 @@ fn scene_listener_receives_emote_mask() {
             start_tick: None,
             mask: Some(5),
         }),
+        None,
     );
     let out = tick(&mut sim, &mut w, 2);
 
@@ -199,6 +201,7 @@ fn scene_listener_receives_emote_stopped() {
             start_tick: None,
             mask: None,
         }),
+        None,
     );
     let _ = tick(&mut sim, &mut w, 2);
 
@@ -253,6 +256,7 @@ fn scene_listener_mid_emote_join_gets_emote_started() {
             start_tick: None,
             mask: None,
         }),
+        None,
     );
 
     let mut sim = PeerSimulation::new(&[50, 100, 200], false);

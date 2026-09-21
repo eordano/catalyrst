@@ -52,7 +52,7 @@ function gitStamp(): { commit: string; dirty: boolean; stamp: string } {
   return { commit, dirty, stamp: `${commit}${dirty ? "+dirty" : ""}` };
 }
 
-type Issue = { kind: string; text: string };
+type Issue = { kind: string; text: string; detail?: string[] };
 
 function collectIssues(events: CdpMessage[], docUrl: string, allowConsole: RegExp[] = []): { issues: Issue[]; status: number | null } {
   const issues: Issue[] = [];
@@ -91,6 +91,7 @@ const RETRY_DELAY_MS = 10_000;
 
 type PageChecks = {
   broken: string[];
+  brokenTotal: number;
   fontOk: boolean;
   title: string;
   bodyChars: number;
@@ -113,10 +114,11 @@ async function visitOnce(tab: Tab, url: string, waitMs: number, allowConsole: Re
   if (status !== null && status >= 400) {
     failures.unshift({ kind: "http", text: `document status ${status}` });
   }
-  if (page.broken.length) {
+  if (page.brokenTotal) {
     failures.push({
       kind: "broken-images",
-      text: `${page.broken.length} broken: ${page.broken.join(", ").slice(0, 250)}`,
+      text: `${page.brokenTotal} broken: ${page.broken.join(", ").slice(0, 250)}`,
+      detail: page.broken,
     });
   }
   if (!page.fontOk) {

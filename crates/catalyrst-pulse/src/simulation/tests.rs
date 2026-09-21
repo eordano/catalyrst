@@ -89,6 +89,10 @@ impl World {
             position_z: spec::POSITION_Z.encode(local.z),
             ..Default::default()
         };
+        self.publish_state(id, state);
+    }
+
+    fn publish_state(&mut self, id: u32, state: PlayerState) {
         PeerSnapshotPublisher::publish_from_player_state(
             &mut self.board,
             &mut self.grid,
@@ -97,7 +101,17 @@ impl World {
             20,
             &state,
             None,
+            None,
         );
+    }
+}
+
+fn state_at(x: f32) -> PlayerState {
+    PlayerState {
+        parcel_index: 0,
+        position_x: spec::POSITION_X.encode(x),
+        position_z: spec::POSITION_Z.encode(8.0),
+        ..Default::default()
     }
 }
 
@@ -215,6 +229,49 @@ fn full_state_on_join_then_delta_after() {
 }
 
 #[test]
+fn full_state_carries_the_jump_count() {
+    let mut w = World::new();
+    w.connect(0, "0xobserver");
+    w.connect(1, "0xsubject");
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-a");
+    w.teleport(1, 0, v3(9.0, 8.0), "realm-a");
+    w.publish_state(
+        1,
+        PlayerState {
+            jump_count: 2,
+            ..state_at(9.0)
+        },
+    );
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let out = tick(&mut sim, &mut w, 1);
+    let joined = out
+        .iter()
+        .find_map(|m| match &m.message.message {
+            Some(server_message::Message::PlayerJoined(pj)) if m.target == 0 => {
+                pj.state.as_ref().and_then(|full| full.state.as_ref())
+            }
+            _ => None,
+        })
+        .expect("join expected");
+    assert_eq!(
+        joined.jump_count, 2,
+        "the full state relays the snapshot's jump count"
+    );
+
+    w.peers.get_mut(&0).unwrap().request_resync(1, 0);
+    let out = tick(&mut sim, &mut w, 2);
+    let full = out
+        .iter()
+        .find_map(|m| match &m.message.message {
+            Some(server_message::Message::PlayerStateFull(f)) if m.target == 0 => f.state.as_ref(),
+            _ => None,
+        })
+        .expect("resync full state expected");
+    assert_eq!(full.jump_count, 2, "a resync relays it too");
+}
+
+#[test]
 fn out_of_interest_subject_is_invisible() {
     let mut w = World::new();
     w.connect(0, "0xobserver");
@@ -269,6 +326,33 @@ fn stale_view_survives_the_staleness_threshold_then_swept_within_one_check_inter
         swept_at,
         Some(first_sweep_tick_after(0)),
         "a stale view must be swept within SWEEP_CHECK_INTERVAL ticks of crossing VIEW_STALE_TICKS"
+    );
+}
+
+#[test]
+fn a_peer_reconnecting_into_its_freed_slot_is_joined_again() {
+    let mut w = World::new();
+    w.connect(0, "0xobserver");
+    w.connect(1, "0xsubject");
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-a");
+    w.teleport(1, 0, v3(9.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    assert!(joined_for(&tick(&mut sim, &mut w, 1), 0, "0xsubject"));
+
+    w.peers.remove(&1);
+    w.board.clear_active(1);
+    w.grid.remove(1);
+    w.identity.remove(1);
+    w.profiles.remove(1);
+    sim.cleanup_observer_views(1);
+    let _ = tick(&mut sim, &mut w, 2);
+
+    w.connect(1, "0xsubject");
+    w.teleport(1, 0, v3(9.0, 8.0), "realm-a");
+    assert!(
+        joined_for(&tick(&mut sim, &mut w, 3), 0, "0xsubject"),
+        "the same wallet back in the same slot is a new subject to its observers"
     );
 }
 
@@ -505,6 +589,88 @@ fn tier2_omits_velocity_and_blend() {
 }
 
 #[test]
+fn promotion_to_a_closer_tier_repairs_the_tier_gated_fields() {
+    let mut w = World::new();
+    w.connect(0, "0xobserver");
+    w.connect(1, "0xsubject");
+    w.teleport(0, 5, v3(8.0, 8.0), "realm-a");
+    w.teleport(1, 0, v3(9.0, 8.0), "realm-a");
+    w.publish_state(
+        1,
+        PlayerState {
+            velocity_x: 100,
+            movement_blend: 10,
+            slide_blend: 3,
+            head_yaw: Some(20),
+            head_pitch: Some(30),
+            ..state_at(9.0)
+        },
+    );
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    assert!(joined_for(&tick(&mut sim, &mut w, 4), 0, "0xsubject"));
+
+    w.publish_state(
+        1,
+        PlayerState {
+            velocity_x: 200,
+            movement_blend: 20,
+            slide_blend: 9,
+            head_yaw: Some(40),
+            head_pitch: Some(50),
+            ..state_at(9.0)
+        },
+    );
+    let out = tick(&mut sim, &mut w, 8);
+    let far = out
+        .iter()
+        .find_map(|m| match &m.message.message {
+            Some(server_message::Message::PlayerStateDelta(d)) if m.target == 0 => Some(d),
+            _ => None,
+        })
+        .expect("a TIER_2 delta expected");
+    assert!(
+        far.velocity_x.is_none() && far.movement_blend.is_none() && far.head_yaw.is_none(),
+        "TIER_2 withholds the gated fields, got {far:?}"
+    );
+
+    w.input(0, 0, v3(8.0, 8.0));
+    let out = tick(&mut sim, &mut w, 9);
+    let (full, mode) = out
+        .iter()
+        .find_map(|m| match &m.message.message {
+            Some(server_message::Message::PlayerStateFull(f)) if m.target == 0 => Some((f, m.mode)),
+            _ => None,
+        })
+        .expect("a promoted observer is sent the subject's full state");
+    assert_eq!(mode, PacketMode::Reliable);
+    assert_eq!(full.subject_id, 1);
+    assert_eq!(full.sequence, w.board.last_seq(1));
+    let state = full.state.as_ref().unwrap();
+    assert_eq!(
+        (
+            state.velocity_x,
+            state.movement_blend,
+            state.slide_blend,
+            state.head_yaw,
+            state.head_pitch
+        ),
+        (200, 20, 9, Some(40), Some(50)),
+        "the full state carries what the far tier withheld"
+    );
+
+    let out = tick(&mut sim, &mut w, 10);
+    assert!(
+        !out.iter().any(|m| m.target == 0
+            && matches!(
+                &m.message.message,
+                Some(server_message::Message::PlayerStateFull(_))
+            )),
+        "the repair is sent once per promotion"
+    );
+}
+
+#[test]
 fn emote_start_then_stop_broadcast() {
     let mut w = World::new();
     w.connect(0, "0xobserver");
@@ -534,6 +700,7 @@ fn emote_start_then_stop_broadcast() {
             start_tick: None,
             mask: None,
         }),
+        None,
     );
     let out = tick(&mut sim, &mut w, 2);
     let started = out.iter().find_map(|m| match &m.message.message {
@@ -565,6 +732,88 @@ fn emote_start_then_stop_broadcast() {
     assert_eq!(
         stopped.expect("emote stopped broadcast").reason,
         EmoteStopReason::Cancelled as i32
+    );
+}
+
+#[test]
+fn an_emote_stop_that_left_the_ring_is_still_delivered() {
+    let mut w = World::new();
+    w.connect(0, "0xobserver");
+    w.connect(1, "0xsubject");
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-a");
+    w.teleport(1, 0, v3(9.0, 8.0), "realm-a");
+
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+
+    PeerSnapshotPublisher::publish_from_player_state(
+        &mut w.board,
+        &mut w.grid,
+        &w.encoder,
+        1,
+        30,
+        &state_at(9.0),
+        Some(crate::snapshot::EmoteInput {
+            emote_id: "dance".into(),
+            duration_ms: None,
+            start_tick: None,
+            mask: None,
+        }),
+        None,
+    );
+    let out = tick(&mut sim, &mut w, 2);
+    assert!(
+        out.iter().any(|m| m.target == 0
+            && matches!(
+                &m.message.message,
+                Some(server_message::Message::EmoteStarted(_))
+            )),
+        "the observer is shown the emote"
+    );
+
+    w.input(0, 5000, v3(8.0, 8.0));
+    let _ = tick(&mut sim, &mut w, 3);
+
+    let active: EmoteState = w.board.try_read(1).unwrap().emote.clone().unwrap();
+    let stop = PeerSnapshot {
+        seq: w.board.last_seq(1) + 1,
+        server_tick: 40,
+        emote: Some(EmoteState {
+            emote_id: None,
+            start_seq: active.start_seq,
+            start_tick: active.start_tick,
+            duration_ms: None,
+            mask: None,
+            stop_reason: Some(EmoteStopReason::Cancelled),
+        }),
+        ..w.board.try_read(1).unwrap().clone()
+    };
+    let stop_seq = stop.seq;
+    w.board.publish(1, stop);
+    for step in 0..20 {
+        w.input(1, 0, v3(9.0 + (step % 2) as f32, 8.0));
+    }
+    assert!(
+        w.board.try_read_seq(1, stop_seq).is_none(),
+        "the stop snapshot has left the ring"
+    );
+    let _ = tick(&mut sim, &mut w, 4);
+
+    w.input(0, 0, v3(8.0, 8.0));
+    let mut stops = Vec::new();
+    for t in 5..8 {
+        for m in tick(&mut sim, &mut w, t) {
+            if let Some(server_message::Message::EmoteStopped(e)) = m.message.message {
+                if m.target == 0 && e.subject_id == 1 {
+                    stops.push(e.sequence);
+                }
+            }
+        }
+    }
+    assert_eq!(
+        stops,
+        vec![w.board.last_seq(1)],
+        "the returning observer is told once, from the subject's latest snapshot"
     );
 }
 
@@ -601,6 +850,7 @@ fn emote_mask_relays_verbatim_and_absence_stays_absent() {
                 start_tick: None,
                 mask,
             }),
+            None,
         );
     }
     let out = tick(&mut sim, &mut w, 2);
@@ -978,4 +1228,165 @@ fn a_realm_less_observer_is_not_mirrored_to_itself() {
         out.iter().any(|m| m.target == 0),
         "once the observer has a realm the mirror is emitted"
     );
+}
+
+fn emote_then_teleport(w: &mut World) -> (u32, u32) {
+    let started = PeerSnapshotPublisher::publish_from_player_state(
+        &mut w.board,
+        &mut w.grid,
+        &w.encoder,
+        1,
+        30,
+        &state_at(9.0),
+        Some(crate::snapshot::EmoteInput {
+            emote_id: "wave".into(),
+            duration_ms: None,
+            start_tick: None,
+            mask: None,
+        }),
+        None,
+    );
+    w.teleport(1, 0, v3(10.0, 8.0), "realm-a");
+    (started.seq, w.board.last_seq(1))
+}
+
+fn discrete_events(out: &[OutgoingMessage], target: u32) -> Vec<(&'static str, u32)> {
+    out.iter()
+        .filter(|m| m.target == target)
+        .filter_map(|m| match &m.message.message {
+            Some(server_message::Message::Teleported(t)) => Some(("teleported", t.sequence)),
+            Some(server_message::Message::EmoteStarted(e)) => Some(("emote-started", e.sequence)),
+            Some(server_message::Message::EmoteStopped(e)) => Some(("emote-stopped", e.sequence)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_emote_started_before_a_teleport_in_one_scan_follows_the_snap_and_stays_active() {
+    let mut w = World::new();
+    w.connect(0, "0xobserver");
+    w.connect(1, "0xsubject");
+    w.teleport(0, 0, v3(8.0, 8.0), "realm-a");
+    w.teleport(1, 0, v3(9.0, 8.0), "realm-a");
+    let mut sim = PeerSimulation::new(&[50, 100, 200], false);
+    let _ = tick(&mut sim, &mut w, 1);
+
+    let (started, teleported) = emote_then_teleport(&mut w);
+    let out = tick(&mut sim, &mut w, 2);
+    assert_eq!(
+        discrete_events(&out, 0),
+        vec![("teleported", teleported), ("emote-started", started)]
+    );
+
+    w.input(1, 0, v3(11.0, 8.0));
+    let out = tick(&mut sim, &mut w, 3);
+    assert_eq!(discrete_events(&out, 0), vec![]);
+    let baselines: Vec<u32> = out
+        .iter()
+        .filter(|m| m.target == 0)
+        .filter_map(|m| match &m.message.message {
+            Some(server_message::Message::PlayerStateDelta(d)) if d.subject_id == 1 => {
+                Some(d.baseline_seq)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(baselines, vec![teleported]);
+}
+
+#[test]
+fn a_batched_delta_carries_the_tick_of_its_own_sample() {
+    let mut world = World::sized(16);
+    for id in 0..10 {
+        world.connect(id, &format!("wallet-{id}"));
+        world.teleport(id, 0, v3(8.0, 8.0), "realm");
+    }
+    world.peers.get_mut(&0).unwrap().features = crate::server::FEATURE_DELTA_BATCH_BASELINE
+        | crate::server::FEATURE_DELTA_BATCH_DICTIONARY
+        | crate::server::FEATURE_DELTA_BATCH_SAMPLE_TICK;
+    let mut simulation = PeerSimulation::new(&[50, 100, 200], false);
+    tick(&mut simulation, &mut world, 1);
+    for id in 2..10 {
+        PeerSnapshotPublisher::publish_from_player_state(
+            &mut world.board,
+            &mut world.grid,
+            &world.encoder,
+            id,
+            20 + id,
+            &state_at(9.0),
+            None,
+            None,
+        );
+    }
+    simulation.outbox.clear();
+    simulation.simulate_tick(
+        &mut world.peers,
+        &world.board,
+        &world.grid,
+        &world.aoi,
+        &world.identity,
+        &world.profiles,
+        2,
+        60,
+    );
+    let out = std::mem::take(&mut simulation.outbox);
+    let mut ticks = Vec::new();
+    for message in out.iter().filter(|message| message.target == 0) {
+        if let Some(server_message::Message::PlayerStateDeltaBatchBaseline(batch)) =
+            &message.message.message
+        {
+            assert_eq!(batch.server_tick, 60);
+            let subjects = crate::batch::decode_baseline_batch_with(
+                batch.server_tick,
+                batch.subject_count,
+                &batch.payload,
+                true,
+            )
+            .unwrap();
+            for subject in subjects {
+                ticks.push((
+                    subject.subject_id,
+                    subject.to_delta(subject.sample_tick).server_tick,
+                ));
+            }
+        }
+    }
+    ticks.sort();
+    let sampled: Vec<(u32, u32)> = (2..10)
+        .map(|id| (id, world.board.try_read(id).unwrap().server_tick))
+        .collect();
+    assert_eq!(
+        ticks, sampled,
+        "every batched delta is stamped with the tick of the sample it carries"
+    );
+}
+
+#[test]
+fn a_sample_tick_bit_without_an_arm_11_codec_leaves_the_batch_untouched() {
+    let mut world = World::new();
+    for id in 0..3 {
+        world.connect(id, &format!("wallet-{id}"));
+        world.teleport(id, 0, v3(8.0, 8.0), "realm");
+    }
+    world.peers.get_mut(&0).unwrap().features = crate::server::FEATURE_DELTA_BATCH;
+    world.peers.get_mut(&1).unwrap().features =
+        crate::server::FEATURE_DELTA_BATCH | crate::server::FEATURE_DELTA_BATCH_SAMPLE_TICK;
+    let mut simulation = PeerSimulation::new(&[50, 100, 200], false);
+    tick(&mut simulation, &mut world, 1);
+    world.input(2, 0, v3(9.0, 8.0));
+    let out = tick(&mut simulation, &mut world, 2);
+    let batch_for = |target: u32| {
+        out.iter()
+            .filter(|message| message.target == target)
+            .find_map(|message| match &message.message.message {
+                Some(server_message::Message::PlayerStateDeltaBatch(batch)) => Some(batch.clone()),
+                _ => None,
+            })
+            .expect("an arm 10 batch")
+    };
+    assert_eq!(batch_for(1), batch_for(0));
+    let batch = batch_for(1);
+    let decoded = crate::batch::decode_batch(batch.subject_count, &batch.payload, |_| 0).unwrap();
+    assert_eq!(decoded[0].new_seq, world.board.last_seq(2));
 }

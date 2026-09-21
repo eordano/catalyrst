@@ -15,11 +15,13 @@ pub const SIGNING_DOMAIN: &str = "dcl-pulse-auth-v4:";
 pub const CAPABILITY_DELTA_BATCH: &str = "delta_batch";
 pub const CAPABILITY_DELTA_BATCH_BASELINE: &str = "delta_batch_baseline";
 pub const CAPABILITY_DELTA_BATCH_DICTIONARY: &str = "delta_batch_dictionary";
+pub const CAPABILITY_DELTA_BATCH_SAMPLE_TICK: &str = "delta_batch_sample_tick";
 pub const CAPABILITY_APPLICATION_RELAY: &str = "application_relay";
 pub const SUPPORTED_CAPABILITIES: &[&str] = &[
     CAPABILITY_DELTA_BATCH,
     CAPABILITY_DELTA_BATCH_BASELINE,
     CAPABILITY_DELTA_BATCH_DICTIONARY,
+    CAPABILITY_DELTA_BATCH_SAMPLE_TICK,
 ];
 pub const DEFAULT_CHALLENGE_TTL_MS: u32 = 15_000;
 pub const DEFAULT_MAX_PENDING: usize = 8_192;
@@ -718,6 +720,22 @@ fn validate_hello(
         .collect();
     negotiated.sort();
     negotiated.dedup();
+    let carries_sample_ticks = negotiated.iter().any(|cap| {
+        cap == CAPABILITY_DELTA_BATCH_BASELINE || cap == CAPABILITY_DELTA_BATCH_DICTIONARY
+    });
+    if !carries_sample_ticks {
+        if hello
+            .required_capabilities
+            .iter()
+            .any(|cap| cap == CAPABILITY_DELTA_BATCH_SAMPLE_TICK)
+        {
+            return Err((
+                PulseV4ErrorCode::PulseV4ErrorUnsupportedCapability,
+                "required capability is unsupported",
+            ));
+        }
+        negotiated.retain(|cap| cap != CAPABILITY_DELTA_BATCH_SAMPLE_TICK);
+    }
     Ok(negotiated)
 }
 
@@ -997,6 +1015,36 @@ mod tests {
             PulseV4ErrorCode::PulseV4ErrorUnsupportedCapability as i32
         );
         assert!(authority.pending.is_empty());
+    }
+
+    #[test]
+    fn required_sample_ticks_without_an_arm_11_codec_are_refused() {
+        let mut authority = PulseV4Authority::disabled();
+        authority.enable(config("replica-a")).unwrap();
+        authority.connected(11).unwrap();
+        let mut hello = hello();
+        hello.required_capabilities = vec![CAPABILITY_DELTA_BATCH_SAMPLE_TICK.into()];
+        let message = authority.hello(11, hello.clone(), 1_000);
+        let result = match message.message.unwrap() {
+            server_message::Message::V4Result(result) => result,
+            other => panic!("expected result, got {other:?}"),
+        };
+        assert_eq!(
+            result.error_code,
+            PulseV4ErrorCode::PulseV4ErrorUnsupportedCapability as i32
+        );
+        assert!(authority.pending.is_empty());
+
+        hello.request_id = vec![3; 16];
+        hello.optional_capabilities = vec![CAPABILITY_DELTA_BATCH_BASELINE.into()];
+        let granted = challenge(authority.hello(11, hello, 1_001));
+        assert_eq!(
+            granted.negotiated_capabilities,
+            [
+                CAPABILITY_DELTA_BATCH_BASELINE,
+                CAPABILITY_DELTA_BATCH_SAMPLE_TICK
+            ]
+        );
     }
 
     #[test]

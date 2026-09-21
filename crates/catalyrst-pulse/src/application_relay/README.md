@@ -32,8 +32,36 @@ traffic (120 messages / 128 KiB per second). Reliable payloads are at most 3072
 bytes, unreliable payloads 1024 bytes, and unsigned credentials 3072 bytes. These
 fit the existing 4096-byte reliable WebTransport frame. Membership rosters are
 reliable and independent of movement interest. Fanout visits only the source room.
-Transport permits remain held through ENet acknowledgement or QUIC stream write;
-reliable enqueue failure retires the affected peer rather than leaving it ready.
+Transport permits remain held through ENet acknowledgement or QUIC stream write.
+A reliable payload that finds its recipient's queue full retires only that
+recipient's scope in that room, and a reliable send over the sender limits retires
+only the sender's scope; an over-limit unreliable send is dropped. The retired peer
+gets its self-left notification and uses its fallback while typed Pulse movement
+continues. Membership notifications may draw on a separate 8 KiB reserve per
+connection, at most 2 MiB per transport host, when the payload queue is full. Any
+other reliable enqueue failure, a notification that fits neither budget, or a
+payload outside the advertised limits retires the connection rather than leaving
+it ready.
+
+Each room carries a roster version: 1 at its first join, plus one per later join
+and per leave. The join result and both membership notices carry it, and a client
+stamps every send with the last version it applied; zero keeps the earlier
+behaviour and is never answered. A stamped send skips members that joined after
+it, which the sender still reaches through LiveKit. A stamped reliable send that
+predates a leave (log of 64 leaves, 10 seconds) is answered with one send-failed
+notice naming those identities and echoing the payload, split only when it would
+pass the 4096-byte frame; a targeted send names only its recipient. Only a member
+that had joined by the stamped version is named: one that came and went after it
+was never in the sender's Pulse roster and already got the LiveKit copy. A queue-full
+retirement answers the blocked and the purged payloads the same way when their
+sender has stamped a send. The notice is payload-class: one that cannot be queued
+retires the sender's scope and is not answered. Unreliable sends are never
+answered. A connection holding a scope gets a flat 5 second ENet timeout, back to
+the default when its last scope leaves. A WebTransport connection that holds a
+scope and sends input is watched instead: after 5 seconds without an inbound
+message its scopes are retired on the next tick, and its session is kept so a
+stalled client can join again. Listeners send no input and are not watched.
+Reliable payloads queued to a member inside that window are lost.
 
 Enable with `PULSE_APPLICATION_RELAY_ENABLED=true` and `PULSE_V4_ENABLED=true`,
 `PULSE_APPLICATION_RELAY_LIVEKIT_API_KEY`, `PULSE_APPLICATION_RELAY_LIVEKIT_SECRET`,

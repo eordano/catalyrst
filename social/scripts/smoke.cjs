@@ -32,8 +32,16 @@ let communityUpdated = false, pictureUpdated = false, uploadedPicture;
 const hangoutId="77777777-7777-4777-8777-777777777777"; let hangouts=[];
 const managedWallet="0x0000000000000000000000000000000000000002"; let managedRole="member", banned=false,removed=false,invited=false;
 const prefix = process.env.SOCIAL_TEST_PREFIX || "";
-const posts = [];
+// Upstream lists announcements newest first; the page must read oldest first.
+const seededDay = new Date(); seededDay.setDate(1); seededDay.setMonth(seededDay.getMonth() - 3);
+const posts = [
+  { id: "post-recent", content: "Build night is this week", authorAddress: account.address, authorName: "Builder", createdAt: new Date(Date.now() - 36e5).toISOString() },
+  { id: "post-old", content: "The garden opened", authorAddress: account.address, authorName: "Builder", createdAt: seededDay.toISOString() },
+];
 const telemetry = [];
+// Foundation honours a signed request for a minute, then answers a public community anonymously.
+let signatureWindow = 60_000;
+const shot = async (page, name) => { if (!process.env.SOCIAL_SCREENSHOTS) return; mkdirSync(process.env.SOCIAL_SCREENSHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.SOCIAL_SCREENSHOTS, `${name}.png`) }); };
 const fixture = http.createServer(async (req, res) => {
   const chunks=[];
   for await (const chunk of req) chunks.push(chunk);
@@ -76,12 +84,15 @@ const fixture = http.createServer(async (req, res) => {
       posts.unshift(post);
       res.end(JSON.stringify({ data: post }));
     } else res.end(JSON.stringify({ data: { posts, total: posts.length } }));
-  } else if (req.url.startsWith("/v1/communities/" + community))
+  } else if (req.url.startsWith("/v1/communities/" + community)) {
+    const { role: _signedOnly, ...anonymous } = communityData;
+    const spent = Date.now() - Number(req.headers["x-identity-timestamp"]) > signatureWindow;
     res.end(
       JSON.stringify({
-        data: { ...communityData, role: member ? "owner" : "none" },
+        data: spent ? anonymous : { ...communityData, role: member ? "owner" : "none" },
       }),
     );
+  }
   else if (req.url.startsWith("/v1/communities"))
     res.end(JSON.stringify({ data: { results: req.url.includes("onlyMemberOf=true") ? (member ? [communityData] : []) : [communityData,{...communityData,id:"33333333-3333-4333-8333-333333333333",name:"Popular public community",role:"none"}], total: req.url.includes("onlyMemberOf=true") ? (member?1:0) : 2 } }));
   else {
@@ -361,9 +372,22 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     await page.locator(".rail").getByRole("button",{name:"Genesis Builders",exact:true}).waitFor();
     assert.equal(await page.locator(".rail").getByRole("button",{name:"Popular public community",exact:true}).count(),0);
     await page.getByRole("heading", { name: "Genesis Builders" }).waitFor();
+    const yours = page.getByRole("navigation", { name: "Your communities", exact: true });
+    await yours.waitFor();
+    await shot(page, "explore");
+    assert.ok((await yours.getByRole("link", { name: /Genesis Builders/ }).getAttribute("href")).endsWith(`/c/${community}/about`));
     await page
       .getByRole("button", { name: /Genesis Builders A place/ })
       .click();
+    const summary = page.getByRole("region", { name: "Community summary", exact: true });
+    await summary.getByRole("heading", { name: "Genesis Builders", exact: true }).waitFor();
+    assert.ok(page.url().endsWith(`/c/${community}/about`));
+    await summary.getByText("Build night is this week", { exact: true }).waitFor();
+    assert.equal(await summary.getByText("The garden opened", { exact: true }).count(), 0);
+    await summary.getByRole("heading", { name: "Hangouts", exact: true }).waitFor();
+    await shot(page, "about");
+    assert.equal(await page.getByRole("textbox", { name: "Message", exact: true }).count(), 0);
+    await summary.getByRole("button", { name: "Open General", exact: true }).click();
     await page.getByRole("textbox", { name: "Message", exact: true }).waitFor();
     assert.ok(page.url().endsWith(`/c/${community}/general`));
     const composer = page.getByRole("textbox", {
@@ -378,10 +402,10 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     await delay(150);
     assert.equal(actionCount, 0, "empty Enter must not request a signature");
     await composer.fill("keep this draft");
-    await page.getByRole("button", { name: /announcements/ }).click();
+    await page.getByRole("button", { name: /Announcements/ }).click();
     await page.getByRole("button", { name: "Publish announcement" }).waitFor();
     await composer.fill("announcement draft");
-    await page.getByRole("button", { name: /# general/ }).click();
+    await page.getByRole("button", { name: /# General/ }).click();
     await page.waitForFunction(
       () => document.querySelector("textarea")?.value === "keep this draft",
     );
@@ -455,7 +479,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
           .getAttribute("href")
       ).includes("position=0,0"),
     );
-    await page.getByRole("button", { name: /announcements/ }).click();
+    await page.getByRole("button", { name: /Announcements/ }).click();
     await page.getByRole("button", { name: "Publish announcement" }).waitFor();
     await page
       .getByRole("textbox", { name: "Message", exact: true })
@@ -466,7 +490,13 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       .filter({ hasText: "Foundation relay test" })
       .waitFor();
     assert.equal(posts[0].content, "Foundation relay test");
-    await page.getByRole("button", { name: /# general/ }).click();
+    assert.deepEqual(await page.locator(".post p").allTextContents(), ["The garden opened", "Build night is this week", "Foundation relay test"]);
+    const oldPost = page.locator(".post").first();
+    assert.equal(await oldPost.locator("time").textContent(), "3 months ago");
+    assert.ok((await oldPost.getAttribute("title")).includes(String(seededDay.getFullYear())));
+    assert.ok(await page.locator(".messages").evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight < 4), "announcements open at the newest post");
+    await shot(page, "announcements");
+    await page.getByRole("button", { name: /# General/ }).click();
     await page
       .locator(".message p")
       .filter({ hasText: "hello from the real API" })
@@ -543,7 +573,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     await page.waitForResponse(r=>r.url().includes('/complete')&&r.status()===200);
     await page.evaluate(()=>window.restoreChatClock());
     assert.equal(await page.locator(".message p").filter({hasText:"hello from the real API"}).count(),0);
-    await page.getByRole("button",{name:/# general/}).click();
+    await page.getByRole("button",{name:/# General/}).click();
     await page.waitForURL(`**/general`);
     await page.locator(".message p").filter({hasText:"hello from the real API"}).waitFor();
     assert.equal(await page.locator(".message p").filter({hasText:"This stays in world-building"}).count(),0);
@@ -566,7 +596,9 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     assert.equal(communityUpdated,true);
     assert.equal(pictureUpdated,true);
     await page.getByRole("button",{name:"Hangouts",exact:true}).click();
-    const hangoutDialog=page.getByRole("dialog",{name:"Community hangouts",exact:true});
+    await page.waitForURL(`**/c/${community}/hangouts`);
+    assert.equal(await page.getByRole("dialog").count(),0);
+    const hangoutDialog=page.locator("main .community-hangouts");
     await hangoutDialog.getByText("No hangouts added yet.",{exact:true}).waitFor();
     await hangoutDialog.getByLabel("Find a community hangout",{exact:true}).fill("Genesis");
     await hangoutDialog.getByRole("button",{name:"Add hangout",exact:true}).click();
@@ -576,16 +608,47 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     await hangoutDialog.getByRole("button",{name:"Remove",exact:true}).click();
     await hangoutDialog.getByText("No hangouts added yet.",{exact:true}).waitFor();
     assert.deepEqual(hangouts,[]);
-    await page.getByRole("button",{name:"Close dialog",exact:true}).click();
     hangouts=["tophub.dcl.eth","embedded.dcl.eth","unlisted.dcl.eth"];
-    await page.getByRole("button",{name:"Hangouts",exact:true}).click();
+    await page.reload();
     await hangoutDialog.getByRole("heading",{name:"TOPHUB",exact:true}).waitFor();
     await hangoutDialog.getByRole("heading",{name:"Embedded World",exact:true}).waitFor();
     await hangoutDialog.getByRole("heading",{name:"unlisted.dcl.eth",exact:true}).waitFor();
+    await shot(page, "hangouts");
     const worldLinks=await hangoutDialog.getByRole("link",{name:"Visit \u2197",exact:true}).evaluateAll(links=>links.map(a=>a.getAttribute('href')));
     assert.deepEqual(worldLinks,["https://decentraland.org/jump/?realm=tophub.dcl.eth","https://decentraland.org/jump/?realm=embedded.dcl.eth","https://decentraland.org/jump/?realm=unlisted.dcl.eth"]);
-    await page.getByRole("button",{name:"Close dialog",exact:true}).click();
     hangouts=[];
+    await page.getByRole("button",{name:/^Members/}).click();
+    await page.waitForURL(`**/c/${community}/members`);
+    assert.equal(await page.getByRole("dialog").count(),0);
+    await page.locator("main .conversation-panel.page").getByRole("heading",{name:"Members",exact:true}).waitFor();
+    await page.locator("main .conversation-panel.page .member-row").first().waitFor();
+    await shot(page, "members");
+    for (const view of ["about", "hangouts", "members"]) {
+      await page.evaluate(next => { location.hash = next; }, `#/c/${community}/${view}`);
+      await page.locator(view === "about" ? ".community-summary" : view === "hangouts" ? "main .community-hangouts" : "main .conversation-panel.page").waitFor();
+      for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${view} fits ${width}px`);
+      }
+      if (view === "about") await shot(page, "about-mobile");
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    }
+    await page.evaluate(next => { location.hash = next; }, `#/c/${community}/hangouts`);
+    await page.evaluate(next => { location.hash = next; }, `#/c/${community}/members`);
+    await page.waitForURL(`**/c/${community}/members`);
+    await page.goBack();
+    await page.waitForURL(`**/c/${community}/hangouts`);
+    await page.getByRole("button",{name:/# General/}).click();
+    await page.waitForURL(`**/general`);
+    await page.locator(".message p").filter({hasText:"hello from the real API"}).waitFor();
+    await page.evaluate(()=>{window.dclSocialIdentity.canSignSilently=true;});
+    const renewedRead=page.waitForRequest(r=>r.url().endsWith("/api/actions")&&r.postDataJSON().operation.type==="open_community",{timeout:20000});
+    signatureWindow=1500;
+    await (await (await renewedRead).response()).finished();
+    signatureWindow=60_000;
+    await page.waitForResponse(r=>r.url().includes("/complete")&&r.status()===200);
+    await page.locator(".message p").filter({hasText:"hello from the real API"}).waitFor();
+    assert.equal(await page.getByRole("button",{name:"Join community",exact:true}).count(),0,"an aged read proof is renewed, not treated as a lost membership");
 
     console.log("PASS: reactions, replies, moderator pins, member profiles, conversation search, channel isolation, join approval and owner settings.");
     for (const width of [320, 390, 760, 1440]) {
@@ -654,6 +717,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     await page
       .getByRole("button", { name: /Genesis Builders A place/ })
       .click();
+    await page.getByRole("button", { name: "Open General", exact: true }).click();
     await composer.waitFor();
     await page.reload();
     await composer.waitFor();
@@ -727,7 +791,8 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     await page.waitForFunction(()=>!document.querySelector(".community-invitations")?.textContent.includes("Another invitation"));
     assert.equal(inboxInvitations.get(inviteDecline),"rejected");
     await page.locator(".community-invitation").filter({hasText:"Builders invitation"}).getByRole("button",{name:"Accept invitation",exact:true}).click();
-    await composer.waitFor();
+    await page.getByRole("region", { name: "Community summary", exact: true }).waitFor();
+    assert.ok(page.url().endsWith(`/c/${community}/about`));
     assert.equal(inboxInvitations.get(inviteAccept),"accepted");
     assert.equal(member,true);
     console.log("PASS: public community joining, private join requests/cancellation, invitation accept/decline, pending status after reload, persistent wallet session across browser contexts.");

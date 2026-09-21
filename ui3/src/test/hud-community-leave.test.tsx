@@ -6,11 +6,13 @@ import * as api from "../data/catalyst/communities";
 
 const community = { id: "club", name: "Music Club", description: "Music", ownerAddress: "0xowner", privacy: "public", membersCount: 4, isLive: false, role: "member" } as api.Community;
 afterEach(() => vi.restoreAllMocks());
-test("leaving from a card requires confirmation; Escape and Stay preserve membership", async () => {
+test("leaving from the community summary requires confirmation; Escape and Stay preserve membership", async () => {
   vi.spyOn(schema, "loadCommunities").mockResolvedValue([community]);
   const leave = vi.spyOn(api, "leaveCommunity").mockResolvedValue(undefined as never);
   await import("../app/panels/Communities.route");
   const { user, path } = renderHud({ route: "/communities" });
+  await user.click(await within(await screen.findByRole("navigation", { name: "Sections and communities" })).findByRole("button", { name: "Music Club" }));
+  expect(screen.getByRole("heading", { level: 1, name: "Music Club" })).toBeInTheDocument();
   await user.click(await screen.findByRole("button", { name: /^Joined/ }));
   expect(leave).not.toHaveBeenCalled();
   expect(screen.getByRole("alertdialog")).toHaveTextContent("Music Club");

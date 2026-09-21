@@ -46,6 +46,8 @@ const UPSERT: &str = r#"
         fetched_at      = now()
 "#;
 
+const RETIRE_DERIVED: &str = "DELETE FROM place WHERE raw->>'source' = 'content'";
+
 pub fn spawn(pool: PgPool, upstream_url: String) {
     let client = http_client(
         "places-mirror",
@@ -64,7 +66,9 @@ pub fn spawn(pool: PgPool, upstream_url: String) {
             let upstream_url = upstream_url.clone();
             async move {
                 match run_once(&pool, &client, &upstream_url).await {
-                    Ok(n) => tracing::info!(mirrored = n, "place catalog mirrored from upstream"),
+                    Ok((mirrored, retired)) => {
+                        tracing::info!(mirrored, retired, "place catalog mirrored from upstream")
+                    }
                     Err(e) => tracing::warn!(error = %e, "place catalog mirror cycle failed"),
                 }
                 Ok::<(), anyhow::Error>(())
@@ -73,7 +77,11 @@ pub fn spawn(pool: PgPool, upstream_url: String) {
     );
 }
 
-async fn run_once(pool: &PgPool, client: &reqwest::Client, upstream: &str) -> Result<usize> {
+pub async fn run_once(
+    pool: &PgPool,
+    client: &reqwest::Client,
+    upstream: &str,
+) -> Result<(usize, u64)> {
     let base = upstream.trim_end_matches('/');
     let mut offset = 0i64;
     let mut mirrored = 0usize;
@@ -101,7 +109,15 @@ async fn run_once(pool: &PgPool, client: &reqwest::Client, upstream: &str) -> Re
             break;
         }
     }
-    Ok(mirrored)
+    let retired = if mirrored > 0 {
+        sqlx::query(RETIRE_DERIVED)
+            .execute(pool)
+            .await?
+            .rows_affected()
+    } else {
+        0
+    };
+    Ok((mirrored, retired))
 }
 
 fn first_str<'a>(place: &'a Value, keys: &[&str]) -> Option<&'a str> {

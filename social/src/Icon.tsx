@@ -15,5 +15,7 @@ const paths = {
   bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4',
   settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M9 2h6l1 4 4 1 2 5-3 3v4l-5 3-3-3-4 1-4-5 2-3-1-4 5-2V2Z',
   external: 'M15 3h6v6M21 3 10 14M10 3H3v18h18v-7',
+  nearby: 'M8 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6M2 19v-1a5 5 0 0 1 5-5h1.5M14 4.2a3 3 0 0 1 0 5.6M10.5 14.5l3.8-1.5 3.9 1.5 3.8-1.5v7l-3.8 1.5-3.9-1.5-3.8 1.5v-7ZM14.3 13v7M18.2 14.5v7',
+  info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20M12 16v-5M12 8h.01',
 } as const;
 export function Icon({ name }: { name: keyof typeof paths }) { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>; }

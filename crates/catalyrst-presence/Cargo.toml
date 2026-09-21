@@ -1,6 +1,6 @@
 [package]
 name = "catalyrst-presence"
-version = "0.31.0"
+version = "0.32.0"
 edition = "2021"
 description = "Presence API component for the catalyrst stack"
 

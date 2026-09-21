@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { loadConversation, loadConversations, sendConversationMessage, type Conversation, type ConversationKind } from "../../data/catalyst/conversations";
 import { useBridgeState } from "../../overlay/bridge";
@@ -9,14 +9,15 @@ import { Avatar } from "../../atoms/primitives";
 import { ChatView, type ChatIo } from "./Chat";
 import ProfileCard from "../components/ProfileCard";
 import { useChatProfile } from "./chatProfile";
+import { consumeChatIntent, type ChatIntent } from "./chatIntent";
 import "./conversationchat.css";
 
-export default function ConversationChat({ kind, active = true }: { kind: ConversationKind; active?: boolean }) {
+export default function ConversationChat({ kind, active = true, target = null }: { kind: ConversationKind; active?: boolean; target?: ChatIntent | null }) {
   const identity = useBridgeState((s) => s.identity);
-  return <AccountConversations key={`${identity.address ?? "guest"}:${identity.isGuest}`} kind={kind} active={active} />;
+  return <AccountConversations key={`${identity.address ?? "guest"}:${identity.isGuest}`} kind={kind} active={active} target={target} />;
 }
 
-function AccountConversations({ kind, active }: { kind: ConversationKind; active: boolean }) {
+function AccountConversations({ kind, active, target }: { kind: ConversationKind; active: boolean; target: ChatIntent | null }) {
   const identity = useBridgeState((s) => s.identity);
   const signedIn = !!identity.address && !identity.isGuest;
   const [selected, setSelected] = useState("");
@@ -24,6 +25,12 @@ function AccountConversations({ kind, active }: { kind: ConversationKind; active
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const list = useQuery({ queryKey: ["chat-conversations", kind, identity.address], queryFn: () => loadConversations(kind), enabled: signedIn && active, refetchInterval: active ? 30000 : false });
   const conversation = list.data?.find((c) => c.id === selected);
+  const wanted = target ? list.data?.find((c) => c.id.toLowerCase() === target.id.toLowerCase()) : undefined;
+  useEffect(() => {
+    if (!target || !list.data) return;
+    if (wanted) setSelected(wanted.id);
+    consumeChatIntent(target.nonce);
+  }, [target, wanted, list.data]);
   if (!signedIn) return <p className="cchat__notice">Sign in with a wallet to use {kind === "direct" ? "direct messages" : "community chat"}.</p>;
   const showSearch = kind === "direct" || (list.data?.length ?? 0) > 5;
   const matches = list.data?.filter((c) => `${c.name} ${c.id}`.toLowerCase().includes(showSearch ? search.toLowerCase() : ""));

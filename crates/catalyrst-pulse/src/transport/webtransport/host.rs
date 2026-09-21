@@ -11,7 +11,7 @@ use web_transport::host::{Event as QuicEvent, Host as QuicHost, HostConfig as Qu
 
 use crate::hardening::DisconnectReason;
 use crate::transport::application_budget::{
-    ApplicationBudget, ApplicationPayload, ApplicationPermit,
+    ApplicationBudget, ApplicationGlobal, ApplicationPayload, ApplicationPermit,
 };
 use crate::transport::peer::PeerId;
 use crate::transport::webtransport::config::WtConfig;
@@ -53,7 +53,7 @@ struct ApplicationPeer {
 }
 
 struct ApplicationSenders {
-    global: Arc<tokio::sync::Semaphore>,
+    global: ApplicationGlobal,
     peers: Mutex<HashMap<u32, ApplicationPeer>>,
 }
 
@@ -128,6 +128,15 @@ impl WtHost {
     }
 
     pub fn send_application(&self, peer: u32, packet: Packet) -> std::io::Result<()> {
+        self.queue_application(peer, packet, false)
+    }
+
+    pub(in crate::transport) fn queue_application(
+        &self,
+        peer: u32,
+        packet: Packet,
+        control: bool,
+    ) -> std::io::Result<()> {
         let cap = if packet.channel == CHANNEL_RELIABLE {
             self.max_message_bytes
         } else {
@@ -152,7 +161,7 @@ impl WtHost {
                     "application peer unavailable",
                 )
             })?;
-        let permit = destination.budget.reserve(packet.data.len() + 4)?;
+        let permit = destination.budget.reserve(packet.data.len() + 4, control)?;
         self.outbound_tx
             .send(Outbound::Application {
                 peer,

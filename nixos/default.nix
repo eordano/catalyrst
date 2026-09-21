@@ -13,6 +13,7 @@
     ./catalyrst-sync.nix
     ./scene-state.nix
     ./land-authz-index.nix
+    ./worlds-content-mirror.nix
     ./squid.nix
     ./comms.nix
     ./pulse-sandbox.nix

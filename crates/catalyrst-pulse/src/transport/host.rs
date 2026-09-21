@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
 
 use rusty_enet as enet;
 
-use super::application_budget::{ApplicationBudget, ApplicationPayload};
+use super::application_budget::{ApplicationBudget, ApplicationGlobal, ApplicationPayload};
 use crate::transport::packet::Packet;
 use crate::transport::peer::PeerId;
 
 const SERVICE_POLL: Duration = Duration::from_millis(10);
+pub(crate) const RELAY_TIMEOUT_MS: u32 = 5000;
 
 #[derive(Debug, Clone)]
 pub struct HostConfig {
@@ -46,7 +46,7 @@ pub enum Event {
 
 pub struct Host {
     inner: enet::Host<ReadySocket>,
-    application_global: Arc<tokio::sync::Semaphore>,
+    application_global: ApplicationGlobal,
     application_peers: HashMap<PeerId, ApplicationBudget>,
 }
 
@@ -208,6 +208,15 @@ impl Host {
     }
 
     pub async fn send_application(&mut self, peer: PeerId, packet: Packet) -> std::io::Result<()> {
+        self.queue_application(peer, packet, false).await
+    }
+
+    pub(super) async fn queue_application(
+        &mut self,
+        peer: PeerId,
+        packet: Packet,
+        control: bool,
+    ) -> std::io::Result<()> {
         let kind = packet_kind(&packet);
         let p = self
             .inner
@@ -223,7 +232,7 @@ impl Host {
             .application_peers
             .entry(peer)
             .or_insert_with(|| ApplicationBudget::new(self.application_global.clone()));
-        let permit = budget.reserve(packet.data.len())?;
+        let permit = budget.reserve(packet.data.len(), control)?;
         let raw = enet::Packet::new(
             Box::new(ApplicationPayload {
                 bytes: packet.data,
@@ -233,6 +242,25 @@ impl Host {
         );
         p.send(packet.channel, &raw)
             .map_err(|error| std::io::Error::other(format!("application send: {error:?}")))
+    }
+
+    pub fn set_relay_timeout(&mut self, peer: PeerId, relay: bool) {
+        let bound = if relay { RELAY_TIMEOUT_MS } else { 0 };
+        if let Some(p) = self.inner.get_peer_mut(to_enet_peer(peer)) {
+            p.set_timeout(0, bound, bound);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn peer_timeout(&mut self, peer: PeerId) -> Option<(u32, u32)> {
+        let debug = format!("{:?}", self.inner.get_peer_mut(to_enet_peer(peer))?);
+        let field = |name: &str| {
+            let (_, rest) = debug.split_once(name)?;
+            let digits = rest.trim_start_matches([':', ' ']);
+            let end = digits.find(|c: char| !c.is_ascii_digit())?;
+            digits[..end].parse::<u32>().ok()
+        };
+        Some((field("timeoutMinimum")?, field("timeoutMaximum")?))
     }
 
     /// One `enet_host_flush` for the whole tick's outbox; `send` only queues.

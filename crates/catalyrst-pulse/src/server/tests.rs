@@ -575,6 +575,101 @@ async fn handshake_negotiates_features_masking_unknown_bits() {
 }
 
 #[tokio::test]
+async fn sample_ticks_are_granted_only_beside_an_arm_11_codec() {
+    async fn negotiate(offered: u32) -> u32 {
+        let mut srv = PulseServer::new();
+        srv.peers
+            .insert(1, PeerState::new(PeerConnectionState::PendingAuth, 0));
+        let (base, _wallet, now_ms) = signed_handshake_request().await;
+        let mut msg = ClientMessage::decode(&base[..]).unwrap();
+        if let Some(client_message::Message::Handshake(h)) = msg.message.as_mut() {
+            h.protocol_features = offered;
+        }
+        match srv.dispatch(1, channel::RELIABLE, &msg.encode_to_vec(), now_ms, 0) {
+            Action::Authenticated { features, .. } => features,
+            other => panic!("expected Authenticated, got {other:?}"),
+        }
+    }
+
+    assert_eq!(FEATURE_DELTA_BATCH_SAMPLE_TICK, 1 << 4);
+    assert_eq!(negotiate(FEATURE_DELTA_BATCH_SAMPLE_TICK).await, 0);
+    assert_eq!(
+        negotiate(FEATURE_DELTA_BATCH | FEATURE_DELTA_BATCH_SAMPLE_TICK).await,
+        FEATURE_DELTA_BATCH,
+        "arm 10 has no sample ticks to carry"
+    );
+    for codec in [FEATURE_DELTA_BATCH_BASELINE, FEATURE_DELTA_BATCH_DICTIONARY] {
+        assert_eq!(
+            negotiate(codec | FEATURE_DELTA_BATCH_SAMPLE_TICK).await,
+            codec | FEATURE_DELTA_BATCH_SAMPLE_TICK
+        );
+        assert_eq!(negotiate(codec).await, codec);
+    }
+}
+
+#[test]
+fn v4_sample_ticks_are_granted_only_beside_an_arm_11_codec() {
+    fn admit(capabilities: &[&str]) -> (Vec<String>, u32) {
+        let mut srv = PulseServer::new();
+        enable_v4(&mut srv);
+        let hello = PulseV4Hello {
+            request_id: vec![1; 16],
+            session_id: vec![2; 16],
+            connection_epoch: 1,
+            optional_capabilities: capabilities.iter().map(|cap| cap.to_string()).collect(),
+            role: PulseV4Role::Player as i32,
+            ..Default::default()
+        };
+        srv.peers
+            .insert(30, PeerState::new(PeerConnectionState::PendingAuth, 0));
+        srv.v4.connected(30).unwrap();
+        let challenge = v4_challenge(srv.dispatch(
+            30,
+            channel::RELIABLE,
+            &client_msg(client_message::Message::V4Hello(hello.clone())),
+            1_000,
+            0,
+        ));
+        match srv.dispatch(
+            30,
+            channel::RELIABLE,
+            &client_msg(client_message::Message::V4Auth(v4_auth(&hello, &challenge))),
+            1_001,
+            0,
+        ) {
+            Action::AuthenticatedV4 {
+                features, result, ..
+            } => (result.negotiated_capabilities, features),
+            other => panic!("expected v4 player admission, got {other:?}"),
+        }
+    }
+
+    assert_eq!(
+        admit(&[
+            crate::v4::CAPABILITY_DELTA_BATCH,
+            crate::v4::CAPABILITY_DELTA_BATCH_SAMPLE_TICK
+        ]),
+        (
+            vec![crate::v4::CAPABILITY_DELTA_BATCH.to_string()],
+            FEATURE_DELTA_BATCH
+        )
+    );
+    assert_eq!(
+        admit(&[
+            crate::v4::CAPABILITY_DELTA_BATCH_DICTIONARY,
+            crate::v4::CAPABILITY_DELTA_BATCH_SAMPLE_TICK
+        ]),
+        (
+            vec![
+                crate::v4::CAPABILITY_DELTA_BATCH_DICTIONARY.to_string(),
+                crate::v4::CAPABILITY_DELTA_BATCH_SAMPLE_TICK.to_string()
+            ],
+            FEATURE_DELTA_BATCH_DICTIONARY | FEATURE_DELTA_BATCH_SAMPLE_TICK
+        )
+    );
+}
+
+#[tokio::test]
 async fn tampered_handshake_replies_with_failure() {
     let mut srv = PulseServer::new();
     srv.peers
@@ -945,6 +1040,109 @@ fn emote_within_caps_is_applied() {
 }
 
 #[test]
+fn a_one_shot_emote_completes_server_side() {
+    let mut srv = PulseServer::new();
+    let enter = |srv: &mut PulseServer, peer: u32, wallet: &str, now: u32| {
+        authed(srv, peer, wallet);
+        let bytes = client_msg(client_message::Message::Teleport(teleport_request(
+            0, "realm-a",
+        )));
+        assert_eq!(
+            srv.dispatch(peer, channel::RELIABLE, &bytes, 0, now),
+            Action::Applied
+        );
+    };
+    enter(&mut srv, 0, "0xobserver", 900);
+    enter(&mut srv, 1, "0xsubject", 900);
+    srv.simulate(950);
+
+    let bytes = client_msg(client_message::Message::EmoteStart(
+        crate::decentraland::pulse::EmoteStart {
+            emote_id: "wave".into(),
+            duration_ms: Some(2000),
+            player_state: Some(valid_state(0)),
+            mask: None,
+        },
+    ));
+    assert_eq!(
+        srv.dispatch(1, channel::UNRELIABLE_UNSEQUENCED, &bytes, 0, 1000),
+        Action::Applied
+    );
+
+    let started = |out: &[OutgoingMessage], target: u32| {
+        out.iter()
+            .filter(|m| {
+                m.target == target
+                    && matches!(&m.message.message,
+                        Some(server_message::Message::EmoteStarted(e)) if e.subject_id == 1)
+            })
+            .count()
+    };
+    let stopped = |out: &[OutgoingMessage], target: u32| -> Vec<i32> {
+        out.iter()
+            .filter(|m| m.target == target)
+            .filter_map(|m| match &m.message.message {
+                Some(server_message::Message::EmoteStopped(e)) if e.subject_id == 1 => {
+                    Some(e.reason)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+
+    assert_eq!(started(&srv.simulate(1050), 0), 1);
+    assert!(
+        stopped(&srv.simulate(2999), 0).is_empty(),
+        "one millisecond short of its duration the emote still plays"
+    );
+
+    let mut reasons = Vec::new();
+    for now in [3000, 3050, 3100] {
+        reasons.extend(stopped(&srv.simulate(now), 0));
+    }
+    assert_eq!(
+        reasons,
+        vec![crate::decentraland::pulse::EmoteStopReason::Completed as i32],
+        "an elapsed one-shot emote is stopped once, as completed"
+    );
+    assert!(!srv.board.is_emoting(1));
+
+    enter(&mut srv, 2, "0xlate", 3120);
+    let out = srv.simulate(3150);
+    assert!(
+        out.iter().any(|m| m.target == 2
+            && matches!(&m.message.message,
+                Some(server_message::Message::PlayerJoined(j)) if j.user_id == "0xsubject")),
+        "the late observer does see the subject"
+    );
+    assert_eq!(
+        started(&out, 2),
+        0,
+        "a late observer is not shown an emote that already finished"
+    );
+}
+
+#[test]
+fn a_looping_emote_is_never_completed_server_side() {
+    let mut srv = PulseServer::new();
+    authed(&mut srv, 1, "0xsubject");
+    let bytes = client_msg(client_message::Message::EmoteStart(
+        crate::decentraland::pulse::EmoteStart {
+            emote_id: "dance".into(),
+            duration_ms: None,
+            player_state: Some(valid_state(0)),
+            mask: None,
+        },
+    ));
+    assert_eq!(
+        srv.dispatch(1, channel::UNRELIABLE_UNSEQUENCED, &bytes, 0, 1000),
+        Action::Applied
+    );
+    srv.simulate(u32::MAX);
+    assert!(srv.board.is_emoting(1), "no duration means no server stop");
+}
+
+#[test]
 fn emote_start_mask_is_published_and_absence_stays_absent() {
     let masked = |mask: Option<i32>| {
         let mut srv = PulseServer::new();
@@ -988,6 +1186,50 @@ fn handshake_initial_state_carries_the_emote_mask() {
     };
     assert_eq!(seeded(Some(5)), Some(5), "the seeded emote keeps its mask");
     assert_eq!(seeded(None), None, "a maskless seed stays maskless");
+}
+
+#[test]
+fn handshake_initial_state_lands_the_peer_in_its_realm() {
+    let mut srv = PulseServer::new();
+    srv.board.set_active(1);
+    let init = PlayerInitialState {
+        state: Some(valid_state(7)),
+        realm: "realm-a".into(),
+        ..Default::default()
+    };
+    srv.seed_initial_state(1, 500, &init);
+    assert_eq!(
+        srv.board.try_read(1).unwrap().realm.as_deref(),
+        Some("realm-a"),
+        "the seeded snapshot carries the asserted realm"
+    );
+    assert_eq!(
+        srv.grids.realm_of(1),
+        Some("realm-a"),
+        "so the peer is visible without a follow-up teleport"
+    );
+}
+
+#[tokio::test]
+async fn handshake_initial_state_rejects_an_empty_realm() {
+    let mut srv = PulseServer::new();
+    srv.peers
+        .insert(1, PeerState::new(PeerConnectionState::PendingAuth, 0));
+    let (base, _wallet, now_ms) = signed_handshake_request().await;
+
+    let init = PlayerInitialState {
+        state: Some(valid_state(7)),
+        ..Default::default()
+    };
+    let bytes = with_initial_state(&base, Some(init));
+
+    match srv.dispatch(1, channel::RELIABLE, &bytes, now_ms, 0) {
+        Action::Reject { reason, .. } => {
+            assert_eq!(reason, DisconnectReason::InvalidHandshakeField);
+        }
+        other => panic!("expected Reject(InvalidHandshakeField), got {other:?}"),
+    }
+    assert!(!srv.is_authenticated(1));
 }
 
 #[tokio::test]

@@ -39,7 +39,9 @@ function errMessage(err: unknown, fallback: string): string {
 const DEFAULT_BASE = "https://catalyst.example.com";
 
 function defaultBase(): string {
-  return import.meta.env.SSR ? DEFAULT_BASE : window.location.origin;
+  if (!import.meta.env.SSR) return window.location.origin;
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+  return proc?.env?.CATALYST_URL || DEFAULT_BASE;
 }
 
 export function catalystBase(override?: string): string {

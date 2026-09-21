@@ -51,6 +51,9 @@ let
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            if port == 5143 and self.path == "/poster/upstream.webp":
+                self.send_error(404)
+                return
             payload = f"{port}:{self.path}".encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
@@ -60,12 +63,7 @@ let
 
     http.server.HTTPServer(("127.0.0.1", port), Handler).serve_forever()
   '';
-  dappsFlags = pkgs.writeText "test-dapps.json" (
-    builtins.toJSON {
-      flags.dapps-migration-test = true;
-      variants = { };
-    }
-  );
+  dappsFlags = ./fixtures/dapps.json;
 in
 pkgs.testers.runNixOSTest {
   name = "catalyrst-module-first-boot";
@@ -91,6 +89,7 @@ pkgs.testers.runNixOSTest {
         pkgs.nginx
         pkgs.postgresql_18
         pkgs.curl
+        pkgs.python3
       ];
 
       networking.extraHosts = "127.0.0.1 opensea.decentraland.org";
@@ -103,6 +102,8 @@ pkgs.testers.runNixOSTest {
         subServices.abCdn = false;
         postflight.enable = false;
         gateway.dappsFlagsFile = dappsFlags;
+        play.enable = true;
+        play.dir = "/var/lib/catalyrst/test-play";
       };
 
       systemd.services =
@@ -188,6 +189,8 @@ pkgs.testers.runNixOSTest {
         )
 
     assert request("test.local", "/places") == "5158:/places"
+    for path in ("/_.data", "/places.data", "/events.data"):
+        assert request("test.local", path) == f"5158:{path}"
     assert request("test.local", "/places/example") == "5158:/places/example"
     assert request("test.local", "/places/api/places") == "5143:/api/places"
     assert request("test.local", "/media/convert?width=640") == "5145:/media/convert?width=640"
@@ -195,6 +198,24 @@ pkgs.testers.runNixOSTest {
     assert request("auth-api.test.local", "/requests/example") == "5137:/auth/requests/example"
     flags = json.loads(request("feature-flags.test.local", "/dapps.json"))
     assert flags == {"flags": {"dapps-migration-test": True}, "variants": {}}
+    assert request("events-assets-099ac00.test.local", "/poster/local.webp") == "5143:/poster/local.webp"
+    poster_headers = machine.succeed(
+        "curl --silent --insecure --resolve events-assets-099ac00.test.local:443:127.0.0.1 "
+        "-D - -o /dev/null https://events-assets-099ac00.test.local/poster/upstream.webp"
+    )
+    assert "302" in poster_headers
+    assert "https://events-assets-099ac00.decentraland.org/poster/upstream.webp" in poster_headers
+    machine.succeed("python - <<'PY'\n"
+        "import concurrent.futures, ssl, urllib.request\n"
+        "def fetch(i):\n"
+        "    request = urllib.request.Request(f'https://127.0.0.1/assets/chunk-{i}.js', headers={'Host': 'test.local'})\n"
+        "    with urllib.request.urlopen(request, context=ssl._create_unverified_context()) as response:\n"
+        "        assert response.status == 200\n"
+        "with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:\n"
+        "    list(pool.map(fetch, range(160)))\n"
+        "PY")
+    with subtest("game startup assets have an independent rate budget"):
+        machine.succeed("python ${./fixtures/play-rate-limit.py}")
 
     # P0 #4 -- /private/dumps carries the superadmin deny in the live config.
     # Read the config the service actually loaded (its ExecStart -c path), not

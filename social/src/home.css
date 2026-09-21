@@ -1,6 +1,5 @@
 .social-home { overflow-y: auto; min-height: 0; padding: 30px 28px 44px; }
 .home-heading { margin: 4px 0 30px; }
-.home-worlds > header p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-top: 9px; }
 .home-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 18px; }
 .home-section-note { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; margin: 2px 2px 12px; }
 .home-section-note > a { margin-left: auto; }
@@ -26,10 +25,6 @@
 .home-orbit { display: grid; place-items: center; width: 60px; height: 60px; margin: 0 auto 18px; border-radius: 50%; background: #ff6b8710; color: var(--accent); }
 .home-loading, .home-inline-error { font-size: 12px; line-height: 1.6; padding: 12px 4px; color: var(--muted); }
 .home-inline-error button, .home-inline-error a { margin-top: 7px; text-decoration: underline; }
-.home-worlds { margin-top: 32px; }
-.home-worlds > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.home-worlds h2 { font-size: 20px; font-weight: 600; letter-spacing: -.3px; }
-.home-worlds > header > a { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 @media (max-width: 1220px) and (min-width: 761px) { .home-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); } .home-events { grid-column: 1 / -1; } }
 @media (max-width: 900px) { .social-home { padding: 22px 18px 32px; } .home-heading { align-items: flex-start; flex-direction: column; } }
-@media (max-width: 760px) { .social-home { padding: 22px 14px 28px; } .home-columns { grid-template-columns: 1fr; gap: 16px; } .home-heading { margin-bottom: 22px; gap: 16px; } .home-heading h1 { max-width: 300px; } .home-worlds > header { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 760px) { .social-home { padding: 22px 14px 28px; } .home-columns { grid-template-columns: 1fr; gap: 16px; } .home-heading { margin-bottom: 22px; gap: 16px; } .home-heading h1 { max-width: 300px; } }

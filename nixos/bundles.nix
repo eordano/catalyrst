@@ -210,10 +210,16 @@ lib.mkIf cfg.enable {
         afterExtra = [ "livekit.service" ];
         extraEnv = {
           BUNDLE_HTTP_PORT = "5143";
-          PLACES_DERIVE_FROM_CONTENT = "1";
+          SQUID_PG_CONNECTION_STRING = conn "marketplace_squid";
           HTTP_BASE_URL = d.publicUrl;
           MAP_IMAGE_BASE_URL = "${d.publicUrl}/v2";
         }
+        // (
+          if cfg.upstream.mirrorPlaces then
+            { PLACES_MIRROR_UPSTREAM = "true"; }
+          else
+            { PLACES_DERIVE_FROM_CONTENT = "1"; }
+        )
         // lib.optionalAttrs cfg.upstream.mirrorEvents {
           EVENTS_MIRROR_UPSTREAM = "true";
         }
@@ -369,7 +375,12 @@ lib.mkIf cfg.enable {
           REALM_NAME = cfg.realm;
           ENV_NAME = "prd";
           NETWORK_ID = "1";
-          CATALYST_URL = "http://127.0.0.1:5141";
+          CATALYST_URL = d.publicUrl;
+          HTTP_BASE_URL = d.publicUrl;
+          COMMS_ADAPTER = "fixed-adapter:archipelago:${d.wsScheme}://${cfg.domain}/ws";
+          COMMS_FIXED_ADAPTER = "archipelago:${d.wsScheme}://${cfg.domain}/ws";
+          MAP_SATELLITE_BASE_URL = "https://genesis.city/map/latest";
+          MAP_PARCEL_VIEW_URL = "https://api.decentraland.org/v1/minimap.png";
           LAMBDAS_URL = "${d.publicUrl}/lambdas";
           PUBLIC_REALM_URL = d.publicUrl;
           HOT_SCENES_URL = "http://127.0.0.1:5143/hot-scenes";
